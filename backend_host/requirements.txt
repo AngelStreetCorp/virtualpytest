@@ -1,0 +1,98 @@
+# Backend Host Dependencies
+
+# Flask web framework
+Flask>=2.3.0
+Flask-CORS>=4.0.0
+Flask-SocketIO>=5.3.0
+
+# HTTP client for server communication
+requests>=2.28.0
+
+# Process management and system monitoring
+psutil>=5.8.0
+
+# Environment configuration
+python-dotenv>=1.0.0
+
+# Date and time handling
+pytz>=2023.0
+
+# WSGI server (Linux/macOS). Windows runs the dev server / alternate service hosting.
+gunicorn>=21.0.0; platform_system != "Windows"
+gevent>=23.9.0; platform_system != "Windows"  # SocketIO support with Gunicorn
+
+# JSON handling
+orjson>=3.8.0
+
+# AWS SDK for cloud services
+boto3>=1.26.0
+
+# Database connectivity
+supabase>=2.0.0
+
+# Data validation and serialization
+pydantic>=2.0.0
+typing-extensions>=4.0.0
+
+# Machine Learning for AI preprocessing
+scikit-learn>=1.3.0  # TF-IDF semantic filtering, context reduction
+
+# File system operations
+watchdog>=3.0.0
+inotify>=0.2.10; platform_system == "Linux"  # Linux-only file system events
+
+# Hardware interface dependencies (from backend_host)
+# These are for direct hardware access on the host
+# Fixed versions for numpy binary compatibility.
+# Windows note: prefer Python 3.10-3.12 so pip can use prebuilt numpy wheels (no MSVC build).
+numpy>=1.24.0,<2.0.0
+pyautogui>=0.9.54
+Pillow>=10.0.0,<11.0.0
+# opencv-python removed - use opencv-contrib-python instead (includes cv2.quality for BRISQUE)
+ffmpeg-python>=0.2.0
+PyP100>=0.1.2  # Tapo power control
+
+# OCR and text recognition
+pytesseract>=0.3.10
+langdetect>=1.0.9
+pyspellchecker>=0.8.0  # For OCR text correction (lightweight spell checking)
+#sudo apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-fra tesseract-ocr-deu tesseract-ocr-ita
+
+# Audio transcription and speech-to-text
+# openai-whisper>=20231117  # Replaced with faster-whisper (4-5x faster)
+faster-whisper>=1.0.0  # Optimized C++ implementation of Whisper
+#python3 -c "from faster_whisper import WhisperModel; WhisperModel('tiny')"
+
+# Audio processing
+pydub>=0.25.1
+
+# TTS engines - Quality comparison
+gTTS>=2.4.0          # Google Text-to-Speech (current baseline)
+edge-tts>=6.1.0      # Microsoft Edge TTS (upgrade test)
+
+# Translation engines - Speed optimization
+googletrans  # Google Translate API (compatible with newer httpx)
+# Device communication
+paramiko>=2.9.0  # SSH
+Appium-Python-Client>=3.1.0  # Mobile devices
+selenium>=4.15.0  # Web automation
+playwright>=1.40.0  # Modern web automation framework
+nest-asyncio>=1.5.0  # Allow sync Playwright in async contexts
+browser-use>=0.1.0  # Browser automation
+
+# Network speed monitoring
+speedtest-cli>=2.1.3
+
+# Task scheduling for deployments
+APScheduler>=3.10.0
+croniter>=2.0.0  # Cron expression parsing for scheduled_today calculation
+
+# Redis for alert queue communication with backend_discard
+redis>=5.0.0
+
+networkx
+tapo
+
+#sudo apt install epiphany-browser
+opencv-contrib-python>=4.8.0,<5.0.0
+defusedxml>=0.7.1

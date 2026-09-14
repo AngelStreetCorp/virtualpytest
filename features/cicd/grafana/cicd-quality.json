@@ -1,0 +1,991 @@
+{
+  "uid": "cicd-quality",
+  "title": "CI/CD Quality",
+  "tags": [
+    "cicd",
+    "quality",
+    "white-box",
+    "grey-box"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "description": "White-box and grey-box CI results for every project, from the separate CI/CD database (features/cicd/db). Black-box device runs live in the VirtualPyTest dashboards.",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "refresh": "5m",
+  "templating": {
+    "list": [
+      {
+        "name": "project",
+        "label": "Project",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "cicd-postgres"
+        },
+        "query": "SELECT DISTINCT project FROM ci_runs ORDER BY 1",
+        "definition": "SELECT DISTINCT project FROM ci_runs ORDER BY 1",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1,
+        "options": []
+      },
+      {
+        "name": "layer",
+        "label": "Layer",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "cicd-postgres"
+        },
+        "query": "SELECT DISTINCT layer FROM ci_jobs ORDER BY 1",
+        "definition": "SELECT DISTINCT layer FROM ci_jobs ORDER BY 1",
+        "refresh": 1,
+        "multi": true,
+        "includeAll": true,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "sort": 1,
+        "options": []
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "type": "row",
+      "title": "\ud83c\udfe5 Health (selected range)",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Runs",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"Runs\" FROM ci_run_summary WHERE $__timeFilter(started_at) AND project IN ($project)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Run pass rate",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 3,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT round(100.0*count(*) FILTER (WHERE overall='passed')/NULLIF(count(*),0),1) AS \"Pass %\" FROM ci_run_summary WHERE $__timeFilter(started_at) AND project IN ($project)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "description": "Run = all its jobs succeeded."
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "White-box jobs",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 7,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT round(100.0*count(*) FILTER (WHERE status='success')/NULLIF(count(*),0),1) AS \"White %\" FROM ci_jobs j WHERE $__timeFilter(j.finished_at) AND j.project IN ($project) AND j.layer='white'",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "description": "lint / unit / component / contract"
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Grey-box jobs",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 11,
+        "y": 1,
+        "w": 4,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT round(100.0*count(*) FILTER (WHERE status='success')/NULLIF(count(*),0),1) AS \"Grey %\" FROM ci_jobs j WHERE $__timeFilter(j.finished_at) AND j.project IN ($project) AND j.layer='grey'",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "description": "API / Playwright / script smoke against a deployed target"
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Failed jobs",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 15,
+        "y": 1,
+        "w": 3,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) AS \"Failed\" FROM ci_jobs j WHERE $__timeFilter(j.finished_at) AND j.project IN ($project) AND j.layer IN ($layer) AND j.status='failure'",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "red"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "stat",
+      "title": "Last run",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 1,
+        "w": 6,
+        "h": 4
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT to_char(max(started_at),'YYYY-MM-DD HH24:MI') AS \"Last run\" FROM ci_run_summary WHERE $__timeFilter(started_at) AND project IN ($project)",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto",
+        "justifyMode": "center"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 101,
+      "type": "row",
+      "title": "\ud83d\udcc8 Over time",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Runs passed / failed per day",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroup(started_at,'1d') AS time,\n  count(*) FILTER (WHERE overall='passed') AS \"Passed\",\n  count(*) FILTER (WHERE overall<>'passed') AS \"Failed / partial\"\nFROM ci_run_summary WHERE $__timeFilter(started_at) AND project IN ($project) GROUP BY 1 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Passed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed / partial"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Job pass rate per day by layer",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 6,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroup(j.finished_at,'1d') AS time, j.layer AS metric,\n  round(100.0*count(*) FILTER (WHERE j.status='success')/NULLIF(count(*),0),1) AS value\nFROM ci_jobs j WHERE $__timeFilter(j.finished_at) AND j.project IN ($project) AND j.layer IN ($layer) GROUP BY 1,2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 102,
+      "type": "row",
+      "title": "\ud83e\uddea Jobs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 9,
+      "type": "table",
+      "title": "Jobs \u2014 last result, pass % and runs in range (per project)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 10
+      },
+      "description": "One row per project/job. Last result is all-time; Runs / Pass % are limited to the time range.",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH last AS (\n  SELECT DISTINCT ON (project, job) project, job, category, layer, status, finished_at, report_url\n  FROM ci_jobs j WHERE j.project IN ($project) AND j.layer IN ($layer) ORDER BY project, job, finished_at DESC),\nwin AS (SELECT project, job, status FROM ci_jobs j WHERE $__timeFilter(j.finished_at) AND j.project IN ($project) AND j.layer IN ($layer))\nSELECT l.project AS \"Project\", l.job AS \"Job\", l.layer AS \"Layer\", l.category AS \"Category\",\n  l.finished_at AS \"Last run\", CASE WHEN l.status='success' THEN 'PASS' WHEN l.status='failure' THEN 'FAIL' ELSE upper(l.status) END AS \"Last result\",\n  count(w.job) AS \"Runs (range)\",\n  round(100.0*count(w.job) FILTER (WHERE w.status='success')/NULLIF(count(w.job),0),1) AS \"Pass % (range)\",\n  CASE WHEN l.report_url IS NOT NULL THEN '<a href=\"' || l.report_url || '\" target=\"_blank\">report</a>' END AS \"Last report\"\nFROM last l LEFT JOIN win w USING (project, job)\nGROUP BY l.project, l.job, l.layer, l.category, l.finished_at, l.status, l.report_url\nORDER BY l.project, l.layer, l.job",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last run"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last result"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "PASS": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "\u2705 PASS"
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "\u274c FAIL"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Pass % (range)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 100
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Last report"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "markdown"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": []
+      }
+    },
+    {
+      "id": 10,
+      "type": "barchart",
+      "title": "Failures by job (range)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 7
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT j.project || ' / ' || j.job AS \"Job\", count(*) FILTER (WHERE j.status='failure') AS \"Failures\", count(*) FILTER (WHERE j.status='success') AS \"Successes\"\nFROM ci_jobs j WHERE $__timeFilter(j.finished_at) AND j.project IN ($project) AND j.layer IN ($layer) GROUP BY 1 ORDER BY \"Failures\" DESC, \"Successes\" DESC",
+          "refId": "A"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "stacking": "normal",
+        "showValue": "auto",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "xTickLabelSpacing": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 80
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failures"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Successes"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 103,
+      "type": "row",
+      "title": "\ud83d\udcdc Runs",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 32,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 11,
+      "type": "table",
+      "title": "Runs (range)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "cicd-postgres"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 33,
+        "w": 24,
+        "h": 12
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "cicd-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT started_at AS \"Started\", project AS \"Project\", run AS \"Run\", branch AS \"Branch\", left(sha,7) AS \"Commit\", runner AS \"Runner\",\n  upper(overall) AS \"Result\", jobs_passed || ' / ' || jobs AS \"Jobs passed\",\n  CASE WHEN report_url IS NOT NULL THEN '<a href=\"' || report_url || '\" target=\"_blank\">open</a>' END AS \"Report\"\nFROM ci_run_summary WHERE $__timeFilter(started_at) AND project IN ($project) ORDER BY started_at DESC LIMIT 500",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Started"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "dateTimeAsIso"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Result"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "PASSED": {
+                        "color": "green",
+                        "index": 0,
+                        "text": "\u2705 PASS"
+                      },
+                      "FAILED": {
+                        "color": "red",
+                        "index": 1,
+                        "text": "\u274c FAIL"
+                      },
+                      "PARTIAL": {
+                        "color": "orange",
+                        "index": 2,
+                        "text": "\u26a0\ufe0f PARTIAL"
+                      },
+                      "UNKNOWN": {
+                        "color": "text",
+                        "index": 3,
+                        "text": "\u2014"
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Report"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "markdown"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "cellHeight": "sm",
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Started"
+          }
+        ]
+      }
+    }
+  ]
+}

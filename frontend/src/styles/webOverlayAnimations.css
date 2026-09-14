@@ -1,0 +1,14 @@
+@keyframes webClickPulse {
+  0% {
+    transform: scale(0.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+.web-click-animation {
+  animation: webClickPulse 0.3s ease-out forwards;
+}

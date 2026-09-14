@@ -1,0 +1,7 @@
+# Custom Benchmark Tests
+# 
+# Add your own benchmark YAML files here.
+# They will be automatically loaded at server startup.
+#
+# Example: my_tests.yaml
+

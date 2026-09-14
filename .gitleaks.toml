@@ -1,0 +1,70 @@
+# gitleaks config for the leak gate (scripts/security/leak_gate.sh).
+#
+# The gate scans the commits being PUSHED, not the whole tree: a full-tree scan reports
+# ~94 findings that are all documentation placeholders (`SUPABASE_ANON_KEY=your-anon-key`,
+# `Authorization: Bearer $TOKEN`), which would make the gate noise from day one. Allowlists
+# here exist to keep the *range* scan honest, so a real credential in a new commit stands out.
+#
+# See docs/agent/release/ANONYMIZATION.md and docs/tasks/TASK-14-public-snapshot-repo.md §5.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Generated output, templates and documented placeholders"
+
+paths = [
+  # Generated API reference — rebuilt by scripts/export_postman_specs.py, every "token"
+  # in it is the literal placeholder from the OpenAPI spec.
+  '''docs/api/docs/.*\.html$''',
+  '''docs/api/specs/.*\.ya?ml$''',
+  # Build mirror of docs/ produced by frontend/scripts/copy-docs.sh — scanning the source
+  # under docs/ already covers it, and a duplicate finding names the wrong file to fix.
+  '''frontend/public/docs/''',
+  # Env templates are placeholders by definition; real .env files are gitignored and the
+  # publish gate refuses them outright (TASK-14 §5).
+  '''.*\.env\.example$''',
+  '''.*\.example$''',
+  # Lockfiles: integrity hashes trip the entropy rules and carry no secrets.
+  '''(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$''',
+]
+
+regexes = [
+  # Documented placeholders. ANCHORED to the whole value on purpose: an unanchored
+  # `example` matched AWS's own `...bPxRfiCYEXAMPLEKEY` sample and let a full-shaped
+  # credential through the selftest. A placeholder is a short literal, not a 40-char
+  # value that merely contains the word.
+  '''(?i)^(your|my|our|the)[-_][a-z0-9_-]{1,40}$''',
+  '''(?i)^(example|placeholder|changeme|change[-_]me|replace[-_]me|redacted|dummy|sample|todo|none|test)([-_][a-z0-9_-]{1,30})?$''',
+  '''^(x{3,}|\.{3,}|<[^>]{1,40}>|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?|\[[^\]]{1,40}\])$''',
+  '''(?i)^(abc|123|foo|bar|baz|secret|password|passwd|token|key|apikey|api[-_]key)[0-9]*$''',
+  # Shell-variable credentials handed to curl -u: `-u "${USER:-admin}:${PASS:-admin}"` is a
+  # placeholder pair, not a secret (the curl-auth-user rule captures the whole user:pass).
+  '''^["']?\$\{?[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}?(:\$\{?[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}?)?["']?$''',
+  # Public by design (TASK-14 §5): the server's PUBLIC key is meant to be distributed.
+  '''SERVER_PUBLIC_KEY''',
+]
+
+# ---------------------------------------------------------------------------------------
+# Literal passwords handed to a shell. gitleaks' default rules look for *shaped* credentials
+# (AWS ids, GitHub tokens, PEM blocks, high-entropy assignments in code) and do not fire on a
+# short human password sitting in a markdown code fence — verified: the lab sudo password sat
+# in four docs across 17 lines and a full scan returned "no leaks found".
+#
+# These two rules cover the shapes that actually occurred. `secretGroup` points at the value
+# so the placeholder allowlist above still applies: `$SUDO_PASSWORD`, `${VAR}`, `<pw>` and
+# (the `\\?` skips the backslash in `"echo \$SUDO_PASSWORD"`, which otherwise hides the $ from it)
+# `changeme` are allowed through, a literal is not.
+[[rules]]
+id = "literal-password-to-sudo-S"
+description = "Literal password piped into sudo -S"
+regex = '''echo\s+['"]?\\?([^\s'"|\\]{4,64})['"]?\s*\|\s*sudo\s+-S'''
+secretGroup = 1
+tags = ["password", "shell"]
+
+[[rules]]
+id = "literal-password-to-sshpass"
+description = "Literal password passed to sshpass -p"
+regex = '''sshpass\s+-p\s*['"]?\\?([^\s'"\\]{4,64})['"]?'''
+secretGroup = 1
+tags = ["password", "shell"]

@@ -1,0 +1,10 @@
+[
+  {
+    "id": "jira-1",
+    "name": "Company JIRA",
+    "domain": "yourcompany.atlassian.net",
+    "email": "your.email@company.com",
+    "apiToken": "YOUR_JIRA_API_TOKEN_HERE",
+    "projectKey": "PROJ"
+  }
+]

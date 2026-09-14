@@ -1,0 +1,11 @@
+{
+  "name": "avq",
+  "description": "Audio/Video Quality + Localize: per-minute A/V quality KPIs per device (vpt-avq host service), /server/monitoring/avq API, device timeline page and Grafana dashboard; plus the Localize/fingerprint tooling (backfill_fingerprints, offline/regression tests, fingerprint_bench), the autonomous UI builder (auto_build_mcp_live, push_autobuild_to_db, lib/auto_builder) and the offline DOM exporters/reports under backend_host/localize/. The Localize runtime itself (image_helpers, verification/navigation executors, capture_monitor + monitor_localize, editor Localize button) is core and ships with the pin.",
+  "parts": [
+    "backend_server",
+    "backend_host",
+    "frontend",
+    "grafana",
+    "lib"
+  ]
+}

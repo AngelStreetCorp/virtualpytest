@@ -1,0 +1,286 @@
+/* Global styles for the web interface */
+/* Prevent horizontal overflow at the root level (html element = document.documentElement).
+   The E2E viewport test checks document.documentElement.scrollWidth > clientWidth.
+   Applying overflow-x:hidden + max-width:100vw to both html and body is the only
+   durable fix — body-only fixes keep regressing because html can still report overflow. */
+html {
+  overflow: hidden;
+  max-width: 100vw;
+  height: 100%;
+}
+
+:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  /* html backing color. `:root` outranks the theme's CssBaseline `html` override,
+     so keep this aligned with the dark theme default — the light media query below
+     flips it. This is the opaque fallback an un-composited GPU tile or unpainted
+     page margin shows, instead of the browser's pure-black window backdrop. */
+  background-color: #0a0a0a;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  height: 100%;
+  /* Background is driven by the MUI theme (CssBaseline override in ThemeContext)
+     so it tracks light/dark. Hardcoding it here fought the dark theme and left
+     regions painted the wrong color / unpainted (pure-black GPU-tile flashes). */
+  overflow: hidden;
+}
+
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+}
+
+/* Light theme overrides */
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+}
+
+/* Material-UI overrides */
+.MuiAppBar-root {
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;
+}
+
+.MuiCard-root {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+  border-radius: 8px !important;
+}
+
+.MuiPaper-root {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+}
+
+/* Override React Flow's default shadows */
+.react-flow__node {
+  box-shadow: none !important;
+}
+
+.react-flow__node.selected {
+  box-shadow: none !important;
+}
+
+.MuiButton-root {
+  text-transform: none !important;
+  border-radius: 6px !important;
+}
+
+.MuiTableHead-root {
+  background-color: #f8f9fa !important;
+}
+
+.MuiTableHead-root .MuiTableCell-root {
+  font-weight: 600 !important;
+  color: #495057 !important;
+}
+
+.MuiTableRow-root:hover {
+  background-color: #f8f9fa !important;
+}
+
+/* Form styles */
+.form-container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.form-section {
+  margin-bottom: 24px;
+  padding: 16px;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  background-color: #fafafa;
+}
+
+.form-section h3 {
+  margin-top: 0;
+  margin-bottom: 16px;
+  color: #333;
+}
+
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 500;
+  color: #555;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: #1976d2;
+  box-shadow: 0 0 0 2px rgba(25, 118, 210, 0.2);
+}
+
+/* Step and condition styles */
+.step-group {
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 16px;
+  background-color: #fff;
+}
+
+.step-group h4 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  color: #1976d2;
+}
+
+.condition-group {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+
+.condition-group input {
+  flex: 1;
+}
+
+/* Button styles */
+.form-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid #e0e0e0;
+}
+
+.btn {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background-color: #1976d2;
+  color: white;
+}
+
+.btn-primary:hover {
+  background-color: #1565c0;
+}
+
+.btn-secondary {
+  background-color: #6c757d;
+  color: white;
+}
+
+.btn-secondary:hover {
+  background-color: #5a6268;
+}
+
+.btn-danger {
+  background-color: #dc3545;
+  color: white;
+}
+
+.btn-danger:hover {
+  background-color: #c82333;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Error and success messages */
+.error {
+  color: #dc3545;
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.success {
+  color: #155724;
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+/* Loading spinner */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+}
+
+/* Responsive design */
+@media (max-width: 720px) {
+  .form-container {
+    padding: 16px;
+  }
+  
+  .condition-group {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .form-actions {
+    flex-direction: column;
+  }
+} 

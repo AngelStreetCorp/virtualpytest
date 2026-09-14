@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>VirtualPyTest Interactive API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f8fafc;
+        color: #0f172a;
+      }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 6px;
+        background: #ffffff;
+        border-bottom: 1px solid #e2e8f0;
+        padding: 8px 10px;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      .hint {
+        font-size: 12px;
+        color: #475569;
+      }
+      label {
+        font-size: 12px;
+        color: #334155;
+      }
+      input, select, button {
+        height: 30px;
+        border: 1px solid #cbd5e1;
+        border-radius: 6px;
+        background: #ffffff;
+        color: #0f172a;
+        padding: 0 10px;
+        font-size: 12px;
+      }
+      input { min-width: 140px; }
+      .grow { flex: 1 1 260px; }
+      button { cursor: pointer; background: #f8fafc; }
+      button.primary { background: #166534; border-color: #166534; color: #dcfce7; }
+      #swagger-ui { background: #fff; }
+      .swagger-ui .topbar { display: none !important; }
+      .swagger-ui .information-container { display: none !important; }
+      .swagger-ui .scheme-container { display: none !important; }
+      .swagger-ui .wrapper { max-width: none; padding: 0 12px; }
+      .swagger-ui .opblock-tag { margin: 0; padding: 10px 0; font-size: 26px; }
+      .swagger-ui .opblock { margin: 0 0 8px; }
+      .swagger-ui .opblock .opblock-summary { min-height: 44px; }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="row">
+        <label for="envSelect">Environment</label>
+        <select id="envSelect"></select>
+        <button id="resetBtn">Reset</button>
+        <button id="saveBtn" class="primary">Save</button>
+      </div>
+      <div class="row">
+        <input id="server_url" class="grow" placeholder="server_url (https://...)" />
+        <input id="team_id" placeholder="team_id" />
+        <input id="JWT_TOKEN" class="grow" placeholder="JWT_TOKEN" type="password" autocomplete="off" />
+        <input id="host_name" placeholder="host_name" />
+        <input id="device_id" placeholder="device_id" />
+      </div>
+      <div class="hint">
+        Browser profile values prefill interactive requests. Authorization is sent only when <code>JWT_TOKEN</code> is set. Standard <code>/server/*</code> routes can run without it in open mode.
+      </div>
+    </div>
+    <div id="swagger-ui"></div>
+
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js"></script>
+    <script>
+      (function () {
+        const STORAGE_KEY = "vpt_api_envs_v1";
+        const params = new URLSearchParams(window.location.search);
+        const specUrl = params.get("spec") || "/docs/api/specs/server-script-management.yaml";
+        const defaultServer = params.get("server_url") || window.location.origin;
+        const defaultTeamId = params.get("team_id") || "team_123";
+        const defaultState = {
+          active: "prod",
+          envs: {
+            prod: { server_url: defaultServer, team_id: defaultTeamId, JWT_TOKEN: "", host_name: "backend_host_1", device_id: "device_001" },
+            dev: { server_url: defaultServer, team_id: defaultTeamId, JWT_TOKEN: "", host_name: "backend_host_1", device_id: "device_001" }
+          }
+        };
+
+        function loadState() {
+          try {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return defaultState;
+            const parsed = JSON.parse(raw);
+            if (!parsed || !parsed.envs || !parsed.active) return defaultState;
+            return parsed;
+          } catch (_) {
+            return defaultState;
+          }
+        }
+
+        function applyQueryOverrides(stateObj) {
+          const keys = ["server_url", "team_id", "JWT_TOKEN", "AUTH_TOKEN", "API_KEY", "host_name", "device_id"];
+          const activeName = stateObj.active && stateObj.envs[stateObj.active] ? stateObj.active : "prod";
+          stateObj.active = activeName;
+          const activeEnv = stateObj.envs[activeName] || {};
+          keys.forEach((key) => {
+            const value = params.get(key);
+            if (value !== null) activeEnv[key] = value;
+          });
+          stateObj.envs[activeName] = activeEnv;
+          return stateObj;
+        }
+
+        const state = applyQueryOverrides(loadState());
+        const ids = ["server_url", "team_id", "JWT_TOKEN", "host_name", "device_id"];
+        const envSelect = document.getElementById("envSelect");
+        const resetBtn = document.getElementById("resetBtn");
+        const saveBtn = document.getElementById("saveBtn");
+
+        function getActiveEnv() {
+          return state.envs[state.active] || {};
+        }
+
+        function saveState() {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        }
+
+        function renderEnvOptions() {
+          envSelect.innerHTML = "";
+          Object.keys(state.envs).forEach((name) => {
+            const opt = document.createElement("option");
+            opt.value = name;
+            opt.textContent = name;
+            envSelect.appendChild(opt);
+          });
+          envSelect.value = state.active;
+        }
+
+        function fillInputs() {
+          const env = getActiveEnv();
+          // Backward-compat migration for previously saved token keys.
+          if (!env.JWT_TOKEN && env.AUTH_TOKEN) env.JWT_TOKEN = env.AUTH_TOKEN;
+          if (!env.JWT_TOKEN && env.API_KEY) env.JWT_TOKEN = env.API_KEY;
+          ids.forEach((id) => {
+            document.getElementById(id).value = env[id] || "";
+          });
+        }
+
+        function pullInputs() {
+          const env = state.envs[state.active] || {};
+          ids.forEach((id) => {
+            env[id] = document.getElementById(id).value.trim();
+          });
+          state.envs[state.active] = env;
+        }
+
+        function replaceVars(value) {
+          if (typeof value !== "string") return value;
+          const env = getActiveEnv();
+          return value.replace(/\{\{(\w+)\}\}/g, (_, key) => env[key] ?? "");
+        }
+
+        function getAuthHeaderValue() {
+          const env = getActiveEnv();
+          const token = (env.JWT_TOKEN || env.AUTH_TOKEN || env.API_KEY || "").trim();
+          return token ? `Bearer ${token}` : "";
+        }
+
+        envSelect.addEventListener("change", () => {
+          pullInputs();
+          state.active = envSelect.value;
+          saveState();
+          fillInputs();
+        });
+
+        saveBtn.addEventListener("click", () => {
+          pullInputs();
+          saveState();
+        });
+
+        resetBtn.addEventListener("click", () => {
+          if (!confirm("Reset all saved API environments in this browser?")) return;
+          localStorage.removeItem(STORAGE_KEY);
+          window.location.reload();
+        });
+
+        renderEnvOptions();
+        fillInputs();
+
+        window.ui = SwaggerUIBundle({
+          url: specUrl,
+          dom_id: "#swagger-ui",
+          deepLinking: true,
+          displayRequestDuration: true,
+          presets: [SwaggerUIBundle.presets.apis],
+          layout: "BaseLayout",
+          docExpansion: "list",
+          defaultModelsExpandDepth: 1,
+          parameterMacro: (operation, parameter) => {
+            const env = getActiveEnv();
+            if (!parameter || !parameter.name) return undefined;
+            if (parameter.name === "Authorization") return getAuthHeaderValue();
+            if (parameter.name === "team_id") return env.team_id || "";
+            return undefined;
+          },
+          requestInterceptor: (req) => {
+            pullInputs();
+            saveState();
+
+            req.url = replaceVars(req.url);
+            if (typeof req.body === "string") req.body = replaceVars(req.body);
+
+            if (req.headers) {
+              Object.keys(req.headers).forEach((k) => {
+                const v = req.headers[k];
+                if (typeof v === "string") req.headers[k] = replaceVars(v);
+              });
+            }
+
+            const token = getAuthHeaderValue().replace(/^Bearer\s+/, "");
+            if (token && !req.headers.Authorization) {
+              req.headers.Authorization = "Bearer " + token;
+            }
+            return req;
+          },
+        });
+      })();
+    </script>
+  </body>
+</html>

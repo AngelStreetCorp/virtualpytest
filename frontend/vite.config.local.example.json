@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "description": "Local Vite configuration overrides (git-ignored). Copy to vite.config.local.json and customize.",
+
+  "allowedHosts": [
+    "your-domain.example.com",
+    "192.168.50.100",
+    "custom-domain.example.com"
+  ],
+
+  "cspFrameAncestors": [
+    "https://your-domain.example.com",
+    "http://192.168.50.100:3000"
+  ],
+
+  "corsOrigin": true
+}

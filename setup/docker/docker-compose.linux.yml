@@ -1,0 +1,15 @@
+# Linux override: hardware access for the host container + RAM-backed hot capture.
+# Used automatically by launch.sh on Linux.
+services:
+  backend_host:
+    privileged: true
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    volumes:
+      - /dev:/dev
+    # Hot storage (captures/segments written every second) lives in RAM; the cold
+    # copy is the stream-data volume. One entry per capture path configured in
+    # backend_host/src/.env — add a line per extra DEVICEn_VIDEO_CAPTURE_PATH.
+    tmpfs:
+      - /var/www/html/stream/capture/hot:size=200M,mode=777

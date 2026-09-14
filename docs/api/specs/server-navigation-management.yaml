@@ -1,0 +1,393 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Navigation Management
+  version: 1.0.0
+  description: Navigation tree and node management
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: navigation_id
+    value: 'nav_tree_001'
+    description: Navigation tree identifier
+  - key: node_id
+    value: 'node_home'
+    description: Node identifier
+  - key: userinterface_name
+    value: 'example_mobile'
+    description: User interface name
+paths:
+  /server/navigation/goto:
+    post:
+      summary: Navigate to Node (Goto)
+      description: Navigate to a specific node in the navigation tree using the abstract navigation controller
+      tags: [Navigation]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - target_node
+              properties:
+                target_node:
+                  type: string
+                  description: Node ID to navigate to
+            example:
+              target_node: "{{node_id}}"
+      responses:
+        '200':
+          description: Navigation successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  result:
+                    type: object
+                  message:
+                    type: string
+        '400':
+          description: Bad request - target_node required or navigation controller not available
+        '500':
+          description: Host device not initialized or navigation error
+  /server/navigation/config/createEmpty/{ui_name}:
+    post:
+      summary: Create Empty Navigation Config
+      description: Create an empty navigation configuration for a user interface with entry and home nodes
+      tags: [Navigation]
+      parameters:
+        - name: ui_name
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User interface name
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userinterface_data:
+                  type: object
+                  description: User interface data (optional - will lookup by name if not provided)
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+      responses:
+        '200':
+          description: Navigation config created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  tree:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                  edges:
+                    type: array
+                    items:
+                      type: object
+        '404':
+          description: User interface not found
+        '500':
+          description: Failed to create navigation tree
+  /server/navigationTrees:
+    get:
+      summary: Get All Navigation Trees
+      description: Get all navigation trees metadata for a team
+      tags: [Navigation]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: List of navigation trees retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  trees:
+                    type: array
+                    items:
+                      type: object
+        '500':
+          description: Internal error retrieving trees
+    post:
+      summary: Create Navigation Tree
+      description: Create a new navigation tree (metadata only — nodes/edges are added separately)
+      tags: [Navigation]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: Tree metadata (name, userinterface_id, is_root_tree, etc.)
+      responses:
+        '200':
+          description: Navigation tree created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '400':
+          description: Missing tree data or team_id
+  /server/navigationTrees/{tree_id}:
+    get:
+      summary: Get Navigation Tree Metadata
+      description: Retrieve a navigation tree's metadata (nodes/edges are fetched separately via /server/navigationTrees/{tree_id}/nodes and /edges)
+      tags: [Navigation]
+      parameters:
+        - name: tree_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Navigation tree identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Navigation tree metadata retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  tree:
+                    type: object
+        '404':
+          description: Navigation tree not found
+    put:
+      summary: Update Navigation Tree
+      description: Update a navigation tree's metadata
+      tags: [Navigation]
+      parameters:
+        - name: tree_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Tree updated successfully
+        '400':
+          description: Missing tree data or team_id
+    delete:
+      summary: Delete Navigation Tree
+      description: Delete a navigation tree and all its associated nodes and edges
+      tags: [Navigation]
+      parameters:
+        - name: tree_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Navigation tree identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tree deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          description: Failed to delete tree
+  /server/navigationTrees/{tree_id}/nodes:
+    get:
+      summary: Get Tree Nodes
+      description: Get all nodes for a navigation tree
+      tags: [Navigation]
+      parameters:
+        - name: tree_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Nodes retrieved successfully
+  /server/navigationTrees/{tree_id}/edges:
+    get:
+      summary: Get Tree Edges
+      description: Get all edges for a navigation tree
+      tags: [Navigation]
+      parameters:
+        - name: tree_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Edges retrieved successfully
+  /server/navigationTrees/{tree_id}/history:
+    get:
+      summary: Get Tree Version History
+      description: Get the last 10 versions of a tree from history
+      tags: [Navigation]
+      parameters:
+        - name: tree_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Version history retrieved successfully
+  /server/navigationTrees/{tree_id}/restore/{version_number}:
+    post:
+      summary: Restore Tree Version
+      description: Restore a navigation tree to a prior version (creates a new version, non-destructive)
+      tags: [Navigation]
+      parameters:
+        - name: tree_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: version_number
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Tree restored successfully

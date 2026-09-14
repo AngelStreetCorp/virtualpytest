@@ -1,0 +1,192 @@
+{
+  "smoke": {
+    "name": "E2E Smoke (API layer)",
+    "description": "Auth-exempt endpoints only — safe to run in CI without Supabase JWT",
+    "endpoints": [
+      { "path": "/server/health", "method": "GET", "expected_status": 200, "description": "Server health (auth-exempt)" }
+    ]
+  },
+  "smoke-authed": {
+    "name": "E2E Smoke (authenticated)",
+    "description": "Requires valid Supabase JWT as API_KEY secret — use when CI has SUPABASE_JWT configured",
+    "endpoints": [
+      { "path": "/server/system/health",      "method": "GET", "expected_status": 200, "description": "System health" },
+      { "path": "/server/system/getAllHosts",  "method": "GET", "expected_status": 200, "description": "Can fetch hosts" },
+      { "path": "/server/script/list",        "method": "GET", "expected_status": 200, "description": "Can fetch script list" }
+    ]
+  },
+  "sanity": {
+    "name": "Quick Sanity Check",
+    "description": "Basic health check endpoints - runs fast",
+    "endpoints": [
+      {
+        "path": "/server/health",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Server health check"
+      },
+      {
+        "path": "/server/system/stats",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "System statistics"
+      }
+    ]
+  },
+  "full": {
+    "name": "Full API Test",
+    "description": "Comprehensive test of all major endpoints",
+    "endpoints": [
+      {
+        "path": "/server/health",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Server health check"
+      },
+      {
+        "path": "/server/system/stats",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "System statistics"
+      },
+      {
+        "path": "/server/devices/getAllDevices",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all devices"
+      },
+      {
+        "path": "/server/campaigns/getAllCampaigns",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all campaigns"
+      },
+      {
+        "path": "/server/testcase/list",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "List all testcases"
+      },
+      {
+        "path": "/server/requirements/list",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "List all requirements"
+      },
+      {
+        "path": "/server/userinterface/getAllUserInterfaces",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all user interfaces"
+      },
+      {
+        "path": "/server/devicemodel/getAllModels",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all device models"
+      },
+      {
+        "path": "/server/script/list",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "List all scripts"
+      },
+      {
+        "path": "/server/deployment/list",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "List all deployments"
+      },
+      {
+        "path": "/server/alerts/getAllAlerts",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all alerts"
+      }
+    ]
+  },
+  "devices": {
+    "name": "Device Management Test",
+    "description": "Test device and model management endpoints",
+    "endpoints": [
+      {
+        "path": "/server/devices/getAllDevices",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all devices"
+      },
+      {
+        "path": "/server/devicemodel/getAllModels",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all device models"
+      }
+    ]
+  },
+  "campaigns": {
+    "name": "Campaign Management Test",
+    "description": "Test campaign management endpoints",
+    "endpoints": [
+      {
+        "path": "/server/campaigns/getAllCampaigns",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all campaigns"
+      }
+    ]
+  },
+  "testcases": {
+    "name": "Testcase & Requirements Test",
+    "description": "Test testcase and requirements endpoints",
+    "endpoints": [
+      {
+        "path": "/server/testcase/list",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "List all testcases"
+      },
+      {
+        "path": "/server/requirements/list",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "List all requirements"
+      },
+      {
+        "path": "/server/requirements/coverage/summary",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get coverage summary"
+      }
+    ]
+  },
+  "deployment": {
+    "name": "Deployment & Monitoring Test",
+    "description": "Test deployment and monitoring endpoints",
+    "endpoints": [
+      {
+        "path": "/server/deployment/list",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "List all deployments"
+      },
+      {
+        "path": "/server/deployment/executions/recent",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get recent executions"
+      },
+      {
+        "path": "/server/alerts/getAllAlerts",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get all alerts"
+      },
+      {
+        "path": "/server/alerts/getActiveAlerts",
+        "method": "GET",
+        "expected_status": 200,
+        "description": "Get active alerts"
+      }
+    ]
+  }
+}

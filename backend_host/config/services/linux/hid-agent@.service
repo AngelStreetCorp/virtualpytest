@@ -1,0 +1,26 @@
+# Persistent per-adapter BlueZ pairing agent (template unit).
+#
+# Companion to hid-remote@.service — replaces the old transient
+# `systemd-run` launch for the same race-free reasons (BLUETOOTH.md §6.7.25).
+# agent.py registers a NoInputNoOutput default agent; it takes no per-adapter
+# config, so no EnvironmentFile is needed. One instance per adapter mirrors
+# the previous per-adapter design.
+#
+# Instance %i is the adapter (e.g. hci0).
+
+[Unit]
+Description=BLE HID remote BlueZ agent (%i)
+After=bluetooth.service
+# See hid-remote@.service — agent registration dies with bluetoothd too
+# (BLUETOOTH.md §6.7.28); restart with it, never trip the start limit.
+PartOf=bluetooth.service
+StartLimitIntervalSec=0
+
+[Service]
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 %PROJECT_ROOT%/backend_host/src/controllers/remote/bluetooth/agent.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

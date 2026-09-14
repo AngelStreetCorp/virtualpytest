@@ -1,0 +1,62 @@
+{
+  "campaign_name": "vpt/smoke_campaign",
+  "description": "End-to-end smoke test of VirtualPyTest as a platform. Verifies UI pages, device control stack, monitoring, and network quality from the host machine.",
+  "steps": [
+    {
+      "order": 1,
+      "script_name": "vpt/smoke_ui",
+      "description": "All VPT UI pages have accessible backing APIs",
+      "args": {}
+    },
+    {
+      "order": 2,
+      "script_name": "vpt/smoke_device_control",
+      "description": "Host is registered, reachable, and exposes devices",
+      "args": {}
+    },
+    {
+      "order": 3,
+      "script_name": "vpt/smoke_heatmap",
+      "description": "Heatmap, incidents and monitoring endpoints respond",
+      "args": {}
+    },
+    {
+      "order": 4,
+      "script_name": "gw/dns_lookuptime",
+      "description": "DNS resolution time from host machine",
+      "args": { "url": "example.com" }
+    },
+    {
+      "order": 5,
+      "script_name": "gw/superping",
+      "description": "Network path quality to google.com",
+      "args": { "target": "google.com", "count": 5 }
+    },
+    {
+      "order": 6,
+      "script_name": "gw/ookla_speedtest",
+      "description": "Download / upload speed from host machine",
+      "args": {}
+    },
+    {
+      "order": 7,
+      "script_name": "vpt/smoke_video_stream",
+      "description": "HLS stream URL, playlist, and segment download from host",
+      "args": {}
+    },
+    {
+      "order": 8,
+      "script_name": "vpt/smoke_network_server",
+      "description": "DNS + TCP reachability to all VPT infrastructure endpoints",
+      "args": {}
+    }
+  ],
+  "requirements_covered": [
+    "VPT-UI-PAGE-ACCESS-001",
+    "VPT-HOST-DEVICE-STACK-001",
+    "VPT-MONITORING-HEATMAP-001",
+    "VPT-NETWORK-DIAGNOSTICS-001",
+    "VPT-VIDEO-STREAM-VERIFICATION-001",
+    "VPT-NETWORK-DIAGNOSTICS-002"
+  ]
+}

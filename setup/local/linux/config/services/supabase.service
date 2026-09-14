@@ -1,0 +1,34 @@
+[Unit]
+Description=Supabase Local Development Server
+Documentation=https://supabase.com/docs
+After=docker.service
+Requires=docker.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=%SUPABASE_DATA_DIR%
+Environment="PATH=/usr/local/bin:/usr/bin:/bin"
+Environment="VPT_SUPABASE_MINIMAL=1"
+
+# Start Supabase (launches Docker containers)
+ExecStartPre=/opt/virtualpytest/setup/local/linux/database/patch_supabase_compose.sh %SUPABASE_DATA_DIR%
+ExecStart=/usr/local/bin/supabase start
+
+# Stop Supabase gracefully
+ExecStop=/usr/local/bin/supabase stop
+
+# Don't restart automatically - Docker containers handle that
+Restart=no
+
+# `supabase start` waits for the database health check (config.toml health_timeout = 10m);
+# the unit must outlast it or systemd kills every container half-started.
+TimeoutStartSec=900
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

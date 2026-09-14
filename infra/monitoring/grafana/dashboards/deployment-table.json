@@ -1,0 +1,513 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "fieldMinMax": false,
+          "mappings": [
+            {
+              "options": {
+                "pattern": ".*\u2713.*",
+                "result": {
+                  "color": "green"
+                }
+              },
+              "type": "regex"
+            },
+            {
+              "options": {
+                "pattern": ".*\u2717.*",
+                "result": {
+                  "color": "red"
+                }
+              },
+              "type": "regex"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "barMode": "bar",
+        "colorField": "success",
+        "colorMode": "categorical",
+        "colors": [
+          {
+            "color": "#299c46",
+            "value": "true"
+          },
+          {
+            "color": "#d44a3a",
+            "value": "false"
+          }
+        ],
+        "dateFormat": "",
+        "dtick": 3600000,
+        "endField": "end",
+        "groupBy": "device",
+        "labelField": "device",
+        "labelFields": [
+          "task"
+        ],
+        "labelPosition": "inside",
+        "minBarWidth": 10,
+        "showGrid": true,
+        "showToday": false,
+        "showYAxis": true,
+        "sortBy": "startTime",
+        "sortOrder": "asc",
+        "startField": "start",
+        "textField": "device",
+        "timeFormat": "HH:mm"
+      },
+      "pluginVersion": "0.8.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_name) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as task,\n  started_at as start,\n  CASE WHEN completed_at - started_at < '1 minute'::interval THEN started_at + '1 minute'::interval ELSE completed_at END as end,\n  success\nFROM script_results \nWHERE started_at >= NOW() - INTERVAL '24 hours'\n  AND ('${user_interface:csv}' = '' OR userinterface_name IN ($user_interface))\n  AND ('${host:csv}' = '' OR host_name IN ($host))\n  AND ('${device_name:csv}' = '' OR device_name IN ($device_name))\nORDER BY device, started_at\nLIMIT 100",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Script Execution Timeline by Device (24h)",
+      "type": "marcusolsson-gantt-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [
+            {
+              "options": {
+                "pattern": ".*\u2713.*",
+                "result": {
+                  "color": "green"
+                }
+              },
+              "type": "regex"
+            },
+            {
+              "options": {
+                "pattern": ".*\u2717.*",
+                "result": {
+                  "color": "red"
+                }
+              },
+              "type": "regex"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 1,
+      "options": {
+        "alignValue": "left",
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "mergeValues": true,
+        "rowHeight": 0.9,
+        "showHeader": true,
+        "showValue": "always",
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "started_at"
+          }
+        ],
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_name) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as \"Script Name\",\n  started_at,\n  completed_at,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - started_at)) as duration_seconds\nFROM script_results \nWHERE $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name IN ($user_interface))\n  AND ('${host:csv}' = '' OR host_name IN ($host))\n  AND ('${device_name:csv}' = '' OR device_name IN ($device_name))\nORDER BY device, started_at\nLIMIT 50",
+          "refId": "A"
+        }
+      ],
+      "title": "Script Result Detail",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "active": {
+                  "color": "green",
+                  "text": "Active"
+                }
+              },
+              "type": "value"
+            },
+            {
+              "options": {
+                "paused": {
+                  "color": "yellow",
+                  "text": "Paused"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 3,
+      "options": {
+        "barMode": "bar",
+        "colorField": "status",
+        "colorMode": "categorical",
+        "colors": [
+          {
+            "color": "#299c46",
+            "value": "active"
+          },
+          {
+            "color": "#FADE2A",
+            "value": "paused"
+          }
+        ],
+        "endField": "end",
+        "labelField": "device",
+        "labelFields": [
+          "task"
+        ],
+        "labelPosition": "inside",
+        "showGrid": true,
+        "showToday": false,
+        "showYAxis": true,
+        "sortBy": "startTime",
+        "sortOrder": "asc",
+        "startField": "start",
+        "textField": "device",
+        "timeFormat": "HH:mm"
+      },
+      "pluginVersion": "0.8.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_id) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as task,\n  (jsonb_array_elements(scheduled_today)->>'start')::timestamptz as start,\n  (jsonb_array_elements(scheduled_today)->>'end')::timestamptz as end,\n  status\nFROM deployments\nWHERE status = 'active'\n  AND scheduled_today IS NOT NULL\n  AND ('${host:csv}' = '' OR host_name IN ($host))\nORDER BY device, start\nLIMIT 1800",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Deployment Schedule (Today)",
+      "type": "marcusolsson-gantt-panel"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 4,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "device"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_id) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as \"Script Name\",\n  (jsonb_array_elements(scheduled_today)->>'start')::timestamptz as start,\n  (jsonb_array_elements(scheduled_today)->>'end')::timestamptz as end,\n  status,\n  cron_expression,\n  execution_count\nFROM deployments\nWHERE status = 'active'\n  AND scheduled_today IS NOT NULL\n  AND ('${host:csv}' = '' OR host_name IN ($host))\nORDER BY device, start\nLIMIT 200",
+          "refId": "A"
+        }
+      ],
+      "title": "Debug: Deployment Schedule Detail",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "refresh": "5m",
+  "schemaVersion": 41,
+  "tags": [
+    "deployment",
+    "timeline",
+    "script"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "User Interface",
+        "multi": true,
+        "name": "user_interface",
+        "options": [],
+        "query": "SELECT DISTINCT userinterface_name FROM script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Host",
+        "multi": true,
+        "name": "host",
+        "options": [],
+        "query": "SELECT DISTINCT host_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Device Name",
+        "multi": true,
+        "name": "device_name",
+        "options": [],
+        "query": "SELECT DISTINCT device_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Deployment Table",
+  "uid": "3771827c-e0ea-4cdd-9a9a-5d1bb7f801e3"
+}

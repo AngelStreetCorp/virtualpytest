@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.virtualpytest.kpi</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>@PYTHON_EXE@</string>
+        <string>@SCRIPTS_PATH@/kpi_executor.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@PROJECT_ROOT@</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>@SHARED_PATH@:@BACKEND_HOST_PATH@/src:@SCRIPTS_PATH@</string>
+        <key>PATH</key>
+        <string>@VENV_PATH@/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <false/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>UserName</key>
+    <string>vpt_user</string>
+    <key>StandardOutPath</key>
+    <string>@LOGS_PATH@/kpi.log</string>
+    <key>StandardErrorPath</key>
+    <string>@LOGS_PATH@/kpi_error.log</string>
+</dict>
+</plist>

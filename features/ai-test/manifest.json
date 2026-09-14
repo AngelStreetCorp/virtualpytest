@@ -1,0 +1,11 @@
+{
+  "name": "ai-test",
+  "description": "AI test generation: Test Prompt page (free-text prompt + acceptance criteria run by the Atlas agent through the test-prompt-* skills, /server/testprompt + /host/testprompt) and the BFS app crawler (crawl_app MCP tool, crawl-app skill, /host/crawl). The Virtual Scripts editor is a separate feature (features/virtual-scripts) with no dependency in either direction. The agent chat itself is core and ships with the pin.",
+  "parts": [
+    "backend_server",
+    "backend_host",
+    "frontend",
+    "lib",
+    "skills"
+  ]
+}

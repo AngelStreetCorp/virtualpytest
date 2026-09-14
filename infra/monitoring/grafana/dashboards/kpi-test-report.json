@@ -1,0 +1,801 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Drill-down report for a single KPI measurement (script). Opened from the KPI Measurement dashboard Report links.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 1,
+      "type": "stat",
+      "title": "",
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success Rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 90
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": null
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*\\(ms\\)"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "auto",
+        "wideLayout": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COUNT(*) AS \"Total\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failed\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success Rate\",\n  MIN(er.kpi_measurement_ms) AS \"Best (ms)\",\n  ROUND(AVG(er.kpi_measurement_ms))::int AS \"Mean (ms)\",\n  MAX(er.kpi_measurement_ms) AS \"Worst (ms)\"\nFROM execution_results er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\n",
+          "refId": "A"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 20,
+      "panels": [],
+      "title": "Overview",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 7,
+      "type": "timeseries",
+      "title": "Availability Trend",
+      "description": "Script success rate per 30m; Failed = run count (toggle in legend)",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 85,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 0,
+          "mappings": [],
+          "max": 110,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "light-orange"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(er.executed_at, '30m'),\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Passed\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failed\"\nFROM execution_results er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 8,
+      "type": "timeseries",
+      "title": "Performance Over Time",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max",
+            "min"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT er.executed_at AS \"time\", COALESCE(er.device_model, 'unknown') AS metric, er.kpi_measurement_ms AS \"KPI (ms)\"\nFROM execution_results er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.kpi_measurement_ms IS NOT NULL\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 9,
+      "type": "state-timeline",
+      "title": "Success Over Time",
+      "description": "Last run state per 5m per variant/model lane (green = passed, red = failed)",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "fillOpacity": 70,
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineWidth": 0,
+            "spanNulls": true
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Failed",
+                  "index": 0
+                },
+                "1": {
+                  "text": "Passed",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short",
+          "max": 1,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "alignValue": "left",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "mergeValues": true,
+        "rowHeight": 0.75,
+        "showValue": "never",
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(er.executed_at, '5m'),\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(er.device_model, 'unknown') AS metric,\n  (array_agg(er.success::int ORDER BY er.executed_at DESC))[1] AS \"state\"\nFROM execution_results er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "transparent": true
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 21,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "KPI Time (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "green",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Script Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "KPI Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 19
+          },
+          "id": 10,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Executed At"
+              }
+            ]
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT er.executed_at as \"Executed At\", er.host_name as \"Roboter\", er.device_name as \"Device\", ui.name as \"User Interface\", COALESCE(er.variant, 'Base') as \"Variant\", er.is_test as \"Is Test\", er.action_set_id as \"Action Set ID\", COALESCE(NULLIF(thr.kpi_name, ''), NULLIF(thr.edge_label, ''), er.action_set_id) as \"KPI Name\", er.device_model as \"Device Model\", nt.name as \"Tree Name\", er.kpi_measurement_ms as \"KPI Time (ms)\", er.kpi_measurement_success as \"Success\", er.kpi_measurement_error as \"Error\", CASE WHEN sr.html_report_r2_url IS NOT NULL THEN '<a href=\"' || sr.html_report_r2_url || '\" target=\"_blank\">link</a>' END AS \"Script Report\", CASE WHEN er.kpi_report_url IS NOT NULL THEN '<a href=\"' || er.kpi_report_url || '\" target=\"_blank\">link</a>' END AS \"KPI Report\" FROM execution_results er LEFT JOIN script_results sr ON er.script_result_id = sr.id LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL ( SELECT as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1 ) thr ON true WHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL) AND $__timeFilter(er.executed_at) AND (ui.name IN (${user_interface:sqlstring})) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ','))) ORDER BY er.executed_at DESC",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Runs",
+          "type": "table"
+        }
+      ],
+      "title": "Details",
+      "type": "row"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "kpi"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "",
+        "includeAll": true,
+        "label": "User Interface",
+        "multi": true,
+        "name": "user_interface",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT ui.name FROM execution_results er JOIN navigation_trees nt ON er.tree_id = nt.id JOIN userinterfaces ui ON nt.userinterface_id = ui.id WHERE er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL ORDER BY 1",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "",
+        "includeAll": true,
+        "label": "Variant",
+        "multi": true,
+        "name": "variant",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT 'Base' AS variant UNION SELECT name FROM userinterface_variants UNION SELECT DISTINCT variant FROM execution_results WHERE variant IS NOT NULL ORDER BY variant",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "",
+        "includeAll": true,
+        "label": "Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT COALESCE(device_model, 'unknown') AS model FROM execution_results WHERE kpi_measurement_ms IS NOT NULL OR kpi_measurement_success IS NOT NULL ORDER BY 1",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "",
+        "includeAll": true,
+        "label": "KPI",
+        "multi": true,
+        "name": "action_set",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT COALESCE(NULLIF(MAX(lbl.kpi_name), ''), NULLIF(MAX(lbl.edge_label), ''), er.action_set_id) AS __text, er.action_set_id AS __value FROM execution_results er LEFT JOIN LATERAL (SELECT as_elem->>'kpi_name' AS kpi_name, as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1) lbl ON true WHERE er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL GROUP BY er.action_set_id ORDER BY __text",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "Filter by device tags set on the Device page",
+        "includeAll": true,
+        "allValue": "__ALL__",
+        "label": "Tag",
+        "multi": true,
+        "name": "flag",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "KPI Test Report",
+  "uid": "kpi-test-report",
+  "version": 1,
+  "weekStart": ""
+}

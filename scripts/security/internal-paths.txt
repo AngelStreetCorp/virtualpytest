@@ -1,0 +1,46 @@
+# Internal-only paths — the single source of truth for "this never reaches the public repo".
+#
+# THREE things read this list, and the safety argument depends on all of them agreeing:
+#
+#   scripts/security/leak_gate.sh      exempts TIER-2 terms (the customer CODENAME, written
+#                                      `~term` in the term list) from the identifier check
+#                                      inside these paths.
+#   scripts/release/publish_public.sh  (TASK-14 §2.2) deletes these paths from the export
+#                                      before the public snapshot is built.
+#   docs/agent/release/PUBLIC_AUDIT_PROMPT.md  tells the blind auditor which paths to ignore.
+#
+# The exemption is sound ONLY because every path here is stripped from the export: a codename
+# in a file that never ships cannot leak. So the invariant is
+#
+#     a path is exempt from the codename check  <=>  publish_public.sh deletes it
+#
+# If the two ever disagree the gate waves a codename through a path that DOES publish. Change
+# this file — never one tool's private copy.
+#
+# TIER 1 IS NEVER EXEMPT. The customer's real name, real site hostnames, real product names
+# and lab addresses are refused in every path in this repo, including all of these.
+#
+# Why a codename may live here at all: ANONYMIZATION.md PRESCRIBES the codename as the
+# replacement for the customer's real name, and it is load-bearing in these docs — the overlay
+# repo, the working directory and the bundle filenames are literally named after it, so a
+# runbook that scrubs it becomes a runbook you cannot paste. The codename is pseudonymisation,
+# not anonymisation (anyone who can see the overlay repo name joins it straight back to the
+# customer), which is exactly why it stays gated everywhere that CAN publish.
+#
+# FORMAT: one path prefix per line, relative to the repo root, matched from the start of the
+# path. Keep the trailing slash on directories. `*` matches within a single path segment
+# (so `docs/security/*.json` hits `docs/security/snyk.json`, not a nested path). `#` comments.
+#
+# ADDING A PATH REMOVES CODENAME COVERAGE IN IT. Only add a path publish_public.sh also drops.
+# Conditionally-stripped paths do NOT belong here: `frontend/public/docs/` is deliberately
+# absent because TASK-14 §2.2 strips it only "if the public site rebuilds it" — an exemption
+# that depends on a maybe is not an exemption.
+
+docs/tasks/
+docs/agent/
+security_report/
+docs/security/*.json
+.claude/
+.cursor/
+.husky/
+tests/backend_server/.env.test.jwt

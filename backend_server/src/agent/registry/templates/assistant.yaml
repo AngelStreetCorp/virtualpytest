@@ -1,0 +1,138 @@
+# Agent Configuration: QA Assistant
+# Version: 2.1.0
+# Author: system
+#
+# Interactive QA assistant for human-driven tasks.
+# Dynamically loads micro-skills based on user requests.
+# Token-optimized: 2-8 tools per skill instead of 13+
+#
+---
+metadata:
+  id: assistant
+  name: QA Assistant
+  nickname: Atlas
+  selectable: true
+  default: true
+  version: 2.1.0
+  author: system
+  description: "AI Assistant"
+  tags:
+    - qa
+    - assistant
+    - interactive
+  suggestions:
+    - "Run script goto on google_tv"
+    - "List all testcases"
+    - "Explore the sauce-demo web app"
+    - "Show device status"
+    - "Navigate to home"
+    - "Verify node home_replay"
+
+  prompt_presets:
+    - category: "Device Control"
+      prompts:
+        - name: "Check Device Status"
+          template: "Check the status of device {device_name} on host {host_name}"
+        - name: "Take Control"
+          template: "Take control of device {device_id}"
+        - name: "Show Device Stream"
+          template: "Show live stream for device {device_name} on {host_name}"
+        - name: "List Device Interfaces"
+          template: "List all available user interfaces for device {device_name}"
+
+    - category: "Test Execution"
+      prompts:
+        - name: "Run Test Case"
+          template: "Execute test case {testcase_name}"
+        - name: "Execute Campaign"
+          template: "Run campaign {campaign_name} on device {device_name}"
+        - name: "Verify Test Results"
+          template: "Check results for test case {testcase_name} on {host_name}"
+        - name: "List Campaign Tests"
+          template: "List all test cases in campaign {campaign_name}"
+
+    - category: "UI Navigation"
+      prompts:
+        - name: "Navigate Interface"
+          template: "Navigate through the {userinterface_name} interface"
+        - name: "Find Element"
+          template: "Find element with text containing 'X' in {userinterface_name}"
+        - name: "Take Screenshot"
+          template: "Take a screenshot of the current {userinterface_name} screen"
+        - name: "Check UI State"
+          template: "Verify the current state of {userinterface_name} interface"
+        - name: "What do we know about this UI"
+          template: "What do we already know about the UI on {host_name} {device_id}? Resolve the fingerprint and read the matching ai_userinterfaces row plus active screens/flows/quirks. See docs/agent/navigation/AI_USERINTERFACE.md."
+        - name: "Add to UI knowledge"
+          template: "I just navigated {flow_name} on {ui_id}. Insert it into ai_userinterface_flows (verified_against=<build>, verified_at=today, added_by=<agent>). Schema enforces verified-only — no speculation."
+
+    - category: "Script Management"
+      prompts:
+        - name: "Run Script"
+          template: "Execute script 'goto' on {device_name}"
+        - name: "List Available Scripts"
+          template: "Show all available scripts for device {device_name}"
+        - name: "Create Custom Script"
+          template: "Create a new script for {userinterface_name} navigation"
+        - name: "Validate Script"
+          template: "Validate script execution on {host_name}:{device_id}"
+
+    - category: "System Status"
+      prompts:
+        - name: "Host Health Check"
+          template: "Check health status of host {host_name}"
+        - name: "Device Connectivity"
+          template: "Test connectivity to device {device_id} on {host_name}"
+        - name: "Platform Overview"
+          template: "Show overview of all devices and interfaces"
+        - name: "Recent Activity"
+          template: "Show recent activity logs for {host_name}"
+
+subagents: []
+
+# Micro-skills this agent can load (2-8 tools each)
+# Names MUST match the `name:` field in each skill's SKILL.md frontmatter.
+available_skills:
+  # Core operations
+  - device-control        # device-control.yaml
+  - script-management     # script-management.yaml
+  - testcase-management   # testcase-management.yaml
+  - check-system-health   # check-system-health/SKILL.md
+  - search-docs           # search-docs/SKILL.md
+
+  # AI-learned UI knowledge base (DB-backed; distinct from production userinterfaces table)
+  - ai-userinterface      # ai-userinterface/SKILL.md
+
+  # Test Prompt (AI-driven test execution from free-text prompt + acceptance criteria)
+  - test-prompt-web
+  - test-prompt-mobile
+  - test-prompt-androidtv
+  - test-prompt-stb
+
+# Baseline tools always available (no skill load needed for basic queries)
+skills:
+  - list_hosts
+  - get_device_info
+  - list_userinterfaces
+  - list_testcases
+  # Read the current device screen (returns inline OCR; pass vlm=true for a vision
+  # description) so Atlas can answer "what's on screen?" questions directly without
+  # loading an exploration skill.
+  - capture_screenshot
+
+permissions:
+  devices:
+    - read
+
+  database:
+    - read
+    - write.testcases
+    - write.results
+
+config:
+  enabled: true
+  max_parallel_tasks: 1
+  approval_required_for: []
+  auto_retry: true
+  feedback_collection: true
+  timeout_seconds: 3600

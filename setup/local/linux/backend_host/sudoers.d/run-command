@@ -1,0 +1,40 @@
+# =============================================================================
+# VirtualPyTest — "Run Command on Hosts" admin feature (OPT-IN, OFF BY DEFAULT)
+# =============================================================================
+#
+# Lets the backend_host service user (vpt_user) run ANY command as root
+# without a password, so admin-authored maintenance scripts submitted through
+# the admin-only "Settings > Run Command" page work (e.g. fleet-wide
+# permission/config/service changes).
+#
+# This is intentionally broad: the feature's whole purpose is arbitrary
+# privileged maintenance, and "arbitrary" cannot be enumerated into command
+# patterns. Installing this file effectively makes vpt_user root-equivalent
+# on this host.
+#
+# The privileged path is NOT gated by sudoers scope — it is gated by:
+#   * admin JWT / role enforcement on backend_server
+#     (@require_user_auth + @require_role('admin') on /server/system/runCommandOnHost)
+#   * X-API-Key between backend_server and backend_host
+#   * the frontend admin-only ProtectedRoute
+#
+# Kept as a SEPARATE drop-in (not merged into /etc/sudoers.d/virtualpytest) so
+# an operator can instantly disable the privileged path with a single command
+# without touching the curated rules:
+#
+#     sudo rm /etc/sudoers.d/run-command
+#
+# Install on a host:
+#     sudo install -o root -g root -m 0440 \
+#         /opt/virtualpytest/setup/local/linux/backend_host/sudoers.d/run-command \
+#         /etc/sudoers.d/run-command
+#     sudo visudo -cf /etc/sudoers.d/run-command
+# =============================================================================
+
+# SETENV is required so callers can use `sudo -E` to preserve env vars
+# (e.g. BluetoothRemoteController._run_script invokes start.sh / resume.sh
+# as `sudo -n -E <path>`, passing ADAPTER_HCI / BLE_TYPE via env). Without
+# SETENV on this broad rule, sudo evaluates run-command as the last-matching
+# rule for /opt/.../start.sh, rejects -E, and fails with "a password is
+# required" — which is what host3 hit during BLE pairing.
+vpt_user ALL=(ALL) NOPASSWD: SETENV: ALL

@@ -1,0 +1,85 @@
+# Tier 2: Skill Workflows Benchmark Tests
+# Capability check - Can the agent complete multi-step workflows?
+# Run time: ~3 minutes total
+# Pass = Agent skills are FUNCTIONAL
+
+category: skill_workflows
+description: Agent skill execution - verifies agent can complete real workflows
+
+tests:
+  # EXPLORE Skill
+  - id: sw_001
+    name: Explore Screen Elements
+    description: Agent explores current screen and identifies interactive elements
+    prompt: "Analyze the current screen and tell me what interactive elements are available. List the clickable buttons and input fields you find."
+    expected:
+      contains: ["element", "button", "click"]
+    validation: contains_any
+    timeout: 60
+    points: 3.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  # BUILD Skill - Requirements
+  - id: sw_002
+    name: Create Requirement
+    description: Agent creates a new requirement with acceptance criteria
+    prompt: "Create a requirement for user login functionality. The user should be able to login with email and password."
+    expected:
+      contains: ["requirement", "created", "login"]
+    validation: contains_any
+    timeout: 45
+    points: 3.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  # BUILD Skill - Test Cases
+  - id: sw_003
+    name: Create Test Case
+    description: Agent creates a test case with steps
+    prompt: "Create a test case to verify the login functionality. Include steps to enter credentials and verify successful login."
+    expected:
+      contains: ["testcase", "test", "created", "step"]
+    validation: contains_any
+    timeout: 60
+    points: 3.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  # EXECUTE Skill
+  - id: sw_004
+    name: Execute and Report
+    description: Agent executes a test and reports results
+    prompt: "Execute the first available test case and tell me the results."
+    expected:
+      contains: ["execute", "result", "pass", "fail", "status"]
+    validation: contains_any
+    timeout: 120
+    points: 3.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  # NAVIGATION Skill - Create Flow
+  - id: sw_005
+    name: Create Navigation Node and Edge
+    description: Agent creates a new node and connects it with an edge
+    prompt: "Create a new screen node called 'checkout' and create an edge from the cart screen to this new checkout screen."
+    expected:
+      contains: ["node", "edge", "created", "checkout"]
+    validation: contains_any
+    timeout: 60
+    points: 3.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+

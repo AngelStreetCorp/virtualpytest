@@ -1,0 +1,14 @@
+{
+  "name": "virtualpytest-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:smoke": "playwright test specs/ui.smoke.spec.js",
+    "test:viewport": "playwright test specs/viewport.desktop.spec.js specs/viewport.mobile.spec.js",
+    "install-browsers": "playwright install chromium --with-deps"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.48.0"
+  }
+}

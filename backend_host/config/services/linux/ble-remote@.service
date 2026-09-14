@@ -1,0 +1,56 @@
+# Persistent systemd TEMPLATE unit that brings each BLE HID remote
+# peripheral back up after a host reboot, non-destructively (keeps the
+# existing STB bond). One instance per adapter — enable with:
+#
+#   sudo systemctl enable --now vpt-ble-remote@hci0.service
+#   sudo systemctl enable --now vpt-ble-remote@hci1.service
+#
+# The `%i` instance argument is the ADAPTER_HCI value, passed into
+# resume.sh via the Environment= line below.
+#
+# Install with:
+#   setup/local/linux/backend_host/install_service.sh ble-remote
+#
+# Multi-instance: converted from singleton ble-remote.service to
+# templated ble-remote@.service as part of §6.7.22-followup-6 so that
+# multi-adapter hosts (host3: hci1 + hci2) can auto-resume each
+# adapter independently.
+#
+# See docs/agent/devices/BLUETOOTH.md § 6.7.11 for the rationale: start.sh is
+# destructive (fresh pair), resume.sh is non-destructive (reuse existing
+# bond), and this unit wires resume.sh into the boot sequence after
+# bluetoothd is ready. The hid-remote / hid-agent processes it spawns
+# are themselves transient systemd-run units with Restart=always, so
+# they self-heal across crashes.
+
+[Unit]
+Description=BLE HID remote peripheral — resume on boot (%i)
+# Wants= (not Requires=): resume.sh deliberately runs `systemctl stop
+# bluetooth` as the first step of the BCM4345C0 firmware reload (§ 6.7.12).
+# With Requires=bluetooth.service, systemd propagates that explicit stop
+# back to this unit and SIGTERMs resume.sh mid-reload, so the stuck-radio
+# recovery can never complete on boot. Wants= still pulls bluetooth in at
+# boot, and After= still orders us after it — we just don't get torn down
+# when resume.sh cycles bluetoothd itself.
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+Environment=ADAPTER_HCI=%i
+# Invoke via `bash <script>` rather than executing resume.sh directly, so
+# boot-time resume does NOT depend on resume.sh carrying the +x bit. Prod
+# deploys to the Minisforum (host3) have been observed to land
+# resume.sh/start.sh without the execute mode (git tracks them 100755, so
+# it's the on-host copy/deploy stripping it) — with a direct ExecStart that
+# fails 203/EXEC, resume.sh never runs, the spoofed MAC is never re-applied,
+# the bond never loads, and the STB shows as "lost pairing" after every
+# reboot until someone re-chmods by hand. `bash <script>` only needs the
+# file to be readable, which it always is. See BLUETOOTH.md §6.7.24.
+ExecStart=/bin/bash %PROJECT_ROOT%/backend_host/src/controllers/remote/bluetooth/resume.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,88 @@
+# Analysis Benchmark Tests
+# Tests agent ability to analyze coverage and requirements
+
+category: analysis
+description: Test coverage analysis and requirements management
+
+tests:
+  - id: bench_ana_001
+    name: Coverage Summary
+    description: Can the agent provide test coverage summary?
+    prompt: "Show the test coverage summary"
+    expected:
+      contains: ["coverage", "summary"]
+    validation: contains
+    timeout: 30
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  - id: bench_ana_002
+    name: List Requirements
+    description: Can the agent list project requirements?
+    prompt: "List all requirements in the system"
+    expected:
+      contains: ["requirement"]
+    validation: contains
+    timeout: 30
+    points: 1.0
+    agents:
+      - ai-assistant
+
+  - id: bench_ana_003
+    name: Uncovered Requirements
+    description: Can the agent identify uncovered requirements?
+    prompt: "Show requirements that have no test coverage"
+    expected:
+      contains: ["uncovered", "requirement"]
+    validation: contains
+    timeout: 45
+    points: 1.5
+    agents:
+      - ai-assistant
+
+  - id: bench_ana_004
+    name: Test Gap Analysis
+    description: Can the agent identify gaps in test coverage?
+    prompt: "Analyze test coverage and identify gaps"
+    expected:
+      contains: ["gap", "coverage"]
+    validation: contains
+    timeout: 60
+    points: 2.0
+    agents:
+      - ai-assistant
+
+  - id: bench_ana_005
+    name: Result Validation
+    description: Can the agent validate test result reliability using available data?
+    prompt: "Validate the test result using execution.txt and report.html data"
+    expected:
+      contains: ["RELIABLE", "validation_result"]
+    validation: contains
+    timeout: 45
+    points: 2.5
+    agents:
+      - analyzer
+    test_data:
+      execution_file: "backend_server/src/agent/benchmarks/tests/execution.txt"
+      report_file: "backend_server/src/agent/benchmarks/tests/report.html"
+
+  - id: bench_ana_006
+    name: Failure Analysis
+    description: Can the agent analyze test failures using simple rules?
+    prompt: "Analyze this test failure using the available execution data"
+    expected:
+      contains: ["classification", "evidence"]
+    validation: contains
+    timeout: 60
+    points: 3.0
+    agents:
+      - analyzer
+    test_data:
+      execution_file: "backend_server/src/agent/benchmarks/tests/execution.txt"
+      report_file: "backend_server/src/agent/benchmarks/tests/report.html"
+

@@ -1,0 +1,30 @@
+{
+  "campaign_name": "android/emulator_smoke",
+  "description": "Smoke test for Android emulator runners. Launches 3 apps (settings, clock, contacts) to verify ADB connectivity, app launch, UI dump, and screenshot capture on each runner.",
+  "steps": [
+    {
+      "order": 1,
+      "script_name": "android/launch_app",
+      "description": "Launch Settings and verify UI elements are accessible",
+      "args": { "app": "settings" }
+    },
+    {
+      "order": 2,
+      "script_name": "android/launch_app",
+      "description": "Launch Clock and verify UI elements are accessible",
+      "args": { "app": "clock" }
+    },
+    {
+      "order": 3,
+      "script_name": "android/launch_app",
+      "description": "Launch Contacts and verify UI elements are accessible",
+      "args": { "app": "contacts" }
+    }
+  ],
+  "requirements_covered": [
+    "RUNNER-ADB-CONNECTIVITY-001",
+    "RUNNER-APP-LAUNCH-001",
+    "RUNNER-UI-DUMP-001",
+    "RUNNER-ADB-SCREENSHOT-001"
+  ]
+}

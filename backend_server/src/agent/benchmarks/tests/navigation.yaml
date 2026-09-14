@@ -1,0 +1,50 @@
+# Navigation Benchmark Tests
+# Tests agent ability to navigate UI structures
+
+category: navigation
+description: UI navigation and interface discovery capabilities
+
+tests:
+  - id: bench_nav_001
+    name: List User Interfaces
+    description: Can the agent list all available user interfaces in the system?
+    prompt: "List all available user interfaces in the system"
+    expected:
+      contains: ["userinterface", "list"]
+    validation: contains
+    timeout: 30
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  - id: bench_nav_002
+    name: Navigate to Node
+    description: Can the agent navigate to a specific screen/node in the UI?
+    prompt: "Navigate to the home screen"
+    expected:
+      contains: ["navigate", "home"]
+    validation: contains
+    timeout: 60
+    points: 1.5
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: bench_nav_003
+    name: Get Navigation Tree
+    description: Can the agent retrieve the full navigation tree structure?
+    prompt: "Show me the navigation tree for the current interface"
+    expected:
+      contains: ["node", "edge"]
+    validation: contains
+    timeout: 45
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+

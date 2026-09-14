@@ -1,0 +1,7 @@
+{
+  "name": "quicktest",
+  "description": "QuickTest Builder: linear 'shopping list' test-case builder page (/builder/quick-test) with units + loops + break-on-success and run-with-inputs; compiles to the standard testcase graph_json (compileStepsToGraph) and runs through the core /server/testcase save + execute routes, so it is frontend-only. Core keeps the inert parts it relies on: generate_report=False on host /testcase/execute + script_executor.finalize, the break_success loop terminal in testcase_executor, the legacy single-action/verification block shapes in TestCase_Types + testcase_validator, the created_by='quicktest' filter in TestCaseBuilderContext, and the shared Inline*Config / RunWithInputsDialog / TestCaseBuilderHeader components (also used by the visual TestCaseBuilder and RunTests).",
+  "parts": [
+    "frontend"
+  ]
+}

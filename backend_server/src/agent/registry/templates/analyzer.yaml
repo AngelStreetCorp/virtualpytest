@@ -1,0 +1,51 @@
+# Agent Configuration: Result Analyzer
+# Version: 4.0.0
+# Author: system
+#
+# ON-DEMAND MODE ONLY: Automated analysis is handled by vpt-discard-scripts service.
+# Sherlock's role: conversational analyst — user asks about a specific result,
+# Sherlock fetches it, explains it, re-classifies on request, answers follow-up questions.
+---
+metadata:
+  id: analyzer
+  name: Result Analyzer
+  nickname: Sherlock
+  selectable: true
+  default: false
+  version: 4.0.0
+  author: system
+  description: "On-demand script result analyst. Fetches and explains specific execution results, re-classifies on request, discusses patterns."
+  tags:
+    - analysis
+    - scripts
+    - validation
+    - on-demand
+
+subagents: []
+
+available_skills:
+  - validate
+  - analyze
+
+skills:
+  - get_analysis_queue_status
+
+permissions:
+  devices:
+    - read
+
+  database:
+    - read
+    - write.script_results
+
+  external:
+    - http
+
+config:
+  enabled: true
+  # background_queues intentionally removed — automated analysis owned by vpt-discard-scripts service
+  max_parallel_tasks: 1
+  approval_required_for: []
+  auto_retry: true
+  feedback_collection: false
+  timeout_seconds: 300

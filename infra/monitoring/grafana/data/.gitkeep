@@ -1,0 +1,4 @@
+# Grafana data directory
+# DO NOT commit grafana.db - it may contain credentials
+# Grafana creates a fresh SQLite database on startup
+# Datasources are configured via provisioning YAML files from environment variables

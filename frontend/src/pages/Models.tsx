@@ -1,0 +1,283 @@
+import { Add as AddIcon, Delete as DeleteIcon, Devices as DeviceIcon } from '@mui/icons-material';
+import {
+  Box,
+  Typography,
+  Button,
+  Card,
+  CardContent,
+  IconButton,
+  Chip,
+  Alert,
+  CircularProgress,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Snackbar,
+} from '@mui/material';
+import React, { useState } from 'react';
+
+import CreateModelDialog from '../components/models/Models_CreateDialog';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { ConfirmDialog } from '../components/common/ConfirmDialog';
+import { ModelCreatePayload } from '../types/pages/Models_Types';
+import { useDeviceModels } from '../hooks/pages/useDeviceModels';
+
+const Models: React.FC = () => {
+  const {
+    models,
+    isLoading: loading,
+    error: queryError,
+    createModel,
+    deleteModel,
+    isCreating,
+    isDeleting,
+  } = useDeviceModels();
+  const submitting = isCreating || isDeleting;
+  const [openDialog, setOpenDialog] = useState(false);
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const error = mutationError ?? queryError;
+  const setError = setMutationError;
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Confirmation dialog
+  const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
+
+  const handleDelete = async (id: string) => {
+    confirm({
+      title: 'Confirm Delete',
+      message: 'Are you sure you want to delete this model?',
+      confirmColor: 'error',
+      onConfirm: async () => {
+        try {
+          setError(null);
+          await deleteModel(id);
+          setSuccessMessage('Model deleted successfully');
+          console.log('[@component:Models] Deleted model');
+        } catch (err) {
+          console.error('[@component:Models] Error deleting model:', err);
+          setError(err instanceof Error ? err.message : 'Failed to delete model');
+        }
+      },
+    });
+  };
+
+  const handleAddNew = async (newModelData: ModelCreatePayload) => {
+    try {
+      setError(null);
+      console.log('[@component:Models] Creating model:', newModelData);
+      const createdModel = await createModel(newModelData);
+      setOpenDialog(false);
+      setSuccessMessage('Model created successfully');
+      console.log('[@component:Models] Created model:', createdModel.name);
+    } catch (err) {
+      console.error('[@component:Models] Error creating model:', err);
+      setError(err instanceof Error ? err.message : 'Failed to create model');
+    }
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setError(null);
+  };
+
+  // Loading state
+  const LoadingState = () => (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        py: 8,
+        textAlign: 'center',
+      }}
+    >
+      <CircularProgress size={40} sx={{ mb: 2 }} />
+      <Typography variant="h6" color="text.secondary">
+        Loading Models...
+      </Typography>
+    </Box>
+  );
+
+  // Empty state
+  const EmptyState = () => (
+    <Box
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        py: 8,
+        textAlign: 'center',
+      }}
+    >
+      <DeviceIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+      <Typography variant="h6" color="text.secondary" gutterBottom>
+        No Models Found
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3, maxWidth: 400 }}>
+        Create your first device model to get started.
+      </Typography>
+      <Button
+        variant="contained"
+        startIcon={<AddIcon />}
+        onClick={() => setOpenDialog(true)}
+        disabled={submitting}
+      >
+        Add Model
+      </Button>
+    </Box>
+  );
+
+  return (
+    <Box>
+      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box>
+          <Typography variant="h4" gutterBottom>
+            Device Models
+          </Typography>
+          <Typography variant="body1" color="textSecondary">
+            Manage device models and their specifications.
+          </Typography>
+        </Box>
+        <Button
+          variant="contained"
+          startIcon={<AddIcon />}
+          onClick={() => setOpenDialog(true)}
+          size="small"
+          disabled={submitting || loading}
+        >
+          Add Model
+        </Button>
+      </Box>
+
+      {error && (
+        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
+          {error}
+        </Alert>
+      )}
+
+      <Card sx={{ boxShadow: 1 }}>
+        <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+          {loading ? (
+            <LoadingState />
+          ) : models.length === 0 ? (
+            <EmptyState />
+          ) : (
+            <TableContainer component={Paper} variant="outlined" sx={{ boxShadow: 'none' }}>
+              <Table
+                size="small"
+                sx={{
+                  '& .MuiTableCell-root': { py: 0.5, px: 1 },
+                  '& .MuiTableRow-root:hover': {
+                    backgroundColor: (theme) =>
+                      theme.palette.mode === 'dark'
+                        ? 'rgba(255, 255, 255, 0.08) !important'
+                        : 'rgba(0, 0, 0, 0.04) !important',
+                  },
+                }}
+              >
+                <TableHead>
+                  <TableRow>
+                    <TableCell>
+                      <strong>Name</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Types</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Version</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Description</strong>
+                    </TableCell>
+                    <TableCell>
+                      <strong>Default</strong>
+                    </TableCell>
+                    <TableCell align="center">
+                      <strong>Actions</strong>
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {models.map((model) => (
+                    <TableRow key={model.id}>
+                      <TableCell>{model.name}</TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {model.types.map((type) => (
+                            <Chip key={type} label={type} size="small" variant="outlined" />
+                          ))}
+                        </Box>
+                      </TableCell>
+                      <TableCell>{model.version || 'N/A'}</TableCell>
+                      <TableCell>{model.description || 'N/A'}</TableCell>
+                      <TableCell>
+                        {model.is_default && (
+                          <Chip label="System" size="small" color="primary" variant="outlined" />
+                        )}
+                      </TableCell>
+                      <TableCell align="center">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => handleDelete(model.id)}
+                          sx={{ p: 0.5 }}
+                          disabled={submitting || model.is_default}
+                          title={model.is_default ? 'Cannot delete default model' : 'Delete model'}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Summary */}
+      <Box mt={2}>
+        <Typography variant="body2" color="text.secondary">
+          Showing {models.length} models
+        </Typography>
+      </Box>
+
+      {/* Create Model Dialog */}
+      <CreateModelDialog
+        open={openDialog}
+        onClose={handleCloseDialog}
+        onSubmit={handleAddNew}
+        error={error}
+      />
+
+      {/* Success Message */}
+      <Snackbar
+        open={!!successMessage}
+        autoHideDuration={6000}
+        onClose={() => setSuccessMessage(null)}
+        message={successMessage}
+      />
+
+      {/* Confirmation Dialog */}
+      <ConfirmDialog
+        open={dialogState.open}
+        title={dialogState.title}
+        message={dialogState.message}
+        confirmText={dialogState.confirmText}
+        cancelText={dialogState.cancelText}
+        confirmColor={dialogState.confirmColor}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
+    </Box>
+  );
+};
+
+export default Models;

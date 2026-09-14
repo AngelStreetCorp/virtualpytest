@@ -1,0 +1,306 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Campaign Management
+  version: 1.0.0
+  description: Campaign CRUD operations
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: user_id
+    value: 'user_456'
+    description: User identifier
+  - key: campaign_id
+    value: 'campaign_001'
+    description: Campaign identifier
+  - key: campaign_name
+    value: 'Regression_Test_Campaign'
+    description: Campaign name
+  - key: host_name
+    value: 'backend_host_1'
+    description: Host name
+  - key: device_name
+    value: 'Samsung_S21_Device1'
+    description: Device name
+  - key: userinterface_name
+    value: 'example_mobile'
+    description: User interface name
+paths:
+  /server/campaigns/getAllCampaigns:
+    get:
+      summary: Get All Campaigns
+      tags: [Campaigns]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: List of campaigns
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/campaigns/createCampaign:
+    post:
+      summary: Create Campaign
+      description: Create a new test campaign with multiple script configurations
+      tags: [Campaigns]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+        - name: X-User-ID
+          in: header
+          required: false
+          schema:
+            type: string
+          description: User identifier (optional)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - campaign_name
+                - host_name
+                - device_name
+                - script_configurations
+              properties:
+                campaign_name:
+                  type: string
+                  description: Campaign name
+                campaign_description:
+                  type: string
+                  description: Campaign description (optional)
+                userinterface_name:
+                  type: string
+                  description: User interface name (optional)
+                host_name:
+                  type: string
+                  description: Host name where devices are located
+                device_name:
+                  type: string
+                  description: Device name for execution
+                script_configurations:
+                  type: array
+                  description: List of scripts to execute in the campaign
+                  items:
+                    type: object
+                    properties:
+                      script_name:
+                        type: string
+                      parameters:
+                        type: string
+                execution_config:
+                  type: object
+                  description: Additional execution configuration (optional)
+            example:
+              campaign_name: "{{campaign_name}}"
+              campaign_description: "Regression test campaign"
+              userinterface_name: "{{userinterface_name}}"
+              host_name: "{{host_name}}"
+              device_name: "{{device_name}}"
+              script_configurations:
+                - script_name: "validation.py"
+                  parameters: "--mode full"
+                - script_name: "performance.py"
+                  parameters: "--duration 300"
+              execution_config:
+                timeout: 3600
+                retry: true
+      responses:
+        '200':
+          description: Campaign created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  campaign:
+                    type: object
+        '400':
+          description: Bad request - missing required fields
+        '500':
+          description: Internal error creating campaign
+  /server/campaigns/getCampaign/{campaign_id}:
+    get:
+      summary: Get Campaign by ID
+      tags: [Campaigns]
+      parameters:
+        - name: campaign_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/campaigns/updateCampaign/{campaign_id}:
+    put:
+      summary: Update Campaign
+      description: Update an existing campaign's configuration
+      tags: [Campaigns]
+      parameters:
+        - name: campaign_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Campaign identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+        - name: X-User-ID
+          in: header
+          required: false
+          schema:
+            type: string
+          description: User identifier (optional)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                campaign_name:
+                  type: string
+                  description: Campaign name
+                  example: "{{campaign_name}}"
+                campaign_description:
+                  type: string
+                  description: Campaign description
+                  example: "Updated regression test campaign"
+                userinterface_name:
+                  type: string
+                  description: User interface name
+                  example: "{{userinterface_name}}"
+                host_name:
+                  type: string
+                  description: Host name where devices are located
+                  example: "{{host_name}}"
+                device_name:
+                  type: string
+                  description: Device name for execution
+                  example: "{{device_name}}"
+                script_configurations:
+                  type: array
+                  description: Updated list of scripts to execute
+                  items:
+                    type: object
+                    properties:
+                      script_name:
+                        type: string
+                      parameters:
+                        type: string
+                  example: [{"script_name": "validation.py", "parameters": "--mode full"}]
+                execution_config:
+                  type: object
+                  description: Additional execution configuration
+                  example: {"timeout": 3600, "retry": true}
+      responses:
+        '200':
+          description: Campaign updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  campaign:
+                    type: object
+        '400':
+          description: Bad request
+        '404':
+          description: Campaign not found
+        '500':
+          description: Internal error updating campaign
+  /server/campaigns/deleteCampaign/{campaign_id}:
+    delete:
+      summary: Delete Campaign
+      tags: [Campaigns]
+      parameters:
+        - name: campaign_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Campaign deleted
+          content:
+            application/json:
+              schema:
+                type: object

@@ -1,0 +1,60 @@
+# Dependabot: SECURITY updates only. Routine version churn is off.
+#
+# `open-pull-requests-limit: 0` disables **version updates** — the weekly "bump 56 packages
+# because newer numbers exist" PRs. It does NOT affect **security updates**: those are driven
+# by Dependabot alerts (repo Settings > Advanced Security) and have their own separate limit,
+# so a real advisory still opens a PR the day it lands. That is the only Dependabot PR this
+# repo wants.
+#
+# ── Why (2026-09-14) ─────────────────────────────────────────────────────────────────────
+#
+# With zero open security alerts, one morning of routine version updates produced five
+# unmergeable PRs, every one of them a version conflict rather than anything we needed:
+#
+#   #34  typescript 7.0.2                   vs  @typescript-eslint 8.70.0 (peer <6.1.0)
+#   #36  eslint-plugin-react-refresh 0.5.6  vs  pinned eslint 8.55.0 (peer ^9||^10)
+#   #37  pydantic-core 2.49.0               vs  pydantic 2.13.5 (pins ==2.46.5)
+#   #41  same as #37, after grouping them together — Dependabot still picks each package's
+#        latest INDEPENDENTLY inside a group; grouping batches, it does not solve constraints
+#   #43  same as #34, after grouping
+#
+# Three grouping shapes were tried (all-in-one; minor+patch with majors split out; peer-coupled
+# family groups). None prevents an incompatible combination, because the version solving
+# happens per-package. Keep the config simple instead and take upgrades deliberately.
+#
+# The `schedule` blocks stay so re-enabling is a one-line change: set a limit back to a
+# non-zero number on the ecosystem you want. Note that any `ignore:` entry added here WOULD
+# apply to security updates once version updates are off — which is why there are none.
+#
+# Upgrading on purpose (e.g. Flask 3, MUI 9, React 19): do it as a normal branch. CI covers
+# it — `backend-deps` installs each requirements.txt in a clean venv and imports the stack,
+# and `docker-build` builds and boots the whole thing.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /backend_server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: pip
+    directory: /backend_host
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 0

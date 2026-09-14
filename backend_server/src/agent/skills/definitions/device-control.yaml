@@ -1,0 +1,94 @@
+name: device-control
+version: 1.0.0
+description: Control devices with direct hardware actions
+
+triggers:
+  # DEVICE CONTROL (direct hardware actions)
+  - execute action
+  - device action
+  - click
+  - tap
+  - swipe
+  - press key
+  - available actions
+  - show device
+  - get device
+
+  # UI INSPECTION (independent tools)
+  - dump ui
+  - show ui
+  - inspect screen
+
+system_prompt: |
+  Control physical devices with raw hardware actions (click, swipe, press).
+
+  WORKFLOW:
+  1. get_device_info() → find available devices
+  2. list_actions() → see valid actions for the device
+  3. execute_device_action() → use ONLY actions from step 2, match parameters exactly
+
+  UI TOOLS:
+  - list_userinterfaces: List all available interfaces (Do not use for dump ui)
+  - dump_ui_elements: Dump current screen UI elements (does not require list_userinterfaces)
+
+  IR / BLE remotes (no UI dump available):
+  - dump_ui_elements does NOT work for IR/BLE controllers — they are one-way (send only).
+  - Read the screen via the stream capture pipeline instead — see docs/agent/devices/DEVICE_SCREENSHOTS.md.
+  - When walking a known menu (e.g. RIGHT × 5 to reach a tab), batch the same-key presses
+    and only screenshot at branch points (after OK or after a direction change).
+    Per-key screenshots triple navigation latency for no decision-relevant gain.
+  - Render after OK can take >2 s on STB UIs; do not retry OK within that window.
+
+  UI knowledge base (DB-backed, see docs/agent/navigation/AI_USERINTERFACE.md):
+  - ai_userinterface_fingerprints maps a device's runtime state to a ui_id.
+  - ai_userinterfaces (+ screens / flows / quirks / known_hardware) holds verified knowledge.
+  - Resolve fingerprint, then read the matching ui_id's data before navigating to avoid re-discovering known sequences.
+  - Python lib: shared.src.lib.database.ai_userinterface_db (read / append / supersede / revert
+    with audit trail). Agent-tool wrappers are still being wired into the skill registry — until
+    that lands, code paths must invoke the Python module directly.
+
+tools:
+  - list_hosts
+  - get_device_info
+  - list_actions
+  - execute_device_action
+  - dump_ui_elements
+  # AI UI knowledge base (read-only access for device-control; full read+write in explore-* skills)
+  - list_ai_userinterfaces
+  - get_ai_userinterface
+  - resolve_ai_userinterface
+
+# Tool-specific caching configuration
+tool_cache:
+  # Discovery tools - cache results aggressively
+  get_device_info:
+    enabled: true
+    ttl_seconds: 300        # 5 minutes
+    prompt_cache: true      # Mark for Anthropic prompt caching
+  
+  list_actions:
+    enabled: true
+    ttl_seconds: 300        # 5 minutes - actions rarely change
+    prompt_cache: true
+  
+  dump_ui_elements:
+    enabled: true
+    ttl_seconds: 30         # 30 seconds - UI changes frequently
+    prompt_cache: false
+  
+  # Action execution - NEVER cache (different each time)
+  execute_device_action:
+    enabled: false
+
+required_context:
+  - available_devices
+  - host_name
+  - device_id
+  - userinterface_name
+  - tree_id
+
+platform: null
+requires_device: true
+timeout_seconds: 1800
+
+

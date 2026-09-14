@@ -1,0 +1,275 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Device Management
+  version: 1.0.0
+  description: Device CRUD operations
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: device_id
+    value: 'device_001'
+    description: Device identifier
+  - key: device_name
+    value: 'Samsung_S21_Device1'
+    description: Device name
+  - key: device_model
+    value: 'Samsung S21'
+    description: Device model
+  - key: host_name
+    value: 'backend_host_1'
+    description: Host name
+paths:
+  /server/devices/getAllDevices:
+    get:
+      summary: Get All Devices
+      tags: [Devices]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: List of devices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/devices/createDevice:
+    post:
+      summary: Create Device
+      description: Create a new device in the device_flags table (auto-registered from hosts)
+      tags: [Devices]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - model
+              properties:
+                name:
+                  type: string
+                  description: Device name
+                description:
+                  type: string
+                  description: Device description (optional)
+                model:
+                  type: string
+                  description: Device model name
+                controller_configs:
+                  type: object
+                  description: Controller configuration JSON (optional)
+            example:
+              name: "{{device_name}}"
+              description: "Test device for QA"
+              model: "{{device_model}}"
+              controller_configs:
+                av: "av_controller_1"
+                power: "power_controller_1"
+      responses:
+        '201':
+          description: Device created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  device:
+                    type: object
+        '400':
+          description: Bad request - missing required fields
+        '500':
+          description: Internal error creating device
+  /server/devices/getDevice/{device_id}:
+    get:
+      summary: Get Device by ID
+      description: Retrieve detailed information about a specific device
+      tags: [Devices]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device identifier
+        - name: host_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Host name where device is located (optional)
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Device details retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                  name:
+                    type: string
+                  model:
+                    type: string
+                  description:
+                    type: string
+                  controller_configs:
+                    type: object
+                  created_at:
+                    type: string
+                    format: date-time
+                  updated_at:
+                    type: string
+                    format: date-time
+        '404':
+          description: Device not found
+        '500':
+          description: Internal error retrieving device
+  /server/devices/updateDevice/{device_id}:
+    put:
+      summary: Update Device
+      description: Update an existing device's information
+      tags: [Devices]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Device identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: Device name
+                  example: "{{device_name}}"
+                description:
+                  type: string
+                  description: Device description
+                  example: "Updated description"
+                model:
+                  type: string
+                  description: Device model name
+                  example: "{{device_model}}"
+                controller_configs:
+                  type: object
+                  description: Controller configuration JSON
+                  example: {"av": "av_controller_1", "power": "power_controller_1"}
+      responses:
+        '200':
+          description: Device updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                  device:
+                    type: object
+        '400':
+          description: Bad request
+        '404':
+          description: Device not found
+        '500':
+          description: Internal error updating device
+  /server/devices/deleteDevice/{device_id}:
+    delete:
+      summary: Delete Device
+      tags: [Devices]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Device deleted
+          content:
+            application/json:
+              schema:
+                type: object

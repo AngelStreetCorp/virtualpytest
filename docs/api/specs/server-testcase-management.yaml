@@ -1,0 +1,234 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Testcase Management
+  version: 1.0.0
+  description: Test case CRUD operations
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: testcase_name
+    value: 'Login_Flow_Test'
+    description: Testcase name
+  - key: userinterface_name
+    value: 'example_mobile'
+    description: User interface name
+  - key: user_id
+    value: 'user_456'
+    description: User identifier
+paths:
+  /server/testcase/list:
+    get:
+      summary: List All Testcases
+      tags: [Testcases]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: include_inactive
+          in: query
+          schema:
+            type: boolean
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: List of testcases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/testcase/save:
+    post:
+      summary: Create or Update Testcase
+      description: Create a new testcase or update an existing one. If testcase_id is provided, updates existing testcase; otherwise creates new one.
+      tags: [Testcases]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - testcase_name
+                - graph_json
+              properties:
+                testcase_id:
+                  type: string
+                  description: Testcase ID (required for updates, omit for new testcase)
+                testcase_name:
+                  type: string
+                  description: Testcase name
+                graph_json:
+                  type: object
+                  description: Graph JSON defining the testcase workflow (nodes and edges)
+                description:
+                  type: string
+                  description: Testcase description (optional)
+                userinterface_name:
+                  type: string
+                  description: User interface name (optional)
+                folder:
+                  type: string
+                  description: Folder name to organize testcase (optional)
+                tags:
+                  type: array
+                  description: List of tag names (optional)
+                  items:
+                    type: string
+                overwrite:
+                  type: boolean
+                  description: Allow overwriting existing testcase with same name (optional, default false)
+                created_by:
+                  type: string
+                  description: User ID of creator (optional)
+                creation_method:
+                  type: string
+                  description: Creation method (optional, default 'visual')
+                  enum: [visual, ai, import]
+                ai_prompt:
+                  type: string
+                  description: AI prompt used if created with AI (optional)
+                ai_analysis:
+                  type: object
+                  description: AI analysis result if created with AI (optional)
+                available_nodes:
+                  type: array
+                  description: Available nodes from AI generation (optional)
+                  items:
+                    type: object
+            example:
+              testcase_name: "{{testcase_name}}"
+              graph_json:
+                nodes:
+                  - id: "node1"
+                    label: "Home"
+                  - id: "node2"
+                    label: "Login"
+                edges:
+                  - source: "node1"
+                    target: "node2"
+                    action: "click_login"
+              description: "Validation testcase for login flow"
+              userinterface_name: "{{userinterface_name}}"
+              folder: "Regression Tests"
+              tags: ["login", "regression"]
+              overwrite: false
+              created_by: "{{user_id}}"
+              creation_method: "visual"
+      responses:
+        '200':
+          description: Testcase created or updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  testcase:
+                    type: object
+                  testcase_id:
+                    type: string
+                  testcase_name:
+                    type: string
+                  action:
+                    type: string
+                    enum: [created, updated]
+        '400':
+          description: Bad request - missing required fields or validation failed
+        '404':
+          description: Testcase not found (for updates)
+        '409':
+          description: Duplicate testcase name (when overwrite is false)
+        '500':
+          description: Internal error saving testcase
+  /server/testcase/{testcase_id}:
+    get:
+      summary: Get Testcase by ID
+      tags: [Testcases]
+      parameters:
+        - name: testcase_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Testcase details
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      summary: Delete Testcase
+      tags: [Testcases]
+      parameters:
+        - name: testcase_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Testcase deleted
+          content:
+            application/json:
+              schema:
+                type: object

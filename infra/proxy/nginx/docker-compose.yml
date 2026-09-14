@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # Reverse Proxy (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: virtualpytest-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/docker.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - frontend
+      - backend_server
+      - backend_host
+    networks:
+      - virtualpytest
+    restart: unless-stopped
+
+  # Frontend Service
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: virtualpytest-frontend
+    environment:
+      - NODE_ENV=production
+    networks:
+      - virtualpytest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:5073/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Backend Server (API)
+  backend_server:
+    build:
+      context: ../backend_server
+      dockerfile: Dockerfile
+    container_name: virtualpytest-backend-server
+    environment:
+      - SERVER_PORT=5109
+      - SERVER_URL=http://backend_server:5109
+      - CORS_ORIGINS=http://nginx
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY}
+    volumes:
+      - ./logs/backend_server:/var/log/supervisor
+    networks:
+      - virtualpytest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5109/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Backend Host (Hardware Control)
+  backend_host:
+    build:
+      context: ../backend_host
+      dockerfile: Dockerfile
+    container_name: virtualpytest-backend-host
+    environment:
+      - HOST_NAME=${HOST_NAME:-localhost}
+      - HOST_API_PORT=6109
+      - VNC_PORT=6080
+      - X11VNC_PASSWORD=${X11VNC_PASSWORD:-admin123}
+    volumes:
+      - /dev/dri:/dev/dri:rw  # GPU access for video encoding
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw  # X11 socket
+      - ./logs/backend_host:/var/log/supervisor
+      - ./data/stream:/var/www/html/stream:rw  # Stream storage
+      - ./data/captures:/app/backend_host/data/captures:rw  # Captures
+    devices:
+      - /dev/dri  # GPU device access
+    privileged: true  # Required for X11, VNC, and device access
+    networks:
+      - virtualpytest
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6109/host/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+networks:
+  virtualpytest:
+    driver: bridge
+
+volumes:
+  stream_data:
+    driver: local
+  captures_data:
+    driver: local

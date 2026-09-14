@@ -1,0 +1,355 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Script Management
+  version: 1.0.0
+  description: Script management and execution
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: host_name
+    value: 'backend_host_1'
+    description: Host name
+  - key: device_id
+    value: 'device_001'
+    description: Device identifier
+  - key: device_model
+    value: 'Samsung S21'
+    description: Device model
+  - key: script_name
+    value: 'validation_test.py'
+    description: Script name
+  - key: script_parameters
+    value: '--mode full --timeout 300'
+    description: Script parameters
+  - key: task_id
+    value: 'task_abc123'
+    description: Task identifier
+  - key: userinterface_name
+    value: 'example_mobile'
+    description: User interface name
+paths:
+  /server/script/list:
+    get:
+      summary: List Scripts
+      description: Get a list of all available Python scripts in the test_scripts directory
+      tags: [Scripts]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier for access control
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: List of available scripts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  scripts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        path:
+                          type: string
+        '400':
+          description: Bad request - team_id is required
+        '500':
+          description: Internal error retrieving scripts
+  /server/script/analyze:
+    post:
+      summary: Analyze Script
+      description: Analyze a Python script to extract parameter information from argparse definitions
+      tags: [Scripts]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - script_name
+              properties:
+                script_name:
+                  type: string
+                  description: Name of the script file to analyze
+                  example: "{{script_name}}"
+                device_model:
+                  type: string
+                  description: Device model (optional)
+                  example: "{{device_model}}"
+                device_id:
+                  type: string
+                  description: Device identifier (optional)
+                  example: "{{device_id}}"
+      responses:
+        '200':
+          description: Analysis result with script parameters
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  parameters:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          description: Bad request - script_name is required
+        '404':
+          description: Script not found
+  /server/script/get_edge_options:
+    post:
+      summary: Get Edge Options
+      description: Get available edge action_set labels for KPI measurement scripts
+      tags: [Scripts]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - userinterface_name
+                - team_id
+                - host_name
+              properties:
+                userinterface_name:
+                  type: string
+                  description: User interface name (e.g., 'example_mobile', 'example_tv')
+                  example: "{{userinterface_name}}"
+                team_id:
+                  type: string
+                  description: Team identifier
+                  example: "{{team_id}}"
+                host_name:
+                  type: string
+                  description: Name of the host where device is located
+                  example: "{{host_name}}"
+      responses:
+        '200':
+          description: List of edge options
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  edges:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          description: Bad request - missing required parameters
+        '404':
+          description: Host not found
+  /server/script/execute:
+    post:
+      summary: Execute Script
+      description: Execute a Python script asynchronously on a specified host/device. Returns a task_id for polling script status.
+      tags: [Scripts]
+      parameters:
+        - name: team_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Team identifier (optional)
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - host_name
+                - device_id
+                - script_name
+              properties:
+                host_name:
+                  type: string
+                  description: Name of the host where device is located
+                device_id:
+                  type: string
+                  description: Device identifier (e.g., 'device1')
+                script_name:
+                  type: string
+                  description: Script filename (e.g., 'validation.py')
+                parameters:
+                  type: string
+                  description: Optional CLI parameters as string (e.g., '--param1 value1 --param2 value2')
+            example:
+              host_name: "{{host_name}}"
+              device_id: "{{device_id}}"
+              script_name: "{{script_name}}"
+              parameters: "{{script_parameters}}"
+      responses:
+        '202':
+          description: Script execution started asynchronously
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  task_id:
+                    type: string
+                    description: Task ID for polling execution status
+                  message:
+                    type: string
+        '400':
+          description: Bad request - missing required parameters
+        '404':
+          description: Host not found
+        '423':
+          description: Device is locked by another session
+        '500':
+          description: Failed to lock device or internal error
+  /server/script/abortRunning:
+    post:
+      summary: Abort Running Script
+      description: Abort the currently running script on a host device. The server proxies the request to the host's /host/script/abort endpoint, which terminates the running script process for that device.
+      tags: [Scripts]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - host_name
+                - device_id
+              properties:
+                host_name:
+                  type: string
+                  description: Name of the host where the script is running
+                device_id:
+                  type: string
+                  description: Device identifier whose running script should be aborted (e.g., 'device1')
+            example:
+              host_name: "{{host_name}}"
+              device_id: "{{device_id}}"
+      responses:
+        '200':
+          description: Abort request processed by the host
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '400':
+          description: Bad request - host_name and device_id are required
+        '404':
+          description: Host not found
+        '500':
+          description: Host failed to abort the running script (error details in host_result)
+  /server/script/status/{task_id}:
+    get:
+      summary: Get Script Execution Status
+      description: Poll for script execution status using the task_id returned from /script/execute
+      tags: [Scripts]
+      parameters:
+        - name: task_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Task ID returned from /script/execute endpoint
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Task status information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  task:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum: [pending, running, completed, failed]
+                      result:
+                        type: object
+                        description: Execution result (available when completed)
+                      error:
+                        type: string
+                        description: Error message (available when failed)
+                      created_at:
+                        type: number
+                        description: Task creation timestamp
+                      completed_at:
+                        type: number
+                        description: Task completion timestamp
+        '404':
+          description: Task not found
+        '500':
+          description: Internal error retrieving task status

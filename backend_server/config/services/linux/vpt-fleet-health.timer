@@ -1,0 +1,14 @@
+# NOTE: This is a template file for reference only. See vpt-fleet-health.service
+# for install instructions.
+
+[Unit]
+Description=Daily trigger for the VirtualPyTest fleet health report (07:00 Zurich)
+
+[Timer]
+OnCalendar=*-*-* 07:00:00 Europe/Zurich
+# If the VM was down at 07:00, run on next boot instead of skipping the day.
+Persistent=true
+RandomizedDelaySec=120
+
+[Install]
+WantedBy=timers.target

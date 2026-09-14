@@ -1,0 +1,134 @@
+# Backend Server Dependencies
+#
+# NOTE: Key HTTP and Supabase libraries are pinned to exact versions that work
+# on both Linux and macOS to avoid httpcore SyncHTTPTransport compatibility issues.
+# These versions match the working Linux environment.
+
+# Shared library dependencies (installed directly)
+# ../shared
+
+# Flask web framework
+Flask>=2.3.0
+Flask-CORS>=4.0.0
+Flask-SocketIO>=5.3.0
+
+# HTTP client for host communication - pinned to working Linux versions
+requests==2.33.0
+httpcore==1.0.9
+httpx==0.28.1
+h11==0.16.0
+h2==4.4.1
+hpack==4.2.0
+hyperframe==6.1.0
+anyio==4.10.0
+sniffio==1.3.1
+idna==3.15
+certifi==2025.8.3
+aiohttp>=3.8.0
+
+# Graph processing for navigation
+networkx>=3.0.0
+
+# Database connectivity (if needed)
+pymongo>=4.3.0
+sqlalchemy>=2.0.0
+
+# Authentication and security - pinned to working Linux versions
+PyJWT==2.13.0
+bcrypt>=4.0.0
+
+# Process management
+psutil>=5.8.0
+
+# Environment configuration
+python-dotenv>=1.0.0
+
+# WSGI server (Linux/macOS). Windows runs the dev server / alternate service hosting.
+gunicorn>=21.0.0; platform_system != "Windows"
+gevent>=23.9.0; platform_system != "Windows"  # SocketIO support with Gunicorn
+gevent-websocket>=0.10.1; platform_system != "Windows"  # Required for Flask-SocketIO websocket transport under gunicorn
+
+# JSON handling
+orjson>=3.8.0
+
+# Task queue and background jobs
+celery>=5.3.0
+redis>=4.5.0
+
+# API documentation
+flask-restx>=1.1.0
+
+# Validation and serialization - pinned to working Linux versions
+marshmallow>=3.19.0
+pydantic==2.11.9
+pydantic-core==2.33.2
+
+# Monitoring and logging
+structlog>=23.0.0
+prometheus-client>=0.16.0
+
+# File upload and processing
+Werkzeug>=2.3.0
+
+# Date and time handling - pinned to working Linux versions
+python-dateutil==2.9.0.post0
+six==1.17.0
+
+# Appium and Selenium for mobile automation
+Appium-Python-Client>=3.0.0
+selenium>=4.15.0
+
+# AWS SDK for cloud services
+boto3>=1.26.0
+
+# Additional shared dependencies that might be needed - pinned to working Linux versions
+typing-extensions==4.15.0
+supabase==2.18.1
+supabase-auth==2.12.3
+supabase-functions==0.10.1
+storage3==0.12.1
+postgrest==1.1.1
+realtime==2.7.0
+websockets==15.0.1
+googletrans==4.0.2
+deprecation==2.1.0
+strenum==0.4.15
+typing-inspection==0.4.1
+annotated-types==0.7.0
+packaging==24.2
+browser-use>=0.1.0
+
+# Desktop automation and computer vision
+# Fixed versions for numpy binary compatibility
+numpy>=1.24.0,<2.0.0
+pyautogui>=0.9.54
+opencv-python>=4.8.0,<5.0.0
+Pillow>=10.0.0,<11.0.0
+
+# Grafana and monitoring integration
+psycopg2-binary>=2.9.0  # PostgreSQL adapter for Python
+supervisor>=4.2.0       # Process control system
+
+# Network speed monitoring
+speedtest-cli>=2.1.3
+
+# MCP (Model Context Protocol) server
+mcp>=1.0.0
+jsonschema>=4.0.0
+
+# AI Agent SDK (Claude)
+anthropic>=0.40.0
+langfuse>=2.0.0,<3 # v2 SDK required: observability.py uses the v2 API (langfuse.trace) and the self-hosted server is v2; SDK v3+/v4 breaks both (auto-enabled when LANGFUSE_HOST is set)
+
+# Slack integration
+slack-sdk>=3.27.0
+
+# Event-Driven Multi-Agent Platform (Phase 1)
+apscheduler>=3.10.0     # Task scheduling for autonomous agents
+fastapi>=0.104.0        # Async API framework (for new agent endpoints)
+uvicorn>=0.24.0         # ASGI server
+python-multipart>=0.0.6 # FastAPI file upload support
+
+# Security scanning tools (for development/CI)
+bandit>=1.7.0
+safety>=3.0.0

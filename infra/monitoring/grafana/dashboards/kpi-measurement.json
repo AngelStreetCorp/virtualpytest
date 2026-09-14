@@ -1,0 +1,3135 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failures"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success Rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 95
+                    },
+                    {
+                      "color": "green",
+                      "value": 99
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {},
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COUNT(*) AS \"Total KPI Measurements\",\n  COUNT(*) FILTER (WHERE success IS DISTINCT FROM true) AS \"Failures\",\n  ROUND((COUNT(CASE WHEN success = true THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100, 2) AS \"Success Rate\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) execution_results\nWHERE (kpi_measurement_ms IS NOT NULL OR kpi_measurement_success IS NOT NULL) AND $__timeFilter(executed_at) AND (COALESCE(variant, 'Base') IN (${variant:sqlstring})) AND (action_set_id IN (${action_set:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Script success rate per 30m across all user interfaces; Failed = run count (hidden by default, toggle in legend)",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 85,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 110,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 0
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "light-orange"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "short"
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "hidden"
+              },
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 30,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(er.executed_at, '30m'),\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Passed\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failed\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Global Activity",
+      "type": "timeseries",
+      "transparent": true
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 22,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg KPI (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": "^OVER:(.+)$",
+                          "result": {
+                            "color": "red",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      },
+                      {
+                        "options": {
+                          "pattern": "^OK:(.+)$",
+                          "result": {
+                            "color": "green",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "basic",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 80
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Count"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 5
+          },
+          "id": 3,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": false,
+                "displayName": "Variant - Action Set"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS \"Variant - Action Set\",\n  er.device_model AS \"Model\",\n  CASE\n    WHEN COALESCE(MAX(thr.threshold), 0) > 0 AND ROUND(AVG(er.kpi_measurement_ms))::int > MAX(thr.threshold)\n    THEN 'OVER:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n    ELSE 'OK:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n  END AS \"Avg KPI (ms)\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failures\",\n  COUNT(*) FILTER (WHERE er.success AND COALESCE(thr.threshold, 0) > 0 AND er.kpi_measurement_ms > thr.threshold) AS \"Over Threshold\",\n  COALESCE(MAX(thr.threshold), 0) AS \"Threshold (ms)\",\n  COUNT(*) AS \"Count\",\n  ('<a href=\"/grafana/d/kpi-test-report/kpi-test-report?orgId=1&var-user_interface=stb_android_tv&var-variant=' || replace(replace(COALESCE(er.variant, 'Base'), '+', '%2B'), ' ', '%20') || '&var-action_set=' || replace(replace(er.action_set_id, '+', '%2B'), ' ', '%20') || '&var-model=' || replace(replace(COALESCE(er.device_model, 'unknown'), '+', '%2B'), ' ', '%20') || '&from=${__from}&to=${__to}\" target=\"_blank\">link</a>') AS \"Report\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN LATERAL (\n  SELECT (as_elem->>'threshold')::int AS threshold,\n         as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) thr ON true\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND ui.name = 'stb_android_tv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY er.variant, er.action_set_id, er.kpi_display_label, er.device_model\nORDER BY \"Variant - Action Set\" ASC",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_android_tv",
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg KPI (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": "^OVER:(.+)$",
+                          "result": {
+                            "color": "red",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      },
+                      {
+                        "options": {
+                          "pattern": "^OK:(.+)$",
+                          "result": {
+                            "color": "green",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "basic",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 80
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Count"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 59
+          },
+          "id": 26,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": []
+          },
+          "pluginVersion": "12.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS \"Variant - Action Set\",\n  er.device_model AS \"Model\",\n  CASE\n    WHEN COALESCE(MAX(thr.threshold), 0) > 0 AND ROUND(AVG(er.kpi_measurement_ms))::int > MAX(thr.threshold)\n    THEN 'OVER:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n    ELSE 'OK:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n  END AS \"Avg KPI (ms)\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failures\",\n  COUNT(*) FILTER (WHERE er.success AND COALESCE(thr.threshold, 0) > 0 AND er.kpi_measurement_ms > thr.threshold) AS \"Over Threshold\",\n  COALESCE(MAX(thr.threshold), 0) AS \"Threshold (ms)\",\n  COUNT(*) AS \"Count\",\n  ('<a href=\"/grafana/d/kpi-test-report/kpi-test-report?orgId=1&var-user_interface=stb_android_tv&var-variant=' || replace(replace(COALESCE(er.variant, 'Base'), '+', '%2B'), ' ', '%20') || '&var-action_set=' || replace(replace(er.action_set_id, '+', '%2B'), ' ', '%20') || '&var-model=' || replace(replace(COALESCE(er.device_model, 'unknown'), '+', '%2B'), ' ', '%20') || '&from=${__from}&to=${__to}\" target=\"_blank\">link</a>') AS \"Report\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN LATERAL (\n  SELECT (as_elem->>'threshold')::int AS threshold,\n         as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) thr ON true\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND ui.name = 'stb_android_tv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY er.variant, er.action_set_id, er.kpi_display_label, er.device_model\nORDER BY AVG(er.kpi_measurement_ms) DESC\nLIMIT 20",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_android_tv - Top Slowest",
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 0,
+            "y": 69
+          },
+          "id": 15,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "time_series",
+              "rawQuery": true,
+              "rawSql": "SELECT er.executed_at AS time, (COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(thr.kpi_name, ''), NULLIF(thr.edge_label, ''), er.action_set_id)) AS metric, er.kpi_measurement_ms AS value FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL ( SELECT as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1 ) thr ON true WHERE er.kpi_measurement_ms IS NOT NULL AND ui.name = 'stb_android_tv' AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring})) ORDER BY er.executed_at",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_android_tv - KPI Evolution",
+          "type": "timeseries"
+        }
+      ],
+      "title": "stb_android_tv",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "id": 23,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg KPI (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": "^OVER:(.+)$",
+                          "result": {
+                            "color": "red",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      },
+                      {
+                        "options": {
+                          "pattern": "^OK:(.+)$",
+                          "result": {
+                            "color": "green",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "basic",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 80
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Count"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 6
+          },
+          "id": 4,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": false,
+                "displayName": "Variant - Action Set"
+              }
+            ]
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS \"Variant - Action Set\",\n  er.device_model AS \"Model\",\n  CASE\n    WHEN COALESCE(MAX(thr.threshold), 0) > 0 AND ROUND(AVG(er.kpi_measurement_ms))::int > MAX(thr.threshold)\n    THEN 'OVER:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n    ELSE 'OK:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n  END AS \"Avg KPI (ms)\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failures\",\n  COUNT(*) FILTER (WHERE er.success AND COALESCE(thr.threshold, 0) > 0 AND er.kpi_measurement_ms > thr.threshold) AS \"Over Threshold\",\n  COALESCE(MAX(thr.threshold), 0) AS \"Threshold (ms)\",\n  COUNT(*) AS \"Count\",\n  ('<a href=\"/grafana/d/kpi-test-report/kpi-test-report?orgId=1&var-user_interface=stb_tv&var-variant=' || replace(replace(COALESCE(er.variant, 'Base'), '+', '%2B'), ' ', '%20') || '&var-action_set=' || replace(replace(er.action_set_id, '+', '%2B'), ' ', '%20') || '&var-model=' || replace(replace(COALESCE(er.device_model, 'unknown'), '+', '%2B'), ' ', '%20') || '&from=${__from}&to=${__to}\" target=\"_blank\">link</a>') AS \"Report\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN LATERAL (\n  SELECT (as_elem->>'threshold')::int AS threshold,\n         as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) thr ON true\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND ui.name = 'stb_tv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY er.variant, er.action_set_id, er.kpi_display_label, er.device_model\nORDER BY \"Variant - Action Set\" ASC",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_tv",
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg KPI (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": "^OVER:(.+)$",
+                          "result": {
+                            "color": "red",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      },
+                      {
+                        "options": {
+                          "pattern": "^OK:(.+)$",
+                          "result": {
+                            "color": "green",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "basic",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 80
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Count"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 16
+          },
+          "id": 27,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "sortBy": []
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS \"Variant - Action Set\",\n  er.device_model AS \"Model\",\n  CASE\n    WHEN COALESCE(MAX(thr.threshold), 0) > 0 AND ROUND(AVG(er.kpi_measurement_ms))::int > MAX(thr.threshold)\n    THEN 'OVER:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n    ELSE 'OK:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n  END AS \"Avg KPI (ms)\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failures\",\n  COUNT(*) FILTER (WHERE er.success AND COALESCE(thr.threshold, 0) > 0 AND er.kpi_measurement_ms > thr.threshold) AS \"Over Threshold\",\n  COALESCE(MAX(thr.threshold), 0) AS \"Threshold (ms)\",\n  COUNT(*) AS \"Count\",\n  ('<a href=\"/grafana/d/kpi-test-report/kpi-test-report?orgId=1&var-user_interface=stb_tv&var-variant=' || replace(replace(COALESCE(er.variant, 'Base'), '+', '%2B'), ' ', '%20') || '&var-action_set=' || replace(replace(er.action_set_id, '+', '%2B'), ' ', '%20') || '&var-model=' || replace(replace(COALESCE(er.device_model, 'unknown'), '+', '%2B'), ' ', '%20') || '&from=${__from}&to=${__to}\" target=\"_blank\">link</a>') AS \"Report\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN LATERAL (\n  SELECT (as_elem->>'threshold')::int AS threshold,\n         as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) thr ON true\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND ui.name = 'stb_tv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY er.variant, er.action_set_id, er.kpi_display_label, er.device_model\nORDER BY AVG(er.kpi_measurement_ms) DESC\nLIMIT 20",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_tv - Top Slowest",
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 26
+          },
+          "id": 14,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "time_series",
+              "rawQuery": true,
+              "rawSql": "SELECT er.executed_at AS time, (COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(thr.kpi_name, ''), NULLIF(thr.edge_label, ''), er.action_set_id)) AS metric, er.kpi_measurement_ms AS value FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL ( SELECT as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1 ) thr ON true WHERE er.kpi_measurement_ms IS NOT NULL AND ui.name = 'stb_tv' AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring})) ORDER BY er.executed_at",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_tv - KPI Evolution",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 12,
+            "x": 0,
+            "y": 36
+          },
+          "id": 19,
+          "options": {
+            "baidu": {
+              "callback": "bmapReady",
+              "key": ""
+            },
+            "editor": {
+              "format": "auto"
+            },
+            "editorMode": "code",
+            "gaode": {
+              "key": "",
+              "plugin": "AMap.Scale,AMap.ToolBar"
+            },
+            "getOption": "// Access data from context (Grafana 12)\nconst seriesData = context?.panel?.data?.series;\n\nif (!seriesData || seriesData.length === 0) {\n  return {\n    title: { text: 'No data available', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'No data in selected time range', fontSize: 16, fill: '#999' } }\n  };\n}\n\nconst series = seriesData[0];\nconst fields = series.fields;\nconst variantField = fields.find(function(f) { return f.name === 'variant'; });\nconst actionSetField = fields.find(function(f) { return f.name === 'action_set_id'; });\nconst avgKpiField = fields.find(function(f) { return f.name === 'avg_kpi'; });\nconst uiField = fields.find(function(f) { return f.name === 'ui_name'; });\n\nif (!variantField || !actionSetField || !avgKpiField) {\n  return {\n    title: { text: 'No data available', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'No KPI measurements in selected time range', fontSize: 14, fill: '#999' } }\n  };\n}\n\nconst variants = Array.from(variantField.values.buffer || variantField.values);\nconst actionSets = Array.from(actionSetField.values.buffer || actionSetField.values);\nconst kpis = Array.from(avgKpiField.values.buffer || avgKpiField.values).map(function(v) { return Math.round(v); });\nconst uiNames = uiField ? Array.from(uiField.values.buffer || uiField.values) : [];\n\nif (actionSets.length === 0) {\n  return {\n    title: { text: 'No measurements found', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'Try expanding the time range', fontSize: 14, fill: '#999' } }\n  };\n}\n\nconst uniqueCategories = [];\nconst uniqueVariants = [];\nfor (let i = 0; i < actionSets.length; i++) {\n  if (uniqueCategories.indexOf(actionSets[i]) === -1) uniqueCategories.push(actionSets[i]);\n  if (uniqueVariants.indexOf(variants[i]) === -1) uniqueVariants.push(variants[i]);\n}\n\nconst pivot = {};\nfor (let i = 0; i < actionSets.length; i++) {\n  if (!pivot[variants[i]]) pivot[variants[i]] = {};\n  pivot[variants[i]][actionSets[i]] = kpis[i];\n}\n\n// Per-axis scale: each indicator gets its OWN max so a huge value (e.g. reboot)\n// no longer crushes the small axes. Absolute ms still shown in the tooltip.\nconst catMax = {};\nuniqueCategories.forEach(function(cat) {\n  let m = 0;\n  uniqueVariants.forEach(function(v) {\n    const val = pivot[v] ? pivot[v][cat] : null;\n    if (val != null && !isNaN(val) && val > m) m = val;\n  });\n  catMax[cat] = Math.max(1, Math.ceil(m * 1.2));\n});\n\n// Track which axis the cursor is nearest so the tooltip shows ONE kpi broken\n// down per device (the repartition), not one device across all axes.\n// Bound lazily (the chart instance may not exist at getOption time) and resolved\n// via convertFromPixel (public API), falling back to radar geometry.\nfunction _bindRadarAxis(ctx) {\n  try {\n    const chart = ctx && ctx.panel && ctx.panel.chart;\n    if (!chart || !chart.getZr) return false;\n    if (chart.__radarAxisBound) return true;\n    chart.__radarAxisBound = true;\n    chart.getZr().on('mousemove', function(e) {\n      try {\n        const mx = (e.offsetX != null ? e.offsetX : e.zrX);\n        const my = (e.offsetY != null ? e.offsetY : e.zrY);\n        // 1) public convertFromPixel: radar returns [indicatorIndex, value]\n        try {\n          const r = chart.convertFromPixel({ radarIndex: 0 }, [mx, my]);\n          if (r && r.length && r[0] != null && !isNaN(r[0])) {\n            chart.__radarAxisIdx = Math.round(r[0]);\n            return;\n          }\n        } catch (e1) {}\n        // 2) geometry fallback: nearest indicator by angle around the center\n        const comp = chart.getModel().getComponent('radar');\n        const rc = comp && comp.coordinateSystem;\n        const axes = (rc && rc.getIndicatorAxes) ? rc.getIndicatorAxes() : [];\n        const n = axes.length;\n        if (!rc || !n) { chart.__radarAxisIdx = -1; return; }\n        let cx = rc.cx, cy = rc.cy;\n        if ((cx == null || cy == null) && rc.dataToPoint) {\n          const c = rc.dataToPoint(axes[0].scale.getExtent()[0], 0);\n          if (c) { cx = c[0]; cy = c[1]; }\n        }\n        const mang = Math.atan2(cy - my, mx - cx);\n        let best = -1, bestD = Infinity;\n        for (let i = 0; i < n; i++) {\n          let a = axes[i].angle;\n          if (a == null && rc.dataToPoint) {\n            const ext = axes[i].scale.getExtent();\n            const tip = rc.dataToPoint(ext[1] || 1, i);\n            if (tip) a = Math.atan2(cy - tip[1], tip[0] - cx);\n          }\n          if (a == null) continue;\n          let d = Math.abs(mang - a);\n          d = Math.min(d, Math.PI * 2 - d);\n          if (d < bestD) { bestD = d; best = i; }\n        }\n        chart.__radarAxisIdx = best;\n      } catch (err) { chart.__radarAxisIdx = -1; }\n    });\n    return true;\n  } catch (e) { return false; }\n}\nif (!_bindRadarAxis(context) && typeof setTimeout === 'function') {\n  setTimeout(function() { _bindRadarAxis(context); }, 0);\n  setTimeout(function() { _bindRadarAxis(context); }, 300);\n}\n\nconst palette = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4'];\nconst radarData = uniqueVariants.map(function(variant, idx) {\n  const color = palette[idx % palette.length];\n  const values = uniqueCategories.map(function(cat) {\n    return (pivot[variant] && pivot[variant][cat] != null) ? pivot[variant][cat] : 0;\n  });\n  return {\n    value: values, name: variant, symbol: 'circle', symbolSize: 5,\n    areaStyle: { opacity: 0.2, color: color },\n    lineStyle: { width: 2, color: color },\n    itemStyle: { color: color, borderColor: '#fff', borderWidth: 1 },\n    label: { show: false }\n  };\n});\n\nconst uiLabel = uiNames.length ? uiNames[0] : '';\n\nreturn {\n  title: { text: 'Radar' + (uiLabel ? ' - ' + uiLabel : ''), left: 'center', textStyle: { fontSize: 16 } },\n  tooltip: {\n    trigger: 'item',\n    formatter: function(params) {\n      const chart = (typeof context !== 'undefined' && context && context.panel) ? context.panel.chart : null;\n      const ci = (chart && chart.__radarAxisIdx != null) ? chart.__radarAxisIdx : -1;\n      if (ci >= 0 && ci < uniqueCategories.length) {\n        const cat = uniqueCategories[ci];\n        const rows = uniqueVariants.map(function(v) {\n          const val = (pivot[v] && pivot[v][cat] != null) ? pivot[v][cat] : null;\n          const txt = v + ': ' + (val == null ? '\u2014' : val + ' ms');\n          return (v === params.name) ? ('<b>' + txt + '</b>') : txt;\n        });\n        return '<b>' + cat + '</b><br/>' + rows.join('<br/>');\n      }\n      if (Array.isArray(params.value)) {\n        return '<b>' + (params.name || params.seriesName) + '</b><br/>' + uniqueCategories.map(function(cat, i) {\n          return cat + ': ' + params.value[i] + ' ms';\n        }).join('<br/>');\n      }\n      return (params.name || '') + ': ' + Math.round(params.value) + ' ms';\n    }\n  },\n  legend: { data: uniqueVariants, bottom: 5, textStyle: { color: '#ccc' } },\n  radar: {\n    indicator: uniqueCategories.map(function(cat) { return { name: cat, max: catMax[cat] }; }),\n    radius: '60%', splitNumber: 4,\n    name: { textStyle: { color: '#fff', fontSize: 11 } },\n    splitLine: { lineStyle: { color: ['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.2)'].reverse() } },\n    splitArea: { show: true, areaStyle: { color: ['rgba(255, 255, 255, 0.02)', 'rgba(255, 255, 255, 0.05)'] } },\n    axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.2)' } }\n  },\n  series: [{ name: 'KPI Measurements', type: 'radar', data: radarData }]\n};",
+            "google": {
+              "callback": "gmapReady",
+              "key": ""
+            },
+            "map": "none",
+            "renderer": "canvas",
+            "themeEditor": {
+              "config": "{}",
+              "name": "default"
+            },
+            "visualEditor": {
+              "code": "return {\n  dataset: context.editor.dataset,\n  series: context.editor.series,\n  xAxis: {\n    type: 'time',\n  },\n  yAxis: {\n    type: 'value',\n    min: 'dataMin',\n  },\n}\n",
+              "dataset": [],
+              "series": []
+            }
+          },
+          "pluginVersion": "7.2.5",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT COALESCE(er.variant, 'Base') AS variant, COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS action_set_id, ui.name AS ui_name, ROUND(AVG(er.kpi_measurement_ms)) as avg_kpi FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL (SELECT as_elem->>'label' AS edge_label, as_elem->>'kpi_name' AS kpi_name FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1) thr ON true WHERE er.kpi_measurement_ms IS NOT NULL AND ui.name = 'stb_tv' AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring})) GROUP BY er.variant, er.action_set_id, er.kpi_display_label, ui.name ORDER BY er.action_set_id, COALESCE(er.variant, 'Base')",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "",
+          "type": "volkovlabs-echarts-panel"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 12,
+            "x": 12,
+            "y": 36
+          },
+          "id": 18,
+          "options": {
+            "baidu": {
+              "callback": "bmapReady",
+              "key": ""
+            },
+            "editor": {
+              "format": "auto"
+            },
+            "editorMode": "code",
+            "gaode": {
+              "key": "",
+              "plugin": "AMap.Scale,AMap.ToolBar"
+            },
+            "getOption": "// Access data from context (Grafana 12)\nconst seriesData = context?.panel?.data?.series;\n\nif (!seriesData || seriesData.length === 0) {\n  return {\n    title: { text: 'No data available', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'No data in selected time range', fontSize: 16, fill: '#999' } }\n  };\n}\n\nconst series = seriesData[0];\nconst fields = series.fields;\nconst variantField = fields.find(function(f) { return f.name === 'variant'; });\nconst actionSetField = fields.find(function(f) { return f.name === 'action_set_id'; });\nconst avgKpiField = fields.find(function(f) { return f.name === 'avg_kpi'; });\nconst uiField = fields.find(function(f) { return f.name === 'ui_name'; });\n\nif (!variantField || !actionSetField || !avgKpiField) {\n  return {\n    title: { text: 'No data available', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'No KPI measurements in selected time range', fontSize: 14, fill: '#999' } }\n  };\n}\n\nconst variants = Array.from(variantField.values.buffer || variantField.values);\nconst actionSets = Array.from(actionSetField.values.buffer || actionSetField.values);\nconst kpis = Array.from(avgKpiField.values.buffer || avgKpiField.values).map(function(v) { return Math.round(v); });\nconst uiNames = uiField ? Array.from(uiField.values.buffer || uiField.values) : [];\n\nif (actionSets.length === 0) {\n  return {\n    title: { text: 'No measurements found', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'Try expanding the time range', fontSize: 14, fill: '#999' } }\n  };\n}\n\nconst uniqueCategories = [];\nconst uniqueVariants = [];\nfor (let i = 0; i < actionSets.length; i++) {\n  if (uniqueCategories.indexOf(actionSets[i]) === -1) uniqueCategories.push(actionSets[i]);\n  if (uniqueVariants.indexOf(variants[i]) === -1) uniqueVariants.push(variants[i]);\n}\n\nconst pivot = {};\nfor (let i = 0; i < actionSets.length; i++) {\n  if (!pivot[variants[i]]) pivot[variants[i]] = {};\n  pivot[variants[i]][actionSets[i]] = kpis[i];\n}\n\n// Per-axis scale: each indicator gets its OWN max so a huge value (e.g. reboot)\n// no longer crushes the small axes. Absolute ms still shown in the tooltip.\nconst catMax = {};\nuniqueCategories.forEach(function(cat) {\n  let m = 0;\n  uniqueVariants.forEach(function(v) {\n    const val = pivot[v] ? pivot[v][cat] : null;\n    if (val != null && !isNaN(val) && val > m) m = val;\n  });\n  catMax[cat] = Math.max(1, Math.ceil(m * 1.2));\n});\n\n// Track which axis the cursor is nearest so the tooltip shows ONE kpi broken\n// down per device (the repartition), not one device across all axes.\n// Bound lazily (the chart instance may not exist at getOption time) and resolved\n// via convertFromPixel (public API), falling back to radar geometry.\nfunction _bindRadarAxis(ctx) {\n  try {\n    const chart = ctx && ctx.panel && ctx.panel.chart;\n    if (!chart || !chart.getZr) return false;\n    if (chart.__radarAxisBound) return true;\n    chart.__radarAxisBound = true;\n    chart.getZr().on('mousemove', function(e) {\n      try {\n        const mx = (e.offsetX != null ? e.offsetX : e.zrX);\n        const my = (e.offsetY != null ? e.offsetY : e.zrY);\n        // 1) public convertFromPixel: radar returns [indicatorIndex, value]\n        try {\n          const r = chart.convertFromPixel({ radarIndex: 0 }, [mx, my]);\n          if (r && r.length && r[0] != null && !isNaN(r[0])) {\n            chart.__radarAxisIdx = Math.round(r[0]);\n            return;\n          }\n        } catch (e1) {}\n        // 2) geometry fallback: nearest indicator by angle around the center\n        const comp = chart.getModel().getComponent('radar');\n        const rc = comp && comp.coordinateSystem;\n        const axes = (rc && rc.getIndicatorAxes) ? rc.getIndicatorAxes() : [];\n        const n = axes.length;\n        if (!rc || !n) { chart.__radarAxisIdx = -1; return; }\n        let cx = rc.cx, cy = rc.cy;\n        if ((cx == null || cy == null) && rc.dataToPoint) {\n          const c = rc.dataToPoint(axes[0].scale.getExtent()[0], 0);\n          if (c) { cx = c[0]; cy = c[1]; }\n        }\n        const mang = Math.atan2(cy - my, mx - cx);\n        let best = -1, bestD = Infinity;\n        for (let i = 0; i < n; i++) {\n          let a = axes[i].angle;\n          if (a == null && rc.dataToPoint) {\n            const ext = axes[i].scale.getExtent();\n            const tip = rc.dataToPoint(ext[1] || 1, i);\n            if (tip) a = Math.atan2(cy - tip[1], tip[0] - cx);\n          }\n          if (a == null) continue;\n          let d = Math.abs(mang - a);\n          d = Math.min(d, Math.PI * 2 - d);\n          if (d < bestD) { bestD = d; best = i; }\n        }\n        chart.__radarAxisIdx = best;\n      } catch (err) { chart.__radarAxisIdx = -1; }\n    });\n    return true;\n  } catch (e) { return false; }\n}\nif (!_bindRadarAxis(context) && typeof setTimeout === 'function') {\n  setTimeout(function() { _bindRadarAxis(context); }, 0);\n  setTimeout(function() { _bindRadarAxis(context); }, 300);\n}\n\nconst palette = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4'];\nconst radarData = uniqueVariants.map(function(variant, idx) {\n  const color = palette[idx % palette.length];\n  const values = uniqueCategories.map(function(cat) {\n    return (pivot[variant] && pivot[variant][cat] != null) ? pivot[variant][cat] : 0;\n  });\n  return {\n    value: values, name: variant, symbol: 'circle', symbolSize: 5,\n    areaStyle: { opacity: 0.2, color: color },\n    lineStyle: { width: 2, color: color },\n    itemStyle: { color: color, borderColor: '#fff', borderWidth: 1 },\n    label: { show: false }\n  };\n});\n\nconst uiLabel = uiNames.length ? uiNames[0] : '';\n\nreturn {\n  title: { text: 'Radar' + (uiLabel ? ' - ' + uiLabel : ''), left: 'center', textStyle: { fontSize: 16 } },\n  tooltip: {\n    trigger: 'item',\n    formatter: function(params) {\n      const chart = (typeof context !== 'undefined' && context && context.panel) ? context.panel.chart : null;\n      const ci = (chart && chart.__radarAxisIdx != null) ? chart.__radarAxisIdx : -1;\n      if (ci >= 0 && ci < uniqueCategories.length) {\n        const cat = uniqueCategories[ci];\n        const rows = uniqueVariants.map(function(v) {\n          const val = (pivot[v] && pivot[v][cat] != null) ? pivot[v][cat] : null;\n          const txt = v + ': ' + (val == null ? '\u2014' : val + ' ms');\n          return (v === params.name) ? ('<b>' + txt + '</b>') : txt;\n        });\n        return '<b>' + cat + '</b><br/>' + rows.join('<br/>');\n      }\n      if (Array.isArray(params.value)) {\n        return '<b>' + (params.name || params.seriesName) + '</b><br/>' + uniqueCategories.map(function(cat, i) {\n          return cat + ': ' + params.value[i] + ' ms';\n        }).join('<br/>');\n      }\n      return (params.name || '') + ': ' + Math.round(params.value) + ' ms';\n    }\n  },\n  legend: { data: uniqueVariants, bottom: 5, textStyle: { color: '#ccc' } },\n  radar: {\n    indicator: uniqueCategories.map(function(cat) { return { name: cat, max: catMax[cat] }; }),\n    radius: '60%', splitNumber: 4,\n    name: { textStyle: { color: '#fff', fontSize: 11 } },\n    splitLine: { lineStyle: { color: ['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.2)'].reverse() } },\n    splitArea: { show: true, areaStyle: { color: ['rgba(255, 255, 255, 0.02)', 'rgba(255, 255, 255, 0.05)'] } },\n    axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.2)' } }\n  },\n  series: [{ name: 'KPI Measurements', type: 'radar', data: radarData }]\n};",
+            "google": {
+              "callback": "gmapReady",
+              "key": ""
+            },
+            "map": "none",
+            "renderer": "canvas",
+            "themeEditor": {
+              "config": "{}",
+              "name": "default"
+            },
+            "visualEditor": {
+              "code": "return {\n  dataset: context.editor.dataset,\n  series: context.editor.series,\n  xAxis: {\n    type: 'time',\n  },\n  yAxis: {\n    type: 'value',\n    min: 'dataMin',\n  },\n}\n",
+              "dataset": [],
+              "series": []
+            }
+          },
+          "pluginVersion": "7.2.5",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT COALESCE(NULLIF(CONCAT_WS('-', d.model, d.sw), ''), 'Unknown') AS variant, COALESCE(NULLIF(d.kpi_display_label, ''), NULLIF(d.kpi_name, ''), NULLIF(d.edge_label, ''), d.action_set_id) AS action_set_id, d.ui_name, ROUND(AVG(d.kpi_measurement_ms)) AS avg_kpi FROM (SELECT NULLIF(SPLIT_PART(info.serial, '-', 2), '') AS model, NULLIF(REGEXP_REPLACE(REGEXP_REPLACE(info.software, '^.*?-MON-', ''), '-[0-9]{6,}.*$', ''), '') AS sw, er.device_name, er.action_set_id, er.kpi_display_label, lbl.edge_label, lbl.kpi_name, ui.name AS ui_name, er.kpi_measurement_ms FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL (SELECT as_elem->>'label' AS edge_label, as_elem->>'kpi_name' AS kpi_name FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1) lbl ON true LEFT JOIN LATERAL (SELECT COALESCE(ci.info->>'serial_number_stb', ci.info->>'seriennummer_stb') AS serial, COALESCE(ci.info->>'software_version', ci.info->>'softwareversion') AS software FROM script_results sr LEFT JOIN LATERAL (SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info FROM device_info_overrides o WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')) ci ON true WHERE sr.script_name IN ('get_info', 'device_get_info') AND sr.host_name = er.host_name AND sr.device_name = er.device_name AND COALESCE(ci.info->>'serial_number_stb', ci.info->>'seriennummer_stb') IS NOT NULL ORDER BY sr.started_at DESC LIMIT 1) info ON true WHERE er.kpi_measurement_ms IS NOT NULL AND ui.name = 'stb_tv' AND $__timeFilter(er.executed_at) AND (er.action_set_id IN (${action_set:sqlstring}))) d GROUP BY d.model, d.sw, d.action_set_id, d.kpi_display_label, d.kpi_name, d.edge_label, d.ui_name ORDER BY d.action_set_id, 1",
+              "refId": "A"
+            }
+          ],
+          "title": "",
+          "type": "volkovlabs-echarts-panel"
+        }
+      ],
+      "title": "stb_tv",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 24,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg KPI (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": "^OVER:(.+)$",
+                          "result": {
+                            "color": "red",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      },
+                      {
+                        "options": {
+                          "pattern": "^OK:(.+)$",
+                          "result": {
+                            "color": "green",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "basic",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 80
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Count"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 51
+          },
+          "id": 5,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": false,
+                "displayName": "Variant - Action Set"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS \"Variant - Action Set\",\n  er.device_model AS \"Model\",\n  CASE\n    WHEN COALESCE(MAX(thr.threshold), 0) > 0 AND ROUND(AVG(er.kpi_measurement_ms))::int > MAX(thr.threshold)\n    THEN 'OVER:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n    ELSE 'OK:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n  END AS \"Avg KPI (ms)\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failures\",\n  COUNT(*) FILTER (WHERE er.success AND COALESCE(thr.threshold, 0) > 0 AND er.kpi_measurement_ms > thr.threshold) AS \"Over Threshold\",\n  COALESCE(MAX(thr.threshold), 0) AS \"Threshold (ms)\",\n  COUNT(*) AS \"Count\",\n  ('<a href=\"/grafana/d/kpi-test-report/kpi-test-report?orgId=1&var-user_interface=web_tv&var-variant=' || replace(replace(COALESCE(er.variant, 'Base'), '+', '%2B'), ' ', '%20') || '&var-action_set=' || replace(replace(er.action_set_id, '+', '%2B'), ' ', '%20') || '&var-model=' || replace(replace(COALESCE(er.device_model, 'unknown'), '+', '%2B'), ' ', '%20') || '&from=${__from}&to=${__to}\" target=\"_blank\">link</a>') AS \"Report\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN LATERAL (\n  SELECT (as_elem->>'threshold')::int AS threshold,\n         as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) thr ON true\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND ui.name = 'web_tv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY er.variant, er.action_set_id, er.kpi_display_label, er.device_model\nORDER BY \"Variant - Action Set\" ASC",
+              "refId": "A"
+            }
+          ],
+          "title": "web_tv",
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg KPI (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": "^OVER:(.+)$",
+                          "result": {
+                            "color": "red",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      },
+                      {
+                        "options": {
+                          "pattern": "^OK:(.+)$",
+                          "result": {
+                            "color": "green",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "basic",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 80
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Count"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 61
+          },
+          "id": 28,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": []
+          },
+          "pluginVersion": "12.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS \"Variant - Action Set\",\n  er.device_model AS \"Model\",\n  CASE\n    WHEN COALESCE(MAX(thr.threshold), 0) > 0 AND ROUND(AVG(er.kpi_measurement_ms))::int > MAX(thr.threshold)\n    THEN 'OVER:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n    ELSE 'OK:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n  END AS \"Avg KPI (ms)\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failures\",\n  COUNT(*) FILTER (WHERE er.success AND COALESCE(thr.threshold, 0) > 0 AND er.kpi_measurement_ms > thr.threshold) AS \"Over Threshold\",\n  COALESCE(MAX(thr.threshold), 0) AS \"Threshold (ms)\",\n  COUNT(*) AS \"Count\",\n  ('<a href=\"/grafana/d/kpi-test-report/kpi-test-report?orgId=1&var-user_interface=web_tv&var-variant=' || replace(replace(COALESCE(er.variant, 'Base'), '+', '%2B'), ' ', '%20') || '&var-action_set=' || replace(replace(er.action_set_id, '+', '%2B'), ' ', '%20') || '&var-model=' || replace(replace(COALESCE(er.device_model, 'unknown'), '+', '%2B'), ' ', '%20') || '&from=${__from}&to=${__to}\" target=\"_blank\">link</a>') AS \"Report\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN LATERAL (\n  SELECT (as_elem->>'threshold')::int AS threshold,\n         as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) thr ON true\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND ui.name = 'web_tv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY er.variant, er.action_set_id, er.kpi_display_label, er.device_model\nORDER BY AVG(er.kpi_measurement_ms) DESC\nLIMIT 20",
+              "refId": "A"
+            }
+          ],
+          "title": "web_tv - Top Slowest",
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 0,
+            "y": 71
+          },
+          "id": 17,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "time_series",
+              "rawQuery": true,
+              "rawSql": "SELECT er.executed_at AS time, (COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(thr.kpi_name, ''), NULLIF(thr.edge_label, ''), er.action_set_id)) AS metric, er.kpi_measurement_ms AS value FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL ( SELECT as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1 ) thr ON true WHERE er.kpi_measurement_ms IS NOT NULL AND ui.name = 'web_tv' AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring})) ORDER BY er.executed_at",
+              "refId": "A"
+            }
+          ],
+          "title": "web_tv - KPI Evolution",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 12,
+            "x": 12,
+            "y": 71
+          },
+          "id": 21,
+          "options": {
+            "baidu": {
+              "callback": "bmapReady",
+              "key": ""
+            },
+            "editor": {
+              "format": "auto"
+            },
+            "editorMode": "code",
+            "gaode": {
+              "key": "",
+              "plugin": "AMap.Scale,AMap.ToolBar"
+            },
+            "getOption": "// Access data from context (Grafana 12)\nconst seriesData = context?.panel?.data?.series;\n\nif (!seriesData || seriesData.length === 0) {\n  return {\n    title: { text: 'No data available', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'No data in selected time range', fontSize: 16, fill: '#999' } }\n  };\n}\n\nconst series = seriesData[0];\nconst fields = series.fields;\nconst variantField = fields.find(function(f) { return f.name === 'variant'; });\nconst actionSetField = fields.find(function(f) { return f.name === 'action_set_id'; });\nconst avgKpiField = fields.find(function(f) { return f.name === 'avg_kpi'; });\nconst uiField = fields.find(function(f) { return f.name === 'ui_name'; });\n\nif (!variantField || !actionSetField || !avgKpiField) {\n  return {\n    title: { text: 'No data available', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'No KPI measurements in selected time range', fontSize: 14, fill: '#999' } }\n  };\n}\n\nconst variants = Array.from(variantField.values.buffer || variantField.values);\nconst actionSets = Array.from(actionSetField.values.buffer || actionSetField.values);\nconst kpis = Array.from(avgKpiField.values.buffer || avgKpiField.values).map(function(v) { return Math.round(v); });\nconst uiNames = uiField ? Array.from(uiField.values.buffer || uiField.values) : [];\n\nif (actionSets.length === 0) {\n  return {\n    title: { text: 'No measurements found', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'Try expanding the time range', fontSize: 14, fill: '#999' } }\n  };\n}\n\nconst uniqueCategories = [];\nconst uniqueVariants = [];\nfor (let i = 0; i < actionSets.length; i++) {\n  if (uniqueCategories.indexOf(actionSets[i]) === -1) uniqueCategories.push(actionSets[i]);\n  if (uniqueVariants.indexOf(variants[i]) === -1) uniqueVariants.push(variants[i]);\n}\n\nconst pivot = {};\nfor (let i = 0; i < actionSets.length; i++) {\n  if (!pivot[variants[i]]) pivot[variants[i]] = {};\n  pivot[variants[i]][actionSets[i]] = kpis[i];\n}\n\n// Per-axis scale: each indicator gets its OWN max so a huge value (e.g. reboot)\n// no longer crushes the small axes. Absolute ms still shown in the tooltip.\nconst catMax = {};\nuniqueCategories.forEach(function(cat) {\n  let m = 0;\n  uniqueVariants.forEach(function(v) {\n    const val = pivot[v] ? pivot[v][cat] : null;\n    if (val != null && !isNaN(val) && val > m) m = val;\n  });\n  catMax[cat] = Math.max(1, Math.ceil(m * 1.2));\n});\n\n// Track which axis the cursor is nearest so the tooltip shows ONE kpi broken\n// down per device (the repartition), not one device across all axes.\n// Bound lazily (the chart instance may not exist at getOption time) and resolved\n// via convertFromPixel (public API), falling back to radar geometry.\nfunction _bindRadarAxis(ctx) {\n  try {\n    const chart = ctx && ctx.panel && ctx.panel.chart;\n    if (!chart || !chart.getZr) return false;\n    if (chart.__radarAxisBound) return true;\n    chart.__radarAxisBound = true;\n    chart.getZr().on('mousemove', function(e) {\n      try {\n        const mx = (e.offsetX != null ? e.offsetX : e.zrX);\n        const my = (e.offsetY != null ? e.offsetY : e.zrY);\n        // 1) public convertFromPixel: radar returns [indicatorIndex, value]\n        try {\n          const r = chart.convertFromPixel({ radarIndex: 0 }, [mx, my]);\n          if (r && r.length && r[0] != null && !isNaN(r[0])) {\n            chart.__radarAxisIdx = Math.round(r[0]);\n            return;\n          }\n        } catch (e1) {}\n        // 2) geometry fallback: nearest indicator by angle around the center\n        const comp = chart.getModel().getComponent('radar');\n        const rc = comp && comp.coordinateSystem;\n        const axes = (rc && rc.getIndicatorAxes) ? rc.getIndicatorAxes() : [];\n        const n = axes.length;\n        if (!rc || !n) { chart.__radarAxisIdx = -1; return; }\n        let cx = rc.cx, cy = rc.cy;\n        if ((cx == null || cy == null) && rc.dataToPoint) {\n          const c = rc.dataToPoint(axes[0].scale.getExtent()[0], 0);\n          if (c) { cx = c[0]; cy = c[1]; }\n        }\n        const mang = Math.atan2(cy - my, mx - cx);\n        let best = -1, bestD = Infinity;\n        for (let i = 0; i < n; i++) {\n          let a = axes[i].angle;\n          if (a == null && rc.dataToPoint) {\n            const ext = axes[i].scale.getExtent();\n            const tip = rc.dataToPoint(ext[1] || 1, i);\n            if (tip) a = Math.atan2(cy - tip[1], tip[0] - cx);\n          }\n          if (a == null) continue;\n          let d = Math.abs(mang - a);\n          d = Math.min(d, Math.PI * 2 - d);\n          if (d < bestD) { bestD = d; best = i; }\n        }\n        chart.__radarAxisIdx = best;\n      } catch (err) { chart.__radarAxisIdx = -1; }\n    });\n    return true;\n  } catch (e) { return false; }\n}\nif (!_bindRadarAxis(context) && typeof setTimeout === 'function') {\n  setTimeout(function() { _bindRadarAxis(context); }, 0);\n  setTimeout(function() { _bindRadarAxis(context); }, 300);\n}\n\nconst palette = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4'];\nconst radarData = uniqueVariants.map(function(variant, idx) {\n  const color = palette[idx % palette.length];\n  const values = uniqueCategories.map(function(cat) {\n    return (pivot[variant] && pivot[variant][cat] != null) ? pivot[variant][cat] : 0;\n  });\n  return {\n    value: values, name: variant, symbol: 'circle', symbolSize: 5,\n    areaStyle: { opacity: 0.2, color: color },\n    lineStyle: { width: 2, color: color },\n    itemStyle: { color: color, borderColor: '#fff', borderWidth: 1 },\n    label: { show: false }\n  };\n});\n\nconst uiLabel = uiNames.length ? uiNames[0] : '';\n\nreturn {\n  title: { text: 'Radar' + (uiLabel ? ' - ' + uiLabel : ''), left: 'center', textStyle: { fontSize: 16 } },\n  tooltip: {\n    trigger: 'item',\n    formatter: function(params) {\n      const chart = (typeof context !== 'undefined' && context && context.panel) ? context.panel.chart : null;\n      const ci = (chart && chart.__radarAxisIdx != null) ? chart.__radarAxisIdx : -1;\n      if (ci >= 0 && ci < uniqueCategories.length) {\n        const cat = uniqueCategories[ci];\n        const rows = uniqueVariants.map(function(v) {\n          const val = (pivot[v] && pivot[v][cat] != null) ? pivot[v][cat] : null;\n          const txt = v + ': ' + (val == null ? '\u2014' : val + ' ms');\n          return (v === params.name) ? ('<b>' + txt + '</b>') : txt;\n        });\n        return '<b>' + cat + '</b><br/>' + rows.join('<br/>');\n      }\n      if (Array.isArray(params.value)) {\n        return '<b>' + (params.name || params.seriesName) + '</b><br/>' + uniqueCategories.map(function(cat, i) {\n          return cat + ': ' + params.value[i] + ' ms';\n        }).join('<br/>');\n      }\n      return (params.name || '') + ': ' + Math.round(params.value) + ' ms';\n    }\n  },\n  legend: { data: uniqueVariants, bottom: 5, textStyle: { color: '#ccc' } },\n  radar: {\n    indicator: uniqueCategories.map(function(cat) { return { name: cat, max: catMax[cat] }; }),\n    radius: '60%', splitNumber: 4,\n    name: { textStyle: { color: '#fff', fontSize: 11 } },\n    splitLine: { lineStyle: { color: ['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.2)'].reverse() } },\n    splitArea: { show: true, areaStyle: { color: ['rgba(255, 255, 255, 0.02)', 'rgba(255, 255, 255, 0.05)'] } },\n    axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.2)' } }\n  },\n  series: [{ name: 'KPI Measurements', type: 'radar', data: radarData }]\n};",
+            "google": {
+              "callback": "gmapReady",
+              "key": ""
+            },
+            "map": "none",
+            "renderer": "canvas",
+            "themeEditor": {
+              "config": "{}",
+              "name": "default"
+            },
+            "visualEditor": {
+              "code": "return {\n  dataset: context.editor.dataset,\n  series: context.editor.series,\n  xAxis: {\n    type: 'time',\n  },\n  yAxis: {\n    type: 'value',\n    min: 'dataMin',\n  },\n}\n",
+              "dataset": [],
+              "series": []
+            }
+          },
+          "pluginVersion": "7.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT COALESCE(er.variant, 'Base') AS variant, COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS action_set_id, ui.name AS ui_name, ROUND(AVG(er.kpi_measurement_ms)) as avg_kpi FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL (SELECT as_elem->>'label' AS edge_label, as_elem->>'kpi_name' AS kpi_name FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1) thr ON true WHERE er.kpi_measurement_ms IS NOT NULL AND ui.name = 'web_tv' AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring})) GROUP BY er.variant, er.action_set_id, er.kpi_display_label, ui.name ORDER BY er.action_set_id, COALESCE(er.variant, 'Base')",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "",
+          "type": "volkovlabs-echarts-panel"
+        }
+      ],
+      "title": "web_tv",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 25,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg KPI (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": "^OVER:(.+)$",
+                          "result": {
+                            "color": "red",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      },
+                      {
+                        "options": {
+                          "pattern": "^OK:(.+)$",
+                          "result": {
+                            "color": "green",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "basic",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 80
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Count"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 52
+          },
+          "id": 6,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": false,
+                "displayName": "Variant - Action Set"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS \"Variant - Action Set\",\n  er.device_model AS \"Model\",\n  CASE\n    WHEN COALESCE(MAX(thr.threshold), 0) > 0 AND ROUND(AVG(er.kpi_measurement_ms))::int > MAX(thr.threshold)\n    THEN 'OVER:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n    ELSE 'OK:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n  END AS \"Avg KPI (ms)\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failures\",\n  COUNT(*) FILTER (WHERE er.success AND COALESCE(thr.threshold, 0) > 0 AND er.kpi_measurement_ms > thr.threshold) AS \"Over Threshold\",\n  COALESCE(MAX(thr.threshold), 0) AS \"Threshold (ms)\",\n  COUNT(*) AS \"Count\",\n  ('<a href=\"/grafana/d/kpi-test-report/kpi-test-report?orgId=1&var-user_interface=stb_android_mobile&var-variant=' || replace(replace(COALESCE(er.variant, 'Base'), '+', '%2B'), ' ', '%20') || '&var-action_set=' || replace(replace(er.action_set_id, '+', '%2B'), ' ', '%20') || '&var-model=' || replace(replace(COALESCE(er.device_model, 'unknown'), '+', '%2B'), ' ', '%20') || '&from=${__from}&to=${__to}\" target=\"_blank\">link</a>') AS \"Report\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN LATERAL (\n  SELECT (as_elem->>'threshold')::int AS threshold,\n         as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) thr ON true\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND ui.name = 'stb_android_mobile'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY er.variant, er.action_set_id, er.kpi_display_label, er.device_model\nORDER BY \"Variant - Action Set\" ASC",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_android_mobile",
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg KPI (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": "^OVER:(.+)$",
+                          "result": {
+                            "color": "red",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      },
+                      {
+                        "options": {
+                          "pattern": "^OK:(.+)$",
+                          "result": {
+                            "color": "green",
+                            "text": "$1 ms"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "basic",
+                      "type": "gauge",
+                      "valueDisplayMode": "color"
+                    }
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 1
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 80
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Threshold (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Count"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "auto"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 62
+          },
+          "id": 29,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": []
+          },
+          "pluginVersion": "12.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS \"Variant - Action Set\",\n  er.device_model AS \"Model\",\n  CASE\n    WHEN COALESCE(MAX(thr.threshold), 0) > 0 AND ROUND(AVG(er.kpi_measurement_ms))::int > MAX(thr.threshold)\n    THEN 'OVER:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n    ELSE 'OK:' || ROUND(AVG(er.kpi_measurement_ms))::int::text\n  END AS \"Avg KPI (ms)\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failures\",\n  COUNT(*) FILTER (WHERE er.success AND COALESCE(thr.threshold, 0) > 0 AND er.kpi_measurement_ms > thr.threshold) AS \"Over Threshold\",\n  COALESCE(MAX(thr.threshold), 0) AS \"Threshold (ms)\",\n  COUNT(*) AS \"Count\",\n  ('<a href=\"/grafana/d/kpi-test-report/kpi-test-report?orgId=1&var-user_interface=stb_android_mobile&var-variant=' || replace(replace(COALESCE(er.variant, 'Base'), '+', '%2B'), ' ', '%20') || '&var-action_set=' || replace(replace(er.action_set_id, '+', '%2B'), ' ', '%20') || '&var-model=' || replace(replace(COALESCE(er.device_model, 'unknown'), '+', '%2B'), ' ', '%20') || '&from=${__from}&to=${__to}\" target=\"_blank\">link</a>') AS \"Report\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN LATERAL (\n  SELECT (as_elem->>'threshold')::int AS threshold,\n         as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) thr ON true\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND ui.name = 'stb_android_mobile'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\nGROUP BY er.variant, er.action_set_id, er.kpi_display_label, er.device_model\nORDER BY AVG(er.kpi_measurement_ms) DESC\nLIMIT 20",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_android_mobile - Top Slowest",
+          "type": "table"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 4,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green"
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 12,
+            "x": 0,
+            "y": 72
+          },
+          "id": 16,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "time_series",
+              "rawQuery": true,
+              "rawSql": "SELECT er.executed_at AS time, (COALESCE(er.variant, 'Base') || ' - ' || COALESCE(NULLIF(thr.kpi_name, ''), NULLIF(thr.edge_label, ''), er.action_set_id)) AS metric, er.kpi_measurement_ms AS value FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL ( SELECT as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1 ) thr ON true WHERE er.kpi_measurement_ms IS NOT NULL AND ui.name = 'stb_android_mobile' AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring})) ORDER BY er.executed_at",
+              "refId": "A"
+            }
+          ],
+          "title": "stb_android_mobile - KPI Evolution",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {},
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 12,
+            "x": 12,
+            "y": 72
+          },
+          "id": 20,
+          "options": {
+            "baidu": {
+              "callback": "bmapReady",
+              "key": ""
+            },
+            "editor": {
+              "format": "auto"
+            },
+            "editorMode": "code",
+            "gaode": {
+              "key": "",
+              "plugin": "AMap.Scale,AMap.ToolBar"
+            },
+            "getOption": "// Access data from context (Grafana 12)\nconst seriesData = context?.panel?.data?.series;\n\nif (!seriesData || seriesData.length === 0) {\n  return {\n    title: { text: 'No data available', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'No data in selected time range', fontSize: 16, fill: '#999' } }\n  };\n}\n\nconst series = seriesData[0];\nconst fields = series.fields;\nconst variantField = fields.find(function(f) { return f.name === 'variant'; });\nconst actionSetField = fields.find(function(f) { return f.name === 'action_set_id'; });\nconst avgKpiField = fields.find(function(f) { return f.name === 'avg_kpi'; });\nconst uiField = fields.find(function(f) { return f.name === 'ui_name'; });\n\nif (!variantField || !actionSetField || !avgKpiField) {\n  return {\n    title: { text: 'No data available', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'No KPI measurements in selected time range', fontSize: 14, fill: '#999' } }\n  };\n}\n\nconst variants = Array.from(variantField.values.buffer || variantField.values);\nconst actionSets = Array.from(actionSetField.values.buffer || actionSetField.values);\nconst kpis = Array.from(avgKpiField.values.buffer || avgKpiField.values).map(function(v) { return Math.round(v); });\nconst uiNames = uiField ? Array.from(uiField.values.buffer || uiField.values) : [];\n\nif (actionSets.length === 0) {\n  return {\n    title: { text: 'No measurements found', left: 'center' },\n    graphic: { type: 'text', left: 'center', top: 'middle',\n      style: { text: 'Try expanding the time range', fontSize: 14, fill: '#999' } }\n  };\n}\n\nconst uniqueCategories = [];\nconst uniqueVariants = [];\nfor (let i = 0; i < actionSets.length; i++) {\n  if (uniqueCategories.indexOf(actionSets[i]) === -1) uniqueCategories.push(actionSets[i]);\n  if (uniqueVariants.indexOf(variants[i]) === -1) uniqueVariants.push(variants[i]);\n}\n\nconst pivot = {};\nfor (let i = 0; i < actionSets.length; i++) {\n  if (!pivot[variants[i]]) pivot[variants[i]] = {};\n  pivot[variants[i]][actionSets[i]] = kpis[i];\n}\n\n// Per-axis scale: each indicator gets its OWN max so a huge value (e.g. reboot)\n// no longer crushes the small axes. Absolute ms still shown in the tooltip.\nconst catMax = {};\nuniqueCategories.forEach(function(cat) {\n  let m = 0;\n  uniqueVariants.forEach(function(v) {\n    const val = pivot[v] ? pivot[v][cat] : null;\n    if (val != null && !isNaN(val) && val > m) m = val;\n  });\n  catMax[cat] = Math.max(1, Math.ceil(m * 1.2));\n});\n\n// Track which axis the cursor is nearest so the tooltip shows ONE kpi broken\n// down per device (the repartition), not one device across all axes.\n// Bound lazily (the chart instance may not exist at getOption time) and resolved\n// via convertFromPixel (public API), falling back to radar geometry.\nfunction _bindRadarAxis(ctx) {\n  try {\n    const chart = ctx && ctx.panel && ctx.panel.chart;\n    if (!chart || !chart.getZr) return false;\n    if (chart.__radarAxisBound) return true;\n    chart.__radarAxisBound = true;\n    chart.getZr().on('mousemove', function(e) {\n      try {\n        const mx = (e.offsetX != null ? e.offsetX : e.zrX);\n        const my = (e.offsetY != null ? e.offsetY : e.zrY);\n        // 1) public convertFromPixel: radar returns [indicatorIndex, value]\n        try {\n          const r = chart.convertFromPixel({ radarIndex: 0 }, [mx, my]);\n          if (r && r.length && r[0] != null && !isNaN(r[0])) {\n            chart.__radarAxisIdx = Math.round(r[0]);\n            return;\n          }\n        } catch (e1) {}\n        // 2) geometry fallback: nearest indicator by angle around the center\n        const comp = chart.getModel().getComponent('radar');\n        const rc = comp && comp.coordinateSystem;\n        const axes = (rc && rc.getIndicatorAxes) ? rc.getIndicatorAxes() : [];\n        const n = axes.length;\n        if (!rc || !n) { chart.__radarAxisIdx = -1; return; }\n        let cx = rc.cx, cy = rc.cy;\n        if ((cx == null || cy == null) && rc.dataToPoint) {\n          const c = rc.dataToPoint(axes[0].scale.getExtent()[0], 0);\n          if (c) { cx = c[0]; cy = c[1]; }\n        }\n        const mang = Math.atan2(cy - my, mx - cx);\n        let best = -1, bestD = Infinity;\n        for (let i = 0; i < n; i++) {\n          let a = axes[i].angle;\n          if (a == null && rc.dataToPoint) {\n            const ext = axes[i].scale.getExtent();\n            const tip = rc.dataToPoint(ext[1] || 1, i);\n            if (tip) a = Math.atan2(cy - tip[1], tip[0] - cx);\n          }\n          if (a == null) continue;\n          let d = Math.abs(mang - a);\n          d = Math.min(d, Math.PI * 2 - d);\n          if (d < bestD) { bestD = d; best = i; }\n        }\n        chart.__radarAxisIdx = best;\n      } catch (err) { chart.__radarAxisIdx = -1; }\n    });\n    return true;\n  } catch (e) { return false; }\n}\nif (!_bindRadarAxis(context) && typeof setTimeout === 'function') {\n  setTimeout(function() { _bindRadarAxis(context); }, 0);\n  setTimeout(function() { _bindRadarAxis(context); }, 300);\n}\n\nconst palette = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4'];\nconst radarData = uniqueVariants.map(function(variant, idx) {\n  const color = palette[idx % palette.length];\n  const values = uniqueCategories.map(function(cat) {\n    return (pivot[variant] && pivot[variant][cat] != null) ? pivot[variant][cat] : 0;\n  });\n  return {\n    value: values, name: variant, symbol: 'circle', symbolSize: 5,\n    areaStyle: { opacity: 0.2, color: color },\n    lineStyle: { width: 2, color: color },\n    itemStyle: { color: color, borderColor: '#fff', borderWidth: 1 },\n    label: { show: false }\n  };\n});\n\nconst uiLabel = uiNames.length ? uiNames[0] : '';\n\nreturn {\n  title: { text: 'Radar' + (uiLabel ? ' - ' + uiLabel : ''), left: 'center', textStyle: { fontSize: 16 } },\n  tooltip: {\n    trigger: 'item',\n    formatter: function(params) {\n      const chart = (typeof context !== 'undefined' && context && context.panel) ? context.panel.chart : null;\n      const ci = (chart && chart.__radarAxisIdx != null) ? chart.__radarAxisIdx : -1;\n      if (ci >= 0 && ci < uniqueCategories.length) {\n        const cat = uniqueCategories[ci];\n        const rows = uniqueVariants.map(function(v) {\n          const val = (pivot[v] && pivot[v][cat] != null) ? pivot[v][cat] : null;\n          const txt = v + ': ' + (val == null ? '\u2014' : val + ' ms');\n          return (v === params.name) ? ('<b>' + txt + '</b>') : txt;\n        });\n        return '<b>' + cat + '</b><br/>' + rows.join('<br/>');\n      }\n      if (Array.isArray(params.value)) {\n        return '<b>' + (params.name || params.seriesName) + '</b><br/>' + uniqueCategories.map(function(cat, i) {\n          return cat + ': ' + params.value[i] + ' ms';\n        }).join('<br/>');\n      }\n      return (params.name || '') + ': ' + Math.round(params.value) + ' ms';\n    }\n  },\n  legend: { data: uniqueVariants, bottom: 5, textStyle: { color: '#ccc' } },\n  radar: {\n    indicator: uniqueCategories.map(function(cat) { return { name: cat, max: catMax[cat] }; }),\n    radius: '60%', splitNumber: 4,\n    name: { textStyle: { color: '#fff', fontSize: 11 } },\n    splitLine: { lineStyle: { color: ['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0.2)'].reverse() } },\n    splitArea: { show: true, areaStyle: { color: ['rgba(255, 255, 255, 0.02)', 'rgba(255, 255, 255, 0.05)'] } },\n    axisLine: { lineStyle: { color: 'rgba(255, 255, 255, 0.2)' } }\n  },\n  series: [{ name: 'KPI Measurements', type: 'radar', data: radarData }]\n};",
+            "google": {
+              "callback": "gmapReady",
+              "key": ""
+            },
+            "map": "none",
+            "renderer": "canvas",
+            "themeEditor": {
+              "config": "{}",
+              "name": "default"
+            },
+            "visualEditor": {
+              "code": "return {\n  dataset: context.editor.dataset,\n  series: context.editor.series,\n  xAxis: {\n    type: 'time',\n  },\n  yAxis: {\n    type: 'value',\n    min: 'dataMin',\n  },\n}\n",
+              "dataset": [],
+              "series": []
+            }
+          },
+          "pluginVersion": "7.1.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT COALESCE(er.variant, 'Base') AS variant, COALESCE(NULLIF(er.kpi_display_label, ''), NULLIF(MAX(thr.kpi_name), ''), NULLIF(MAX(thr.edge_label), ''), er.action_set_id) AS action_set_id, ui.name AS ui_name, ROUND(AVG(er.kpi_measurement_ms)) as avg_kpi FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL (SELECT as_elem->>'label' AS edge_label, as_elem->>'kpi_name' AS kpi_name FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1) thr ON true WHERE er.kpi_measurement_ms IS NOT NULL AND ui.name = 'stb_android_mobile' AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring})) GROUP BY er.variant, er.action_set_id, er.kpi_display_label, ui.name ORDER BY er.action_set_id, COALESCE(er.variant, 'Base')",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "",
+          "type": "volkovlabs-echarts-panel"
+        }
+      ],
+      "title": "stb_android_mobile",
+      "type": "row"
+    },
+    {
+      "type": "row",
+      "collapsed": true,
+      "title": "Details",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 14
+      },
+      "id": 901,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "KPI Time (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "color",
+                    "value": {
+                      "mode": "thresholds"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "green",
+                          "value": true
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Script Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "KPI Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 14,
+            "w": 24,
+            "x": 0,
+            "y": 50
+          },
+          "id": 8,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Executed At"
+              }
+            ]
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT er.executed_at as \"Executed At\", er.host_name as \"Roboter\", er.device_name as \"Device\", ui.name as \"User Interface\", COALESCE(er.variant, 'Base') as \"Variant\", er.is_test as \"Is Test\", er.action_set_id as \"Action Set ID\", COALESCE(NULLIF(thr.kpi_name, ''), NULLIF(thr.edge_label, ''), er.action_set_id) as \"KPI Name\", er.device_model as \"Device Model\", nt.name as \"Tree Name\", er.kpi_measurement_ms as \"KPI Time (ms)\", er.kpi_measurement_success as \"Success\", er.kpi_measurement_error as \"Error\", CASE WHEN sr.html_report_r2_url IS NOT NULL THEN '<a href=\"' || sr.html_report_r2_url || '\" target=\"_blank\">link</a>' END AS \"Script Report\", CASE WHEN er.kpi_report_url IS NOT NULL THEN '<a href=\"' || er.kpi_report_url || '\" target=\"_blank\">link</a>' END AS \"KPI Report\" FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND ('${environment:csv}' = '' OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = execution_results.script_result_id AND sr_env.environment = ANY(string_to_array('${environment:csv}', ','))))) er LEFT JOIN script_results sr ON er.script_result_id = sr.id LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL ( SELECT as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1 ) thr ON true WHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL) AND $__timeFilter(er.executed_at) AND (ui.name IN (${user_interface:sqlstring})) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring})) ORDER BY er.executed_at DESC",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Details",
+          "type": "table"
+        }
+      ]
+    }
+  ],
+  "preload": false,
+  "refresh": "5m",
+  "schemaVersion": 42,
+  "tags": [
+    "kpi",
+    "performance",
+    "measurement",
+    "navigation"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "User Interface",
+        "multi": true,
+        "name": "user_interface",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT ui.name FROM execution_results er LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id WHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL) AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) ORDER BY ui.name",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "Run scope. Empty = base run (no --variant). Each variant aggregates separately on edge_metrics \u2014 'All' shows combined volume across scopes.",
+        "includeAll": true,
+        "label": "Variant",
+        "multi": true,
+        "name": "variant",
+        "options": [
+          {
+            "selected": false,
+            "text": "Base",
+            "value": "Base"
+          },
+          {
+            "selected": false,
+            "text": "stb",
+            "value": "stb"
+          }
+        ],
+        "refresh": 2,
+        "query": "SELECT 'Base' AS variant UNION SELECT name FROM userinterface_variants UNION SELECT DISTINCT variant FROM execution_results WHERE variant IS NOT NULL ORDER BY variant",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "Device model (execution_results.device_model).",
+        "includeAll": true,
+        "label": "Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT COALESCE(device_model, 'unknown') AS model FROM execution_results WHERE kpi_measurement_ms IS NOT NULL OR kpi_measurement_success IS NOT NULL ORDER BY 1",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "STB hardware model derived from device_get_info serial. Filters the stb_tv radar.",
+        "includeAll": true,
+        "label": "STB Model",
+        "multi": true,
+        "name": "stb_model",
+        "options": [],
+        "query": "SELECT DISTINCT SPLIT_PART(serial, '-', 2) AS model FROM (SELECT COALESCE(metadata->'info'->>'serial_number_stb', metadata->'info'->>'seriennummer_stb') AS serial FROM script_results WHERE script_name IN ('get_info', 'device_get_info') AND COALESCE(metadata->'info'->>'serial_number_stb', metadata->'info'->>'seriennummer_stb') IS NOT NULL) t ORDER BY model",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "STB software build derived from device_get_info software_version (the PRD-..-AL core). Filters the stb_tv radar.",
+        "includeAll": true,
+        "label": "Software Version",
+        "multi": true,
+        "name": "software",
+        "options": [],
+        "query": "SELECT DISTINCT REGEXP_REPLACE(REGEXP_REPLACE(software, '^.*?-MON-', ''), '-[0-9]{6,}.*$', '') AS sw FROM (SELECT COALESCE(metadata->'info'->>'software_version', metadata->'info'->>'softwareversion') AS software FROM script_results WHERE script_name IN ('get_info', 'device_get_info') AND COALESCE(metadata->'info'->>'software_version', metadata->'info'->>'softwareversion') IS NOT NULL) t WHERE software LIKE '%-MON-%' ORDER BY sw",
+        "refresh": 2,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Action Set",
+        "multi": true,
+        "name": "action_set",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT COALESCE(NULLIF(MAX(lbl.kpi_name), ''), NULLIF(MAX(lbl.edge_label), ''), er.action_set_id) AS __text, er.action_set_id AS __value FROM execution_results er LEFT JOIN LATERAL (SELECT as_elem->>'kpi_name' AS kpi_name, as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1) lbl ON true WHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL) AND $__timeFilter(er.executed_at) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) GROUP BY er.action_set_id ORDER BY __text",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "options": [],
+        "query": "Dev : dev,Test : test,Prod : prod",
+        "refresh": 1,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "Filter by device tags set on the Device page",
+        "includeAll": true,
+        "allValue": "__ALL__",
+        "label": "Tag",
+        "multi": true,
+        "name": "flag",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "KPI Measurement",
+  "uid": "kpi-measurement-dashboard",
+  "version": 27
+}

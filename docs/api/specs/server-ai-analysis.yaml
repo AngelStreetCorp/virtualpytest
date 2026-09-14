@@ -1,0 +1,383 @@
+openapi: 3.0.0
+info:
+  title: SERVER - AI & Analysis
+  version: 1.0.0
+  description: AI-powered test generation and analysis
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: host_name
+    value: 'backend_host_1'
+    description: Host name
+  - key: device_id
+    value: 'device_001'
+    description: Device identifier
+  - key: userinterface_name
+    value: 'example_mobile'
+    description: User interface name
+  - key: task_id
+    value: 'task_abc123'
+    description: Task identifier
+  - key: ai_prompt
+    value: 'Navigate to settings and verify WiFi option'
+    description: AI prompt text
+paths:
+  /server/ai/analyzeCompatibility:
+    post:
+      summary: Analyze AI Task Compatibility
+      description: Analyze compatibility between AI task prompt and available device capabilities
+      tags: [AI]
+      parameters:
+        - name: team_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Team identifier (optional)
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - prompt
+                - host_name
+              properties:
+                prompt:
+                  type: string
+                  description: AI task prompt to analyze
+                host_name:
+                  type: string
+                  description: Host name where AI task will run
+                device_id:
+                  type: string
+                  description: Device identifier (optional)
+                userinterface_name:
+                  type: string
+                  description: User interface name (optional)
+            example:
+              prompt: "{{ai_prompt}}"
+              host_name: "{{host_name}}"
+              device_id: "{{device_id}}"
+              userinterface_name: "{{userinterface_name}}"
+      responses:
+        '200':
+          description: Compatibility analysis result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  compatible:
+                    type: boolean
+                  analysis:
+                    type: object
+        '400':
+          description: Bad request - missing required fields
+  /server/ai/generatePlan:
+    post:
+      summary: Generate AI Execution Plan
+      description: Generate a step-by-step execution plan from AI prompt
+      tags: [AI]
+      parameters:
+        - name: team_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Team identifier (optional)
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - prompt
+                - host_name
+              properties:
+                prompt:
+                  type: string
+                  description: AI task prompt
+                  example: "{{ai_prompt}}"
+                host_name:
+                  type: string
+                  description: Host name where AI task will run
+                  example: "{{host_name}}"
+                device_id:
+                  type: string
+                  description: Device identifier (optional)
+                  example: "device1"
+                userinterface_name:
+                  type: string
+                  description: User interface name (optional)
+                  example: "{{userinterface_name}}"
+      responses:
+        '200':
+          description: Generated execution plan
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  plan:
+                    type: object
+                  steps:
+                    type: array
+                    items:
+                      type: object
+        '400':
+          description: Bad request - missing required fields
+  /server/ai/getStatus:
+    post:
+      summary: Get AI Execution Status
+      description: Get the current status of an AI task execution
+      tags: [AI]
+      parameters:
+        - name: team_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Team identifier (optional)
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - task_id
+                - host_name
+              properties:
+                task_id:
+                  type: string
+                  description: AI task identifier
+                  example: "{{task_id}}"
+                host_name:
+                  type: string
+                  description: Host name where AI task is running
+                  example: "{{host_name}}"
+                device_id:
+                  type: string
+                  description: Device identifier (optional)
+                  example: "device1"
+      responses:
+        '200':
+          description: AI execution status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  status:
+                    type: string
+                    enum: [pending, running, completed, failed]
+                  result:
+                    type: object
+        '400':
+          description: Bad request - missing required fields
+  /server/ai/stopExecution:
+    post:
+      summary: Stop AI Execution
+      description: Stop a running AI task execution
+      tags: [AI]
+      parameters:
+        - name: team_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Team identifier (optional)
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - task_id
+                - host_name
+              properties:
+                task_id:
+                  type: string
+                  description: AI task identifier to stop
+                  example: "{{task_id}}"
+                host_name:
+                  type: string
+                  description: Host name where AI task is running
+                  example: "{{host_name}}"
+                device_id:
+                  type: string
+                  description: Device identifier (optional)
+                  example: "device1"
+      responses:
+        '200':
+          description: Execution stopped successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          description: Bad request - missing required fields
+  /server/ai/analyzePrompt:
+    post:
+      summary: Analyze Prompt for Disambiguation
+      description: Pre-analyze AI prompt to detect ambiguities and suggest clarifications
+      tags: [AI]
+      parameters:
+        - name: team_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Team identifier (optional)
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - prompt
+                - host_name
+              properties:
+                prompt:
+                  type: string
+                  description: AI prompt to analyze
+                  example: "{{ai_prompt}}"
+                host_name:
+                  type: string
+                  description: Host name for analysis context
+                  example: "{{host_name}}"
+                device_id:
+                  type: string
+                  description: Device identifier (optional)
+                  example: "device1"
+                userinterface_name:
+                  type: string
+                  description: User interface name (optional)
+                  example: "{{userinterface_name}}"
+      responses:
+        '200':
+          description: Prompt analysis with disambiguation suggestions
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  ambiguities:
+                    type: array
+                    items:
+                      type: object
+                  suggestions:
+                    type: array
+                    items:
+                      type: string
+        '400':
+          description: Bad request - missing required fields
+  /server/ai/resetCache:
+    post:
+      summary: Reset AI Graph Cache
+      description: Clear all cached AI-generated graphs for a team
+      tags: [AI]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - host_name
+              properties:
+                host_name:
+                  type: string
+                  description: Host name for cache invalidation
+                  example: "{{host_name}}"
+      responses:
+        '200':
+          description: Cache cleared successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  deleted_count:
+                    type: integer
+        '400':
+          description: Bad request - missing host_name or team_id

@@ -1,0 +1,54 @@
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] Started stdout capture for logs
+[@testcase_executor] ========== INITIALIZING SCRIPT INPUTS & VARIABLES ==========
+[@testcase_executor] Initializing 4 script inputs...
+[@testcase_executor]   ✓ device_model_name = android_mobile (string)
+[@testcase_executor]   ✓ host_name = benchmark-host (string)
+[@testcase_executor]   ✓ device_name = device1 (string)
+[@testcase_executor]   ✓ userinterface_name = sample-mobile (string)
+[@testcase_executor] Initializing 1 script variables...
+[@testcase_executor]   ✓ info =  (default for string)
+[@testcase_executor] ========================================================
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] Executing test case...
+[@testcase_executor] Found edge: start --[success-hitarea]--> 57981e38-5563-453f-a656-3d0a4c265b98
+[@testcase_executor] Found edge: 57981e38-5563-453f-a656-3d0a4c265b98 --[success]--> ea704592-4d48-48d5-a627-7f8773a9c712
+[@testcase_executor] Found edge: ea704592-4d48-48d5-a627-7f8773a9c712 --[success]--> 32f876e3-b49c-4457-bd05-95f9f2f6a50f
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] ✅ Stored block outputs for 32f876e3-b49c-4457-bd05-95f9f2f6a50f: ['parsed_data', 'raw_dump', 'element_count']
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] 🔗 Updated variable 'info' = {...} (from block 32f876e3... output 'parsed_data')
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] 🔍 _update_linked_metadata: Checking 1 metadata fields for block 32f876e3...
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226]   🔍 Metadata 'info': sourceBlockId=32f876e3..., sourceOutputName=info
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226]   ✅ Block ID matches! Checking output 'info'...
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226]   📋 Updated metadata 'info' = {...} (from variable 'info')
+[@testcase_executor] Found edge: 32f876e3-b49c-4457-bd05-95f9f2f6a50f --[success]--> success
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] ✅ REACHED SUCCESS BLOCK - about to resolve metadata
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] 🔍 DEBUG: block_outputs before resolution:
+  - type: <class 'dict'>
+  - keys: ['32f876e3-b49c-4457-bd05-95f9f2f6a50f']
+  - 32f876e3-b49c-4457-bd05-95f9f2f6a50f: ['parsed_data', 'raw_dump', 'element_count']
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] 🔄 Calling _resolve_script_outputs_and_metadata...
+[@testcase_executor] ========== RESOLVING SCRIPT OUTPUTS & METADATA ==========
+[@testcase_executor] 🔍 DEBUG: scriptConfig content:
+  - outputs: []
+  - metadata: {'fields': [{'name': 'info', 'sourceBlockId': '32f876e3-b49c-4457-bd05-95f9f2f6a50f', 'sourceOutputName': 'info', 'sourceOutputType': 'string'}], 'mode': 'append'}
+[@testcase_executor] Resolving 1 metadata fields (mode: append)...
+[@testcase_executor]   ✗ info = None (not found)
+[@testcase_executor] Metadata mode 'append': added 0 fields
+[@testcase_executor] ========== RESOLUTION COMPLETE ==========
+[@testcase_executor] Script Outputs: {}
+[@testcase_executor] Metadata: {'info': {'Build': '0.0.0-sample', 'Device': 'sample Android handset', 'OS': 'Android 14 (SDK 34)', 'Video_Player': '1.2.0', 'Conviva': 'synthetic', 'Connection_Type': 'WiFi - (N/A)', 'Customer_HH': 'SYNTHETIC_HOUSEHOLD_0001', 'Mqtt_Broker_Status': 'CONNECTED', 'Device_IP': '192.0.2.29', 'CPE_ID': 'SYNTHETIC-CPE-0001', 'Mqtt_Cpe_Status': 'Unknown', 'Last_MQTT_status_check': 'No Attempt', 'OV': '5.4.2', 'OV_Engine_State': 'UNKNOWN_STATE', 'OV_Power_Status': 'OKAY', 'OV_Network_Status': 'OKAY', 'OV_Disk_Status': 'OKAY', 'OV_Download_Enabled': 'true'}}
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] ✅ Metadata resolution completed
+[@testcase_executor:3ec09d45-cd61-4a23-b49c-61524baec226] Generating execution report...
+📸 [TC_APP_01_GetDeviceInfo] Capturing final state screenshot...
+[HDMI]: Capture folder: /var/www/html/stream/capture1/hot/captures
+[HDMI]: File selected - checked: 15, recent: 15, using age: 0.03s
+📸 [Context] add_screenshot called: capture_000040107.jpg (total: 14)
+   └─ Call stack: device_utils.py:63 in capture_screenshot_for_script ← testcase_executor.py:629 in _execute_testcase_async_worker ← threading.py:975 in run
+✅ [TC_APP_01_GetDeviceInfo] Final screenshot captured: final_state
+🎥 [TC_APP_01_GetDeviceInfo] Capturing test execution video...
+📹 [HDMI] Capturing test video for report...
+   Duration needed: 27.8s
+   Test start: 14:44:19
+✅ [HDMI] Test video created: /var/www/html/stream/capture1/hot/test_video.mp4 (0.4MB)
+✅ [TC_APP_01_GetDeviceInfo] Test execution video captured: /var/www/html/stream/capture1/hot/test_video.mp4
+📤 [Context] Batch uploading 14 screenshots to R2...
+✅ [Context] Uploaded 9/14 screenshots to R2
+📋 [Context] Built mapping with 9 local->R2 URL pairs

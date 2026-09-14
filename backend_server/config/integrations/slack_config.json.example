@@ -1,0 +1,9 @@
+{
+  "enabled": true,
+  "bot_token": "xoxb-your-bot-token-here",
+  "workspace_id": "T1234567890",
+  "channel_id": "C1234567890",
+  "sync_tool_calls": false,
+  "sync_thinking": false
+}
+

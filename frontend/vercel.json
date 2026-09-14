@@ -1,0 +1,10 @@
+{
+  "routes": [
+    { "src": "/assets/(.*)", "dest": "/assets/$1" },
+    { "src": "/server/(.*)", "dest": "/server/$1" },
+    { "src": "/host/(.*)", "dest": "/host/$1" },
+    { "src": "/websockify/(.*)", "dest": "/websockify/$1" },
+    { "src": "/(.*)\\.(.+)", "dest": "/$1.$2" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}

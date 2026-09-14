@@ -1,0 +1,444 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Results & Reporting
+  version: 1.0.0
+  description: Script results, campaign results, execution history, alerts, and heatmap history
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: script_result_id
+    value: 'script_result_123'
+    description: Script result identifier
+  - key: alert_id
+    value: 'alert_123'
+    description: Alert identifier
+paths:
+  /server/script-results/getAllScriptResults:
+    get:
+      summary: List Script Results
+      tags: [Script Results]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Script results list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/script-results/getVerificationReviewMarkdown/{script_result_id}:
+    get:
+      summary: Get Verification Review Markdown
+      tags: [Script Results]
+      parameters:
+        - name: script_result_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Script result identifier
+        - name: team_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional team scope validation
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Markdown review pack
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Script result not found
+        '502':
+          description: Markdown fetch failed
+  /server/script-results/updateCheckedStatus/{script_result_id}:
+    put:
+      summary: Update Script Result Checked Status
+      tags: [Script Results]
+      parameters:
+        - name: script_result_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                checked:
+                  type: boolean
+                check_type:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Script result not found
+  /server/script-results/updateDiscardStatus/{script_result_id}:
+    put:
+      summary: Update Script Result Discard Status
+      tags: [Script Results]
+      parameters:
+        - name: script_result_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                discard:
+                  type: boolean
+                discard_comment:
+                  type: string
+                check_type:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Script result not found
+  /server/campaign-results/getAllCampaignResults:
+    get:
+      summary: List Campaign Results
+      tags: [Campaign Results]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Campaign results list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/execution-results/getAllExecutionResults:
+    get:
+      summary: List Execution Results
+      tags: [Execution Results]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Execution results list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/alerts/getAllAlerts:
+    get:
+      summary: List All Alerts
+      tags: [Alerts]
+      parameters:
+        - name: host_name
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional host filter
+        - name: device_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional device filter
+        - name: incident_type
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional incident type filter
+        - name: active_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Limit for active alerts
+        - name: resolved_limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Limit for resolved alerts
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Full alert list
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/alerts/getActiveAlerts:
+    get:
+      summary: List Active Alerts
+      tags: [Alerts]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Active alerts
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/alerts/getClosedAlerts:
+    get:
+      summary: List Closed Alerts
+      tags: [Alerts]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Closed alerts
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/alerts/updateCheckedStatus/{alert_id}:
+    put:
+      summary: Update Alert Checked Status
+      tags: [Alerts]
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                checked:
+                  type: boolean
+                check_type:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Alert not found
+  /server/alerts/updateDiscardStatus/{alert_id}:
+    put:
+      summary: Update Alert Discard Status
+      tags: [Alerts]
+      parameters:
+        - name: alert_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                discard:
+                  type: boolean
+                discard_comment:
+                  type: string
+                check_type:
+                  type: string
+      responses:
+        '200':
+          description: Status updated
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Alert not found
+  /server/alerts/deleteAllAlerts:
+    delete:
+      summary: Delete All Alerts
+      tags: [Alerts]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Alerts deleted
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/heatmap/history:
+    get:
+      summary: Get Heatmap History
+      tags: [Heatmap]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Heatmap history
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/heatmap/generateReport:
+    post:
+      summary: Generate Heatmap Report
+      tags: [Heatmap]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Heatmap report request accepted
+          content:
+            application/json:
+              schema:
+                type: object

@@ -1,0 +1,69 @@
+# Environment files should NOT be copied into Docker images
+# Use Render environment variables or docker-compose env_file instead
+.env
+.env.*
+*.env
+backend_host/src/.env
+backend_host/src/.env.*
+
+# Development files
+.git
+.gitignore
+.cursor
+*.md
+README.md
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+*.egg-info/
+build/
+dist/
+
+# Logs
+*.log
+nohup.out
+
+# Frontend (not needed in backend images)
+frontend/
+
+# Test files
+tests/
+*_test.py
+test_*.py
+
+# Documentation
+docs/
+
+# Grafana database (exclude from all locations)
+backend_server/config/grafana/grafana.db*
+grafana/data/grafana.db*
+grafana/data/*.db
+
+# Grafana datasource template (will be generated dynamically from SUPABASE_DB_URI)
+grafana/config/provisioning/datasources/supabase.yaml
+
+# Database backups
+setup/db/backup/
+
+# Git backup
+.cursor/mcp_backup.json
+

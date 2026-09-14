@@ -1,0 +1,257 @@
+// Navigation utility functions for data manipulation and validation
+
+/**
+ * Calculate confidence score from last run results (0-1 scale)
+ */
+export function calculateConfidenceScore(results?: boolean[]): number {
+  if (!results || results.length === 0) return 0.5; // Default confidence for new actions
+  const successCount = results.filter((result) => result).length;
+  return successCount / results.length;
+}
+
+/**
+ * Update last run results (keeps last 10 results)
+ */
+export function updateLastRunResults(results: boolean[], newResult: boolean): boolean[] {
+  const updatedResults = [newResult, ...results];
+  return updatedResults.slice(0, 10); // Keep only last 10 results
+}
+
+/**
+ * Create a delay promise for waiting between actions
+ */
+export function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Validate navigation tree structure
+ */
+export function validateNavigationTreeStructure(treeData: any): boolean {
+  if (!treeData || typeof treeData !== 'object') {
+    return false;
+  }
+
+  // Check for required properties
+  if (!Array.isArray(treeData.nodes) || !Array.isArray(treeData.edges)) {
+    return false;
+  }
+
+  // Validate nodes structure
+  for (const node of treeData.nodes) {
+    if (!node.id || !node.data || typeof node.position !== 'object') {
+      return false;
+    }
+  }
+
+  // Validate edges structure
+  for (const edge of treeData.edges) {
+    if (!edge.id || !edge.source || !edge.target) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Find node by ID in a tree
+ */
+export function findNodeById(nodes: any[], nodeId: string): any | null {
+  return nodes.find((node) => node.id === nodeId) || null;
+}
+
+/**
+ * Get all parent nodes for a given node
+ */
+export function getParentNodes(nodes: any[], edges: any[], nodeId: string): any[] {
+  const parentEdges = edges.filter((edge) => edge.target === nodeId);
+  return parentEdges.map((edge) => findNodeById(nodes, edge.source)).filter(Boolean);
+}
+
+/**
+ * Get all child nodes for a given node
+ */
+export function getChildNodes(nodes: any[], edges: any[], nodeId: string): any[] {
+  const childEdges = edges.filter((edge) => edge.source === nodeId);
+  return childEdges.map((edge) => findNodeById(nodes, edge.target)).filter(Boolean);
+}
+
+/**
+ * Check if a node is reachable from another node
+ */
+export function isNodeReachable(edges: any[], fromNodeId: string, toNodeId: string): boolean {
+  if (fromNodeId === toNodeId) return true;
+
+  const visited = new Set<string>();
+  const queue = [fromNodeId];
+
+  while (queue.length > 0) {
+    const currentNodeId = queue.shift()!;
+
+    if (visited.has(currentNodeId)) continue;
+    visited.add(currentNodeId);
+
+    if (currentNodeId === toNodeId) return true;
+
+    // Add all connected nodes to queue
+    const connectedEdges = edges.filter((edge) => edge.source === currentNodeId);
+    for (const edge of connectedEdges) {
+      if (!visited.has(edge.target)) {
+        queue.push(edge.target);
+      }
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Get the depth of a node in the tree (distance from root)
+ */
+export function getNodeDepth(nodes: any[], edges: any[], nodeId: string): number {
+  const rootNodes = nodes.filter((node) => node.data?.is_root);
+  if (rootNodes.length === 0) return 0;
+
+  let minDepth = Infinity;
+
+  for (const rootNode of rootNodes) {
+    const depth = calculateDepthFromNode(edges, rootNode.id, nodeId, new Set());
+    if (depth !== -1) {
+      minDepth = Math.min(minDepth, depth);
+    }
+  }
+
+  return minDepth === Infinity ? 0 : minDepth;
+}
+
+/**
+ * Helper function to calculate depth from a specific node
+ */
+function calculateDepthFromNode(
+  edges: any[],
+  fromNodeId: string,
+  toNodeId: string,
+  visited: Set<string>,
+): number {
+  if (fromNodeId === toNodeId) return 0;
+  if (visited.has(fromNodeId)) return -1; // Cycle detected
+
+  visited.add(fromNodeId);
+
+  const childEdges = edges.filter((edge) => edge.source === fromNodeId);
+  let minDepth = Infinity;
+
+  for (const edge of childEdges) {
+    const depth = calculateDepthFromNode(edges, edge.target, toNodeId, new Set(visited));
+    if (depth !== -1) {
+      minDepth = Math.min(minDepth, depth + 1);
+    }
+  }
+
+  return minDepth === Infinity ? -1 : minDepth;
+}
+
+/**
+ * Generate a unique ID for new nodes/edges
+ */
+export function generateUniqueId(prefix: string = 'node'): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+}
+
+/**
+ * Flip a drawn handle's role (-source ↔ -target) while keeping the SIDE of the
+ * node it sits on. Needed when a draw goes AGAINST an existing edge row's
+ * stored source→target direction: the drawn source handle becomes the row's
+ * target handle and vice-versa. Maps to the valid opposite-role id per side
+ * (Navigation_NavigationNode renders exactly one source and one target handle
+ * per side; the top/bottom ones have asymmetric "menu" ids, so a naive suffix
+ * swap would mint an invalid id that ReactFlow silently drops).
+ */
+export function flipHandleRole(handle: string | null | undefined): string | undefined {
+  if (!handle) return undefined;
+  const toTarget = handle.endsWith('-source');
+  if (!toTarget && !handle.endsWith('-target')) return undefined; // unknown shape
+  const h = handle.toLowerCase();
+  if (toTarget) {
+    if (h.includes('top')) return 'top-right-menu-target';
+    if (h.includes('bottom')) return 'bottom-left-menu-target';
+    if (h.includes('left')) return 'left-target';
+    if (h.includes('right')) return 'right-target';
+  } else {
+    if (h.includes('top')) return 'top-left-menu-source';
+    if (h.includes('bottom')) return 'bottom-right-menu-source';
+    if (h.includes('left')) return 'left-source';
+    if (h.includes('right')) return 'right-source';
+  }
+  return undefined;
+}
+
+/**
+ * Handles an existing (bidirectional) edge row should carry so the line touches
+ * the exact sides the user just drew. The draw may go against the row's stored
+ * source→target direction — then each drawn handle keeps its side but flips its
+ * role. Returns null when the drawn handles are unknown or already match the row
+ * (nothing to change).
+ */
+export function reanchorEdgeToDrawnHandles(
+  edge: { source: string; sourceHandle?: string | null; targetHandle?: string | null },
+  connection: { source?: string | null; sourceHandle?: string | null; targetHandle?: string | null },
+): { sourceHandle: string; targetHandle: string } | null {
+  const sameDirection = edge.source === connection.source;
+  const nextSourceHandle = sameDirection
+    ? connection.sourceHandle || undefined
+    : flipHandleRole(connection.targetHandle);
+  const nextTargetHandle = sameDirection
+    ? connection.targetHandle || undefined
+    : flipHandleRole(connection.sourceHandle);
+  if (!nextSourceHandle || !nextTargetHandle) return null;
+  if (nextSourceHandle === edge.sourceHandle && nextTargetHandle === edge.targetHandle) return null;
+  return { sourceHandle: nextSourceHandle, targetHandle: nextTargetHandle };
+}
+
+/**
+ * Sanitize node/edge data for saving
+ */
+export function sanitizeTreeData(treeData: any): any {
+  if (!treeData) return { nodes: [], edges: [] };
+
+  return {
+    nodes: Array.isArray(treeData.nodes) ? treeData.nodes.map(sanitizeNode) : [],
+    edges: Array.isArray(treeData.edges) ? treeData.edges.map(sanitizeEdge) : [],
+  };
+}
+
+/**
+ * Sanitize individual node data
+ */
+function sanitizeNode(node: any): any {
+  return {
+    id: node.id || generateUniqueId('node'),
+    type: node.type || 'default',
+    position: {
+      x: typeof node.position?.x === 'number' ? node.position.x : 0,
+      y: typeof node.position?.y === 'number' ? node.position.y : 0,
+    },
+    data: {
+      ...node.data,
+      label: node.data?.label || 'Untitled Node',
+    },
+  };
+}
+
+/**
+ * Sanitize individual edge data
+ */
+function sanitizeEdge(edge: any): any {
+  // final_wait_time + threshold live per-direction on each action_set entry.
+  return {
+    id: edge.id || generateUniqueId('edge'),
+    source: edge.source,
+    target: edge.target,
+    type: edge.type || 'navigation',
+    data: {
+      ...edge.data,
+    },
+  };
+}

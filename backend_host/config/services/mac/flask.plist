@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.virtualpytest.flask</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>@PYTHON_EXE@</string>
+        <string>@BACKEND_HOST_PATH@/src/app.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@BACKEND_HOST_PATH@/src</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONPATH</key>
+        <string>@SHARED_PATH@:@BACKEND_HOST_PATH@/src</string>
+        <key>PATH</key>
+        <string>@VENV_PATH@/bin:/usr/local/bin:/usr/bin:/bin</string>
+        <key>FLASK_ENV</key>
+        <string>production</string>
+        <key>LC_CTYPE</key>
+        <string>UTF-8</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>UserName</key>
+    <string>vpt_user</string>
+    <key>StandardOutPath</key>
+    <string>@LOGS_PATH@/flask.log</string>
+    <key>StandardErrorPath</key>
+    <string>@LOGS_PATH@/flask_error.log</string>
+</dict>
+</plist>

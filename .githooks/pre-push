@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+#
+# VirtualPyTest pre-push hook — runs the leak gate on exactly what this push would send.
+#
+# Why pre-push and not pre-commit: a commit is cheap to amend, a push is what actually
+# leaves the machine, and git hands the hook the precise (remote-sha .. local-sha) range,
+# so the scan is both complete and fast. Committing stays friction-free.
+#
+# Activated by: git config core.hooksPath .githooks  (done by bootstrap.sh)
+# Bypass (say why in the PR):  LEAK_GATE_SKIP=1 git push
+#
+# git passes "<local ref> <local sha> <remote ref> <remote sha>" lines on stdin.
+
+set -uo pipefail
+
+if [[ -n "${LEAK_GATE_SKIP:-}" ]]; then
+  echo "pre-push: leak gate SKIPPED (LEAK_GATE_SKIP set)" >&2
+  exit 0
+fi
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+GATE="${REPO_ROOT}/scripts/security/leak_gate.sh"
+[[ -x "$GATE" ]] || exit 0   # partial checkout — nothing to enforce
+
+ZERO='0000000000000000000000000000000000000000'
+status=0
+
+while read -r _local_ref local_sha _remote_ref remote_sha; do
+  # Branch deletion: nothing being sent.
+  [[ "$local_sha" == "$ZERO" ]] && continue
+
+  if [[ "$remote_sha" == "$ZERO" ]]; then
+    # New branch on the remote. Scanning every commit back to the root would re-flag the
+    # whole history (which the TASK-14 snapshot handles instead), so scan from where this
+    # branch left the default branch.
+    base="$(git merge-base "$local_sha" origin/main 2>/dev/null || true)"
+    range="${base:+${base}..${local_sha}}"
+    [[ -z "$range" ]] && continue
+  else
+    range="${remote_sha}..${local_sha}"
+  fi
+
+  "$GATE" --range "$range" || status=1
+done
+
+exit $status

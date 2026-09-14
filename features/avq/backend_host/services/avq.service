@@ -1,0 +1,35 @@
+# NOTE: This is a template file for reference only.
+# Installed as vpt-avq.service by setup/local/linux/backend_host/install_service.sh avq
+# (picked up automatically by install_host.sh when features/avq is deployed,
+# see docs/technical/FEATURES.md).
+
+[Unit]
+Description=VirtualPyTest Audio/Video Quality Monitor (AVQ)
+After=network.target vpt-stream.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=%PROJECT_ROOT%/features/avq/backend_host
+Environment=PYTHONPATH=%PROJECT_ROOT%/shared/lib:%PROJECT_ROOT%/backend_host/src
+Environment=PATH=%PROJECT_ROOT%/venv/bin:/usr/bin:/usr/local/bin
+ExecStart=%PROJECT_ROOT%/venv/bin/python %PROJECT_ROOT%/features/avq/backend_host/avq_monitor.py
+TimeoutStopSec=10
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+# Low priority — AVQ must never starve the realtime capture/detection path.
+# On shared-core Pis keep it off core 0 (see docs/agent/CPU_PARTITIONING.md).
+Nice=15
+CPUWeight=20
+CPUQuota=40%
+
+# Security
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

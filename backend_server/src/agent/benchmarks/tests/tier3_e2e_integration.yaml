@@ -1,0 +1,83 @@
+# Tier 3: E2E Integration Benchmark Tests
+# Full validation - Can the agent complete the sauce-demo gold standard?
+# Run time: ~5 minutes
+# Pass = Agent is PRODUCTION READY
+
+category: e2e_integration
+description: End-to-end integration test using sauce-demo as gold standard
+
+tests:
+  - id: e2e_001
+    name: Sauce Demo Full Automation
+    description: |
+      Complete sauce-demo automation workflow:
+      1. Get compatible host/device
+      2. Start AI exploration
+      3. Approve exploration plan
+      4. Validate edges
+      5. Create requirement
+      6. Create test case
+      7. Verify coverage
+    prompt: |
+      Automate the sauce-demo userinterface following this process:
+      
+      1. First, get the compatible hosts for sauce-demo userinterface
+      2. Start an AI exploration for sauce-demo with the prompt "Build e-commerce navigation"
+      3. Approve the exploration plan including: login, signup, cart, product_detail
+      4. Validate the exploration edges
+      5. Create one requirement: "User can login with valid credentials"
+      6. Create one test case for the login requirement
+      7. Get the coverage summary to verify the test case covers the requirement
+      
+      Report what you accomplished at each step.
+    expected:
+      contains: ["host", "exploration", "node", "requirement", "testcase", "coverage"]
+    validation: contains
+    timeout: 300
+    points: 10.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: e2e_002
+    name: Navigation Tree Validation
+    description: Verify navigation tree has expected structure after automation
+    prompt: |
+      For the sauce-demo userinterface, verify the navigation tree:
+      1. List all nodes in the navigation tree
+      2. Confirm we have at least these nodes: home, login, signup, cart
+      3. List the edges connecting these nodes
+      4. Report the total count of nodes and edges
+    expected:
+      contains: ["node", "edge", "home", "login"]
+    validation: contains
+    timeout: 120
+    points: 5.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  - id: e2e_003
+    name: Coverage Validation
+    description: Verify test coverage reaches 100% for created requirements
+    prompt: |
+      Check the test coverage for sauce-demo:
+      1. List all requirements
+      2. List all test cases
+      3. Get the coverage summary
+      4. Identify any uncovered requirements
+      5. Report the coverage percentage
+    expected:
+      contains: ["requirement", "testcase", "coverage", "percent"]
+    validation: contains_any
+    timeout: 90
+    points: 5.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+

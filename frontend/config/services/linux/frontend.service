@@ -1,0 +1,36 @@
+[Unit]
+Description=VirtualPyTest Frontend Service (Vite Dev Server)
+Documentation=https://vitejs.dev/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=/opt/virtualpytest/frontend
+Environment="PATH=/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin"
+Environment="NODE_ENV=development"
+Environment="FORCE_COLOR=1"
+
+# Reload systemd in case the service file was updated via code sync
+ExecStartPre=+/usr/bin/systemctl daemon-reload
+
+# Start frontend
+ExecStart=/usr/bin/npm run dev
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+
+# Resource limits
+TimeoutStartSec=60
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vpt-frontend
+
+[Install]
+WantedBy=multi-user.target

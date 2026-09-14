@@ -1,0 +1,46 @@
+[Unit]
+Description=VirtualPyTest Frontend Service (Production)
+Documentation=https://github.com/vercel/serve
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=/opt/virtualpytest/frontend
+Environment="PATH=/opt/virtualpytest/venv/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/home/vpt_user/.local/bin"
+Environment="NODE_ENV=production"
+# Frontend VM has 1.9GB RAM; the default V8 heap ceiling on that box is too
+# low for `vite build`'s post-bundle gzip-size reporting on this app's ~2.5MB
+# main chunk and aborts with an OOM crash. Raise it explicitly so the build
+# doesn't depend on Restart=on-failure retrying into a luckier memory state.
+Environment="NODE_OPTIONS=--max-old-space-size=1536"
+
+# Reload systemd in case the service file was updated via code sync
+ExecStartPre=+/usr/bin/systemctl daemon-reload
+
+# Build with automatic prebuild (generates API docs, security reports, copies to public/)
+# npm prebuild hook runs: scripts/prebuild.sh → generate_api_docs.py + generate-security-docs.sh + copy-docs.sh
+ExecStartPre=/usr/bin/npm run build
+
+# Serve the built dist folder on port 5073
+ExecStart=/usr/bin/npm run start
+
+# Restart policy
+Restart=on-failure
+RestartSec=10
+
+# Resource limits (prebuild + vite build can take up to 120s with doc generation)
+# ExecStartPre runs the production build (docs generation + Vite). On a 4-vCPU machine the
+# first build takes 10-20 min; a shorter timeout makes systemd kill and restart it forever.
+TimeoutStartSec=1800
+TimeoutStopSec=30
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vpt-frontend-prod
+
+[Install]
+WantedBy=multi-user.target

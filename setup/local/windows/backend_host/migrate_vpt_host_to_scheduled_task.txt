@@ -1,0 +1,97 @@
+$ErrorActionPreference = "Stop"
+
+$projectRoot = "C:\virtualpytest\virtualpytest"
+$scriptDir = Join-Path $projectRoot "backend_host\scripts"
+$wrapperPath = Join-Path $scriptDir "host_wrapper.ps1"
+$taskName = "vpt-host"
+
+if (-not (Test-Path $wrapperPath)) {
+    throw "Missing wrapper file: $wrapperPath. Pull the latest code first."
+}
+
+Write-Host "Stopping/removing old NSSM service if present..."
+try { Stop-Service -Name $taskName -ErrorAction SilentlyContinue } catch {}
+try { & nssm remove $taskName confirm | Out-Null } catch {}
+try { sc.exe delete $taskName | Out-Null } catch {}
+
+Write-Host "Resolving active console user..."
+$consoleLine = query user | Select-String 'console\s+\d+\s+Active' | Select-Object -First 1
+if (-not $consoleLine) {
+    throw "No active console session found. Log into the Windows desktop and run this again."
+}
+$consoleUser = ($consoleLine.ToString() -split '\s+')[1]
+if (-not $consoleUser) {
+    throw "Could not determine console username."
+}
+
+$psExe = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+
+Write-Host "Registering scheduled task..."
+$xml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>VirtualPyTest host API - run in interactive session for visible browser automation</Description>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>$consoleUser</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>999</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>$psExe</Command>
+      <Arguments>-NoProfile -ExecutionPolicy Bypass -File `"$wrapperPath`"</Arguments>
+      <WorkingDirectory>$scriptDir</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
+"@
+
+try { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue | Out-Null } catch {}
+Register-ScheduledTask -TaskName $taskName -Xml $xml -Force | Out-Null
+
+Write-Host "Starting scheduled task..."
+Start-ScheduledTask -TaskName $taskName
+
+Write-Host ""
+Write-Host "Verification:"
+Get-ScheduledTask -TaskName $taskName | Select-Object TaskName, State
+Get-ScheduledTaskInfo -TaskName $taskName | Select-Object LastRunTime, LastTaskResult
+Write-Host ""
+Write-Host "Recent logs:"
+Get-Content "C:\virtualpytest\logs\host.log" -Tail 40 -ErrorAction SilentlyContinue
+Get-Content "C:\virtualpytest\logs\host_error.log" -Tail 40 -ErrorAction SilentlyContinue
+Write-Host ""
+Write-Host "Port check:"
+netstat -ano | findstr :6109

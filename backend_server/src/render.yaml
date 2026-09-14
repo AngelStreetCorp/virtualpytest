@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: virtualpytest-backend-server
+    env: docker
+    dockerfilePath: ./backend_server/Dockerfile
+    dockerContext: .
+    plan: free
+    region: oregon
+    branch: dev
+    envVars:
+      - key: PYTHONPATH
+        value: /opt/render/project/src:/opt/render/project
+      - key: SERVER_PORT
+        value: 80
+      - key: DEBUG
+        value: false
+      - key: RENDER
+        value: true
+      # Add other environment variables as needed in Render dashboard
+      # - key: GITHUB_TOKEN
+      #   sync: false  # Set this in Render dashboard for security
+      # - key: SERVER_URL
+      #   value: https://your-app-name.onrender.com 

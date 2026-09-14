@@ -1,0 +1,11 @@
+{
+  "name": "cicd",
+  "description": "CI/CD: white-box + grey-box results of every project (virtualpytest, sample-app, …) from the dedicated `cicd` schema, the CI/CD Reports page under Test → Report, the Run CI/CD page under Test → Execute (GitHub workflow_dispatch on a self-hosted LAN runner or a GitHub-hosted cloud runner), the /server/cicd API and the 'CI/CD Quality' Grafana dashboard. Black-box device runs stay in the core VirtualPyTest tables.",
+  "parts": [
+    "backend_server",
+    "frontend",
+    "grafana",
+    "lib",
+    "db"
+  ]
+}

@@ -1,0 +1,50 @@
+name: script-management
+version: 1.0.0
+description: List and execute Python scripts on devices
+
+triggers:
+  - list scripts
+  - show scripts
+  - available scripts
+  - run script
+  - execute script
+
+system_prompt: |
+  Manage scripts: list, create and execute
+
+  Naming convention: SC_<CAT>_<NUM>_<CamelCase> (e.g., SC_AUTH_01_LoginFlow)
+
+  CRITICAL:
+   - Call get_compatible_hosts only if host_name, device_id not available in current message or conversation history
+   - Do NOT call list_scripts if script_name is clearly specified in the current user message
+
+tools:
+  - list_scripts
+  - get_compatible_hosts
+  - execute_script
+
+# Tool-specific caching configuration
+tool_cache:
+  # Discovery tools - cache aggressively
+  list_scripts:
+    enabled: true
+    ttl_seconds: 300        # 5 minutes - scripts don't change often
+    prompt_cache: true
+  
+  get_compatible_hosts:
+    enabled: true
+    ttl_seconds: 120        # 2 minutes - hosts may come/go
+    prompt_cache: false
+  
+  # Execution - NEVER cache
+  execute_script:
+    enabled: false
+
+required_context:
+  - available_devices
+  - host_name
+  - device_id
+
+platform: null
+requires_device: true
+timeout_seconds: 3600

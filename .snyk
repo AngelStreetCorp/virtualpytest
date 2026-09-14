@@ -1,0 +1,142 @@
+# Snyk (https://snyk.io) policy file.
+#
+# Applied twice:
+#   1. by the Snyk CLI when `snyk code test` runs from the repo root, and
+#   2. by scripts/parse-security-to-html.py, which drops matching findings from the
+#      committed dashboard (docs/security/index.html) and shows them as "ignored".
+# Paths are relative to the repo root.
+version: v1.25.0
+ignore:
+  # Snyk flags "unsanitized input flows into the return value" on every Flask route
+  # that ends in `return jsonify(...)`. jsonify sets Content-Type: application/json,
+  # which browsers never render as HTML, so the response cannot carry a reflected XSS.
+  # Only the files below (all-JSON proxy routes) are ignored; routes that really return
+  # text/html (navigation tree export, api-testing report, security docs, host stream
+  # index) are deliberately NOT listed so a real finding there still surfaces.
+  'python/XSS':
+    - 'backend_host/src/routes/host_av_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/auto_proxy.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_actions_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_ai_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_builder_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_campaign_execution_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_campaign_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_control_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_desktop_bash_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_desktop_pyautogui_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_device_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_monitoring_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_navigation_execution_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_navigation_trees_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_power_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_remote_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_restart_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_script_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_stream_proxy_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_system_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_testcase_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_translation_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_web_routes.py':
+        reason: JSON-only responses (jsonify) — not rendered as HTML
+        created: 2026-09-07T00:00:00.000Z
+  # Path sinks guarded by realpath/abspath containment checks the scanner does not model.
+  # Each entry names ONE file; re-review when a new PT finding appears in the same file.
+  'python/PT':
+    - 'backend_host/src/routes/host_av_routes.py':
+        reason: /images?path= goes through resolveImageFilePath (realpath + allow-listed roots); other PT sinks in the file use secure_filename
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_script_routes.py':
+        reason: script_name resolved by get_script_path (abspath containment under the scripts dir, raises otherwise)
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_system_routes.py':
+        reason: storage_path resolved by _resolve_storage_path (realpath under STORAGE_SOURCE_ROOTS) and the /source/* routes require an admin JWT
+        created: 2026-09-07T00:00:00.000Z
+  # Screenshot URL comes from our own takeScreenshot response; a relative URL is absolutised
+  # only against an allow-listed Host (own SERVER_URL / MCP_PUBLIC_HOSTS), else SERVER_URL.
+  'python/Ssrf':
+    - 'backend_server/src/mcp/utils/screenshot_capture.py':
+        reason: URL is server-generated (host takeScreenshot result); Host header only trusted when it is one of our own hostnames
+        created: 2026-09-07T00:00:00.000Z
+  # extractall() is preceded by a per-member path check (absolute / '..' / outside dest rejected).
+  'python/TarSlip':
+    - 'backend_server/src/routes/server_system_routes.py':
+        reason: _safe_extract_zip rejects absolute and '..' members before extractall
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_userinterface_routes.py':
+        reason: _safe_extract checks every member resolves under dest_dir before extractall
+        created: 2026-09-07T00:00:00.000Z
+  # Executable comes from shutil.which()/PATH on our own images; list-args, no shell.
+  'python/CommandInjection':
+    - 'shared/src/lib/utils/network_utils.py':
+        reason: speedtest binary located with shutil.which, run as list-args without a shell; PATH is operator-controlled
+        created: 2026-09-07T00:00:00.000Z
+    - 'shared/src/lib/utils/browser_window_utils.py':
+        reason: xrandr located with shutil.which, run as list-args without a shell
+        created: 2026-09-07T00:00:00.000Z
+  # 'Access-Control-Allow-Origin: *' on responses that carry no credentials: the host/server
+  # authenticate with an API-key/JWT header, never cookies, so a wildcard origin cannot be
+  # used to ride a victim's session. The assets (stream files, screenshots, builder
+  # previews) are fetched cross-origin by the frontend by design.
+  'python/TooPermissiveCors':
+    - 'backend_host/src/routes/host_av_routes.py':
+        reason: credential-free image/screenshot responses consumed cross-origin by the frontend
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_host/src/routes/host_builder_routes.py':
+        reason: credential-free builder preview responses consumed cross-origin by the frontend
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_host/src/routes/host_stream_routes.py':
+        reason: public HLS/stream static files, no credentials
+        created: 2026-09-07T00:00:00.000Z
+    - 'backend_server/src/routes/server_monitoring_routes.py':
+        reason: proxied monitoring image bytes, no credentials; host_ip allow-listed
+        created: 2026-09-07T00:00:00.000Z
+  # Services must listen on the LAN interface (same rationale as Bandit B104 in bandit.yaml).
+  'python/BindToAllNetworkInterfaces':
+    - 'shared/src/lib/utils/app_utils.py':
+        reason: Flask services intentionally bind 0.0.0.0 behind nginx / LAN firewall
+        created: 2026-09-07T00:00:00.000Z
+patch: {}

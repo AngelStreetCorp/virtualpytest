@@ -1,0 +1,37 @@
+# Persistent per-adapter BLE HID remote daemon (template unit).
+#
+# Replaces the old transient `systemd-run --property=Restart=always` launch
+# that start.sh/resume.sh used. Transient units + Restart=always raced the
+# stop/relaunch that every re-pair performs, producing a ~12s storm of
+#   hid-remote-hciN.service: Failed to open /run/systemd/transient/...: No such file
+# while systemd retried restarting a unit whose file the stop had already
+# deleted (BLUETOOTH.md §6.7.25). A persistent unit file never disappears, so
+# `systemctl restart hid-remote@hciN` is an atomic, race-free stop->start.
+#
+# Per-adapter runtime env (HID_REMOTE_ADAPTER / HID_REMOTE_KEYMAP /
+# HID_REMOTE_SKIP_ADV) is written by start.sh/resume.sh to the EnvironmentFile
+# below just before the restart, so the same template serves every adapter and
+# the advertising mode stays a per-launch decision (no code branching).
+#
+# Instance %i is the adapter (e.g. hci0). Started/stopped by start.sh,
+# resume.sh, and the boot unit ble-remote@.service via `systemctl`.
+
+[Unit]
+Description=BLE HID remote daemon (%i)
+After=bluetooth.service
+# A bluetoothd restart wipes our D-Bus GATT registration while we keep
+# running — keys then vanish with zero errors (BLUETOOTH.md §6.7.28).
+# PartOf propagates explicit `systemctl restart bluetooth` to us; the
+# in-daemon org.bluez owner watch covers crash-restarts. Disable the
+# start limit so that self-heal exit can never trip it.
+PartOf=bluetooth.service
+StartLimitIntervalSec=0
+
+[Service]
+EnvironmentFile=/run/vpt-ble/hid-remote-%i.env
+ExecStart=/usr/bin/python3 %PROJECT_ROOT%/backend_host/src/controllers/remote/bluetooth/hid_remote.py
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

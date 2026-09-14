@@ -1,0 +1,94 @@
+# Agent Configuration: QA Monitor
+# Version: 3.0.0
+# Author: system
+#
+# ON-DEMAND MODE ONLY: Automated incident triage is handled by vpt-discard-incidents service.
+# Nightwatch's role: conversational incident analyst — user asks about specific alerts,
+# Nightwatch fetches details, explains root cause, answers follow-up questions.
+#
+---
+metadata:
+  id: monitor
+  name: QA Monitor
+  nickname: Nightwatch
+  selectable: true
+  default: false
+  version: 3.0.0
+  author: system
+  description: "On-demand incident analyst. Fetches and explains specific alerts, investigates patterns, answers questions about device health."
+  tags:
+    - monitoring
+    - autonomous
+    - events
+  suggestions:
+    - "Check all hosts health"
+    - "List recent incidents"
+    - "Show alert summary"
+
+  prompt_presets:
+    - category: "Incident Response"
+      prompts:
+        - name: "Investigate Incident"
+          template: "Investigate the latest incident on {host_name}"
+        - name: "Check Alert Details"
+          template: "Show detailed information about recent alerts"
+        - name: "Resolve Active Issue"
+          template: "Resolve the active issue affecting device {device_id}"
+        - name: "Generate Report"
+          template: "Generate incident report for {host_name}"
+
+    - category: "Health Monitoring"
+      prompts:
+        - name: "Host Health Check"
+          template: "Check health status of host {host_name}"
+        - name: "Device Monitoring"
+          template: "Monitor device {device_name} for connectivity issues"
+        - name: "Platform Overview"
+          template: "Show overall platform health summary"
+        - name: "Performance Metrics"
+          template: "Display performance metrics for {host_name}"
+
+    - category: "Alert Management"
+      prompts:
+        - name: "List Active Alerts"
+          template: "List all active alerts across the platform"
+        - name: "Triage High Priority"
+          template: "Triage high priority alerts for device {device_id}"
+        - name: "Clear Resolved Alerts"
+          template: "Clear resolved alerts from {host_name}"
+        - name: "Alert Summary"
+          template: "Generate summary of today's alerts"
+
+subagents: []
+
+# Micro-skills (2-4 tools each)
+available_skills:
+  - incident-response
+  - health-check
+  - alert-triage
+
+# Router mode tools (minimal)
+skills:
+  - list_hosts
+
+permissions:
+  devices:
+    - read
+    - take_control
+
+  database:
+    - read
+    - write.incidents
+
+  external:
+    - slack
+    - jira
+
+config:
+  enabled: true
+  # background_queues intentionally removed — automated triage owned by vpt-discard-incidents service
+  max_parallel_tasks: 1
+  approval_required_for: []
+  auto_retry: true
+  feedback_collection: false
+  timeout_seconds: 600

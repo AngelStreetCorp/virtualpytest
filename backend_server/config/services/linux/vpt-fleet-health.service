@@ -1,0 +1,40 @@
+# NOTE: This is a template file for reference only.
+# Install on the server VM (192.168.x.103) — the fleet report must run
+# INSIDE the infra because Cloudflare blocks scripted API calls on
+# virtualpytest.angelstreet.io (see docs/tasks/TASK-04-daily-fleet-health-report.md).
+#
+# One-time install:
+#   sudo cp vpt-fleet-health.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now vpt-fleet-health.timer
+
+[Unit]
+Description=VirtualPyTest Daily Fleet Health Report (GOAL-04)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=/opt/virtualpytest
+# .env provides AUTO_SIGN_TOKEN, AI provider keys, and the MINIO_* storage vars
+# (cloudflare_utils falls back to MinIO when CLOUDFLARE_R2_* is absent — same
+# path the heatmap uses; verified working on this VM's env 2026-07-15).
+# Never edit .env by hand on the VM — it is distributed via storage + update_core.sh.
+EnvironmentFile=/opt/virtualpytest/.env
+Environment=PYTHONPATH=/opt/virtualpytest
+Environment=PATH=/opt/virtualpytest/venv/bin:/usr/bin:/usr/local/bin
+ExecStartPre=/usr/bin/mkdir -p /opt/virtualpytest/reports/fleet-health
+ExecStart=/opt/virtualpytest/venv/bin/python scripts/fleet_health_report.py \
+    --servers http://localhost:5109,https://rpitest.angelstreet.io \
+    --ai --upload-r2 \
+    --output /opt/virtualpytest/reports/fleet-health/
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vpt-fleet-health
+
+# Security
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

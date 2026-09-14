@@ -1,0 +1,50 @@
+# NOTE: This is a template file for reference only.
+# Use setup/local/linux/backend_host/install_host.sh to generate the actual service file
+# with correct dynamic paths for your system.
+# Renamed from: backend-host.service → flask.service → host.service (installed as vpt-host.service)
+
+[Unit]
+Description=VirtualPyTest Host Server (Hardware Interface)
+# Wait for real connectivity (IP/route/DNS), not just "networking is starting".
+# On a cold reboot network.target fires before DHCP/DNS settle, so the startup
+# DB connectivity check in validate_core_environment hits httpx.ConnectTimeout
+# and the service exits 1 (recovered only slowly via Restart=always). Depending
+# on network-online.target (pulls in NetworkManager-wait-online) removes that race.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=/opt/virtualpytest/backend_host/src
+Environment=PYTHONPATH=/opt/virtualpytest/shared/lib:/opt/virtualpytest/backend_host/src
+# Reload systemd in case the service file was updated via code sync
+ExecStartPre=+/usr/bin/systemctl daemon-reload
+ExecStart=/opt/virtualpytest/venv/bin/python app.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Security
+# NoNewPrivileges intentionally NOT set: the BLE remote controller in
+# backend_host/src/controllers/remote/bluetooth.py calls
+# `sudo -n -E start.sh` / `resume.sh` to reconfigure BlueZ (MAC spoof,
+# adapter power cycle, systemctl restart bluetooth, systemd-run
+# transient units). NoNewPrivileges=true blocks setuid binaries
+# including sudo, so with it set every pair/resume call fails with
+# "sudo: The 'no new privileges' flag is set, which prevents sudo from
+# running as root." The sudoers file at
+# /etc/sudoers.d/ble-remote (shipped from
+# setup/local/linux/backend_host/sudoers.d/ble-remote) is tightly
+# scoped to the two script paths, so removing NoNewPrivileges does
+# not open up arbitrary privilege escalation — the ONLY thing vpt_user
+# can sudo is those two scripts + journalctl on three specific units.
+
+[Install]
+WantedBy=multi-user.target

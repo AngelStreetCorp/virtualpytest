@@ -1,0 +1,23 @@
+# Development Override - Mount source code for rapid iteration
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# This file mounts source code from host → container
+# Edit code locally → Changes reflect immediately → Just restart container
+#
+# Auto-generated for quick development iteration
+
+version: '3.8'
+
+services:
+  backend_server:
+    volumes:
+      # Mount source code (read-write for development)
+      - ../../../shared:/app/shared:rw
+      - ../../../backend_server/src:/app/backend_server/src:rw
+      - ../../../backend_server/scripts:/app/backend_server/scripts:rw
+    environment:
+      - DEBUG=true
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+
+

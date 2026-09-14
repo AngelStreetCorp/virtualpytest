@@ -1,0 +1,157 @@
+# Tier 1: Tool Selection Benchmark Tests
+# Quick health check - Does the agent select the RIGHT tool?
+# Run time: ~1 minute total
+# Pass = Agent is NOT broken
+
+category: tool_selection
+description: Agent tool selection accuracy - verifies agent understands which tool to use
+
+tests:
+  # Discovery Tools
+  - id: ts_001
+    name: List User Interfaces
+    description: Agent should call list_userinterfaces tool
+    prompt: "List all userinterfaces"
+    expected:
+      contains: ["userinterface"]
+    validation: contains
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  - id: ts_002
+    name: Get Device Info
+    description: Agent should call get_device_info tool
+    prompt: "Get device info for my device"
+    expected:
+      contains: ["device", "info"]
+    validation: contains
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: ts_003
+    name: Get Compatible Hosts
+    description: Agent should call get_compatible_hosts tool
+    prompt: "What hosts are compatible with this userinterface?"
+    expected:
+      contains: ["host", "compatible"]
+    validation: contains
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  # Navigation Tools
+  - id: ts_004
+    name: List Navigation Nodes
+    description: Agent should call list_navigation_nodes tool
+    prompt: "List all navigation nodes in the tree"
+    expected:
+      contains: ["node"]
+    validation: contains
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: ts_005
+    name: Dump UI Elements
+    description: Agent should call dump_ui_elements tool
+    prompt: "Dump all UI elements on the current screen"
+    expected:
+      contains: ["element"]
+    validation: contains
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  # Builder Tools
+  - id: ts_006
+    name: List Requirements
+    description: Agent should call list_requirements tool
+    prompt: "List all requirements"
+    expected:
+      contains: ["requirement"]
+    validation: contains
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  - id: ts_007
+    name: List Test Cases
+    description: Agent should call list_testcases tool
+    prompt: "List all test cases"
+    expected:
+      contains: ["testcase", "test"]
+    validation: contains_any
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  - id: ts_008
+    name: Get Coverage Summary
+    description: Agent should call get_coverage_summary tool
+    prompt: "What is the test coverage?"
+    expected:
+      contains: ["coverage"]
+    validation: contains
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  # Execution Tools
+  - id: ts_009
+    name: Take Control
+    description: Agent should call take_control tool
+    prompt: "Take control of the device"
+    expected:
+      contains: ["control"]
+    validation: contains
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: ts_010
+    name: Execute Test Case
+    description: Agent should call execute_testcase tool
+    prompt: "Run test case TC_001"
+    expected:
+      contains: ["execute", "run", "test"]
+    validation: contains_any
+    timeout: 15
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+

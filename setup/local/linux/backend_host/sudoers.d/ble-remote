@@ -1,0 +1,50 @@
+# BLE Remote — sudoers entry for the VirtualPyTest backend_host service user.
+#
+# Allows the backend_host service user (default `vpt_user`) to run the two
+# privileged BLE remote scripts without a password. start.sh / resume.sh
+# both need root because they invoke `btmgmt`, `bluetoothctl`, `systemctl`,
+# and `systemd-run`. The controller class
+# `backend_host/src/controllers/remote/bluetooth.py::BluetoothRemoteController`
+# invokes them via `sudo -n -E <canonical_path>/start.sh` /
+# `... resume.sh` from `_run_script()`.
+#
+# Scope is intentionally narrow:
+#   - only the two specific script paths (the canonical deploy location
+#     under /opt/virtualpytest/, NOT a user-home install)
+#   - SETENV is required so the controller can pass ADAPTER_HCI / BLE_TYPE
+#     / ADAPTER_MAC overrides via env vars (start.sh and resume.sh read
+#     these via ${VAR:-default} expansions; without SETENV sudo would
+#     scrub them on entry).
+#
+# Install on the host:
+#   sudo install -o root -g root -m 0440 \
+#       /opt/virtualpytest/setup/local/linux/backend_host/sudoers.d/ble-remote \
+#       /etc/sudoers.d/ble-remote
+#   sudo visudo -cf /etc/sudoers.d/ble-remote   # syntax check
+#
+# Verify:
+#   sudo -u vpt_user sudo -n -E /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/resume.sh   # should run
+#   sudo -u vpt_user sudo -n /bin/echo hi                                                                    # should be REJECTED
+
+vpt_user ALL=(root) NOPASSWD: SETENV: /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/start.sh
+vpt_user ALL=(root) NOPASSWD: SETENV: /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/resume.sh
+# Read-only journal access for the BLE debug log panel in the frontend.
+# Scoped to our BLE units, cannot read arbitrary system logs. The unit
+# names are per-adapter now (multi-instance, §6.7.22-followup-6) — the
+# `*` glob in `-u <name>*` covers every adapter suffix. Wildcard at the
+# end of the line covers the --output / -n options that
+# BluetoothRemoteController.get_logs() passes.
+# Persistent template units use the `hid-remote@hciN` / `hid-agent@hciN`
+# form now (§6.7.25); the old `hid-remote-*` globs are kept so a logs
+# query during the transition (before the old transient units are gone)
+# still works.
+vpt_user ALL=(root) NOPASSWD: /usr/bin/journalctl -u hid-remote@*.service *
+vpt_user ALL=(root) NOPASSWD: /usr/bin/journalctl -u hid-agent@*.service *
+vpt_user ALL=(root) NOPASSWD: /usr/bin/journalctl -u hid-remote-*.service *
+vpt_user ALL=(root) NOPASSWD: /usr/bin/journalctl -u hid-agent-*.service *
+vpt_user ALL=(root) NOPASSWD: /usr/bin/journalctl -u vpt-ble-remote@*.service *
+# Read the persisted bond info so get_pairing_status can derive
+# hid_ready from BlueZ's [Cccs] (bonded reconnects don't fire
+# StartNotify, so the daemon's runtime tracker misses the restored
+# subscription). /var/lib/bluetooth is 0700 root, hence sudo.
+vpt_user ALL=(root) NOPASSWD: /usr/bin/cat /var/lib/bluetooth/*/*/info

@@ -1,0 +1,413 @@
+"""
+Users Database Operations
+
+This module provides functions for managing user profiles in the database.
+Users represent authenticated accounts with roles and permissions.
+"""
+
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+from shared.src.lib.utils.supabase_utils import get_supabase_client, get_supabase_admin
+
+def get_supabase():
+    """Get the Supabase client instance (anon key, RLS-bound)."""
+    return get_supabase_client()
+
+def get_all_users() -> List[Dict]:
+    """Retrieve all users from Supabase using SECURITY DEFINER RPCs to bypass RLS."""
+    supabase = get_supabase()
+    try:
+        # Fetch all profiles and team memberships via RPCs (bypass RLS)
+        profiles_result = supabase.rpc('get_all_profiles').execute()
+        memberships_result = supabase.rpc('get_user_team_memberships').execute()
+
+        # Build lookup: user_id -> list of team memberships
+        user_teams: Dict[str, list] = {}
+        for m in memberships_result.data:
+            uid = m['user_id']
+            if uid not in user_teams:
+                user_teams[uid] = []
+            user_teams[uid].append(m)
+
+        # Build team_id -> team_name lookup from memberships
+        team_names: Dict[str, str] = {}
+        for m in memberships_result.data:
+            team_names[m['team_id']] = m['team_name']
+
+        users = []
+        for profile in profiles_result.data:
+            uid = profile['id']
+            memberships = user_teams.get(uid, [])
+
+            # Primary team name
+            primary_team_name = team_names.get(profile.get('team_id', ''))
+
+            # Collect team permissions across all teams
+            team_permissions: list = []
+            for m in memberships:
+                perms = m.get('team_permissions', [])
+                if isinstance(perms, list):
+                    team_permissions.extend(perms)
+            team_permissions = list(dict.fromkeys(team_permissions))
+
+            users.append({
+                'id': uid,
+                'full_name': profile.get('full_name', ''),
+                'email': profile.get('email', ''),
+                'avatar_url': profile.get('avatar_url'),
+                'role': profile.get('role', 'viewer'),
+                'team_id': profile.get('team_id'),
+                'team': primary_team_name,
+                'teams': [m['team_name'] for m in memberships],
+                'permissions': profile.get('permissions', []),
+                'denied_permissions': profile.get('denied_permissions', []),
+                'team_permissions': team_permissions,
+                'created_at': profile.get('created_at'),
+                'updated_at': profile.get('updated_at')
+            })
+
+        return users
+    except Exception as e:
+        print(f"[@db:users_db:get_all_users] Error: {e}")
+        return []
+
+def get_user(user_id: str) -> Optional[Dict]:
+    """Retrieve a user by ID from Supabase."""
+    supabase = get_supabase()
+    try:
+        result = supabase.table('profiles').select('*').eq('id', user_id).single().execute()
+        
+        if result.data:
+            profile = result.data
+            
+            # Get user's teams (including permissions for permission resolution)
+            teams_result = supabase.table('team_members')\
+                .select('team_id, teams(name, permissions)')\
+                .eq('user_id', user_id)\
+                .execute()
+
+            # Get primary team name if exists
+            primary_team_name = None
+            if profile.get('team_id'):
+                team_result = supabase.table('teams')\
+                    .select('name')\
+                    .eq('id', profile['team_id'])\
+                    .single()\
+                    .execute()
+                if team_result.data:
+                    primary_team_name = team_result.data.get('name')
+
+            # Collect team permissions across all teams the user belongs to
+            team_permissions: list = []
+            for t in teams_result.data:
+                if t.get('teams') and isinstance(t['teams'], dict):
+                    team_permissions.extend(t['teams'].get('permissions', []))
+            team_permissions = list(dict.fromkeys(team_permissions))
+
+            return {
+                'id': profile['id'],
+                'full_name': profile.get('full_name', ''),
+                'email': profile.get('email', ''),
+                'avatar_url': profile.get('avatar_url'),
+                'role': profile.get('role', 'viewer'),
+                'team_id': profile.get('team_id'),
+                'team': primary_team_name,
+                'teams': [t['teams']['name'] for t in teams_result.data if t.get('teams')],
+                'permissions': profile.get('permissions', []),
+                'denied_permissions': profile.get('denied_permissions', []),
+                'team_permissions': team_permissions,
+                'created_at': profile.get('created_at'),
+                'updated_at': profile.get('updated_at')
+            }
+        return None
+    except Exception as e:
+        print(f"[@db:users_db:get_user] Error: {e}")
+        return None
+
+def update_user(user_id: str, user_data: Dict) -> Optional[Dict]:
+    """Update an existing user profile."""
+    supabase = get_supabase()
+    try:
+        update_data = {}
+        
+        if 'full_name' in user_data:
+            update_data['full_name'] = user_data['full_name']
+        if 'avatar_url' in user_data:
+            update_data['avatar_url'] = user_data['avatar_url']
+        if 'role' in user_data:
+            update_data['role'] = user_data['role']
+        if 'team_id' in user_data:
+            update_data['team_id'] = user_data['team_id']
+        if 'permissions' in user_data:
+            update_data['permissions'] = user_data['permissions']
+        if 'denied_permissions' in user_data:
+            update_data['denied_permissions'] = user_data['denied_permissions']
+
+        if not update_data:
+            return None
+        
+        result = supabase.table('profiles').update(update_data).eq('id', user_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            return get_user(user_id)
+        return None
+    except Exception as e:
+        print(f"[@db:users_db:update_user] Error: {e}")
+        return None
+
+def delete_user(user_id: str) -> bool:
+    """Delete a user (admin only). Deletes from auth.users which cascades to profiles."""
+    try:
+        # Check if user exists
+        user = get_user(user_id)
+        if not user:
+            print(f"[@db:users_db:delete_user] User not found: {user_id}")
+            return False
+
+        # auth.admin.delete_user requires the service_role key, not the anon client.
+        admin = get_supabase_admin()
+        if admin is None:
+            print(f"[@db:users_db:delete_user] Admin client unavailable (SUPABASE_SERVICE_ROLE_KEY not set)")
+            return False
+
+        admin.auth.admin.delete_user(user_id)
+        return True
+    except Exception as e:
+        print(f"[@db:users_db:delete_user] Error: {e}")
+        return False
+
+def assign_user_to_team(user_id: str, team_id: str, team_role: str = 'member') -> bool:
+    """Assign a user to a team."""
+    supabase = get_supabase()
+    try:
+        # Update user's primary team
+        supabase.table('profiles').update({'team_id': team_id}).eq('id', user_id).execute()
+        
+        # Add to team_members if not already there
+        try:
+            insert_data = {
+                'team_id': team_id,
+                'user_id': user_id,
+                'role': team_role,
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'updated_at': datetime.now(timezone.utc).isoformat()
+            }
+            supabase.table('team_members').insert(insert_data).execute()
+        except Exception:
+            # Ignore if already exists (UNIQUE constraint)
+            pass
+        
+        return True
+    except Exception as e:
+        print(f"[@db:users_db:assign_user_to_team] Error: {e}")
+        return False
+
+def remove_user_from_team(user_id: str, team_id: str) -> bool:
+    """Remove a user from a team."""
+    supabase = get_supabase()
+    try:
+        # Remove from team_members
+        supabase.table('team_members')\
+            .delete()\
+            .eq('team_id', team_id)\
+            .eq('user_id', user_id)\
+            .execute()
+        
+        # Clear primary team if it matches
+        profile = supabase.table('profiles').select('team_id').eq('id', user_id).single().execute()
+        if profile.data and profile.data.get('team_id') == team_id:
+            supabase.table('profiles').update({'team_id': None}).eq('id', user_id).execute()
+        
+        return True
+    except Exception as e:
+        print(f"[@db:users_db:remove_user_from_team] Error: {e}")
+        return False
+
+
+def _admin_or_raise():
+    """Return the service_role client or raise (provisioning needs it)."""
+    admin = get_supabase_admin()
+    if admin is None:
+        raise RuntimeError("SUPABASE_SERVICE_ROLE_KEY not configured (admin client unavailable)")
+    return admin
+
+
+def _team_name(admin, team_id: Optional[str]) -> Optional[str]:
+    if not team_id:
+        return None
+    try:
+        r = admin.table('teams').select('name').eq('id', team_id).single().execute()
+        return r.data.get('name') if r.data else None
+    except Exception:
+        return None
+
+
+def get_user_by_email(email: str) -> Optional[Dict]:
+    """Resolve a user by email using the service_role client (bypasses RLS).
+
+    Returns a minimal profile dict ({id, email, full_name, role, team_id, team})
+    or None if absent. Used by the email-keyed provisioning routes (§3.4 status, upsert).
+    """
+    try:
+        admin = _admin_or_raise()
+        r = admin.table('profiles')\
+            .select('id, email, full_name, role, team_id')\
+            .eq('email', email).limit(1).execute()
+        if not r.data:
+            return None
+        p = r.data[0]
+        return {
+            'id': p['id'],
+            'email': p.get('email', email),
+            'full_name': p.get('full_name', ''),
+            'role': p.get('role', 'viewer'),
+            'team_id': p.get('team_id'),
+            'team': _team_name(admin, p.get('team_id')),
+        }
+    except Exception as e:
+        print(f"[@db:users_db:get_user_by_email] Error: {e}")
+        return None
+
+
+def resolve_user_id(identifier: str) -> Optional[str]:
+    """Resolve a user identifier — email OR UUID — to the profile id.
+
+    Routes are keyed by `<user_id>`, but external provisioning callers hold only an
+    email (it is the join key across VirtualPyTest and Grafana). This lets both forms
+    work on routes whose behaviour is identical either way.
+
+    A UUID is returned unchanged without a lookup, preserving the existing behaviour
+    where the route's own DB call decides whether the user exists. An unknown email
+    returns None so the caller can answer 404.
+
+    Not for the provisioning routes themselves (POST/GET/PUT/DELETE on /server/users):
+    those branch on `_is_email` because email and UUID mean different *semantics*
+    there, not just a different key.
+    """
+    if not identifier:
+        return None
+    if '@' not in identifier:
+        return identifier
+    user = get_user_by_email(identifier)
+    return user['id'] if user else None
+
+
+def _is_unique_violation(e: Exception) -> bool:
+    """True when a PostgREST/Supabase error is a unique-constraint violation (23505)."""
+    code = getattr(e, 'code', None)
+    if code == '23505':
+        return True
+    # supabase-py surfaces the Postgres error as a dict in the message for some paths.
+    return '23505' in str(e)
+
+
+def _ensure_team(admin, group: str) -> str:
+    """Idempotently ensure a team named `group` exists; return its id.
+
+    Raises RuntimeError if the team cannot be resolved or created. It must NOT
+    return None on failure: the caller cannot distinguish that from "no team", so
+    a failure used to be reported to the client as a 200 with "team": null and the
+    caller's `group` silently discarded (BUG-0077 hid behind exactly that).
+    """
+    try:
+        existing = admin.table('teams').select('id').eq('name', group).limit(1).execute()
+        if existing.data:
+            return existing.data[0]['id']
+        # tenant_id is NOT NULL with no SQL default; same default as teams_db.create_team.
+        created = admin.table('teams').insert({
+            'name': group,
+            'tenant_id': '00000000-0000-0000-0000-000000000000',
+        }).execute()
+    except Exception as e:
+        # A concurrent provisioning call may have created the same team between the
+        # SELECT and the INSERT; that is success, not failure — re-read it.
+        if _is_unique_violation(e):
+            again = admin.table('teams').select('id').eq('name', group).limit(1).execute()
+            if again.data:
+                return again.data[0]['id']
+        raise RuntimeError(f"Could not ensure team '{group}': {e}") from e
+
+    if not created.data:
+        raise RuntimeError(f"Could not ensure team '{group}': insert returned no row")
+    return created.data[0]['id']
+
+
+def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[str] = None,
+                group: Optional[str] = None, default_role: str = 'viewer') -> Dict:
+    """Create-or-update a user (external provisioning).
+
+    - Create: auth.admin.create_user(email, password, email_confirm=True); on the
+      trigger-created profile set full_name + role=default_role.
+    - Update: optionally reset password; update full_name only.
+      NEVER touch role / permissions on update (VirtualPyTest owns them).
+    - group -> team auto-created by name (idempotent) + team_members membership.
+
+    Returns {action, user_id, email, role, team}.
+    """
+    admin = _admin_or_raise()
+    existing = get_user_by_email(email)
+
+    if existing is None:
+        if not password:
+            raise ValueError("password is required to create a user")
+        res = admin.auth.admin.create_user({
+            'email': email,
+            'password': password,
+            'email_confirm': True,
+        })
+        user = getattr(res, 'user', None) or res
+        uid = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
+        if not uid:
+            raise RuntimeError(f"create_user returned no id for {email}")
+        # handle_new_user() trigger created the profiles row; set our fields.
+        profile_update = {'role': default_role, 'email': email}
+        if full_name is not None:
+            profile_update['full_name'] = full_name
+        admin.table('profiles').update(profile_update).eq('id', uid).execute()
+        action = 'created'
+        role = default_role
+    else:
+        uid = existing['id']
+        if password:
+            admin.auth.admin.update_user_by_id(uid, {'password': password})
+        if full_name is not None:
+            admin.table('profiles').update({'full_name': full_name}).eq('id', uid).execute()
+        action = 'updated'
+        role = existing['role']  # untouched — VirtualPyTest owns role
+
+    team_name = existing['team'] if existing else None
+    if group:
+        # Raises on failure rather than silently dropping the caller's `group`.
+        team_id = _ensure_team(admin, group)
+        admin.table('profiles').update({'team_id': team_id}).eq('id', uid).execute()
+        try:
+            admin.table('team_members').insert({
+                'team_id': team_id,
+                'user_id': uid,
+                'role': 'member',
+                'created_at': datetime.now(timezone.utc).isoformat(),
+                'updated_at': datetime.now(timezone.utc).isoformat(),
+            }).execute()
+        except Exception as e:
+            # UNIQUE(team_id, user_id) — already a member, which is the idempotent
+            # case and the only one worth ignoring. Anything else is a real failure.
+            if not _is_unique_violation(e):
+                raise RuntimeError(
+                    f"Could not add {email} to team '{group}': {e}"
+                ) from e
+        team_name = group
+
+    return {'action': action, 'user_id': uid, 'email': email, 'role': role, 'team': team_name}
+
+
+def delete_user_by_email(email: str) -> bool:
+    """Delete by email (resolves to UUID then reuses delete_user). Idempotent-ish:
+    returns True when the user is absent (nothing to do)."""
+    existing = get_user_by_email(email)
+    if existing is None:
+        return True
+    return delete_user(existing['id'])
+
+
+

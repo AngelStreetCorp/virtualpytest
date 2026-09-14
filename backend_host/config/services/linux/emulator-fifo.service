@@ -1,0 +1,25 @@
+[Unit]
+Description=VirtualPyTest Android Emulator Screen Capture
+After=multi-user.target
+# The emulator must be up before screencap has anything to read. Wants (not
+# Requires) on purpose: the loop tolerates "device offline" and recovers on its
+# own once the emulator appears, so an emulator restart must not stop the pipe.
+After=vpt-emulator.service
+Wants=vpt-emulator.service
+Before=vpt-stream.service
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+ExecStartPre=/bin/mkdir -p /var/www/html/stream/emulator_frames
+ExecStart=%PROJECT_ROOT%/backend_host/scripts/emulator_screencap.sh emulator-5554
+Restart=always
+RestartSec=2
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=emulator-fifo
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,65 @@
+# Execution Benchmark Tests
+# Tests agent ability to execute test cases
+
+category: execution
+description: Test case execution and management capabilities
+
+tests:
+  - id: bench_exec_001
+    name: List Test Cases
+    description: Can the agent list available test cases?
+    prompt: "List all available test cases"
+    expected:
+      contains: ["testcase", "list"]
+    validation: contains
+    timeout: 30
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+
+  - id: bench_exec_002
+    name: Load Test Case
+    description: Can the agent load a specific test case?
+    prompt: "Load the test case details for the first available test"
+    expected:
+      contains: ["test", "load"]
+    validation: contains
+    timeout: 30
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: bench_exec_003
+    name: Execute Test Case
+    description: Can the agent execute a test case on a device?
+    prompt: "Execute the first available test case"
+    expected:
+      contains: ["execute", "test"]
+    validation: contains
+    timeout: 120
+    points: 2.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: bench_exec_004
+    name: Get Test Results
+    description: Can the agent retrieve test execution results?
+    prompt: "Show the results of the last test execution"
+    expected:
+      contains: ["result", "status"]
+    validation: contains
+    timeout: 30
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+

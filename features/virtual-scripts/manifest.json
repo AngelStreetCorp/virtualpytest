@@ -1,0 +1,9 @@
+{
+  "name": "virtual-scripts",
+  "description": "Virtual Scripts: DB-stored Python test scripts edited in the browser (/builder/virtual-scripts page, /server/virtual-script CRUD + syntax validation + parameter analysis, version history). Independent of AI test generation (features/ai-test): a customer may take either one without the other. The runtime that lets a virtual script run (script_executor virtual_script_id + _materialize_virtual_script, host/server execute payload, executable listing with is_virtual, Run Tests virtualScriptId, virtual_scripts_db, schema 039_virtual_scripts.sql) is core and ships with the pin, inert without a virtual_scripts row.",
+  "parts": [
+    "backend_server",
+    "frontend",
+    "lib"
+  ]
+}

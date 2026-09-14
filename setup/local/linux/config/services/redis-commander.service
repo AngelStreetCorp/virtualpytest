@@ -1,0 +1,33 @@
+# Redis Commander Service Configuration
+# This service file configures Redis Commander (Redis Web GUI) for VirtualPyTest
+# Deployed to: /etc/systemd/system/redis-commander.service
+
+[Unit]
+Description=Redis Commander
+Documentation=https://github.com/joeferner/redis-commander
+After=network.target redis-server.service
+Requires=redis-server.service
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+Environment=HOME=/var/lib/redis-commander
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=NODE_PATH=/usr/local/lib/node_modules
+WorkingDirectory=/var/lib/redis-commander
+ExecStart=/usr/local/bin/redis-commander --redis-host 127.0.0.1 --redis-port 6379 --redis-password admin1234 --http-auth admin:admin1234
+Restart=always
+RestartSec=5
+
+# Process management
+LimitNOFILE=65536
+TimeoutStopSec=30
+
+# Security (relaxed for Node.js compatibility)
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,124 @@
+#!/bin/bash
+
+# VirtualPyTest - Install Storage Services
+# Installs: MinIO (S3-compatible storage) + Redis (caching)
+# Uses: /data for MinIO/Redis data, /shared for code repository
+
+set -e
+
+echo "💾 VirtualPyTest - Installing Storage Services"
+echo "   • MinIO (S3-compatible object storage)"
+echo "   • Redis (caching and sessions)"
+echo ""
+
+# Get script directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SOURCE_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
+
+# Load shared bootstrap functions
+if [ -f "$SCRIPT_DIR/../shared/bootstrap.sh" ]; then
+    source "$SCRIPT_DIR/../shared/bootstrap.sh"
+else
+    echo "❌ Bootstrap script not found at: $SCRIPT_DIR/../shared/bootstrap.sh"
+    exit 1
+fi
+
+# ============================================================================
+# STEP 0: Ensure /data Directory Exists
+# ============================================================================
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📦 STEP 0: Data Directory Setup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Ensure /data exists
+echo "📁 Ensuring /data exists..."
+sudo mkdir -p /data
+
+# Create subdirectories for services
+echo "📁 Creating service subdirectories..."
+sudo mkdir -p /data/{minio,redis}
+
+echo "✅ Data directory ready"
+echo "   • /data/minio → MinIO object storage"
+echo "   • /data/redis → Redis cache data"
+echo ""
+
+# ============================================================================
+# STEP 1: Standard Setup (user + project copy to /opt)
+# ============================================================================
+echo "🔧 Setting up standard VirtualPyTest environment..."
+echo "   Copying from: $SOURCE_ROOT"
+echo "   Copying to: /opt/virtualpytest"
+setup_for_code_installer "$SOURCE_ROOT"
+
+# Change to project root for consistency
+cd /opt/virtualpytest
+
+# ============================================================================
+# STEP 2: Install Storage Services
+# ============================================================================
+echo "📦 Installing storage components..."
+
+# Install Redis for caching (includes Redis Commander Web GUI)
+echo "📦 Installing Redis for caching..."
+bash "$SCRIPT_DIR/install_redis.sh"
+
+# Install MinIO (S3-compatible object storage)
+echo "📦 Installing MinIO for object storage..."
+bash "$SCRIPT_DIR/install_minio.sh"
+
+echo ""
+echo "✅ Storage services installation completed!"
+echo ""
+echo "🌐 MinIO Console (S3 Interface): http://localhost:9001"
+echo "🔑 Login: virtualpytest / admin1234"
+echo "📊 MinIO API: http://localhost:9000"
+echo "🪣 Bucket: virtualpytest"
+echo ""
+echo "⚡ Redis Cache (Sessions & Fast Data):"
+echo "   • Host: localhost:6379"
+echo "   • Password: admin1234"
+echo "   • Status: sudo systemctl status redis-server"
+echo ""
+echo "🔴 Redis Commander (Web GUI):"
+echo "   • URL: http://localhost:8081"
+echo "   • Web Login: admin / admin1234"
+echo "   • Status: sudo systemctl status redis-commander"
+echo ""
+echo "🔧 Management Commands:"
+echo "   • MinIO: sudo systemctl status minio"
+echo "   • Redis: redis-cli -a admin1234 ping"
+echo "   • Redis Commander: sudo systemctl status redis-commander"
+echo "   • MinIO client: mc admin info local"
+echo "   • Rclone: rclone lsd virtualpytest-local:"
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📝 Configuration Values for VirtualPyTest:"
+echo "   Add these to your project configuration:"
+echo ""
+echo "# MinIO S3-Compatible Storage"
+echo "MINIO_ENDPOINT=http://localhost:9000"
+echo "MINIO_ACCESS_KEY=admin"
+echo "MINIO_SECRET_KEY=admin1234"
+echo "MINIO_BUCKET=virtualpytest"
+echo "MINIO_CONSOLE_URL=http://localhost:9001"
+echo ""
+echo "# Redis Caching"
+echo "REDIS_HOST=localhost"
+echo "REDIS_PORT=6379"
+echo "REDIS_PASSWORD=admin1234"
+echo "REDIS_DB=0"
+echo ""
+echo "# Redis Commander (Web GUI)"
+echo "REDIS_COMMANDER_URL=http://localhost:8081"
+echo "REDIS_COMMANDER_USER=admin"
+echo "REDIS_COMMANDER_PASSWORD=admin1234"
+echo ""
+echo "# Additional Paths"
+echo "STORAGE_BASE_PATH=/data/minio"
+echo "BACKUP_PATH=/var/backups/virtualpytest"
+echo "RCLONE_CONFIG_LOCAL=virtualpytest-local"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "✅ Storage services ready: MinIO (S3) + Redis (cache) + Redis Commander (Web GUI)"

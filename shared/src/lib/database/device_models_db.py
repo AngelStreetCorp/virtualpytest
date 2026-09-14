@@ -1,0 +1,199 @@
+"""
+Device Models Database Operations
+
+This module provides functions for managing device models in the database.
+Device models define the types and capabilities of different device categories.
+"""
+
+from datetime import datetime, timezone
+from typing import Dict, List, Optional
+
+from shared.src.lib.utils.supabase_utils import get_supabase_client
+
+def get_supabase():
+    """Get the Supabase client instance."""
+    return get_supabase_client()
+
+def get_all_device_models(team_id: str) -> List[Dict]:
+    """Retrieve all device models for a team from Supabase."""
+    supabase = get_supabase()
+    
+    if supabase is None:
+        print(f"[@db:device_models_db:get_all_device_models] ERROR: Supabase client is None - check environment variables")
+        return []
+    
+    if not team_id:
+        print(f"[@db:device_models_db:get_all_device_models] ERROR: team_id is required but got: {team_id}")
+        return []
+    
+    try:
+        print(f"[@db:device_models_db:get_all_device_models] Querying for team_id: {team_id}")
+        result = supabase.table('device_models').select(
+            'id', 'name', 'types', 'version', 'description', 'controllers', 'team_id', 'is_default', 'created_at', 'updated_at'
+        ).eq('team_id', team_id).order('created_at', desc=False).execute()
+        
+        print(f"[@db:device_models_db:get_all_device_models] Query successful, got {len(result.data) if result.data else 0} results")
+        
+        models = []
+        for model in result.data:
+            models.append({
+                'id': model['id'],
+                'name': model['name'],
+                'types': model['types'],
+                'version': model.get('version', ''),
+                'description': model.get('description', ''),
+                'controllers': model.get('controllers', {}),
+                'team_id': model['team_id'],
+                'is_default': model.get('is_default', False),
+                'created_at': model['created_at'],
+                'updated_at': model['updated_at']
+            })
+        
+        return models
+    except Exception as e:
+        print(f"[@db:device_models_db:get_all_device_models] EXCEPTION: {type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        return []
+
+def get_device_model(model_id: str, team_id: str) -> Optional[Dict]:
+    """Retrieve a device model by ID and team ID from Supabase."""
+    supabase = get_supabase()
+    try:
+        result = supabase.table('device_models').select(
+            'id', 'name', 'types', 'version', 'description', 'controllers', 'team_id', 'is_default', 'created_at', 'updated_at'
+        ).eq('id', model_id).eq('team_id', team_id).single().execute()
+        
+        if result.data:
+            model = result.data
+            return {
+                'id': model['id'],
+                'name': model['name'],
+                'types': model['types'],
+                'version': model.get('version', ''),
+                'description': model.get('description', ''),
+                'controllers': model.get('controllers', {}),
+                'team_id': model['team_id'],
+                'is_default': model.get('is_default', False),
+                'created_at': model['created_at'],
+                'updated_at': model['updated_at']
+            }
+        return None
+    except Exception as e:
+        print(f"[@db:device_models_db:get_device_model] Error: {e}")
+        return None
+
+def create_device_model(model_data: Dict, team_id: str, creator_id: str = None) -> Optional[Dict]:
+    """Create a new device model."""
+    supabase = get_supabase()
+    try:
+        insert_data = {
+            'name': model_data['name'],
+            'types': model_data['types'],
+            'version': model_data.get('version', ''),
+            'description': model_data.get('description', ''),
+            'controllers': model_data.get('controllers', {}),
+            'team_id': team_id,
+            'is_default': False,  # User-created models are never default
+            'created_at': datetime.now(timezone.utc).isoformat(),
+            'updated_at': datetime.now(timezone.utc).isoformat()
+        }
+        
+        result = supabase.table('device_models').insert(insert_data).execute()
+        
+        if result.data and len(result.data) > 0:
+            model = result.data[0]
+            return {
+                'id': model['id'],
+                'name': model['name'],
+                'types': model['types'],
+                'version': model.get('version', ''),
+                'description': model.get('description', ''),
+                'controllers': model.get('controllers', {}),
+                'team_id': model['team_id'],
+                'is_default': model.get('is_default', False),
+                'created_at': model['created_at'],
+                'updated_at': model['updated_at']
+            }
+        return None
+    except Exception as e:
+        print(f"[@db:device_models_db:create_device_model] Error: {e}")
+        return None
+
+def update_device_model(model_id: str, model_data: Dict, team_id: str) -> Optional[Dict]:
+    """Update an existing device model."""
+    supabase = get_supabase()
+    try:
+        update_data = {
+            'updated_at': datetime.now(timezone.utc).isoformat()
+        }
+        
+        if 'name' in model_data:
+            update_data['name'] = model_data['name']
+        if 'types' in model_data:
+            update_data['types'] = model_data['types']
+        if 'version' in model_data:
+            update_data['version'] = model_data['version']
+        if 'description' in model_data:
+            update_data['description'] = model_data['description']
+        if 'controllers' in model_data:
+            update_data['controllers'] = model_data['controllers']
+        
+        result = supabase.table('device_models').update(update_data).eq('id', model_id).eq('team_id', team_id).execute()
+        
+        if result.data and len(result.data) > 0:
+            model = result.data[0]
+            return {
+                'id': model['id'],
+                'name': model['name'],
+                'types': model['types'],
+                'version': model.get('version', ''),
+                'description': model.get('description', ''),
+                'controllers': model.get('controllers', {}),
+                'team_id': model['team_id'],
+                'is_default': model.get('is_default', False),
+                'created_at': model['created_at'],
+                'updated_at': model['updated_at']
+            }
+        return None
+    except Exception as e:
+        print(f"[@db:device_models_db:update_device_model] Error: {e}")
+        return None
+
+def delete_device_model(model_id: str, team_id: str) -> bool:
+    """Delete a device model. Default models cannot be deleted."""
+    supabase = get_supabase()
+    try:
+        # First check if the model is a default model
+        model = get_device_model(model_id, team_id)
+        if not model:
+            print(f"[@db:device_models_db:delete_device_model] Model not found: {model_id}")
+            return False
+        
+        if model.get('is_default', False):
+            print(f"[@db:device_models_db:delete_device_model] Cannot delete default model: {model['name']}")
+            raise ValueError(f"Cannot delete default model '{model['name']}'. Default models are system-protected.")
+        
+        result = supabase.table('device_models').delete().eq('id', model_id).eq('team_id', team_id).execute()
+        return len(result.data) > 0
+    except ValueError as ve:
+        # Re-raise ValueError for proper error handling
+        raise ve
+    except Exception as e:
+        print(f"[@db:device_models_db:delete_device_model] Error: {e}")
+        return False
+
+def check_device_model_name_exists(name: str, team_id: str, exclude_id: str = None) -> bool:
+    """Check if a device model name already exists for a team."""
+    supabase = get_supabase()
+    try:
+        query = supabase.table('device_models').select('id').eq('name', name).eq('team_id', team_id)
+        
+        if exclude_id:
+            query = query.neq('id', exclude_id)
+        
+        result = query.execute()
+        return len(result.data) > 0
+    except Exception as e:
+        print(f"[@db:device_models_db:check_device_model_name] Error: {e}")
+        return False 

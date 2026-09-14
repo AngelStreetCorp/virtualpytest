@@ -1,0 +1,14 @@
+# Bandit configuration for docs/security (scripts/generate-security-docs.sh passes -c bandit.yaml).
+# Everything skipped here is a deliberate property of the system, not a bug to fix. Anything
+# NOT listed (exec, chmod, hardcoded passwords, random, XML, missing timeouts…) still reports.
+exclude_dirs:
+  - '*/test_*.py'      # unit tests use assert (B101) by design
+  - '*/tests/*'
+skips:
+  - B404   # import subprocess — the host is a process orchestrator (ffmpeg, adb, lirc, git…)
+  - B603   # subprocess without shell=True — that IS the safe form; every call is list-args
+  - B607   # partial executable path — resolved via PATH on the Pi/VM images we ship
+  - B110   # try/except/pass — style, not security
+  - B112   # try/except/continue — style, not security
+  - B108   # hardcoded /tmp paths — captures, FIFOs and scratch files live under /tmp on purpose
+  - B104   # bind 0.0.0.0 — services must listen on the LAN interface

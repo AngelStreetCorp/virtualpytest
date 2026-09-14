@@ -1,0 +1,46 @@
+# Host-only: a device controller that joins an EXISTING VirtualPyTest server.
+#
+#   ./launch.sh --host-only
+#   docker compose -f docker-compose.host.yml -f docker-compose.linux.yml up -d --build
+#
+# .env must carry (see the "host-only" block of .env.example):
+#   SERVER_URL, API_KEY (same as the server's), SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+#   SUPABASE_ANON_KEY, storage (CLOUDFLARE_R2_* or MINIO_*), PUBLIC_HOST, HOST_NAME.
+# Device configuration stays in backend_host/src/.env.
+
+name: virtualpytest-host
+
+services:
+  backend_host:
+    container_name: vpt-host
+    build:
+      context: ../..
+      dockerfile: backend_host/Dockerfile
+    image: virtualpytest/backend-host:local
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      HOST_NAME: ${HOST_NAME:-docker-host}
+      HOST_PORT: "6109"
+      HOST_BIND_IP: 0.0.0.0
+      HOST_URL: http://${PUBLIC_HOST:-localhost}:6109
+      HOST_API_URL: http://${PUBLIC_HOST:-localhost}:6109
+      HOST_VIDEO_STREAM_PATH: /host/stream/capture
+      HOST_VNC_STREAM_PATH: http://${PUBLIC_HOST:-localhost}:6080/vnc_lite.html
+      HOME: /home/vpt_user
+      ANDROID_HOME: /home/vpt_user/.android
+      ADB_VENDOR_KEYS: /home/vpt_user/.android
+      XDG_CONFIG_HOME: /tmp/.chromium
+      XDG_CACHE_HOME: /tmp/.chromium
+      XDG_RUNTIME_DIR: /tmp/.chromium
+    volumes:
+      - ../../backend_host/src/.env:/app/backend_host/src/.env:ro
+      - ../../test_scripts:/app/test_scripts:ro
+      - ../../test_campaign:/app/test_campaign:ro
+      - stream-data:/var/www/html/stream
+    ports:
+      - "6109:6109"
+      - "6080:6080"
+
+volumes:
+  stream-data:

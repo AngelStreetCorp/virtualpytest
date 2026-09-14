@@ -1,0 +1,46 @@
+{
+  "workspaces": [
+    {
+      "id": "workspace-myproject",
+      "name": "My Project API",
+      "postmanApiKey": "PMAK-your-postman-api-key",
+      "workspaceId": "your-postman-workspace-id",
+      "teamId": "your-postman-team-id",
+      "description": "My Project API Testing",
+      "postmanUrl": "https://www.postman.com/your-team-slug/your-workspace-slug/overview"
+    }
+  ],
+  "environments": [
+    {
+      "id": "env-local",
+      "name": "Local Development",
+      "workspaceId": "workspace-myproject",
+      "variables": [
+        { "key": "base_url", "value": "http://localhost:3000", "type": "default" },
+        { "key": "api_key", "value": null, "type": "secret" },
+        { "key": "user_id", "value": "test-user-123", "type": "default" }
+      ]
+    },
+    {
+      "id": "env-staging",
+      "name": "Staging",
+      "workspaceId": "workspace-myproject",
+      "variables": [
+        { "key": "base_url", "value": "https://staging.myproject.com", "type": "default" },
+        { "key": "api_key", "value": "staging-secret-key", "type": "secret" },
+        { "key": "user_id", "value": "staging-user-456", "type": "default" }
+      ]
+    },
+    {
+      "id": "env-production",
+      "name": "Production",
+      "workspaceId": "workspace-myproject",
+      "variables": [
+        { "key": "base_url", "value": "https://api.myproject.com", "type": "default" },
+        { "key": "api_key", "value": "prod-secret-key", "type": "secret" },
+        { "key": "user_id", "value": "prod-user-789", "type": "default" }
+      ]
+    }
+  ]
+}
+

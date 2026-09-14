@@ -1,0 +1,31 @@
+# Redis Server Service Configuration
+# This service file configures Redis for VirtualPyTest caching and message queuing
+# Deployed to: /etc/systemd/system/redis-server.service
+
+[Unit]
+Description=Redis In-Memory Data Store
+After=network.target
+Wants=network.target
+
+[Service]
+Type=notify
+User=redis
+Group=redis
+ExecStart=/usr/bin/redis-server /etc/redis/redis.conf
+ExecStop=/bin/kill -s TERM $MAINPID
+Restart=always
+RestartSec=5
+
+# Process management
+LimitNOFILE=65536
+TimeoutStopSec=30
+
+# Security
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ReadWritePaths=/data/redis /var/log/redis
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

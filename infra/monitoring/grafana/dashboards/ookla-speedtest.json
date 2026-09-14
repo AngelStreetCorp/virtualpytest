@@ -1,0 +1,1405 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "type": "row",
+      "collapsed": false,
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 900,
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Nr. of failed test"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success Rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "orange",
+                      "value": 80
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 90
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 40
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "WITH enriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.metadata->>'technology', 'Unknown') as gw_technology,\n    COALESCE(gw.metadata->>'network_type', 'Unknown') as gw_network_type,\n    COALESCE(gw.metadata->>'modem_name', 'Unknown') as gw_model,\n    COALESCE(gw.metadata->>'firmware_version', 'Unknown') as gw_firmware,\n    COALESCE(NULLIF(gw.metadata->>'cable_mac_address', 'Unknown'), NULLIF(gw.metadata->>'pon_mac_address', 'Unknown'), 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN LATERAL (\n    SELECT metadata\n    FROM script_results gw\n    WHERE gw.script_name = 'gw_info' AND gw.success = true AND gw.host_name = sr.host_name AND gw.started_at <= sr.started_at\n    ORDER BY gw.started_at DESC\n    LIMIT 1\n  ) gw ON true\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT\n  COUNT(*) as \"Nr. of total test\",\n  COUNT(*) FILTER (WHERE success = false) as \"Nr. of failed test\",\n  ROUND((COUNT(*) FILTER (WHERE success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) as \"Success Rate\"\nFROM enriched_results\nWHERE 1=1  AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${server:csv}' = '' OR metadata->>'server_name' = ANY(string_to_array('${server:csv}', ',')) OR metadata->>'server_name' IS NULL)\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology IS NULL)\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type IS NULL)\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model IS NULL)\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware IS NULL)\n  AND ('${environment:csv}' = '' OR environment = ANY(string_to_array('${environment:csv}', ',')))",
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Download"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "Mbits"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "orange",
+                      "value": 50
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 100
+                    },
+                    {
+                      "color": "green",
+                      "value": 200
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Upload"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "Mbits"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "orange",
+                      "value": 25
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 50
+                    },
+                    {
+                      "color": "green",
+                      "value": 100
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Packet Loss \u00d8"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 0.5
+                    },
+                    {
+                      "color": "orange",
+                      "value": 2
+                    },
+                    {
+                      "color": "red",
+                      "value": 5
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Latency \u00d8"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 50
+                    },
+                    {
+                      "color": "orange",
+                      "value": 100
+                    },
+                    {
+                      "color": "red",
+                      "value": 200
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Jitter \u00d8"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 10
+                    },
+                    {
+                      "color": "orange",
+                      "value": 25
+                    },
+                    {
+                      "color": "red",
+                      "value": 50
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 16,
+        "x": 8,
+        "y": 1
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "titleSize": 12,
+          "valueSize": 40
+        },
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH enriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.metadata->>'technology', 'Unknown') as gw_technology,\n    COALESCE(gw.metadata->>'network_type', 'Unknown') as gw_network_type,\n    COALESCE(gw.metadata->>'modem_name', 'Unknown') as gw_model,\n    COALESCE(gw.metadata->>'firmware_version', 'Unknown') as gw_firmware,\n    COALESCE(NULLIF(gw.metadata->>'cable_mac_address', 'Unknown'), NULLIF(gw.metadata->>'pon_mac_address', 'Unknown'), 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN LATERAL (\n    SELECT metadata\n    FROM script_results gw\n    WHERE gw.script_name = 'gw_info' AND gw.success = true AND gw.host_name = sr.host_name AND gw.started_at <= sr.started_at\n    ORDER BY gw.started_at DESC\n    LIMIT 1\n  ) gw ON true\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT\n  ROUND(AVG((metadata->>'download_mbps')::decimal), 2) as \"Download\",\n  ROUND(AVG((metadata->>'upload_mbps')::decimal), 2) as \"Upload\",\n  ROUND(AVG((metadata->>'packet_loss_percent')::decimal), 2) as \"Packet Loss \u00d8\",\n  ROUND(AVG((metadata->>'ping_latency_ms')::decimal), 2) as \"Latency \u00d8\",\n  ROUND(AVG((metadata->>'ping_jitter_ms')::decimal), 2) as \"Jitter \u00d8\"\nFROM enriched_results\nWHERE 1=1  AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${server:csv}' = '' OR metadata->>'server_name' = ANY(string_to_array('${server:csv}', ',')) OR metadata->>'server_name' IS NULL)\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology IS NULL)\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type IS NULL)\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model IS NULL)\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware IS NULL)\n  AND ('${environment:csv}' = '' OR environment = ANY(string_to_array('${environment:csv}', ',')))",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "",
+      "type": "stat"
+    },
+    {
+      "type": "row",
+      "collapsed": false,
+      "title": "Main",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 901,
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "Mbits"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "WITH enriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.metadata->>'technology', 'Unknown') as gw_technology,\n    COALESCE(gw.metadata->>'network_type', 'Unknown') as gw_network_type,\n    COALESCE(gw.metadata->>'modem_name', 'Unknown') as gw_model,\n    COALESCE(gw.metadata->>'firmware_version', 'Unknown') as gw_firmware,\n    COALESCE(NULLIF(gw.metadata->>'cable_mac_address', 'Unknown'), NULLIF(gw.metadata->>'pon_mac_address', 'Unknown'), 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN LATERAL (\n    SELECT metadata\n    FROM script_results gw\n    WHERE gw.script_name = 'gw_info' AND gw.success = true AND gw.host_name = sr.host_name AND gw.started_at <= sr.started_at\n    ORDER BY gw.started_at DESC\n    LIMIT 1\n  ) gw ON true\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT \n  started_at as time,\n  CONCAT(\n    host_name,\n    ' - Download'\n  ) as metric,\n  (metadata->>'download_mbps')::numeric as value\nFROM enriched_results\nWHERE 1=1  AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${server:csv}' = '' OR metadata->>'server_name' = ANY(string_to_array('${server:csv}', ',')) OR metadata->>'server_name' IS NULL)\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology IS NULL)\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type IS NULL)\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model IS NULL)\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware IS NULL)\n  AND ('${environment:csv}' = '' OR environment = ANY(string_to_array('${environment:csv}', ',')))\nORDER BY time, metric",
+          "refId": "A"
+        }
+      ],
+      "title": "Ookla Download Speedtest over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "Mbits"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 5
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "WITH enriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.metadata->>'technology', 'Unknown') as gw_technology,\n    COALESCE(gw.metadata->>'network_type', 'Unknown') as gw_network_type,\n    COALESCE(gw.metadata->>'modem_name', 'Unknown') as gw_model,\n    COALESCE(gw.metadata->>'firmware_version', 'Unknown') as gw_firmware,\n    COALESCE(NULLIF(gw.metadata->>'cable_mac_address', 'Unknown'), NULLIF(gw.metadata->>'pon_mac_address', 'Unknown'), 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN LATERAL (\n    SELECT metadata\n    FROM script_results gw\n    WHERE gw.script_name = 'gw_info' AND gw.success = true AND gw.host_name = sr.host_name AND gw.started_at <= sr.started_at\n    ORDER BY gw.started_at DESC\n    LIMIT 1\n  ) gw ON true\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT \n  started_at as time,\n  CONCAT(\n    host_name,\n    ' - Upload'\n  ) as metric,\n  (metadata->>'upload_mbps')::numeric as value\nFROM enriched_results\nWHERE 1=1  AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${server:csv}' = '' OR metadata->>'server_name' = ANY(string_to_array('${server:csv}', ',')) OR metadata->>'server_name' IS NULL)\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology IS NULL)\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type IS NULL)\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model IS NULL)\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware IS NULL)\n  AND ('${environment:csv}' = '' OR environment = ANY(string_to_array('${environment:csv}', ',')))\nORDER BY time, metric",
+          "refId": "A"
+        }
+      ],
+      "title": "Ookla Upload Speedtest over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 13
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "WITH enriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.metadata->>'technology', 'Unknown') as gw_technology,\n    COALESCE(gw.metadata->>'network_type', 'Unknown') as gw_network_type,\n    COALESCE(gw.metadata->>'modem_name', 'Unknown') as gw_model,\n    COALESCE(gw.metadata->>'firmware_version', 'Unknown') as gw_firmware,\n    COALESCE(NULLIF(gw.metadata->>'cable_mac_address', 'Unknown'), NULLIF(gw.metadata->>'pon_mac_address', 'Unknown'), 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN LATERAL (\n    SELECT metadata\n    FROM script_results gw\n    WHERE gw.script_name = 'gw_info' AND gw.success = true AND gw.host_name = sr.host_name AND gw.started_at <= sr.started_at\n    ORDER BY gw.started_at DESC\n    LIMIT 1\n  ) gw ON true\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT \n  started_at as time,\n  CONCAT(\n    host_name,\n    ' - Packet Loss'\n  ) as metric,\n  (metadata->>'packet_loss_percent')::numeric as value\nFROM enriched_results\nWHERE 1=1  AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${server:csv}' = '' OR metadata->>'server_name' = ANY(string_to_array('${server:csv}', ',')) OR metadata->>'server_name' IS NULL)\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology IS NULL)\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type IS NULL)\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model IS NULL)\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware IS NULL)\n  AND ('${environment:csv}' = '' OR environment = ANY(string_to_array('${environment:csv}', ',')))\nORDER BY time, metric",
+          "refId": "A"
+        }
+      ],
+      "title": "Ookla Packet Loss over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "showValues": false,
+            "spanNulls": true,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 100
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 13
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [
+            "min",
+            "max",
+            "mean",
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "format": "time_series",
+          "rawSql": "WITH enriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.metadata->>'technology', 'Unknown') as gw_technology,\n    COALESCE(gw.metadata->>'network_type', 'Unknown') as gw_network_type,\n    COALESCE(gw.metadata->>'modem_name', 'Unknown') as gw_model,\n    COALESCE(gw.metadata->>'firmware_version', 'Unknown') as gw_firmware,\n    COALESCE(NULLIF(gw.metadata->>'cable_mac_address', 'Unknown'), NULLIF(gw.metadata->>'pon_mac_address', 'Unknown'), 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN LATERAL (\n    SELECT metadata\n    FROM script_results gw\n    WHERE gw.script_name = 'gw_info' AND gw.success = true AND gw.host_name = sr.host_name AND gw.started_at <= sr.started_at\n    ORDER BY gw.started_at DESC\n    LIMIT 1\n  ) gw ON true\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT \n  started_at as time,\n  CONCAT(\n    host_name,\n    ' - Latency'\n  ) as metric,\n  (metadata->>'ping_latency_ms')::numeric as value\nFROM enriched_results\nWHERE 1=1  AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${server:csv}' = '' OR metadata->>'server_name' = ANY(string_to_array('${server:csv}', ',')) OR metadata->>'server_name' IS NULL)\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology IS NULL)\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type IS NULL)\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model IS NULL)\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware IS NULL)\n  AND ('${environment:csv}' = '' OR environment = ANY(string_to_array('${environment:csv}', ',')))\nORDER BY time, metric",
+          "refId": "A"
+        }
+      ],
+      "title": "Ookla Latency over Time",
+      "type": "timeseries"
+    },
+    {
+      "type": "row",
+      "collapsed": true,
+      "title": "Details",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 21
+      },
+      "id": 902,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Download"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "Mbits"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "gradient",
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 50
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 100
+                        },
+                        {
+                          "color": "green",
+                          "value": 200
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 100
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Upload"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "Mbits"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "gradient",
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 25
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 50
+                        },
+                        {
+                          "color": "green",
+                          "value": 100
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 100
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Latency"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "gradient",
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 50
+                        },
+                        {
+                          "color": "orange",
+                          "value": 100
+                        },
+                        {
+                          "color": "red",
+                          "value": 200
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 90
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Jitter"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 80
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Loss %"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "gradient",
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 0.5
+                        },
+                        {
+                          "color": "orange",
+                          "value": 2
+                        },
+                        {
+                          "color": "red",
+                          "value": 5
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 80
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Ookla Result URL"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "targetBlank": true,
+                        "title": "View Result",
+                        "url": "${__value.raw}"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 120
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Time"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 170
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Ookla Server"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 200
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "mode": "gradient",
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "PASS": {
+                            "color": "green",
+                            "index": 0
+                          },
+                          "FAIL": {
+                            "color": "red",
+                            "index": 1
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 70
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Error"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 300
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 22
+          },
+          "id": 14,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Time"
+              }
+            ]
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH enriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.metadata->>'technology', 'Unknown') as gw_technology,\n    COALESCE(gw.metadata->>'network_type', 'Unknown') as gw_network_type,\n    COALESCE(gw.metadata->>'modem_name', 'Unknown') as gw_model,\n    COALESCE(gw.metadata->>'firmware_version', 'Unknown') as gw_firmware,\n    COALESCE(NULLIF(gw.metadata->>'cable_mac_address', 'Unknown'), NULLIF(gw.metadata->>'pon_mac_address', 'Unknown'), 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN LATERAL (\n    SELECT metadata\n    FROM script_results gw\n    WHERE gw.script_name = 'gw_info' AND gw.success = true AND gw.host_name = sr.host_name AND gw.started_at <= sr.started_at\n    ORDER BY gw.started_at DESC\n    LIMIT 1\n  ) gw ON true\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT \n  started_at as \"Time\",\n  CASE WHEN success THEN 'PASS' ELSE 'FAIL' END as \"Status\",\n  NULLIF(CONCAT(metadata->>'server_name', ' (', metadata->>'server_id', ')'), ' ()') as \"Ookla Server\",\n  metadata->>'server_location' as \"Server Location\",\n  (metadata->>'download_mbps')::numeric as \"Download\",\n  (metadata->>'upload_mbps')::numeric as \"Upload\",\n  (metadata->>'ping_latency_ms')::numeric as \"Latency\",\n  (metadata->>'ping_jitter_ms')::numeric as \"Jitter\",\n  (metadata->>'packet_loss_percent')::numeric as \"Loss %\",\n  error_msg as \"Error\",\n  metadata->>'result_url' as \"Ookla Result URL\"\nFROM enriched_results\nWHERE 1=1  AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${server:csv}' = '' OR metadata->>'server_name' = ANY(string_to_array('${server:csv}', ',')) OR metadata->>'server_name' IS NULL)\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology IS NULL)\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type IS NULL)\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model IS NULL)\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware IS NULL)\n  AND ('${environment:csv}' = '' OR environment = ANY(string_to_array('${environment:csv}', ',')))\nORDER BY started_at DESC\nLIMIT 100",
+              "refId": "A"
+            }
+          ],
+          "title": "[TC014] Ookla Report",
+          "type": "table"
+        }
+      ]
+    }
+  ],
+  "preload": false,
+  "refresh": "30s",
+  "schemaVersion": 42,
+  "tags": [
+    "ookla",
+    "speedtest",
+    "network",
+    "gw"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Host",
+        "multi": true,
+        "name": "host",
+        "options": [],
+        "query": "SELECT DISTINCT host_name FROM script_results WHERE script_name = 'ookla_speedtest' AND $__timeFilter(started_at) ORDER BY host_name",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Device",
+        "multi": true,
+        "name": "device_name",
+        "options": [],
+        "query": "SELECT DISTINCT device_name FROM script_results WHERE script_name = 'ookla_speedtest' AND $__timeFilter(started_at) ORDER BY device_name",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Ookla Server",
+        "multi": true,
+        "name": "server",
+        "options": [],
+        "query": "SELECT DISTINCT metadata->>'server_name' as server FROM script_results WHERE script_name = 'ookla_speedtest' AND metadata->>'server_name' IS NOT NULL AND $__timeFilter(started_at) ORDER BY server",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "GW Technology",
+        "multi": true,
+        "name": "technology",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'technology' ORDER BY 1",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "GW Network",
+        "multi": true,
+        "name": "network",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'network_type' ORDER BY 1",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "GW Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'modem_name' ORDER BY 1",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "GW Firmware",
+        "multi": true,
+        "name": "firmware",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'firmware_version' ORDER BY 1",
+        "refresh": 1,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "options": [],
+        "query": "Dev : dev,Test : test,Prod : prod",
+        "refresh": 1,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "includeAll": true,
+        "label": "Success",
+        "multi": true,
+        "name": "success",
+        "options": [],
+        "query": "PASS : true,FAIL : false",
+        "refresh": 1,
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Ookla Speedtest",
+  "uid": "ookla-speedtest"
+}

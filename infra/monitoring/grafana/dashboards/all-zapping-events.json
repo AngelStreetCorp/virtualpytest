@@ -1,0 +1,1202 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failures"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 1
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success Rate"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 95
+                    },
+                    {
+                      "color": "green",
+                      "value": 99
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {},
+        "textMode": "value_and_name",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  (SELECT COUNT(*)\n   FROM zap_results zr\n   WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = zr.host_name AND df.device_name = zr.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\n     AND $__timeFilter(zr.created_at)) AS \"Total Zaps\",\n  COUNT(*) FILTER (WHERE success IS DISTINCT FROM true) AS \"Failures\",\n  ROUND((COUNT(CASE WHEN success = true THEN 1 END)::numeric / NULLIF(COUNT(*), 0)) * 100, 2) AS \"Success Rate\"\nFROM script_results sr\nWHERE sr.script_name ILIKE '%zap%'\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = sr.host_name AND df.device_name = sr.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\n  AND $__timeFilter(sr.started_at)\n  AND sr.environment IN ($environment)",
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "stat",
+      "description": "Total Zaps counts detected zap events (zap_results). Failures / Success Rate count zap script runs (script_results): a run fails when the script ends without zapping detected \u2014 failed iterations are never written to zap_results, so the script verdict is the only recorded failure signal."
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Detected zaps (green) and failed zap script runs (orange) per 30 minutes.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "fixedColor": "green",
+            "mode": "fixed"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 85,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Failed"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "light-orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "right",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroupAlias(t.ts, '30m'),\n  COUNT(*) FILTER (WHERE t.kind = 'zap') AS \"Zaps\",\n  COUNT(*) FILTER (WHERE t.kind = 'failed_run') AS \"Failed\"\nFROM (\n  SELECT zr.created_at AS ts, 'zap' AS kind\n  FROM zap_results zr\n  WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = zr.host_name AND df.device_name = zr.device_name AND df.flags && string_to_array('${flag:csv}', ','))) \n    AND $__timeFilter(zr.created_at)\n    AND (zr.script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = zr.script_result_id AND sr_env.environment IN ($environment)))\n  UNION ALL\n  SELECT sr.started_at, 'failed_run'\n  FROM script_results sr\n  WHERE sr.script_name ILIKE '%zap%'\n    AND sr.success IS DISTINCT FROM true\n    AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = sr.host_name AND df.device_name = sr.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\n    AND $__timeFilter(sr.started_at)\n    AND sr.environment IN ($environment)\n) t\nGROUP BY 1\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Global Activity",
+      "type": "timeseries",
+      "transparent": true
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Average blackscreen-transition duration (legacy untyped events counted as blackscreen) by user interface source",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 2000
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 10
+      },
+      "id": 2,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  userinterface_name as \"User Interface\",\n  ROUND(AVG(blackscreen_freeze_duration_seconds * 1000)::numeric, 2) as \"Mean Blackscreen Duration\"\nFROM (SELECT * FROM zap_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = zap_results.host_name AND df.device_name = zap_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (zap_results.script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = zap_results.script_result_id AND sr_env.environment IN ($environment)))) zap_results \nWHERE $__timeFilter(created_at)\n  AND userinterface_name IS NOT NULL\n  AND userinterface_name != ''\n  AND blackscreen_freeze_duration_seconds IS NOT NULL\n  AND COALESCE(transition_type, 'blackscreen') = 'blackscreen'\nGROUP BY userinterface_name\nORDER BY \"Mean Blackscreen Duration\" DESC",
+          "refId": "A",
+          "sql": {
+            "columns": [],
+            "groupBy": [],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Mean Blackscreen Duration by User Interface",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Average freeze-transition duration by user interface source",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 1000
+              },
+              {
+                "color": "red",
+                "value": 2000
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 10
+      },
+      "id": 5,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  userinterface_name as \"User Interface\",\n  ROUND(AVG(blackscreen_freeze_duration_seconds * 1000)::numeric, 2) as \"Mean Freeze Duration\"\nFROM (SELECT * FROM zap_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = zap_results.host_name AND df.device_name = zap_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (zap_results.script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = zap_results.script_result_id AND sr_env.environment IN ($environment)))) zap_results \nWHERE $__timeFilter(created_at)\n  AND userinterface_name IS NOT NULL\n  AND userinterface_name != ''\n  AND blackscreen_freeze_duration_seconds IS NOT NULL\n  AND transition_type = 'freeze'\nGROUP BY userinterface_name\nORDER BY \"Mean Freeze Duration\" DESC",
+          "refId": "A",
+          "sql": {
+            "columns": [],
+            "groupBy": [],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Mean Freeze Duration by User Interface",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Average total zap duration by user interface source",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 3000
+              },
+              {
+                "color": "red",
+                "value": 5000
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 10
+      },
+      "id": 3,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  userinterface_name as \"User Interface\",\n  ROUND(AVG(total_zap_duration_ms)::numeric, 2) as \"Mean Zap Duration\"\nFROM (SELECT * FROM zap_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = zap_results.host_name AND df.device_name = zap_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (zap_results.script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = zap_results.script_result_id AND sr_env.environment IN ($environment)))) zap_results \nWHERE $__timeFilter(created_at)\n  AND userinterface_name IS NOT NULL\n  AND userinterface_name != ''\n  AND total_zap_duration_ms IS NOT NULL\nGROUP BY userinterface_name\nORDER BY \"Mean Zap Duration\" DESC",
+          "refId": "A",
+          "sql": {
+            "columns": [],
+            "groupBy": [],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Mean Zap Duration by User Interface",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Average audio silence duration by user interface source",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 4
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 10
+      },
+      "id": 4,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  userinterface_name as \"User Interface\",\n  ROUND(AVG(audio_silence_duration)::numeric, 2) as \"Mean Silence Duration\"\nFROM (SELECT * FROM zap_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = zap_results.host_name AND df.device_name = zap_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (zap_results.script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = zap_results.script_result_id AND sr_env.environment IN ($environment)))) zap_results \nWHERE $__timeFilter(created_at)\n  AND userinterface_name IS NOT NULL\n  AND userinterface_name != ''\n  AND audio_silence_duration IS NOT NULL\nGROUP BY userinterface_name\nORDER BY \"Mean Silence Duration\" DESC",
+          "refId": "A",
+          "sql": {
+            "columns": [],
+            "groupBy": [],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Mean Audio Silence Duration by User Interface",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "All zapping events (automatic monitoring + script executions) with complete details",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Detected At"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 180
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Device"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Channel"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 200
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Duration (ms)"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 1000
+                    },
+                    {
+                      "color": "red",
+                      "value": 2000
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Audio Silence (s)"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 140
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Type"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 100
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Script Report"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "markdown"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "KPI Report"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "markdown"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              },
+              {
+                "id": "custom.width",
+                "value": 110
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 13,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "id": 1,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": true,
+          "fields": "",
+          "reducer": [
+            "count"
+          ],
+          "show": true
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Detected At"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  zr.created_at as \"Detected At\",\n  zr.device_name as \"Device\",\n  zr.userinterface_name as \"Source\",\n  scr.script_name as \"Script\",\n  NULLIF(zr.action_params->>'display_name', '') as \"Name\",\n  zr.channel_name as \"Channel\",\n  zr.program_name as \"Program\",\n  CONCAT(zr.program_start_time, '-', zr.program_end_time) as \"Program Time\",\n  zr.detection_method as \"Detection\",\n  COALESCE(zr.action_params->>'key', zr.action_command) as \"Last Action\",\n  NULLIF(zr.action_params->>'channel', '') as \"Channel Input\",\n  ROUND((zr.blackscreen_freeze_duration_seconds * 1000)::numeric, 0) as \"BS Duration (ms)\",\n  zr.time_since_action_ms as \"Action Delay (ms)\",\n  zr.total_zap_duration_ms as \"Total Zap (ms)\",\n  ROUND(zr.audio_silence_duration::numeric, 2) as \"Audio Silence (s)\",\n  CASE WHEN scr.html_report_r2_url IS NOT NULL AND scr.html_report_r2_url != ''\n       THEN '<a href=\"' || scr.html_report_r2_url || '\" target=\"_blank\">link</a>'\n       ELSE '' END as \"Script Report\",\n  CASE WHEN zr.report_url IS NOT NULL AND zr.report_url != ''\n       THEN '<a href=\"' || zr.report_url || '\" target=\"_blank\">link</a>'\n       ELSE '' END as \"KPI Report\"\nFROM (\n  -- Limit BEFORE enrichment: otherwise the LATERAL below runs for every row\n  -- in the time range and the result is then thrown away by the LIMIT.\n  SELECT * FROM (SELECT * FROM zap_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = zap_results.host_name AND df.device_name = zap_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (zap_results.script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = zap_results.script_result_id AND sr_env.environment IN ($environment)))) zap_results\n  WHERE $__timeFilter(created_at)\n  ORDER BY created_at DESC\n  LIMIT 200\n) zr\n-- Automatic zaps store script_result_id = NULL (zapping_detector_utils hardcodes it),\n-- so the driving script is recovered by time overlap: the script running on this\n-- host+device when the zap was detected. NULL = genuinely autonomous monitor zap.\nLEFT JOIN LATERAL (\n  SELECT sr.script_name, sr.html_report_r2_url FROM script_results sr\n  WHERE sr.host_name = zr.host_name\n    AND sr.device_name = zr.device_name\n    -- Bound the backward scan. Without this, a zap with no overlapping script (the\n    -- common case \u2014 most zaps are autonomous) walks EVERY script_results row for\n    -- that host+device before concluding there is no match. Longest observed run is\n    -- ~39 min, so 6h is a wide margin; a longer run than that is simply unattributed.\n    AND sr.started_at >= zr.created_at - interval '6 hours'\n    AND zr.created_at BETWEEN sr.started_at AND sr.completed_at\n  ORDER BY sr.started_at DESC LIMIT 1\n) scr ON true\nORDER BY zr.created_at DESC",
+          "refId": "A",
+          "sql": {
+            "columns": [],
+            "groupBy": [],
+            "limit": 50
+          },
+          "table": "zap_results"
+        }
+      ],
+      "title": "Automatic Zapping Events",
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Average total zap duration by what was zapped to: CHANNEL_UP, CHANNEL_DOWN, and each directly-entered channel number. Digit presses whose full channel was not recorded are excluded \u2014 only the committing key survives, so they cannot be attributed to a channel.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 3000
+              },
+              {
+                "color": "red",
+                "value": 5000
+              }
+            ]
+          },
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 6,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  CASE\n    WHEN NULLIF(zr.action_params->>'channel', '') IS NOT NULL\n      THEN 'Channel ' || (zr.action_params->>'channel')\n    ELSE COALESCE(zr.action_params->>'key', zr.action_command)\n  END as \"Zap Target\",\n  ROUND(AVG(zr.total_zap_duration_ms)::numeric, 2) as \"Mean Zap Duration\"\nFROM (SELECT * FROM zap_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = zap_results.host_name AND df.device_name = zap_results.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (zap_results.script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = zap_results.script_result_id AND sr_env.environment IN ($environment)))) zr\nWHERE $__timeFilter(zr.created_at)\n  AND zr.total_zap_duration_ms IS NOT NULL\n  AND (\n    -- Direct channel entry \u2014 one group per target channel.\n    NULLIF(zr.action_params->>'channel', '') IS NOT NULL\n    -- Relative zapping \u2014 one group each.\n    OR COALESCE(zr.action_params->>'key', zr.action_command) IN ('CHANNEL_UP', 'CHANNEL_DOWN')\n  )\nGROUP BY 1\nORDER BY \"Mean Zap Duration\" DESC",
+          "refId": "A",
+          "sql": {
+            "columns": [],
+            "groupBy": [],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Mean Zap Duration by Zap Target",
+      "type": "barchart"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 12,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "description": "Zap script runs that ended without zapping detected. These failures never appear in the events table above \u2014 failed iterations are not written to zap_results, only the failed run is recorded.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true,
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Started At"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 180
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Duration (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "right"
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 120
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Script Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 110
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 41
+          },
+          "id": 13,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "footer": {
+              "countRows": true,
+              "fields": "",
+              "reducer": [
+                "count"
+              ],
+              "show": true
+            },
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Started At"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  sr.started_at as \"Started At\",\n  sr.host_name as \"Roboter\",\n  sr.device_name as \"Device\",\n  sr.userinterface_name as \"User Interface\",\n  sr.script_name as \"Script\",\n  sr.execution_time_ms as \"Duration (ms)\",\n  sr.error_msg as \"Error\",\n  CASE WHEN sr.html_report_r2_url IS NOT NULL AND sr.html_report_r2_url != ''\n       THEN '<a href=\"' || sr.html_report_r2_url || '\" target=\"_blank\">link</a>'\n       ELSE '' END as \"Script Report\"\nFROM script_results sr\nWHERE sr.script_name ILIKE '%zap%'\n  AND sr.success IS DISTINCT FROM true\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = sr.host_name AND df.device_name = sr.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\n  AND $__timeFilter(sr.started_at)\n  AND sr.environment IN ($environment)\nORDER BY sr.started_at DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Failed Zap Runs",
+          "type": "table"
+        }
+      ],
+      "title": "Failures",
+      "type": "row"
+    }
+  ],
+  "preload": false,
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": [
+    "zapping",
+    "monitoring",
+    "automatic"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "Filter by device tags set on the Device page",
+        "includeAll": true,
+        "allValue": "__ALL__",
+        "label": "Tag",
+        "multi": true,
+        "name": "flag",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "All",
+          "value": "$__all"
+        },
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "options": [],
+        "query": "Dev : dev,Test : test,Prod : prod",
+        "type": "custom"
+      }
+    ]
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "All Zapping Events",
+  "uid": "262d8dbc-0178-41c1-a294-0cc6a7ac15e3"
+}

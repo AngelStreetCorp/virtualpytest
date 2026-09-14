@@ -1,0 +1,2021 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- Storage links are synthetic publication fixtures; no remote artifacts are available. -->
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Validation Report - TC_APP_01_GetDeviceInfo.py</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+:root {
+    /* Light theme variables */
+    --bg-primary: #f8f9fa;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f8f9fa;
+    --text-primary: #333333;
+    --text-secondary: #6c757d;
+    --border-color: #dee2e6;
+    --border-light: #e9ecef;
+    --shadow: 0 1px 3px rgba(0,0,0,0.1);
+    --shadow-hover: 0 2px 8px rgba(0,0,0,0.15);
+    --success-color: #28a745;
+    --success-bg: #d4edda;
+    --success-text: #155724;
+    --failure-color: #dc3545;
+    --failure-bg: #f8d7da;
+    --failure-text: #721c24;
+    --header-bg: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
+    --step-hover: #f8f9fa;
+    --error-bg: #f8d7da;
+    --error-border: #f5c6cb;
+    --modal-bg: rgba(0,0,0,0.8);
+    --link-color: #1976d2;
+}
+
+[data-theme="dark"] {
+    /* Dark theme variables */
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #1a1a1a;
+    --bg-tertiary: #2a2a2a;
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0a0;
+    --border-color: #404040;
+    --border-light: #303030;
+    --shadow: 0 4px 6px rgba(0,0,0,0.3);
+    --shadow-hover: 0 8px 16px rgba(0,0,0,0.4);
+    --success-color: #4ade80;
+    --success-bg: #1a4a2a;
+    --success-text: #86efac;
+    --failure-color: #f87171;
+    --failure-bg: #4a1a1a;
+    --failure-text: #fca5a5;
+    --header-bg: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+    --step-hover: #2a2a2a;
+    --error-bg: #4a1a1a;
+    --error-border: #6b2c2c;
+    --modal-bg: rgba(0,0,0,0.9);
+    --link-color: #60a5fa;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    line-height: 1.4;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    padding: 10px;
+    font-size: 14px;
+    transition: background-color 0.3s ease, color 0.3s ease;
+    min-height: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+    transition: background-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.header {
+    background: var(--header-bg);
+    color: white;
+    padding: 8px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-height: 40px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.header h1 {
+    font-size: 1.4em;
+    font-weight: 600;
+}
+
+.header .time-info {
+    font-size: 0.85em;
+    opacity: 0.9;
+    white-space: nowrap;
+}
+
+.theme-toggle {
+    display: flex;
+    align-items: center;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 20px;
+    padding: 2px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: relative;
+}
+
+.theme-toggle:hover {
+    background: rgba(255,255,255,0.2);
+}
+
+.theme-option {
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 0.75em;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    position: relative;
+    z-index: 20;
+}
+
+.theme-option.active {
+    background: rgba(255,255,255,0.9);
+    color: #1976d2;
+}
+
+.theme-slider {
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: calc(33.33% - 2px);
+    height: calc(100% - 4px);
+    background: rgba(255,255,255,0.9);
+    border-radius: 16px;
+    transition: transform 0.2s ease;
+    z-index: 19;
+}
+
+.theme-slider.light {
+    transform: translateX(0);
+}
+
+.theme-slider.dark {
+    transform: translateX(100%);
+}
+
+.theme-slider.system {
+    transform: translateX(200%);
+}
+
+.summary {
+    padding: 12px 20px;
+    background: var(--bg-tertiary);
+    border-bottom: 1px solid var(--border-color);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+    align-items: center;
+}
+
+.summary-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    border: 1px solid var(--border-light);
+    font-size: 0.9em;
+    transition: all 0.3s ease;
+}
+
+.summary-item .label {
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.summary-item .value {
+    font-weight: 600;
+}
+
+.success {
+    color: var(--success-color);
+}
+
+.failure {
+    color: var(--failure-color);
+}
+
+.neutral {
+    color: var(--text-secondary);
+}
+
+.content {
+    padding: 15px 20px;
+}
+
+.section {
+    margin-bottom: 20px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    cursor: pointer;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-light);
+    transition: border-color 0.3s ease;
+}
+
+.section-header h2 {
+    color: var(--text-primary);
+    font-size: 1.1em;
+    font-weight: 600;
+}
+
+.toggle-btn {
+    background: none;
+    border: none;
+    font-size: 1.2em;
+    cursor: pointer;
+    color: var(--text-secondary);
+    transition: color 0.3s ease;
+}
+
+.collapsible-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.4s ease;
+}
+
+.collapsible-content.expanded {
+    max-height: none;
+    overflow: visible;
+}
+
+.step-list {
+    border: 1px solid var(--border-light);
+    border-radius: 4px;
+    overflow: hidden;
+    transition: border-color 0.3s ease;
+}
+
+.step-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-light);
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.3s ease;
+}
+
+.step-item:last-child {
+    border-bottom: none;
+}
+
+.step-item:hover {
+    background: var(--step-hover);
+}
+
+.step-item.success {
+    border-left: 3px solid var(--success-color);
+}
+
+.step-item.failure {
+    border-left: 3px solid var(--failure-color);
+}
+
+.step-number {
+    width: 30px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+.step-status {
+    width: 50px;
+    text-align: center;
+}
+
+.step-status-badge {
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    transition: all 0.3s ease;
+}
+
+.step-status-badge.success {
+    background: var(--success-bg);
+    color: var(--success-text);
+}
+
+.step-status-badge.failure {
+    background: var(--failure-bg);
+    color: var(--failure-text);
+}
+
+.step-message {
+    flex: 1;
+    padding-left: 12px;
+    font-size: 0.9em;
+}
+
+.step-timing-inline {
+    font-size: 0.8em;
+    color: var(--text-secondary);
+    margin-left: 10px;
+    white-space: nowrap;
+}
+
+.step-details {
+    max-height: 0;
+    overflow: hidden;
+    padding: 0 12px;
+    background: var(--bg-tertiary);
+    border-top: 1px solid var(--border-light);
+    transition: max-height 0.4s ease, padding 0.4s ease;
+}
+
+.step-details.expanded {
+    max-height: none;
+    overflow: visible;
+    padding: 12px;
+}
+
+.step-details-content {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 15px;
+    align-items: start;
+}
+
+.step-info {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.step-timing {
+    display: flex;
+    gap: 15px;
+    font-size: 0.85em;
+    color: var(--text-secondary);
+}
+
+.step-actions {
+    font-size: 0.9em;
+}
+
+.step-actions strong {
+    color: var(--text-primary);
+}
+
+.action-item, .verification-item {
+    margin: 4px 0;
+    padding: 4px 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    border-left: 3px solid var(--border-color);
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+}
+
+.action-item {
+    border-left-color: #17a2b8;
+}
+
+.retry-action-item {
+    margin: 4px 0;
+    padding: 4px 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    border-left: 3px solid #ffc107;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+}
+
+.retry-action-item.executed {
+    background: #fff8e1;
+    border-left-color: #ff9800;
+}
+
+[data-theme="dark"] .retry-action-item.executed {
+    background: #3a2e1a;
+}
+
+.failure-action-item {
+    margin: 4px 0;
+    padding: 4px 8px;
+    background: var(--bg-secondary);
+    border-radius: 4px;
+    border-left: 3px solid #9e9e9e;
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+}
+
+.failure-action-item.executed {
+    background: #fce4ec;
+    border-left-color: #e91e63;
+}
+
+[data-theme="dark"] .failure-action-item.executed {
+    background: #3a1a2e;
+}
+
+.retry-status, .failure-status {
+    font-size: 0.75em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: bold;
+    margin-left: 8px;
+}
+
+.retry-status.available, .failure-status.available {
+    background: #e0e0e0;
+    color: #666;
+}
+
+.retry-status.executed {
+    background: #ff9800;
+    color: white;
+}
+
+.failure-status.executed {
+    background: #e91e63;
+    color: white;
+}
+
+[data-theme="dark"] .retry-status.available, 
+[data-theme="dark"] .failure-status.available {
+    background: #404040;
+    color: #a0a0a0;
+}
+
+.action-result-badge {
+    display: inline-block;
+    font-size: 0.85em;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: bold;
+    margin-left: 8px;
+}
+
+.action-result-badge.success {
+    background: var(--success-bg);
+    color: var(--success-text);
+}
+
+.action-result-badge.failure {
+    background: var(--failure-bg);
+    color: var(--failure-text);
+}
+
+.verification-item {
+    border-left-color: #6f42c1;
+}
+
+.verification-result-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.75em;
+    font-weight: bold;
+    margin-left: 8px;
+}
+
+.verification-result-badge.success {
+    background-color: var(--success-bg);
+    color: var(--success-color);
+}
+
+.verification-result-badge.failure {
+    background-color: var(--failure-bg);
+    color: var(--failure-color);
+}
+
+.verification-error {
+    color: var(--failure-color);
+    font-style: italic;
+    font-size: 0.8em;
+    margin-left: 4px;
+}
+
+.verification-score {
+    font-family: 'Courier New', monospace;
+    font-size: 0.8em;
+    margin-left: 8px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: bold;
+}
+
+.verification-score.success {
+    background-color: var(--success-bg);
+    color: var(--success-color);
+}
+
+.verification-score.failure {
+    background-color: var(--failure-bg);
+    color: var(--failure-color);
+}
+
+.screenshot-modal, .modal {
+    display: none;
+    position: fixed;
+    z-index: 280;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background-color: var(--modal-bg);
+    transition: background-color 0.3s ease;
+}
+
+.screenshot-modal.active, .modal.active {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal-content {
+    position: relative;
+    min-width: 800px;
+    max-width: 98%;
+    max-height: 98%;
+    background: var(--bg-secondary);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+
+.modal-header {
+    text-align: center;
+    margin-bottom: 15px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 10px;
+}
+
+.modal-header h3 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1.2em;
+}
+
+.action-info {
+    margin-top: 8px;
+    color: var(--text-secondary);
+    font-size: 0.9em;
+    font-family: monospace;
+    background: var(--bg-tertiary);
+    padding: 5px 10px;
+    border-radius: 4px;
+}
+
+.modal-body {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.modal-body img {
+    width: 800px;
+    height: 450px;
+    max-width: 85vw;
+    max-height: 75vh;
+    object-fit: contain;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    background: #f8f9fa;
+}
+
+.nav-arrow {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    background: rgba(0,0,0,0.7);
+    color: white;
+    border: none;
+    font-size: 30px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 291;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.nav-arrow:hover {
+    background: rgba(0,0,0,0.9);
+}
+
+.nav-arrow:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.nav-prev {
+    left: -60px;
+}
+
+.nav-next {
+    right: -60px;
+}
+
+.modal-footer {
+    text-align: center;
+    margin-top: 15px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    font-size: 0.9em;
+}
+
+.screenshot-modal .close {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.screenshot-modal .close:hover, .modal-close:hover {
+    background: var(--failure-color);
+    color: white;
+    border-color: var(--failure-color);
+}
+
+.modal-close {
+    position: absolute;
+    top: -10px;
+    right: -10px;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: 50%;
+    width: 30px;
+    height: 30px;
+    font-size: 20px;
+    font-weight: bold;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.screenshot-container {
+    text-align: center;
+}
+
+.screenshot-label {
+    display: none;
+}
+
+.screenshot-thumbnail {
+    width: 100%;
+    max-width: 200px;
+    height: 120px;
+    object-fit: cover;
+    border-radius: 4px;
+    border: 2px solid var(--border-color);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.screenshot-thumbnail:hover {
+    border-color: #4a90e2;
+    transform: scale(1.02);
+    box-shadow: var(--shadow-hover);
+}
+
+.screenshot-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.screenshot-row .screenshot-container {
+    flex: 0 0 auto;
+}
+
+.screenshot-row .screenshot-thumbnail {
+    max-width: 150px;
+    height: 90px;
+}
+
+.state-video-grid-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 20px;
+    margin-top: 15px;
+    margin-bottom: 25px;
+}
+
+.state-video-grid-item {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 15px;
+    transition: all 0.3s ease;
+    text-align: center;
+}
+
+.state-video-grid-item h3 {
+    color: var(--text-primary);
+    font-size: 1.1em;
+    font-weight: 600;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 8px;
+}
+
+.execution-summary-section {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    padding: 15px;
+    margin-top: 10px;
+}
+
+.execution-summary-section h3 {
+    color: var(--text-primary);
+    font-size: 1.1em;
+    font-weight: 600;
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--border-light);
+    padding-bottom: 8px;
+}
+
+.execution-summary-content {
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.test-video-content {
+    text-align: center;
+}
+
+.screenshot-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+@media (max-width: 720px) {
+    .summary-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .state-video-grid-container {
+        grid-template-columns: 1fr;
+        gap: 15px;
+    }
+    
+    .header {
+        flex-direction: column;
+        gap: 8px;
+        text-align: center;
+        padding: 12px 20px;
+    }
+    
+    .header-left {
+        flex-direction: column;
+        gap: 8px;
+    }
+    
+    .theme-toggle {
+        order: -1;
+        margin-bottom: 8px;
+    }
+    
+    .step-details-content {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+    
+    .step-screenshot-container {
+        text-align: center;
+    }
+    
+    .step-timing-inline {
+        display: block;
+        margin-top: 5px;
+        margin-left: 0;
+    }
+
+/* Zap Summary Table Styling */
+.zap-summary-container {
+    padding: 15px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    margin: 10px 0;
+}
+
+.zap-summary-table {
+    margin-bottom: 20px;
+}
+
+.zap-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg-primary);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.zap-table th,
+.zap-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 13px;
+}
+
+.zap-table th {
+    background: var(--bg-tertiary);
+    font-weight: 600;
+    color: var(--text-primary);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.zap-table tr:hover {
+    background: var(--bg-secondary);
+}
+
+.zap-table td:first-child {
+    font-weight: 600;
+    text-align: center;
+    width: 50px;
+}
+
+.zap-table td:nth-child(2) {
+    font-family: monospace;
+    font-size: 12px;
+    width: 100px;
+}
+
+.zap-table td:nth-child(3),
+.zap-table td:nth-child(4) {
+    font-family: monospace;
+    font-size: 12px;
+    width: 80px;
+}
+
+.zap-table td:nth-child(5) {
+    text-align: center;
+    width: 70px;
+}
+
+.zap-table td:nth-child(6),
+.zap-table td:nth-child(7),
+.zap-table td:nth-child(8),
+.zap-table td:nth-child(9) {
+    text-align: center;
+    width: 80px;
+    font-size: 14px;
+}
+
+.zap-table td:last-child {
+    font-size: 12px;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.zap-statistics {
+    background: var(--bg-tertiary);
+    padding: 15px;
+    border-radius: 6px;
+    border: 1px solid var(--border-light);
+}
+
+.zap-statistics h4 {
+    margin: 0 0 12px 0;
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 10px;
+}
+
+.stat-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    border-radius: 4px;
+    border: 1px solid var(--border-light);
+}
+
+.stat-label {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+.stat-value {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-family: monospace;
+}
+}
+    </style>
+    <script>
+// Theme management system
+class ThemeManager {
+    constructor() {
+        this.currentMode = this.getSavedTheme() || 'system';
+        this.systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        this.init();
+    }
+    
+    init() {
+        this.applyTheme();
+        this.setupSystemThemeListener();
+        this.setupThemeToggle();
+    }
+    
+    getSavedTheme() {
+        return localStorage.getItem('validation-report-theme');
+    }
+    
+    saveTheme(mode) {
+        localStorage.setItem('validation-report-theme', mode);
+    }
+    
+    getActualTheme() {
+        if (this.currentMode === 'system') {
+            return this.systemPrefersDark ? 'dark' : 'light';
+        }
+        return this.currentMode;
+    }
+    
+    applyTheme() {
+        const actualTheme = this.getActualTheme();
+        document.documentElement.setAttribute('data-theme', actualTheme);
+        this.updateToggleButtons();
+        this.updateSlider();
+    }
+    
+    setTheme(mode) {
+        this.currentMode = mode;
+        this.saveTheme(mode);
+        this.applyTheme();
+    }
+    
+    setupSystemThemeListener() {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        mediaQuery.addEventListener('change', (e) => {
+            this.systemPrefersDark = e.matches;
+            if (this.currentMode === 'system') {
+                this.applyTheme();
+            }
+        });
+    }
+    
+    setupThemeToggle() {
+        const themeOptions = document.querySelectorAll('.theme-option');
+        themeOptions.forEach(option => {
+            option.addEventListener('click', (e) => {
+                const mode = e.target.dataset.theme;
+                this.setTheme(mode);
+            });
+        });
+    }
+    
+    updateToggleButtons() {
+        const themeOptions = document.querySelectorAll('.theme-option');
+        themeOptions.forEach(option => {
+            option.classList.toggle('active', option.dataset.theme === this.currentMode);
+        });
+    }
+    
+    updateSlider() {
+        const slider = document.querySelector('.theme-slider');
+        if (slider) {
+            slider.className = 'theme-slider ' + this.currentMode;
+        }
+    }
+}
+
+// Initialize theme manager when DOM is loaded
+document.addEventListener('DOMContentLoaded', () => {
+    window.themeManager = new ThemeManager();
+    
+    // Handle window resize to recalculate expanded section heights
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            recalculateExpandedSections();
+        }, 250);
+    });
+});
+
+// Recalculate heights for expanded sections after window resize
+function recalculateExpandedSections() {
+    const expandedSections = document.querySelectorAll('.collapsible-content.expanded, .step-details.expanded');
+    expandedSections.forEach(section => {
+        if (section.style.maxHeight && section.style.maxHeight !== 'none') {
+            const newHeight = section.scrollHeight;
+            section.style.maxHeight = newHeight + 'px';
+            
+            // Set to none after a brief delay for proper scrolling
+            setTimeout(() => {
+                if (section.classList.contains('expanded')) {
+                    section.style.maxHeight = 'none';
+                }
+            }, 100);
+        }
+    });
+}
+
+function toggleSection(sectionId) {
+    const content = document.getElementById(sectionId);
+    const sectionElements = document.querySelectorAll('.section-header');
+    let button = null;
+    for (let element of sectionElements) {
+        if (element.onclick && element.onclick.toString().includes(sectionId)) {
+            button = element.querySelector('.toggle-btn');
+            break;
+        }
+    }
+    
+    if (content && content.classList.contains('expanded')) {
+        // Collapsing: measure current height first, then animate to 0
+        const currentHeight = content.scrollHeight;
+        content.style.maxHeight = currentHeight + 'px';
+        
+        // Force reflow
+        content.offsetHeight;
+        
+        // Animate to collapsed
+        content.style.maxHeight = '0px';
+        content.classList.remove('expanded');
+        
+        if (button) {
+            button.classList.remove('expanded');
+            button.textContent = '▶';
+        }
+        
+        // Clean up after transition
+        setTimeout(() => {
+            if (!content.classList.contains('expanded')) {
+                content.style.maxHeight = '';
+            }
+        }, 400);
+        
+    } else if (content) {
+        // Expanding: measure content height and animate to it
+        content.classList.add('expanded');
+        const targetHeight = content.scrollHeight;
+        content.style.maxHeight = '0px';
+        
+        // Force reflow
+        content.offsetHeight;
+        
+        // Animate to full height
+        content.style.maxHeight = targetHeight + 'px';
+        
+        if (button) {
+            button.classList.add('expanded');
+            button.textContent = '▼';
+        }
+        
+        // Clean up after transition - set to none for proper scrolling
+        setTimeout(() => {
+            if (content.classList.contains('expanded')) {
+                content.style.maxHeight = 'none';
+            }
+        }, 400);
+    }
+}
+
+function toggleStep(stepId) {
+    const details = document.getElementById(stepId);
+    if (details.classList.contains('expanded')) {
+        // Collapsing: measure current height first, then animate to 0
+        const currentHeight = details.scrollHeight;
+        details.style.maxHeight = currentHeight + 'px';
+        
+        // Force reflow
+        details.offsetHeight;
+        
+        // Animate to collapsed
+        details.style.maxHeight = '0px';
+        details.classList.remove('expanded');
+        
+        // Clean up after transition
+        setTimeout(() => {
+            if (!details.classList.contains('expanded')) {
+                details.style.maxHeight = '';
+            }
+        }, 400);
+        
+    } else {
+        // Expanding: measure content height and animate to it
+        details.classList.add('expanded');
+        const targetHeight = details.scrollHeight;
+        details.style.maxHeight = '0px';
+        
+        // Force reflow
+        details.offsetHeight;
+        
+        // Animate to full height
+        details.style.maxHeight = targetHeight + 'px';
+        
+        // Clean up after transition - set to none for proper scrolling
+        setTimeout(() => {
+            if (details.classList.contains('expanded')) {
+                details.style.maxHeight = 'none';
+            }
+        }, 400);
+    }
+}
+
+let currentModalData = null;
+let currentScreenshotIndex = 0;
+
+function openScreenshotModal(modalDataJson) {
+    try {
+        // Decode HTML entities properly
+        const textarea = document.createElement('textarea');
+        textarea.innerHTML = modalDataJson;
+        const decodedJson = textarea.value;
+        
+        currentModalData = JSON.parse(decodedJson);
+        currentScreenshotIndex = currentModalData.current_index || 0;
+        
+        updateModalContent();
+        
+        const modal = document.getElementById('screenshot-modal');
+        modal.classList.add('active');
+    } catch (e) {
+        console.error('Error opening screenshot modal:', e);
+    }
+}
+
+function updateModalContent() {
+    if (!currentModalData || !currentModalData.screenshots) return;
+    
+    const screenshots = currentModalData.screenshots;
+    const current = screenshots[currentScreenshotIndex];
+    
+    // Update image
+    const img = document.getElementById('modal-img');
+    img.src = current.url;
+    
+    // Update step title
+    const title = document.getElementById('modal-step-title');
+    title.textContent = currentModalData.step_title;
+    
+    // Update action info
+    const actionInfo = document.getElementById('modal-action-info');
+    if (current.command) {
+        const cmd = current.command;
+        const params = current.params || {};
+        
+        // Format parameters intelligently based on type
+        let paramsStr = '';
+        if (Object.keys(params).length > 0) {
+            paramsStr = Object.entries(params).map(([k, v]) => {
+                if (typeof v === 'object' && v !== null) {
+                    // For objects (like area), show compact JSON representation
+                    return k + '=' + JSON.stringify(v);
+                } else if (typeof v === 'string') {
+                    // For strings, wrap in quotes
+                    return k + "='" + v + "'";
+                } else {
+                    // For numbers/booleans, show as-is
+                    return k + '=' + v;
+                }
+            }).join(', ');
+        }
+        
+        actionInfo.textContent = current.label + ': ' + cmd + '(' + paramsStr + ')';
+        actionInfo.style.display = 'block';
+    } else {
+        actionInfo.textContent = current.label;
+        actionInfo.style.display = 'block';
+    }
+    
+    // Update counter
+    const counter = document.getElementById('modal-counter');
+    counter.textContent = (currentScreenshotIndex + 1) + ' / ' + screenshots.length;
+    
+    // Update navigation buttons
+    const prevBtn = document.getElementById('modal-prev');
+    const nextBtn = document.getElementById('modal-next');
+    
+    prevBtn.disabled = currentScreenshotIndex === 0;
+    nextBtn.disabled = currentScreenshotIndex === screenshots.length - 1;
+    
+    // Hide arrows if only one screenshot
+    if (screenshots.length <= 1) {
+        prevBtn.style.display = 'none';
+        nextBtn.style.display = 'none';
+    } else {
+        prevBtn.style.display = 'flex';
+        nextBtn.style.display = 'flex';
+    }
+}
+
+function navigateScreenshot(direction) {
+    if (!currentModalData || !currentModalData.screenshots) return;
+    
+    const newIndex = currentScreenshotIndex + direction;
+    if (newIndex >= 0 && newIndex < currentModalData.screenshots.length) {
+        currentScreenshotIndex = newIndex;
+        updateModalContent();
+    }
+}
+
+function closeScreenshot() {
+    const modal = document.getElementById('screenshot-modal');
+    modal.classList.remove('active');
+    currentModalData = null;
+    currentScreenshotIndex = 0;
+}
+
+// Legacy function for backward compatibility
+function openScreenshot(src) {
+    const modalData = {
+        step_title: 'Screenshot',
+        screenshots: [{
+            label: 'Screenshot',
+            url: src,
+            command: null,
+            params: {}
+        }],
+        current_index: 0
+    };
+    openScreenshotModal(JSON.stringify(modalData));
+}
+
+// Video modal functions - supports both MP4 and HLS
+function openVideoModal(videoUrl, label) {
+    let videoModal = document.getElementById('video-modal');
+    if (!videoModal) {
+        videoModal = document.createElement('div');
+        videoModal.id = 'video-modal';
+        videoModal.className = 'modal';
+        videoModal.innerHTML = `
+            <div class="modal-content video-modal-content">
+                <div class="modal-header">
+                    <h3 id="video-modal-title">${label}</h3>
+                    <button class="modal-close" onclick="closeVideoModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <video id="modal-video" controls style="min-width: 800px; width: 100%; max-width: 1200px; height: auto;">
+                        Your browser does not support video playback.
+                    </video>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(videoModal);
+    } else {
+        document.getElementById('video-modal-title').textContent = label;
+    }
+    
+    const video = document.getElementById('modal-video');
+    
+    // Clear any existing HLS instance
+    if (window.currentHls) {
+        window.currentHls.destroy();
+        window.currentHls = null;
+    }
+    
+    // Detect video type and setup appropriate playback
+    if (videoUrl.includes('.mp4')) {
+        // MP4 video - use native playback
+        console.log('Loading MP4 video:', videoUrl);
+        video.src = videoUrl;
+        video.addEventListener('loadedmetadata', function() {
+            video.play().catch(e => console.log('Autoplay prevented:', e));
+        });
+    } else if (videoUrl.includes('.m3u8') && typeof Hls !== 'undefined' && Hls.isSupported()) {
+        // HLS video - use HLS.js
+        console.log('Loading HLS video:', videoUrl);
+        const hls = new Hls({
+            debug: false,
+            enableWorker: true,
+            lowLatencyMode: false,
+            backBufferLength: 90
+        });
+        
+        hls.loadSource(videoUrl);
+        hls.attachMedia(video);
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, function() {
+            video.play().catch(e => console.log('Autoplay prevented:', e));
+        });
+        
+        hls.on(Hls.Events.ERROR, function(event, data) {
+            console.error('HLS error:', data);
+            if (data.fatal) {
+                switch(data.type) {
+                    case Hls.ErrorTypes.NETWORK_ERROR:
+                        hls.startLoad();
+                        break;
+                    case Hls.ErrorTypes.MEDIA_ERROR:
+                        hls.recoverMediaError();
+                        break;
+                    default:
+                        hls.destroy();
+                        break;
+                }
+            }
+        });
+        
+        window.currentHls = hls;
+    } else if (videoUrl.includes('.m3u8') && video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS support
+        console.log('Loading HLS video with native support:', videoUrl);
+        video.src = videoUrl;
+        video.addEventListener('loadedmetadata', function() {
+            video.play().catch(e => console.log('Autoplay prevented:', e));
+        });
+    } else {
+        console.error('Unsupported video format or HLS.js not available:', videoUrl);
+        video.innerHTML = '<p style="color: red; text-align: center; padding: 20px;">Video format not supported in this browser.</p>';
+    }
+    
+    videoModal.classList.add('active');
+}
+
+// Legacy function for backward compatibility
+function openHLSVideoModal(videoUrl, label) {
+    openVideoModal(videoUrl, label);
+}
+
+function closeVideoModal() {
+    const videoModal = document.getElementById('video-modal');
+    if (videoModal) {
+        videoModal.classList.remove('active');
+        const video = document.getElementById('modal-video');
+        if (video) {
+            video.pause();
+        }
+        
+        // Clean up HLS instance
+        if (window.currentHls) {
+            window.currentHls.destroy();
+            window.currentHls = null;
+        }
+    }
+}
+
+// Legacy function for backward compatibility
+function closeHLSVideoModal() {
+    closeVideoModal();
+}
+
+// Verification image modal functions
+function openVerificationImageModal(modalData) {
+    let verificationModal = document.getElementById('verification-image-modal');
+    if (!verificationModal) {
+        verificationModal = document.createElement('div');
+        verificationModal.id = 'verification-image-modal';
+        verificationModal.className = 'modal';
+        verificationModal.innerHTML = `
+            <div class="modal-content verification-modal-content" style="width: 90%; max-width: 1200px;">
+                <div class="modal-header">
+                    <h3 id="verification-modal-title">Image Verification Comparison</h3>
+                    <button class="modal-close" onclick="closeVerificationImageModal()">&times;</button>
+                </div>
+                <div class="modal-body" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; align-items: flex-start;">
+                    <div id="verification-images-container" style="display: flex; flex-wrap: wrap; justify-content: center; gap: 15px; width: 100%;"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(verificationModal);
+    }
+    
+    // Populate the modal with images
+    const imagesContainer = document.getElementById('verification-images-container');
+    imagesContainer.innerHTML = '';
+    
+    modalData.images.forEach(image => {
+        const imageDiv = document.createElement('div');
+        imageDiv.style.textAlign = 'center';
+        
+        // Dynamic width based on number of images for better layout
+        const imageCount = modalData.images.length;
+        if (imageCount === 4) {
+            imageDiv.style.width = '23%';  // 4 images in one row (23% * 4 = 92% + gaps)
+            imageDiv.style.minWidth = '200px';
+        } else if (imageCount === 3) {
+            imageDiv.style.maxWidth = '32%';
+            imageDiv.style.minWidth = '250px';
+        } else {
+            imageDiv.style.maxWidth = '45%';
+            imageDiv.style.minWidth = '300px';
+        }
+        
+        // Extract sequence number from filename (capture_0001.jpg)
+        const extractSequenceInfo = (url) => {
+            const match = url.match(/capture_(\d+)\.jpg/);
+            if (match) {
+                const sequence = match[1];
+                return `#${sequence}`;
+            }
+            return '';
+        };
+        
+        const sequenceInfo = extractSequenceInfo(image.url);
+        
+        // Sequence info display (small, gray text)
+        if (sequenceInfo) {
+            const timestampDiv = document.createElement('div');
+            timestampDiv.textContent = sequenceInfo;
+            timestampDiv.style.fontSize = '12px';
+            timestampDiv.style.color = '#999';
+            timestampDiv.style.marginBottom = '5px';
+            timestampDiv.style.fontFamily = 'monospace';
+            imageDiv.appendChild(timestampDiv);
+        }
+        
+        const title = document.createElement('h4');
+        title.innerHTML = image.label;  // Use innerHTML to support HTML formatting like <br> and <span> tags
+        title.style.marginBottom = '10px';
+        title.style.color = 'var(--text-primary)';
+        title.style.fontSize = '14px';
+        
+        const img = document.createElement('img');
+        img.src = image.url;
+        img.style.maxWidth = '100%';
+        img.style.maxHeight = '500px';
+        img.style.objectFit = 'contain';
+        img.style.border = '1px solid var(--border-color)';
+        img.style.borderRadius = '4px';
+        img.style.cursor = 'pointer';
+        img.title = 'Click to open in new tab';
+        img.onclick = () => window.open(image.url, '_blank');
+        
+        imageDiv.appendChild(title);
+        imageDiv.appendChild(img);
+        imagesContainer.appendChild(imageDiv);
+    });
+    
+    // Update modal title
+    document.getElementById('verification-modal-title').textContent = modalData.title || 'Image Verification Comparison';
+    
+    // Show the modal
+    verificationModal.classList.add('active');
+}
+
+function closeVerificationImageModal() {
+    const verificationModal = document.getElementById('verification-image-modal');
+    if (verificationModal) {
+        verificationModal.classList.remove('active');
+    }
+}
+
+// Zapping analysis modal functions - specialized for failure analysis with detailed logs
+function openZappingAnalysisModal(modalData) {
+    let zappingModal = document.getElementById('zapping-analysis-modal');
+    if (!zappingModal) {
+        zappingModal = document.createElement('div');
+        zappingModal.id = 'zapping-analysis-modal';
+        zappingModal.className = 'modal';
+        zappingModal.innerHTML = `
+            <div class="modal-content zapping-modal-content" style="width: 90%; max-width: 1200px; max-height: 90vh; overflow-y: auto;">
+                <div class="modal-header">
+                    <h3 id="zapping-modal-title">Zapping Analysis</h3>
+                    <button class="modal-close" onclick="closeZappingAnalysisModal()">&times;</button>
+                </div>
+                <div class="modal-body" style="display: flex; flex-direction: column; gap: 20px;">
+                    <!-- Mosaic Image Section - Top Priority -->
+                    <div id="zapping-mosaic-container" style="text-align: center; background-color: var(--background-secondary); padding: 15px; border-radius: 8px;">
+                        <img id="zapping-mosaic-img" style="max-width: 100%; max-height: 70vh; object-fit: contain; border: 1px solid var(--border-color); border-radius: 4px; cursor: pointer; box-shadow: 0 4px 8px rgba(0,0,0,0.1);" onclick="window.open(this.src, '_blank')" title="Click to open in new tab">
+                        <div style="margin-top: 10px; font-size: 12px; color: var(--text-secondary); font-style: italic;">Click image to open in new tab for detailed inspection</div>
+                    </div>
+                    
+                    <!-- Analysis Log Section - Collapsible -->
+                    <div id="zapping-analysis-section" style="border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;">
+                        <div class="zapping-log-header" onclick="toggleZappingAnalysisLog()" style="background-color: var(--background-secondary); padding: 12px 15px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; user-select: none;">
+                            <h4 style="margin: 0; color: var(--text-primary); font-family: sans-serif; font-size: 14px;">📋 Detailed Analysis Log</h4>
+                            <span id="zapping-log-toggle" style="font-size: 12px; color: var(--text-secondary);">▶ Click to expand</span>
+                        </div>
+                        <div id="zapping-analysis-log" style="max-height: 0; overflow: hidden; transition: max-height 0.3s ease; background-color: var(--background-primary);">
+                            <div style="padding: 15px; font-family: monospace; font-size: 11px; line-height: 1.4; max-height: 400px; overflow-y: auto;">
+                                <div id="zapping-log-content" style="white-space: pre-wrap; color: var(--text-secondary);"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(zappingModal);
+    }
+    
+    // Populate the modal with mosaic and analysis log
+    const mosaicImg = document.getElementById('zapping-mosaic-img');
+    const logContent = document.getElementById('zapping-log-content');
+    
+    // Set mosaic image
+    if (modalData.images && modalData.images.length > 0) {
+        mosaicImg.src = modalData.images[0].url;
+        mosaicImg.alt = modalData.images[0].label || 'Analysis Mosaic';
+    }
+    
+    // Set analysis log
+    if (modalData.analysis_log && modalData.analysis_log.length > 0) {
+        logContent.textContent = modalData.analysis_log.join('\n');
+    } else {
+        logContent.textContent = 'No detailed analysis log available.';
+    }
+    
+    // Ensure log section starts collapsed
+    const logSection = document.getElementById('zapping-analysis-log');
+    const toggleIcon = document.getElementById('zapping-log-toggle');
+    if (logSection && toggleIcon) {
+        logSection.style.maxHeight = '0px';
+        toggleIcon.textContent = '▶ Click to expand';
+    }
+    
+    // Update modal title
+    document.getElementById('zapping-modal-title').textContent = modalData.title || 'Zapping Analysis';
+    
+    // Show the modal
+    zappingModal.classList.add('active');
+}
+
+function closeZappingAnalysisModal() {
+    const zappingModal = document.getElementById('zapping-analysis-modal');
+    if (zappingModal) {
+        zappingModal.classList.remove('active');
+    }
+}
+
+function toggleZappingAnalysisLog() {
+    const logSection = document.getElementById('zapping-analysis-log');
+    const toggleIcon = document.getElementById('zapping-log-toggle');
+    
+    if (!logSection || !toggleIcon) return;
+    
+    const isExpanded = logSection.style.maxHeight && logSection.style.maxHeight !== '0px';
+    
+    if (isExpanded) {
+        // Collapse
+        logSection.style.maxHeight = '0px';
+        toggleIcon.textContent = '▶ Click to expand';
+    } else {
+        // Expand
+        const contentHeight = logSection.scrollHeight;
+        logSection.style.maxHeight = Math.min(contentHeight, 400) + 'px';
+        toggleIcon.textContent = '▼ Click to collapse';
+    }
+}
+
+// Event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    const modal = document.getElementById('screenshot-modal');
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === modal) {
+                closeScreenshot();
+            }
+        });
+    }
+    
+    // Modal click-outside handlers
+    document.addEventListener('click', function(e) {
+        const videoModal = document.getElementById('video-modal');
+        if (videoModal && e.target === videoModal) {
+            closeVideoModal();
+        }
+        
+        // Legacy support
+        const hlsModal = document.getElementById('hls-video-modal');
+        if (hlsModal && e.target === hlsModal) {
+            closeHLSVideoModal();
+        }
+        
+        const verificationModal = document.getElementById('verification-image-modal');
+        if (verificationModal && e.target === verificationModal) {
+            closeVerificationImageModal();
+        }
+        
+        const zappingModal = document.getElementById('zapping-analysis-modal');
+        if (zappingModal && e.target === zappingModal) {
+            closeZappingAnalysisModal();
+        }
+    });
+    
+    // Keyboard navigation
+    document.addEventListener('keydown', function(e) {
+        const videoModal = document.getElementById('video-modal');
+        const hlsModal = document.getElementById('hls-video-modal');
+        const verificationModal = document.getElementById('verification-image-modal');
+        
+        if (modal && modal.classList.contains('active')) {
+            switch(e.key) {
+                case 'ArrowLeft':
+                    e.preventDefault();
+                    navigateScreenshot(-1);
+                    break;
+                case 'ArrowRight':
+                    e.preventDefault();
+                    navigateScreenshot(1);
+                    break;
+                case 'Escape':
+                    e.preventDefault();
+                    closeScreenshot();
+                    break;
+            }
+        } else if ((videoModal && videoModal.classList.contains('active')) || (hlsModal && hlsModal.classList.contains('active'))) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeVideoModal();
+            }
+        } else if (verificationModal && verificationModal.classList.contains('active')) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeVerificationImageModal();
+            }
+        } else if (document.getElementById('zapping-analysis-modal') && document.getElementById('zapping-analysis-modal').classList.contains('active')) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                closeZappingAnalysisModal();
+            }
+        }
+    });
+});
+    </script>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <h1>TC_APP_01_GetDeviceInfo.py</h1>
+                <div class="time-info">
+                    10/12/2025 | Start: 14:44:20 | End: 14:44:48
+                </div>
+            </div>
+            <div class="theme-toggle">
+                <div class="theme-slider light"></div>
+                <div class="theme-option" data-theme="light">Light</div>
+                <div class="theme-option" data-theme="dark">Dark</div>
+                <div class="theme-option" data-theme="system">System</div>
+            </div>
+        </div>
+        
+        <div class="summary">
+            <div class="summary-grid">
+                <div class="summary-item">
+                    <span class="label">Status:</span>
+                    <span class="value success">PASS</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Duration:</span>
+                    <span class="value neutral">27.8s</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Device:</span>
+                    <span class="value neutral">S21x</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Host:</span>
+                    <span class="value neutral">host1</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Success:</span>
+                    <span class="value success">6/6</span>
+                </div>
+                <div class="summary-item">
+                    <span class="label">Failure:</span>
+                    <span class="value failure">0/6</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="section">
+                <div class="section-header" onclick="toggleSection('summary-content')">
+                    <h2>Execution Summary & State</h2>
+                    <button class="toggle-btn">▶</button>
+                </div>
+                <div id="summary-content" class="collapsible-content">
+                    <!-- First Row: Initial, Final, Video in 3-column grid -->
+                    <div class="state-video-grid-container">
+                        <div class="state-video-grid-item">
+                            <h3>Initial State</h3>
+                            <div class="screenshot-container">
+                                
+    <div class="screenshot-container">
+        <span class="screenshot-label">Screenshot</span>
+        <img src="https://example.invalid/benchmark-assets/asset-3" alt="Screenshot" class="screenshot-thumbnail"
+             style="width: 100%; height: auto; object-fit: contain; max-height: 150px;" 
+             onclick="openScreenshotModal('{&quot;step_title&quot;: &quot;Screenshot&quot;, &quot;screenshots&quot;: [{&quot;label&quot;: &quot;Screenshot&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-3&quot;, &quot;command&quot;: null, &quot;params&quot;: {}}], &quot;current_index&quot;: 0}')">
+    </div>
+    
+                            </div>
+                        </div>
+                        <div class="state-video-grid-item">
+                            <h3>Final State</h3>
+                            <div class="screenshot-container">
+                                
+    <div class="screenshot-container">
+        <span class="screenshot-label">Screenshot</span>
+        <img src="https://example.invalid/benchmark-assets/asset-13" alt="Screenshot" class="screenshot-thumbnail"
+             style="width: 100%; height: auto; object-fit: contain; max-height: 150px;" 
+             onclick="openScreenshotModal('{&quot;step_title&quot;: &quot;Screenshot&quot;, &quot;screenshots&quot;: [{&quot;label&quot;: &quot;Screenshot&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-13&quot;, &quot;command&quot;: null, &quot;params&quot;: {}}], &quot;current_index&quot;: 0}')">
+    </div>
+    
+                            </div>
+                        </div>
+                        <div class="state-video-grid-item">
+                            <h3>Test Execution Video</h3>
+                            <div class="test-video-content">
+                                
+    <div class="video-thumbnail" onclick="console.log('Video thumbnail clicked: HLS'); openVideoModal('https://example.invalid/benchmark-assets/asset-2', 'Test Execution')" style="cursor: pointer; position: relative; width: 100%; max-width: 200px; margin: 0 auto; display: block;" title="Click to play HLS video">
+        <video muted preload="metadata" style="width: 100%; height: auto; object-fit: contain; max-height: 150px;">
+            <source src="https://example.invalid/benchmark-assets/asset-2" type="application/x-mpegURL">
+        </video>
+        <div class="play-overlay" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 24px;">▶</div>
+    </div>
+    
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Second Row: Execution Summary below -->
+                    <div class="execution-summary-section">
+                        <h3>Execution Summary</h3>
+                        <div class="execution-summary-content">
+                            <div class="summary-stats">
+    <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; margin: 0;">📊 Execution summary not available<br>ℹ️  This may be from an older script run<br>🔄 Run the script again to see detailed summary</pre>
+</div>
+                            
+            <div style="margin-top: 2px; background-color: var(--background-secondary); border-radius: 4px; border-left: 3px solid var(--info-color);">
+                📝 Execution Logs:
+                <a href="https://example.invalid/benchmark-assets/asset-1" target="_blank" style="color: var(--link-color); text-decoration: none; font-weight: bold;">
+                    Click here
+                </a>
+            </div>
+            
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            
+            
+            <div class="section">
+                                <div class="section-header" onclick="toggleSection('steps-content')">
+                    <h2>Test Steps (6/6 passed)</h2>
+                    <button class="toggle-btn expanded">▼</button>
+                </div>
+                <div id="steps-content" class="collapsible-content expanded">
+                    <div class="step-list">
+    <div class="step-item success" onclick="toggleStep('step-details-0')">
+        <div class="step-number">1</div>
+        <div class="step-status">
+            <span class="step-status-badge success">
+                PASS
+            </span>
+        </div>
+        <div class="step-message">
+            home → home_profile
+            <div class="step-timing-inline">Start: 14:44:25 End: 14:44:28 Duration: 2.8s</div>
+        </div>
+    </div>
+    <div id="step-details-0" class="step-details">
+         <div class="step-details-content">
+             <div class="step-info">
+                 <div><strong>Actions:</strong></div><div class="action-item">1. click_element_by_id(element_id='1') <span class="action-result-badge success">✓</span></div>
+                 
+                 
+                 
+                 
+             </div>
+             
+    <div class="step-screenshot-container">
+        <div class="screenshot-row">
+            
+    <div class="screenshot-container">
+        <span class="screenshot-label">3 screenshots</span>
+        <img src="https://example.invalid/benchmark-assets/asset-3" alt="Screenshot" class="screenshot-thumbnail"
+             style="width: 100%; height: auto; object-fit: contain; max-height: 150px;" 
+             onclick="openScreenshotModal('{&quot;step_title&quot;: &quot;Step 1: home \u2192 home_profile&quot;, &quot;screenshots&quot;: [{&quot;label&quot;: &quot;capture_000040000.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED_step_start&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-3&quot;, &quot;command&quot;: null, &quot;params&quot;: {}}, {&quot;label&quot;: &quot;capture_000040014.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-5&quot;, &quot;command&quot;: &quot;click_element_by_id&quot;, &quot;params&quot;: {}}, {&quot;label&quot;: &quot;capture_000040014.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED_step_end&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-5&quot;, &quot;command&quot;: null, &quot;params&quot;: {}}], &quot;current_index&quot;: 0}')">
+    </div>
+    
+        </div>
+    </div>
+    
+         </div>
+    </div>
+    
+    <div class="step-item success" onclick="toggleStep('step-details-1')">
+        <div class="step-number">2</div>
+        <div class="step-status">
+            <span class="step-status-badge success">
+                PASS
+            </span>
+        </div>
+        <div class="step-message">
+            home_profile → settings
+            <div class="step-timing-inline">Start: 14:44:28 End: 14:44:33 Duration: 4.6s</div>
+        </div>
+    </div>
+    <div id="step-details-1" class="step-details">
+         <div class="step-details-content">
+             <div class="step-info">
+                 <div><strong>Actions:</strong></div><div class="action-item">1. click_element(wait_time='1000', element_id='Settings|Einstellungen') <span class="action-result-badge success">✓</span></div>
+                 
+                 
+                 
+                 
+             </div>
+             
+    <div class="step-screenshot-container">
+        <div class="screenshot-row">
+            
+    <div class="screenshot-container">
+        <span class="screenshot-label">3 screenshots</span>
+        <img src="https://example.invalid/benchmark-assets/asset-5" alt="Screenshot" class="screenshot-thumbnail"
+             style="width: 100%; height: auto; object-fit: contain; max-height: 150px;" 
+             onclick="openScreenshotModal('{&quot;step_title&quot;: &quot;Step 2: home_profile \u2192 settings&quot;, &quot;screenshots&quot;: [{&quot;label&quot;: &quot;capture_000040014.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED_step_start&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-5&quot;, &quot;command&quot;: null, &quot;params&quot;: {}}, {&quot;label&quot;: &quot;capture_000040037.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-7&quot;, &quot;command&quot;: &quot;click_element&quot;, &quot;params&quot;: {}}, {&quot;label&quot;: &quot;capture_000040037.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED_step_end&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-7&quot;, &quot;command&quot;: null, &quot;params&quot;: {}}], &quot;current_index&quot;: 0}')">
+    </div>
+    
+        </div>
+    </div>
+    
+         </div>
+    </div>
+    
+    <div class="step-item success" onclick="toggleStep('step-details-2')">
+        <div class="step-number">3</div>
+        <div class="step-status">
+            <span class="step-status-badge success">
+                PASS
+            </span>
+        </div>
+        <div class="step-message">
+            settings → info
+            <div class="step-timing-inline">Start: 14:44:33 End: 14:44:41 Duration: 8.6s</div>
+        </div>
+    </div>
+    <div id="step-details-2" class="step-details">
+         <div class="step-details-content">
+             <div class="step-info">
+                 <div><strong>Actions:</strong></div><div class="action-item">1. swipe_up(duration='1000') <span class="action-result-badge success">✓</span></div><div class="action-item">2. click_element(wait_time='1000', element_id='Diagnostics|Diagnose') <span class="action-result-badge success">✓</span></div>
+                 <div><strong>Verifications:</strong></div><div class="verification-item">1. waitForElementToAppear(search_term='Build') <span class="verification-result-badge success">✓</span></div>
+                 
+                 
+                 
+             </div>
+             
+    <div class="step-screenshot-container">
+        <div class="screenshot-row">
+            
+    <div class="screenshot-container">
+        <span class="screenshot-label">5 screenshots</span>
+        <img src="https://example.invalid/benchmark-assets/asset-7" alt="Screenshot" class="screenshot-thumbnail"
+             style="width: 100%; height: auto; object-fit: contain; max-height: 150px;" 
+             onclick="openScreenshotModal('{&quot;step_title&quot;: &quot;Step 3: settings \u2192 info&quot;, &quot;screenshots&quot;: [{&quot;label&quot;: &quot;capture_000040037.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED_step_start&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-7&quot;, &quot;command&quot;: null, &quot;params&quot;: {}}, {&quot;label&quot;: &quot;capture_000040044.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-9 &quot;command&quot;: &quot;swipe_up&quot;, &quot;params&quot;: {}}, {&quot;label&quot;: &quot;capture_000040067.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-10 &quot;command&quot;: &quot;click_element&quot;, &quot;params&quot;: {}}, {&quot;label&quot;: &quot;capture_000040079.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED_verification_1&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-11 &quot;command&quot;: &quot;waitForElementToAppear&quot;, &quot;params&quot;: {&quot;timeout&quot;: 0, &quot;search_term&quot;: &quot;Build&quot;}}, {&quot;label&quot;: &quot;capture_000040080.jpg_X-Amz-Algorithm_AWS4-HMAC-SHA256_X-Amz-Credential_REDACTED_2F20251210_2Fauto_2Fs3_2Faws4_request_X-Amz-Date_20251210T134448Z_X-Amz-Expires_604799_X-Amz-SignedHeaders_host_X-Amz-Signature_REDACTED_step_end&quot;, &quot;url&quot;: &quot;https://example.invalid/benchmark-assets/asset-12 &quot;command&quot;: null, &quot;params&quot;: {}}], &quot;current_index&quot;: 0}')">
+    </div>
+    
+        </div>
+    </div>
+    
+         </div>
+    </div>
+    
+    <div class="step-item success" onclick="toggleStep('step-details-3')">
+        <div class="step-number">4</div>
+        <div class="step-status">
+            <span class="step-status-badge success">
+                PASS
+            </span>
+        </div>
+        <div class="step-message">
+            Navigate to: info
+            <div class="step-timing-inline">Start: N/A End: N/A Duration: 25.0s</div>
+        </div>
+    </div>
+    <div id="step-details-3" class="step-details">
+         <div class="step-details-content">
+             <div class="step-info">
+                 
+                 
+                 
+                 
+                 
+             </div>
+             
+         </div>
+    </div>
+    
+    <div class="step-item success" onclick="toggleStep('step-details-4')">
+        <div class="step-number">5</div>
+        <div class="step-status">
+            <span class="step-status-badge success">
+                PASS
+            </span>
+        </div>
+        <div class="step-message">
+            Standard block: evaluate_condition
+            <div class="step-timing-inline">Start: N/A End: N/A Duration: 14ms</div>
+        </div>
+    </div>
+    <div id="step-details-4" class="step-details">
+         <div class="step-details-content">
+             <div class="step-info">
+                 
+                 
+                 
+                 
+                 
+             </div>
+             
+         </div>
+    </div>
+    
+    <div class="step-item success" onclick="toggleStep('step-details-5')">
+        <div class="step-number">6</div>
+        <div class="step-status">
+            <span class="step-status-badge success">
+                PASS
+            </span>
+        </div>
+        <div class="step-message">
+            Action: getMenuInfo
+            <div class="step-timing-inline">Start: N/A End: N/A Duration: 2.8s</div>
+        </div>
+    </div>
+    <div id="step-details-5" class="step-details">
+         <div class="step-details-content">
+             <div class="step-info">
+                 
+                 
+                 
+                 
+                 
+             </div>
+             
+         </div>
+    </div>
+    </div>
+                </div>
+            </div>
+            
+            
+        </div>
+    </div>
+    
+    <div id="screenshot-modal" class="screenshot-modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeScreenshot()">&times;</span>
+            <div class="modal-header">
+                <h3 id="modal-step-title">Screenshot</h3>
+                <div id="modal-action-info" class="action-info"></div>
+            </div>
+            <div class="modal-body">
+                <button id="modal-prev" class="nav-arrow nav-prev" onclick="navigateScreenshot(-1)">‹</button>
+                <img id="modal-img" src="" alt="Screenshot">
+                <button id="modal-next" class="nav-arrow nav-next" onclick="navigateScreenshot(1)">›</button>
+            </div>
+            <div class="modal-footer">
+                <span id="modal-counter">1 / 1</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,237 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Metrics & Analytics
+  version: 1.0.0
+  description: Performance metrics and navigation analytics
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: navigation_id
+    value: 'nav_tree_001'
+    description: Navigation tree identifier
+  - key: node_id
+    value: 'node_home'
+    description: Node identifier
+  - key: edge_id
+    value: 'edge_login_action'
+    description: Edge identifier
+paths:
+  /server/metrics/tree/{navigation_id}:
+    get:
+      summary: Get Tree Metrics
+      description: Get performance metrics and analytics for a navigation tree
+      tags: [Metrics]
+      parameters:
+        - name: navigation_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Navigation tree identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Tree metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tree_id:
+                    type: string
+                  total_nodes:
+                    type: integer
+                  total_edges:
+                    type: integer
+                  execution_count:
+                    type: integer
+                  average_duration:
+                    type: number
+        '404':
+          description: Navigation tree not found
+  /server/metrics/node/node-id/{navigation_id}:
+    get:
+      summary: Get Node Metrics
+      description: Get performance metrics for a specific node in a navigation tree
+      tags: [Metrics]
+      parameters:
+        - name: navigation_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Navigation tree identifier
+        - name: node_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Node identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Node metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  node_id:
+                    type: string
+                  execution_count:
+                    type: integer
+                  success_rate:
+                    type: number
+                  average_duration:
+                    type: number
+        '404':
+          description: Node not found
+  /server/metrics/edge/edge-id/{navigation_id}:
+    get:
+      summary: Get Edge Metrics
+      description: Get performance metrics for a specific edge (action) in a navigation tree
+      tags: [Metrics]
+      parameters:
+        - name: navigation_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Navigation tree identifier
+        - name: edge_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Edge identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Edge metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  edge_id:
+                    type: string
+                  execution_count:
+                    type: integer
+                  success_rate:
+                    type: number
+                  average_duration:
+                    type: number
+        '404':
+          description: Edge not found
+  /server/metrics/history/actions/edge-id/{navigation_id}:
+    get:
+      summary: Get Action History
+      description: Get execution history for actions performed on a specific edge
+      tags: [Metrics]
+      parameters:
+        - name: navigation_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Navigation tree identifier
+        - name: edge_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Edge identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Action history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    success:
+                      type: boolean
+                    duration:
+                      type: number
+        '404':
+          description: Edge not found
+  /server/metrics/history/verifications/node-id/{navigation_id}:
+    get:
+      summary: Get Verification History
+      description: Get verification execution history for a specific node
+      tags: [Metrics]
+      parameters:
+        - name: navigation_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Navigation tree identifier
+        - name: node_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Node identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Verification history retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    timestamp:
+                      type: string
+                      format: date-time
+                    success:
+                      type: boolean
+                    verification_type:
+                      type: string
+        '404':
+          description: Node not found

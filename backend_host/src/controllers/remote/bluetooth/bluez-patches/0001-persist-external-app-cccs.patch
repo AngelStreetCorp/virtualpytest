@@ -1,0 +1,239 @@
+From: VirtualPyTest host1 BLE remote work
+Subject: [PATCH] gatt-database: persist external GATT app CCCD subscriptions
+
+Currently BlueZ persists Long-Term Keys, IRKs, and the Service Changed
+CCC value in /var/lib/bluetooth/<adapter>/<peer>/info, but the per-bond
+CCCD subscription state for arbitrary characteristics provided by
+external GATT applications (registered via the org.bluez.GattManager1
+RegisterApplication D-Bus method) is tracked only in RAM, in the
+device_state -> ccc_states queue. When the external app process
+restarts, or when bluetoothd itself restarts, this state is lost: a
+bonded peer that reconnects no longer triggers any notifications even
+though the LL link, encryption and bond on disk are all intact, because
+BlueZ's user-space subscriber tracking shows nothing subscribed to our
+characteristics.
+
+The TODO at line ~612 of src/gatt-database.c acknowledges this gap:
+
+    /* TODO: Persistently store CCC states before freeing them */
+
+This patch closes the gap by adding a [Cccs] section to the existing
+per-device info file, with entries of the form
+
+    [Cccs]
+    003b=0x0001     ; CCC handle 0x003b set to "notify enabled"
+    0037=0x0001
+
+The CCC value is written to disk every time a bonded peer issues a CCC
+write (in gatt_ccc_write_cb), and the values are replayed back into
+device_state -> ccc_states in two places:
+
+  * connect_cb()        - on every new ATT connection, after BlueZ
+                          attaches the device, in case this is a bonded
+                          reconnect by an already-known peer
+  * client_ready_cb()   - after a successful RegisterApplication, in
+                          case the bonded peer was already connected
+                          when the external app finished registering
+
+Indexing by raw GATT handle is sufficient in practice because BlueZ
+already persists the local GATT structure in
+/var/lib/bluetooth/<adapter>/attributes and, as long as the external
+app re-registers the same services in the same order, BlueZ assigns
+the same handles. If the GATT layout changes between runs the [Cccs]
+entries become stale and are simply ignored on load (the in-memory
+state will still be empty until the peer next writes the CCCD).
+
+Tested on Raspberry Pi OS bookworm with bluez 5.66-1+rpt1+deb12u2 and
+an Arris/Commscope STB. Survives:
+
+  * hid_remote.py restart        -> keys keep flowing
+  * bluetoothd restart            -> keys keep flowing after reconnect
+  * Pi reboot                     -> keys keep flowing after start.sh
+  * STB reboot                    -> still requires manual STB-side
+                                     re-pair (STB doesn't auto-reconnect
+                                     to bonded BLE peripherals on boot)
+
+---
+ src/gatt-database.c | 168 ++++++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 168 insertions(+)
+
+diff --git a/src/gatt-database.c b/src/gatt-database.c
+--- a/src/gatt-database.c
++++ b/src/gatt-database.c
+@@ -250,6 +250,128 @@ static struct ccc_state *find_ccc_state(struct device_state *dev_state,
+ 	return queue_find(dev_state->ccc_states, ccc_state_match, &handle);
+ }
+
++/* ===========================================================================
++ * CCCD persistence for external GATT applications (host1 patch)
++ *
++ * Extends the existing per-bond storage in
++ * /var/lib/bluetooth/<adapter>/<peer>/info with a new [Cccs] section
++ * mapping CCC descriptor handles to their last-written values. This
++ * lets bonded clients keep working after hid_remote.py / bluetoothd
++ * restarts without having to re-write CCCDs.
++ * =========================================================================== */
++
++static void store_ccc_persistent(struct btd_adapter *adapter,
++					const bdaddr_t *addr,
++					uint16_t handle, uint16_t value)
++{
++	char filename[PATH_MAX];
++	char addr_str[18];
++	GKeyFile *kf;
++	GError *gerr = NULL;
++	char key[16], val_str[8];
++	char *str;
++	gsize length = 0;
++
++	if (!adapter || !addr || !handle)
++		return;
++
++	ba2str(addr, addr_str);
++	create_filename(filename, PATH_MAX, "/%s/%s/info",
++				btd_adapter_get_storage_dir(adapter), addr_str);
++
++	kf = g_key_file_new();
++	if (!g_key_file_load_from_file(kf, filename, 0, &gerr))
++		g_clear_error(&gerr);
++
++	snprintf(key, sizeof(key), "%04x", handle);
++	snprintf(val_str, sizeof(val_str), "0x%04x", value);
++	g_key_file_set_string(kf, "Cccs", key, val_str);
++
++	create_file(filename, 0600);
++
++	str = g_key_file_to_data(kf, &length, NULL);
++	if (str) {
++		g_file_set_contents(filename, str, length, NULL);
++		g_free(str);
++	}
++	g_key_file_free(kf);
++
++	DBG("Persisted CCC handle 0x%04x = 0x%04x for %s",
++						handle, value, addr_str);
++}
++
++static void load_ccc_persistent(struct btd_gatt_database *database,
++					const bdaddr_t *addr,
++					uint8_t addr_type)
++{
++	char filename[PATH_MAX];
++	char addr_str[18];
++	GKeyFile *kf;
++	GError *gerr = NULL;
++	char **keys = NULL;
++	gsize n_keys = 0, i;
++	struct device_state *dev_state;
++
++	if (!database || !addr)
++		return;
++
++	ba2str(addr, addr_str);
++	create_filename(filename, PATH_MAX, "/%s/%s/info",
++			btd_adapter_get_storage_dir(database->adapter),
++			addr_str);
++
++	kf = g_key_file_new();
++	if (!g_key_file_load_from_file(kf, filename, 0, &gerr)) {
++		g_clear_error(&gerr);
++		g_key_file_free(kf);
++		return;
++	}
++
++	if (!g_key_file_has_group(kf, "Cccs")) {
++		g_key_file_free(kf);
++		return;
++	}
++
++	dev_state = find_device_state(database, addr, addr_type);
++	if (!dev_state) {
++		dev_state = device_state_create(database, addr, addr_type);
++		queue_push_tail(database->device_states, dev_state);
++	}
++
++	keys = g_key_file_get_keys(kf, "Cccs", &n_keys, NULL);
++	for (i = 0; keys && i < n_keys; i++) {
++		char *val_str;
++		uint16_t handle, value;
++		struct ccc_state *ccc;
++
++		handle = (uint16_t) strtoul(keys[i], NULL, 16);
++		val_str = g_key_file_get_string(kf, "Cccs", keys[i], NULL);
++		value = (uint16_t) (val_str ? strtoul(val_str, NULL, 0) : 0);
++		g_free(val_str);
++
++		if (!handle || !value)
++			continue;
++
++		ccc = find_ccc_state(dev_state, handle);
++		if (!ccc) {
++			ccc = new0(struct ccc_state, 1);
++			ccc->handle = handle;
++			queue_push_tail(dev_state->ccc_states, ccc);
++		}
++		ccc->value = value;
++
++		DBG("Loaded CCC handle 0x%04x = 0x%04x for %s",
++						handle, value, addr_str);
++	}
++	g_strfreev(keys);
++	g_key_file_free(kf);
++}
++
++static void load_ccc_for_device_cb(struct btd_device *device, void *user_data)
++{
++	struct btd_gatt_database *database = user_data;
++
++	load_ccc_persistent(database, device_get_address(device),
++			device_get_le_address_type(device));
++}
++
+ static void device_state_free(void *data)
+ {
+ 	struct device_state *state = data;
+@@ -660,6 +782,11 @@ static void connect_cb(GIOChannel *io, GError *gerr, gpointer user_data)
+ 		return;
+
+ 	device_attach_att(device, io);
++
++	/* host1 patch: restore persisted CCC values for bonded peers so
++	 * notifications keep flowing across hid-remote / bluetoothd restarts.
++	 */
++	load_ccc_persistent(btd_adapter_get_database(adapter), &dst, dst_type);
+ }
+
+ static void gap_device_name_read_cb(struct gatt_db_attribute *attrib,
+@@ -1063,6 +1190,21 @@ static void gatt_ccc_write_cb(struct gatt_db_attribute *attrib,
+
+ 	if (!ecode)
+ 		ccc->value = val;
++
++	/* host1 patch: persist the new CCC value to disk so it can be
++	 * restored across bluetoothd / external-GATT-app restarts.
++	 */
++	if (!ecode && att) {
++		bdaddr_t bdaddr;
++		uint8_t bdaddr_type;
++
++		if (get_dst_info(att, &bdaddr, &bdaddr_type))
++			store_ccc_persistent(database->adapter, &bdaddr,
++								handle, val);
++	}
+
+ done:
+ 	gatt_db_attribute_write_result(attrib, id, ecode);
+@@ -3618,6 +3760,12 @@ static void client_ready_cb(GDBusClient *client, void *user_data)
+
+ 	DBG("GATT application registered: %s:%s", app->owner, app->path);
+
++	/* host1 patch: an external GATT app just finished registering its
++	 * services. Walk every bonded device and replay any persisted CCC
++	 * subscriptions so existing bonds stay functional immediately.
++	 */
++	btd_adapter_for_each_device(app->database->adapter,
++					load_ccc_for_device_cb, app->database);
++
+ 	reply = dbus_message_new_method_return(app->reg);
+
+ reply:

@@ -1,0 +1,45 @@
+name: testcase-management
+version: 1.0.0
+description: List, create, and execute testcases
+
+triggers:
+  - list testcases
+  - show testcases
+  - available testcases
+  - run testcase
+  - run test
+  - execute testcase
+  - create testcase
+  - generate testcase
+  - new testcase
+  - save testcase
+
+system_prompt: |
+  Manage testcases: list, create, and execute
+
+  2
+  CRITICAL:
+   - Call get_compatible_hosts only if host_name, device_id not available in current message or conversation history
+   - Do NOT call list_testcases if testcase_name is clearly specified in the current user message
+
+  FLOW CONTROL RULES:
+   - Each pass/fail handle → ONE target only (no branching to multiple)
+   - Unlinked handles default to FAIL
+
+tools:
+  - list_testcases
+  - get_compatible_hosts
+  - execute_testcase
+  - generate_and_save_testcase
+  - save_testcase
+
+required_context:
+  - available_devices
+  - host_name
+  - device_id
+  - testcase_id
+
+platform: null
+requires_device: false
+timeout_seconds: 3600
+

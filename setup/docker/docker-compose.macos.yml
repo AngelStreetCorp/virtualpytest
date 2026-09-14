@@ -1,0 +1,10 @@
+# macOS (Docker Desktop) override. No /dev passthrough: USB capture cards and IR
+# transmitters are not reachable from a Linux container on macOS, so the host
+# runs with its VNC desktop only (web / API / Android-over-network devices).
+# Docker Desktop > Settings > Resources > Network: enable host networking if the
+# host container must reach devices on your LAN.
+services:
+  backend_host:
+    privileged: true
+    tmpfs:
+      - /var/www/html/stream/capture/hot:size=200M,mode=777

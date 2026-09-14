@@ -1,0 +1,2190 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Nodes",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": [],
+      "id": 1
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS value\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'verification'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (COALESCE(ui.name, 'Unknown Interface') IN (${user_interface:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Success rate",
+      "type": "stat",
+      "id": 2
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroup(er.executed_at, '1h') AS time,\n  COUNT(*) AS \"Verifications\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'verification'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (COALESCE(ui.name, 'Unknown Interface') IN (${user_interface:sqlstring}))\nGROUP BY time\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Over time",
+      "type": "timeseries",
+      "id": 3
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Time"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volume"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Variant"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(ui.name, 'Unknown Interface') || ' - ' || COALESCE(er.variant, 'Base') AS \"Variant\",\n  ROUND(AVG(er.execution_time_ms))::int AS \"Avg Time\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'verification'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (COALESCE(ui.name, 'Unknown Interface') IN (${user_interface:sqlstring}))\nGROUP BY ui.name, er.variant\nHAVING COUNT(*) >= 1\nORDER BY \"Variant\" ASC",
+          "refId": "A"
+        }
+      ],
+      "title": "By UI",
+      "type": "table",
+      "id": 4
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Time"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volume"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 15
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Variant"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(nn.label, 'Node ' || SUBSTRING(er.node_id, 1, 8)) AS \"Variant\",\n  ROUND(AVG(er.execution_time_ms))::int AS \"Avg Time\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_nodes nn ON (er.node_id = nn.node_id AND er.tree_id = nn.tree_id)\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'verification'\n  AND ui.name = 'example_androidtv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\nGROUP BY er.node_id, er.tree_id, nn.label, er.variant\nHAVING COUNT(*) >= 1\nORDER BY \"Variant\" ASC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "example_androidtv",
+      "type": "table",
+      "id": 5
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Time"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volume"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Variant"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(nn.label, 'Node ' || SUBSTRING(er.node_id, 1, 8)) AS \"Variant\",\n  ROUND(AVG(er.execution_time_ms))::int AS \"Avg Time\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_nodes nn ON (er.node_id = nn.node_id AND er.tree_id = nn.tree_id)\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'verification'\n  AND ui.name = 'example_tv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\nGROUP BY er.node_id, er.tree_id, nn.label, er.variant\nHAVING COUNT(*) >= 1\nORDER BY \"Variant\" ASC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "example_tv",
+      "type": "table",
+      "id": 6
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Time"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volume"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 35
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Variant"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(nn.label, 'Node ' || SUBSTRING(er.node_id, 1, 8)) AS \"Variant\",\n  ROUND(AVG(er.execution_time_ms))::int AS \"Avg Time\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_nodes nn ON (er.node_id = nn.node_id AND er.tree_id = nn.tree_id)\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'verification'\n  AND ui.name = 'example_web'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\nGROUP BY er.node_id, er.tree_id, nn.label, er.variant\nHAVING COUNT(*) >= 1\nORDER BY \"Variant\" ASC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "example_web",
+      "type": "table",
+      "id": 7
+    },
+    {
+      "type": "row",
+      "title": "Edges",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 45
+      },
+      "panels": [],
+      "id": 8
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          },
+          "unit": "percent",
+          "decimals": 1
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 0,
+        "y": 46
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "value",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS value\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'action'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (COALESCE(ui.name, 'Unknown Interface') IN (${user_interface:sqlstring}))",
+          "refId": "A"
+        }
+      ],
+      "title": "Success rate",
+      "type": "stat",
+      "id": 9
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "lineInterpolation": "linear",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "lineWidth": 1,
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "spanNulls": false,
+            "insertNulls": false,
+            "showPoints": "auto",
+            "pointSize": 5,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "axisPlacement": "auto",
+            "axisColorMode": "text",
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "hideFrom": {
+              "tooltip": false,
+              "viz": false,
+              "legend": false
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 46
+      },
+      "options": {
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        },
+        "legend": {
+          "showLegend": false,
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        }
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  $__timeGroup(er.executed_at, '1h') AS time,\n  COUNT(*) AS \"Executions\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'action'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (COALESCE(ui.name, 'Unknown Interface') IN (${user_interface:sqlstring}))\nGROUP BY time\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Over time",
+      "type": "timeseries",
+      "id": 10
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Time"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volume"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 50
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Variant"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || (CASE\n  WHEN er.action_set_id IS NOT NULL AND er.action_set_id LIKE '%_to_%' THEN\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 2), '_', ' ')\n  WHEN er.action_set_id IS NOT NULL THEN REPLACE(er.action_set_id, '_', ' ')\n  ELSE 'Edge ' || SUBSTRING(er.edge_id, 1, 8)\nEND) AS \"Variant\",\n  ROUND(AVG(er.execution_time_ms))::int AS \"Avg Time\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'action'\n  AND ui.name = 'example_tv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\nGROUP BY CASE\n  WHEN er.action_set_id IS NOT NULL AND er.action_set_id LIKE '%_to_%' THEN\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 2), '_', ' ')\n  WHEN er.action_set_id IS NOT NULL THEN REPLACE(er.action_set_id, '_', ' ')\n  ELSE 'Edge ' || SUBSTRING(er.edge_id, 1, 8)\nEND, er.edge_id, er.action_set_id, er.variant\nHAVING COUNT(*) >= 1\nORDER BY \"Variant\" ASC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "example_tv",
+      "type": "table",
+      "id": 11
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Time"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volume"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Variant"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || (CASE\n  WHEN er.action_set_id IS NOT NULL AND er.action_set_id LIKE '%_to_%' THEN\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 2), '_', ' ')\n  WHEN er.action_set_id IS NOT NULL THEN REPLACE(er.action_set_id, '_', ' ')\n  ELSE 'Edge ' || SUBSTRING(er.edge_id, 1, 8)\nEND) AS \"Variant\",\n  ROUND(AVG(er.execution_time_ms))::int AS \"Avg Time\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'action'\n  AND ui.name = 'example_androidtv'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\nGROUP BY CASE\n  WHEN er.action_set_id IS NOT NULL AND er.action_set_id LIKE '%_to_%' THEN\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 2), '_', ' ')\n  WHEN er.action_set_id IS NOT NULL THEN REPLACE(er.action_set_id, '_', ' ')\n  ELSE 'Edge ' || SUBSTRING(er.edge_id, 1, 8)\nEND, er.edge_id, er.action_set_id, er.variant\nHAVING COUNT(*) >= 1\nORDER BY \"Variant\" ASC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "example_androidtv",
+      "type": "table",
+      "id": 12
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Time"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volume"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Variant"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || (CASE\n  WHEN er.action_set_id IS NOT NULL AND er.action_set_id LIKE '%_to_%' THEN\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 2), '_', ' ')\n  WHEN er.action_set_id IS NOT NULL THEN REPLACE(er.action_set_id, '_', ' ')\n  ELSE 'Edge ' || SUBSTRING(er.edge_id, 1, 8)\nEND) AS \"Variant\",\n  ROUND(AVG(er.execution_time_ms))::int AS \"Avg Time\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'action'\n  AND ui.name = 'example_web'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\nGROUP BY CASE\n  WHEN er.action_set_id IS NOT NULL AND er.action_set_id LIKE '%_to_%' THEN\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 2), '_', ' ')\n  WHEN er.action_set_id IS NOT NULL THEN REPLACE(er.action_set_id, '_', ' ')\n  ELSE 'Edge ' || SUBSTRING(er.edge_id, 1, 8)\nEND, er.edge_id, er.action_set_id, er.variant\nHAVING COUNT(*) >= 1\nORDER BY \"Variant\" ASC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "example_web",
+      "type": "table",
+      "id": 13
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": true,
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Avg Time"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "unit",
+                "value": "ms"
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 80
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Volume"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "gauge",
+                  "mode": "basic",
+                  "valueDisplayMode": "color"
+                }
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "blue",
+                      "value": 0
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 80
+      },
+      "options": {
+        "showHeader": true,
+        "footer": {
+          "show": false
+        },
+        "cellHeight": "sm",
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Variant"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COALESCE(er.variant, 'Base') || ' - ' || (CASE\n  WHEN er.action_set_id IS NOT NULL AND er.action_set_id LIKE '%_to_%' THEN\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 2), '_', ' ')\n  WHEN er.action_set_id IS NOT NULL THEN REPLACE(er.action_set_id, '_', ' ')\n  ELSE 'Edge ' || SUBSTRING(er.edge_id, 1, 8)\nEND) AS \"Variant\",\n  ROUND(AVG(er.execution_time_ms))::int AS \"Avg Time\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.execution_type = 'action'\n  AND ui.name = 'example_mobile'\n  AND $__timeFilter(er.executed_at)\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\nGROUP BY CASE\n  WHEN er.action_set_id IS NOT NULL AND er.action_set_id LIKE '%_to_%' THEN\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n    REPLACE(SPLIT_PART(er.action_set_id, '_to_', 2), '_', ' ')\n  WHEN er.action_set_id IS NOT NULL THEN REPLACE(er.action_set_id, '_', ' ')\n  ELSE 'Edge ' || SUBSTRING(er.edge_id, 1, 8)\nEND, er.edge_id, er.action_set_id, er.variant\nHAVING COUNT(*) >= 1\nORDER BY \"Variant\" ASC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "title": "example_mobile",
+      "type": "table",
+      "id": 14
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "All script excutions",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Report URL"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "targetBlank": true,
+                    "title": "show report",
+                    "url": "${__value.raw}"
+                  }
+                ]
+              },
+              {
+                "id": "mappings",
+                "value": []
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 14,
+        "w": 24,
+        "x": 0,
+        "y": 90
+      },
+      "id": 15,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "created_at"
+          }
+        ]
+      },
+      "pluginVersion": "12.1.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest_executions AS (\n  SELECT DISTINCT ON (\n    CASE WHEN er.execution_type = 'action'\n         THEN er.edge_id || '#' || er.action_set_id\n         ELSE er.node_id\n    END\n  )\n    CASE WHEN er.execution_type = 'action'\n         THEN er.edge_id || '#' || er.action_set_id\n         ELSE er.node_id\n    END AS element_key,\n    er.execution_type,\n    er.tree_id,\n    er.node_id,\n    er.edge_id,\n    er.action_set_id,\n    er.variant,\n    er.is_test,\n    er.executed_at,\n    er.kpi_report_url,\n    sr.html_report_r2_url\n  FROM (SELECT * FROM execution_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = execution_results.host_name AND df.device_name = execution_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) er\n  LEFT JOIN script_results sr ON er.script_result_id = sr.id\n  LEFT JOIN navigation_trees nt ON er.tree_id = nt.id\n  LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\n  WHERE $__timeFilter(er.executed_at)\n    AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n    AND (COALESCE(ui.name, 'Unknown Interface') IN (${user_interface:sqlstring}))\n  ORDER BY\n    CASE WHEN er.execution_type = 'action'\n         THEN er.edge_id || '#' || er.action_set_id\n         ELSE er.node_id\n    END,\n    er.executed_at DESC\n)\nSELECT\n  CASE WHEN le.execution_type = 'action' THEN 'Edge' ELSE 'Node' END AS \"Type\",\n  COALESCE(ui.name, 'Unknown') AS \"Interface\",\n  COALESCE(le.variant, 'Base') AS \"Variant\",\n  le.is_test AS \"Is Test\",\n  CASE\n    WHEN le.execution_type = 'action' AND le.action_set_id LIKE '%_to_%' THEN\n      REPLACE(SPLIT_PART(le.action_set_id, '_to_', 1), '_', ' ') || ' → ' ||\n      REPLACE(SPLIT_PART(le.action_set_id, '_to_', 2), '_', ' ')\n    WHEN le.execution_type = 'action' THEN\n      REPLACE(le.action_set_id, '_', ' ')\n    ELSE\n      COALESCE(nn.label, 'Node ' || SUBSTRING(le.node_id, 1, 8))\n  END AS \"Name\",\n  CASE\n    WHEN le.execution_type = 'action' THEN\n      CASE WHEN COALESCE(em.total_executions, 0) = 0 THEN 'N/A'\n           ELSE ROUND(em.success_rate * 100) || '%' END\n    ELSE\n      CASE WHEN COALESCE(nm.total_executions, 0) = 0 THEN 'N/A'\n           ELSE ROUND(nm.success_rate * 100) || '%' END\n  END AS \"Success\",\n  CASE\n    WHEN le.execution_type = 'action' THEN COALESCE(em.total_executions, 0)\n    ELSE COALESCE(nm.total_executions, 0)\n  END AS \"Volume\",\n  CASE\n    WHEN le.execution_type = 'action' THEN\n      CASE WHEN em.avg_action_time_ms IS NULL THEN 'N/A'\n           WHEN em.avg_action_time_ms < 1000 THEN ROUND(em.avg_action_time_ms) || 'ms'\n           WHEN em.avg_action_time_ms < 60000 THEN ROUND(em.avg_action_time_ms/1000, 1) || 's'\n           ELSE FLOOR(em.avg_action_time_ms/60000) || 'm ' || ROUND((em.avg_action_time_ms % 60000)/1000, 1) || 's'\n      END\n    ELSE\n      CASE WHEN nm.avg_verification_time_ms IS NULL THEN 'N/A'\n           WHEN nm.avg_verification_time_ms < 1000 THEN ROUND(nm.avg_verification_time_ms) || 'ms'\n           WHEN nm.avg_verification_time_ms < 60000 THEN ROUND(nm.avg_verification_time_ms/1000, 1) || 's'\n           ELSE FLOOR(nm.avg_verification_time_ms/60000) || 'm ' || ROUND((nm.avg_verification_time_ms % 60000)/1000, 1) || 's'\n      END\n  END AS \"Duration\",\n  CASE\n    WHEN le.execution_type = 'action' THEN\n      CASE WHEN COALESCE(em.total_executions, 0) = 0 THEN 'N/A'\n           ELSE ROUND(em.success_rate * 10) || '/10' END\n    ELSE\n      CASE WHEN COALESCE(nm.total_executions, 0) = 0 THEN 'N/A'\n           ELSE ROUND(nm.success_rate * 10) || '/10' END\n  END AS \"Confidence\",\n  TO_CHAR(le.executed_at, 'DD/MM/YYYY, HH24:MI:SS') AS \"Executed\",\n  COALESCE(le.kpi_report_url, le.html_report_r2_url) AS \"Report URL\"\nFROM latest_executions le\nLEFT JOIN navigation_trees nt ON le.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nLEFT JOIN navigation_nodes nn ON (le.node_id = nn.node_id AND le.tree_id = nn.tree_id)\nLEFT JOIN edge_metrics em ON (\n  le.execution_type = 'action'\n  AND em.edge_id = le.edge_id\n  AND em.action_set_id = le.action_set_id\n)\nLEFT JOIN node_metrics nm ON (\n  le.execution_type = 'verification'\n  AND nm.node_id = le.node_id\n)\nORDER BY le.executed_at DESC\nLIMIT 500",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [
+                  {
+                    "name": "script_name",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "userinterface_name",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "host_name",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "device_name",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "success",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "started_at",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "completed_at",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "execution_time_ms",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "html_report_r2_url",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              },
+              {
+                "parameters": [
+                  {
+                    "name": "error_msg",
+                    "type": "functionParameter"
+                  }
+                ],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 500,
+            "orderBy": {
+              "property": {
+                "name": "started_at",
+                "type": "string"
+              },
+              "type": "property"
+            },
+            "orderByDirection": "DESC",
+            "whereJsonTree": {
+              "children1": [],
+              "id": "98b88898-0123-4456-b89a-b1990fc9e432",
+              "type": "group"
+            }
+          },
+          "table": "script_results"
+        }
+      ],
+      "title": "Details",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 41,
+  "tags": [
+    "navigation",
+    "nodes",
+    "edges"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "allValue": null,
+        "label": "User Interface",
+        "multi": true,
+        "name": "user_interface",
+        "options": [],
+        "query": "SELECT name FROM userinterfaces ORDER BY name",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "allValue": null,
+        "label": "Variant",
+        "description": "Run scope. Base = no --variant set. Each variant aggregates separately on edge_metrics.",
+        "multi": true,
+        "name": "variant",
+        "options": [],
+        "query": "SELECT 'Base' AS variant UNION SELECT name FROM userinterface_variants UNION SELECT DISTINCT variant FROM execution_results WHERE variant IS NOT NULL ORDER BY variant",
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "Filter by device tags set on the Device page",
+        "includeAll": true,
+        "allValue": "__ALL__",
+        "label": "Tag",
+        "multi": true,
+        "name": "flag",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Navigation Metrics",
+  "uid": "9369e579-7f7a-47ec-ae06-f3a49e530b4f",
+  "weekStart": "monday"
+}

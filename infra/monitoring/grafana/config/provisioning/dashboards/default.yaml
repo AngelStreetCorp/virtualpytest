@@ -1,0 +1,7 @@
+# Grafana Dashboard Provisioning
+# Disabled by default so dashboards can be managed in the Grafana UI
+# without being recreated from repo files.
+
+apiVersion: 1
+
+providers: []

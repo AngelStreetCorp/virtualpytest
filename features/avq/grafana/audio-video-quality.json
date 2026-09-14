@@ -1,0 +1,779 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Audio/Video Quality (AVQ) \u2014 per-device KPIs from quality_metrics. Filter by host/device.",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "id": 100,
+      "collapsed": false
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Overview",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 24,
+        "h": 5
+      },
+      "id": 1,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  (SELECT count(DISTINCT device_id) FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring})) AS \"Devices\",\n  (SELECT count(*) FROM (SELECT device_id FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) GROUP BY device_id HAVING avg(video_availability) > 0.5) q) AS \"With Video\",\n  (SELECT count(*) FROM (SELECT device_id FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) GROUP BY device_id HAVING avg(audio_availability) > 0.5) q) AS \"With Audio\",\n  (SELECT count(*) FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring})) AS \"Minutes\",\n  (SELECT COALESCE(sum((events->'noSound'->>'count')::int),0)+COALESCE(sum((events->'highBlurriness'->>'count')::int),0)+COALESCE(sum((events->'highBlockiness'->>'count')::int),0) FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring})) AS \"Quality Events\",\n  (SELECT round(avg(video_mos),2) FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring})) AS \"Avg Video MOS\",\n  (SELECT round(avg(audio_mos),2) FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring})) AS \"Avg Audio MOS\""
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Device Status (latest)",
+      "type": "table",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 9
+      },
+      "id": 7,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "A/V Available"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Yes": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "No": {
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Video"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Yes": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "No": {
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Audio"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "Yes": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "No": {
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Video MOS"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 2.5
+                    },
+                    {
+                      "color": "green",
+                      "value": 4
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Audio MOS"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": null
+                    },
+                    {
+                      "color": "orange",
+                      "value": 2.5
+                    },
+                    {
+                      "color": "green",
+                      "value": 4
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Device"
+            },
+            "properties": [
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Open AVQ device page",
+                    "targetBlank": true,
+                    "url": "https://virtualpytest.angelstreet.io/monitoring/avq/${__data.fields.Host}/${__data.fields.device_id}"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "device_id"
+            },
+            "properties": [
+              {
+                "id": "custom.hidden",
+                "value": true
+              }
+            ]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT DISTINCT ON (device_id)\n  host_name AS \"Host\", device_name AS \"Device\",\n  CASE WHEN video_availability > 0.5 AND audio_availability > 0.5 THEN 'Yes' ELSE 'No' END AS \"A/V Available\",\n  CASE WHEN video_availability > 0.5 THEN 'Yes' ELSE 'No' END AS \"Video\",\n  round(video_mos,2) AS \"Video MOS\", round(blurriness_score,2) AS \"Bluriness\",\n  round(blockiness_score,2) AS \"Blockiness\", round(jerkiness_score,3) AS \"Jerkiness\",\n  round(blackscreen_seconds,0) AS \"Blackscreen (s)\", round(freeze_seconds,0) AS \"Freeze (s)\",\n  round(macroblocks_seconds,0) AS \"Macroblocks (s)\",\n  CASE WHEN audio_availability > 0.5 THEN 'Yes' ELSE 'No' END AS \"Audio\",\n  round(audio_mos,2) AS \"Audio MOS\", round(audio_level_db,1) AS \"Audio Level (dB)\",\n  round(loudness_lkfs,1) AS \"Loudness (LKFS)\", round(saturation_score,2) AS \"Saturation\",\n  round(silence_seconds,1) AS \"Silence (s)\", device_id AS \"device_id\"\nFROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) ORDER BY device_id, timestamp DESC"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Main",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "id": 101,
+      "collapsed": false
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Video MOS \u2014 per device",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 7
+      },
+      "id": 10,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "min": 1,
+          "max": 5
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(timestamp,'1m'), device_name AS metric, avg(video_mos) AS value FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) GROUP BY 1, device_name ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Audio MOS \u2014 per device",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 7
+      },
+      "id": 11,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "min": 1,
+          "max": 5
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(timestamp,'1m'), device_name AS metric, avg(audio_mos) AS value FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) GROUP BY 1, device_name ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Video \u2014 Bluriness / Blockiness / Jerkiness",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 23,
+        "w": 12,
+        "h": 7
+      },
+      "id": 12,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Availability %"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(timestamp,'1m'), avg(blurriness_score) AS \"Bluriness\", avg(blockiness_score) AS \"Blockiness\", avg(jerkiness_score) AS \"Jerkiness\", round(avg(video_availability)*100,1) AS \"Availability %\" FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Audio \u2014 Audio Level / Loudness / Saturation / Silence",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 23,
+        "w": 12,
+        "h": 7
+      },
+      "id": 13,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Availability %"
+            },
+            "properties": [
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 100
+              },
+              {
+                "id": "custom.lineStyle",
+                "value": {
+                  "fill": "dash",
+                  "dash": [
+                    6,
+                    4
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(timestamp,'1m'), avg(audio_level_db) AS \"Audio Level (dB)\", avg(loudness_lkfs) AS \"Loudness (LKFS)\", avg(saturation_score) AS \"Saturation\", avg(silence_seconds) AS \"Silence (s)\", round(avg(audio_availability)*100,1) AS \"Availability %\" FROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Details",
+      "gridPos": {
+        "x": 0,
+        "y": 30,
+        "w": 24,
+        "h": 1
+      },
+      "id": 102,
+      "collapsed": true,
+      "panels": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "title": "Video Events (count / duration)",
+          "type": "table",
+          "gridPos": {
+            "x": 0,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "id": 20,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT device_name AS \"Device\",\n  COALESCE(sum((events->'blackscreen'->>'count')::int),0) AS \"Blackscreen events\",\n  round(COALESCE(sum(blackscreen_seconds),0),0) AS \"Blackscreen (s)\",\n  round(COALESCE(max((events->'blackscreen'->>'longestMs')::int),0)/1000.0,0) AS \"Longest blk (s)\",\n  COALESCE(sum((events->'freeze'->>'count')::int),0) AS \"Freeze events\",\n  round(COALESCE(sum(freeze_seconds),0),0) AS \"Freeze (s)\",\n  round(COALESCE(max((events->'freeze'->>'longestMs')::int),0)/1000.0,0) AS \"Longest frz (s)\",\n  COALESCE(sum((events->'macroblocks'->>'count')::int),0) AS \"Macroblock events\",\n  round(COALESCE(sum(macroblocks_seconds),0),0) AS \"Macroblocks (s)\"\nFROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) GROUP BY device_name ORDER BY device_name"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "title": "Audio Events (count / duration)",
+          "type": "table",
+          "gridPos": {
+            "x": 12,
+            "y": 0,
+            "w": 12,
+            "h": 8
+          },
+          "id": 21,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT device_name AS \"Device\",\n  COALESCE(sum((events->'noSound'->>'count')::int),0) AS \"No-sound events\",\n  round(COALESCE(sum((events->'noSound'->>'totalMs')::bigint),0)/1000.0,0) AS \"No-sound dur (s)\",\n  round(COALESCE(max((events->'noSound'->>'longestMs')::int),0)/1000.0,0) AS \"Longest silence (s)\",\n  round(min(loudness_lkfs),1) AS \"Min loudness (LKFS)\"\nFROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) GROUP BY device_name ORDER BY device_name"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "title": "Audio Translation (latest)",
+          "type": "table",
+          "gridPos": {
+            "x": 0,
+            "y": 8,
+            "w": 24,
+            "h": 7
+          },
+          "id": 22,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT DISTINCT ON (device_id) device_name AS \"Device\",\n  round(transcript_available*100,0) AS \"Transcript %\", transcript_language AS \"Transcript Lang\",\n  NULLIF(translation_languages,'') AS \"Translations\", NULLIF(dubbed_languages,'') AS \"Dubbed\"\nFROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) ORDER BY device_id, timestamp DESC"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "title": "Subtitles (latest)",
+          "type": "table",
+          "gridPos": {
+            "x": 0,
+            "y": 15,
+            "w": 24,
+            "h": 7
+          },
+          "id": 23,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT DISTINCT ON (device_id) device_name AS \"Device\",\n  round(subtitle_availability*100,0) AS \"Subtitle %\", subtitle_language AS \"Subtitle Lang\"\nFROM quality_metrics WHERE $__timeFilter(timestamp) AND device_name IN (${device:sqlstring}) AND host_name IN (${host:sqlstring}) ORDER BY device_id, timestamp DESC"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [
+    "avq",
+    "quality",
+    "monitoring"
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "host",
+        "type": "query",
+        "datasource": {
+          "uid": "supabase-postgres"
+        },
+        "query": "SELECT DISTINCT host_name FROM quality_metrics WHERE $__timeFilter(timestamp) ORDER BY 1",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "label": "Host"
+      },
+      {
+        "name": "device",
+        "type": "query",
+        "datasource": {
+          "uid": "supabase-postgres"
+        },
+        "query": "SELECT DISTINCT device_name FROM quality_metrics WHERE $__timeFilter(timestamp) AND host_name IN (${host:sqlstring}) ORDER BY 1",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "label": "Device"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Audio / Video Quality (AVQ)",
+  "uid": "avq-quality-overview",
+  "version": 11,
+  "weekStart": ""
+}

@@ -1,0 +1,48 @@
+# Detection Benchmark Tests
+# Tests agent ability to detect system state and health
+
+category: detection
+description: System monitoring, health checks, and device detection
+
+tests:
+  - id: bench_det_001
+    name: Device Status Check
+    description: Can the agent check the status of connected devices?
+    prompt: "Check the status of all connected devices"
+    expected:
+      contains: ["device", "status"]
+    validation: contains
+    timeout: 30
+    points: 1.0
+    agents:
+      - monitoring-manager
+      - ai-assistant
+
+  - id: bench_det_002
+    name: Health Check
+    description: Can the agent perform a system health check?
+    prompt: "Run a health check on the system"
+    expected:
+      contains: ["health", "check"]
+    validation: contains
+    timeout: 45
+    points: 1.0
+    agents:
+      - monitoring-manager
+
+  - id: bench_det_003
+    name: Host Discovery
+    description: Can the agent discover available hosts?
+    prompt: "List all available hosts in the system"
+    expected:
+      contains: ["host"]
+    validation: contains
+    timeout: 30
+    points: 1.0
+    agents:
+      - monitoring-manager
+      - ai-assistant
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+

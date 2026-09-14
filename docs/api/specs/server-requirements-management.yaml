@@ -1,0 +1,322 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Requirements Management
+  version: 1.0.0
+  description: Requirements tracking and coverage
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: user_id
+    value: 'user_456'
+    description: User identifier
+  - key: requirement_id
+    value: 'req_001'
+    description: Requirement identifier
+  - key: testcase_id
+    value: 'tc_001'
+    description: Testcase identifier
+paths:
+  /server/requirements/create:
+    post:
+      summary: Create Requirement
+      description: Create a new requirement for tracking and test coverage
+      tags: [Requirements]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requirement_code
+                - requirement_name
+              properties:
+                requirement_code:
+                  type: string
+                  description: Unique requirement code (e.g., REQ-001)
+                requirement_name:
+                  type: string
+                  description: Requirement name
+                category:
+                  type: string
+                  description: Requirement category (optional)
+                priority:
+                  type: string
+                  description: Priority level (default P2)
+                  enum: [P0, P1, P2, P3, P4]
+                description:
+                  type: string
+                  description: Detailed description (optional)
+                acceptance_criteria:
+                  type: string
+                  description: Acceptance criteria (optional)
+                app_type:
+                  type: string
+                  description: Application type (default 'all')
+                device_model:
+                  type: string
+                  description: Device model (default 'all')
+                status:
+                  type: string
+                  description: Status (default 'active')
+                  enum: [active, inactive, deprecated]
+                source_document:
+                  type: string
+                  description: Source document reference (optional)
+                created_by:
+                  type: string
+                  description: Creator user ID (optional)
+            example:
+              requirement_code: "REQ-001"
+              requirement_name: "User Login Functionality"
+              category: "Authentication"
+              priority: "P1"
+              description: "Users must be able to log in with username and password"
+              acceptance_criteria: "Login succeeds with valid credentials"
+              app_type: "mobile"
+              device_model: "Samsung S21"
+              status: "active"
+              source_document: "PRD-2024-001"
+              created_by: "{{user_id}}"
+      responses:
+        '200':
+          description: Requirement created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  requirement_id:
+                    type: string
+        '400':
+          description: Bad request - missing required fields
+        '409':
+          description: Duplicate requirement code
+        '500':
+          description: Failed to create requirement
+  /server/requirements/list:
+    get:
+      summary: List Requirements
+      description: Get a list of all requirements for a team
+      tags: [Requirements]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: List of requirements retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/requirements/{requirement_id}:
+    get:
+      summary: Get Requirement by ID
+      description: Retrieve a specific requirement by its ID
+      tags: [Requirements]
+      parameters:
+        - name: requirement_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Requirement identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Requirement details retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Requirement not found
+    put:
+      summary: Update Requirement
+      description: Update an existing requirement
+      tags: [Requirements]
+      parameters:
+        - name: requirement_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Requirement identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                requirement_name:
+                  type: string
+                  example: "Updated Login Functionality"
+                category:
+                  type: string
+                  example: "Authentication"
+                priority:
+                  type: string
+                  enum: [P0, P1, P2, P3, P4]
+                  example: "P0"
+                description:
+                  type: string
+                  example: "Updated description"
+                acceptance_criteria:
+                  type: string
+                status:
+                  type: string
+                  enum: [active, inactive, deprecated]
+      responses:
+        '200':
+          description: Requirement updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Requirement not found
+  /server/requirements/link-testcase:
+    post:
+      summary: Link Testcase to Requirement
+      description: Link a testcase to a requirement for coverage tracking
+      tags: [Requirements]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - requirement_id
+                - testcase_id
+              properties:
+                requirement_id:
+                  type: string
+                  description: Requirement identifier
+                  example: "{{requirement_id}}"
+                testcase_id:
+                  type: string
+                  description: Testcase identifier
+                  example: "{{testcase_id}}"
+      responses:
+        '200':
+          description: Testcase linked successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '400':
+          description: Bad request - missing required fields
+  /server/requirements/coverage/summary:
+    get:
+      summary: Get Coverage Summary
+      description: Get test coverage summary for all requirements
+      tags: [Requirements]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Coverage summary retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  total_requirements:
+                    type: integer
+                  covered_requirements:
+                    type: integer
+                  coverage_percentage:
+                    type: number

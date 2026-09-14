@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.virtualpytest.stream</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>@STREAM_SCRIPT@</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@SCRIPTS_PATH@</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <key>LC_CTYPE</key>
+        <string>UTF-8</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <!-- GUI access required - must run as logged-in user, not vpt_user -->
+    <key>UserName</key>
+    <string>@USER@</string>
+    <key>StandardOutPath</key>
+    <string>@LOGS_PATH@/stream.log</string>
+    <key>StandardErrorPath</key>
+    <string>@LOGS_PATH@/stream_error.log</string>
+</dict>
+</plist>

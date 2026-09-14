@@ -1,0 +1,78 @@
+/* Navigation Node Styling - Clean, no legacy references */
+/* Remove ALL shadows from React Flow nodes and edges */
+.react-flow__node,
+.react-flow__node *,
+.react-flow__node > div,
+.react-flow__node div,
+.react-flow__node.selected,
+.react-flow__node:hover,
+.react-flow__node:focus,
+.react-flow__node:active,
+.react-flow__node[data-id*="node-"] {
+  box-shadow: none !important;
+  filter: none !important;
+  text-shadow: none !important;
+  drop-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  -moz-box-shadow: none !important;
+}
+
+/* Remove shadows from React Flow edges */
+.react-flow__edge,
+.react-flow__edge *,
+.react-flow__edge path,
+.react-flow__edge.selected,
+.react-flow__edge:hover {
+  box-shadow: none !important;
+  filter: none !important;
+  drop-shadow: none !important;
+}
+
+/* Ensure handles have no shadows */
+.react-flow__handle,
+.react-flow__handle *,
+.react-flow__handle.source,
+.react-flow__handle.target,
+.react-flow__handle:hover,
+.react-flow__handle:focus {
+  box-shadow: none !important;
+  filter: none !important;
+  drop-shadow: none !important;
+}
+
+/* Menu type nodes get slightly larger borders */
+.react-flow__node[data-node-type='menu'] {
+  border-width: 3px !important;
+}
+
+/* Screen type nodes keep standard borders */
+.react-flow__node[data-node-type='screen'] {
+  border-width: 2px !important;
+}
+
+/* Action type nodes are circular */
+.react-flow__node[data-node-type='action'] {
+  border-radius: 50% !important;
+  border-width: 3px !important;
+}
+
+/* Complete shadow removal for all node containers */
+div[data-id^="node-"],
+[class*="react-flow__node"] > div,
+[class*="react-flow__node"] * {
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  -moz-box-shadow: none !important;
+  filter: none !important;
+  -webkit-filter: none !important;
+}
+
+/* Force remove any elevation shadows from Material-UI or other libraries */
+.react-flow__node .MuiPaper-root,
+.react-flow__node .MuiCard-root,
+.react-flow__node [class*="shadow"],
+.react-flow__node [class*="elevation"] {
+  box-shadow: none !important;
+  -webkit-box-shadow: none !important;
+  -moz-box-shadow: none !important;
+}

@@ -1,0 +1,2 @@
+# This directory stores Grafana's persistent data
+# The actual data files are ignored by git

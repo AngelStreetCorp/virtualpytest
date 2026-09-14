@@ -1,0 +1,274 @@
+# Autonomous Mobile Exploration Benchmark Tests
+# Tests agent ability to build navigation models without human approval
+# Platform: Android Mobile (uses dump_ui_elements + ADB)
+
+category: exploration_mobile
+description: Autonomous mobile UI exploration and navigation tree building
+
+tests:
+  # ═══════════════════════════════════════════════════════════════════════════
+  # BASIC MOBILE EXPLORATION
+  # ═══════════════════════════════════════════════════════════════════════════
+  
+  - id: mobile_explore_001
+    name: Basic Mobile Exploration
+    description: Agent explores a mobile app and creates navigation structure
+    prompt: |
+      Explore google_tv. FOR EACH SCREEN:
+      1. Navigate there (or stay if home)
+      2. dump_ui_elements → see clickable elements
+      3. analyze_screen_for_action → get best selector
+      4. Create/update node
+      5. Create/update edge using selector from step 3
+      6. analyze_screen_for_verification → find unique identifier
+      7. update_node with verification
+      8. get_node → check if screenshot exists
+      9. save_node_screenshot if missing
+    expected:
+      contains:
+        - "node"
+        - "edge"
+        - "created"
+      tools_called:
+        - get_compatible_hosts
+        - dump_ui_elements
+        - create_node
+        - create_edge
+        - execute_device_action
+      min_nodes: 3
+      min_edges: 2
+    validation: exploration_result
+    timeout: 300
+    points: 10.0
+    agents:
+      - qa-mobile-manager
+
+  - id: mobile_explore_002
+    name: Exploration with Edge Testing
+    description: Agent explores AND tests each edge bidirectionally
+    prompt: |
+      Explore google_tv:
+      1. Create nodes for each screen
+      2. Create edges using best selectors from analyze_screen_for_action
+      3. Test each edge: get_edge → execute_device_action → verify arrival
+      4. If edge fails, update it with correct selector
+    expected:
+      contains:
+        - "test"
+        - "success"
+        - "edge"
+      tools_called:
+        - create_node
+        - create_edge
+        - get_edge
+        - execute_device_action
+      edges_tested: true
+    validation: exploration_result
+    timeout: 300
+    points: 10.0
+    agents:
+      - qa-mobile-manager
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SELECTOR QUALITY (Mobile uses element IDs via ADB)
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: mobile_explore_003
+    name: Use Optimal Selectors
+    description: Agent uses analyze_screen_for_action to get best selectors
+    prompt: |
+      Explore google_tv:
+      - Call dump_ui_elements first
+      - Then analyze_screen_for_action to get best selector
+      - Use the recommended selector in create_edge
+    expected:
+      tools_called:
+        - dump_ui_elements
+        - analyze_screen_for_action
+        - create_edge
+      selector_quality:
+        preferred_types: ["click_element_by_id"]
+        min_percentage: 50
+    validation: selector_analysis
+    timeout: 300
+    points: 10.0
+    agents:
+      - qa-mobile-manager
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # VERIFICATION CREATION
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: mobile_explore_004
+    name: Add Node Verifications
+    description: Agent adds verifications to nodes for screen detection
+    prompt: |
+      Explore google_tv. For EACH node:
+      1. Navigate to the node
+      2. Call dump_ui_elements
+      3. Call analyze_screen_for_verification to find unique identifier
+      4. Update node with verification using update_node
+      5. Save screenshot with save_node_screenshot if missing
+    expected:
+      contains:
+        - "verification"
+        - "node"
+      tools_called:
+        - analyze_screen_for_verification
+        - update_node
+      nodes_have_verifications: true
+    validation: exploration_result
+    timeout: 360
+    points: 12.0
+    agents:
+      - qa-mobile-manager
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # FULL AUTONOMOUS EXPLORATION
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: mobile_explore_005
+    name: Full Autonomous Mobile Exploration
+    description: Complete exploration - nodes, edges, tests, verifications, screenshots
+    prompt: |
+      Build a complete navigation model for google_tv. For EACH screen:
+      1. Create node
+      2. Create edge with selectors from analyze_screen_for_action
+      3. Test edge by executing it
+      4. Add verification using analyze_screen_for_verification
+      5. Save screenshot with save_node_screenshot
+      6. Show final tree with preview_userinterface
+    expected:
+      contains:
+        - "node"
+        - "edge"
+        - "verification"
+        - "screenshot"
+      tools_called:
+        - get_compatible_hosts
+        - take_control
+        - dump_ui_elements
+        - analyze_screen_for_action
+        - create_node
+        - create_edge
+        - get_edge
+        - execute_device_action
+        - analyze_screen_for_verification
+        - update_node
+        - save_node_screenshot
+        - preview_userinterface
+      min_nodes: 4
+      min_edges: 3
+      edges_tested: true
+      nodes_have_verifications: true
+      nodes_have_screenshots: true
+    validation: exploration_result
+    timeout: 600
+    points: 25.0
+    agents:
+      - qa-mobile-manager
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # REFERENCE MODEL - google_tv Expected Structure
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: mobile_explore_006
+    name: Match google_tv Reference Model
+    description: Agent creates structure matching expected google_tv model
+    prompt: |
+      Explore google_tv completely:
+      - Create nodes: home, search, library, settings (minimum)
+      - Create bidirectional edges using analyze_screen_for_action
+      - Add verifications to each node
+      - Save screenshots for all nodes
+    expected:
+      reference_model:
+        userinterface: google_tv
+        platform: android_mobile
+        expected_nodes:
+          - label: home
+            type: screen
+            has_verification: true
+          - label: search
+            type: screen
+            has_verification: true
+          - label: library
+            type: screen
+            has_verification: true
+          - label: settings
+            type: screen
+            has_verification: true
+        expected_edges:
+          - source: home
+            target: search
+            bidirectional: true
+            action_type: click_element_by_id
+          - source: home
+            target: library
+            bidirectional: true
+            action_type: click_element_by_id
+          - source: home
+            target: settings
+            bidirectional: true
+            back_action: press_key_BACK
+        min_match_percentage: 75
+    validation: reference_model
+    timeout: 600
+    points: 30.0
+    agents:
+      - qa-mobile-manager
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # ERROR RECOVERY
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: mobile_explore_007
+    name: Fix Failed Edges
+    description: Agent repairs edges that fail on first attempt
+    prompt: |
+      Explore google_tv. For failed edges:
+      1. Test edge with execute_device_action
+      2. If fails, call dump_ui_elements to see current screen
+      3. Call analyze_screen_for_action to find correct selector
+      4. Update edge with update_edge using new selector
+    expected:
+      contains:
+        - "edge"
+      tools_called:
+        - get_edge
+        - execute_device_action
+        - dump_ui_elements
+        - analyze_screen_for_action
+        - update_edge
+      handles_failures: true
+    validation: exploration_result
+    timeout: 480
+    points: 15.0
+    agents:
+      - qa-mobile-manager
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SIMPLE PROMPT TEST
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  - id: mobile_explore_008
+    name: Simple Natural Prompt
+    description: Agent understands simple human-like prompt
+    prompt: |
+      Explore google_tv. Create nodes, edges, verifications, and screenshots for each screen.
+    expected:
+      contains:
+        - "node"
+        - "edge"
+      tools_called:
+        - get_compatible_hosts
+        - dump_ui_elements
+        - create_node
+        - create_edge
+      min_nodes: 2
+      min_edges: 1
+    validation: exploration_result
+    timeout: 300
+    points: 8.0
+    agents:
+      - qa-mobile-manager

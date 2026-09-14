@@ -1,0 +1,32 @@
+# Grafana Datasource Provisioning
+# Datasources stay provisioned even when dashboard file provisioning is disabled.
+# Uses SUPABASE_DB_* environment variables - NEVER hardcode credentials
+#
+# Required environment variables:
+#   SUPABASE_DB_HOST - Database host (e.g., aws-0-eu-west-1.pooler.supabase.com)
+#   SUPABASE_DB_PORT - Database port (e.g., 6543)
+#   SUPABASE_DB_NAME - Database name (e.g., postgres)
+#   SUPABASE_DB_USER - Database user
+#   SUPABASE_DB_PASSWORD - Database password
+
+apiVersion: 1
+
+datasources:
+  - name: Supabase PostgreSQL
+    type: postgres
+    access: proxy
+    url: ${SUPABASE_DB_HOST}:${SUPABASE_DB_PORT}
+    user: ${SUPABASE_DB_USER}
+    database: ${SUPABASE_DB_NAME}
+    secureJsonData:
+      password: ${SUPABASE_DB_PASSWORD}
+    jsonData:
+      sslmode: require
+      postgresVersion: 1500
+      timescaledb: false
+      maxOpenConns: 10
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+    isDefault: true
+    editable: true
+    uid: supabase-postgres

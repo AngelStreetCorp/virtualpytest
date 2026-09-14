@@ -1,0 +1,787 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Access & Workspace
+  version: 1.0.0
+  description: Authentication, permissions, users, teams, and workspaces
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: user_id
+    value: 'user_123'
+    description: User identifier
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: workspace_id
+    value: 'workspace_123'
+    description: Workspace identifier
+paths:
+  /server/auth/check:
+    get:
+      summary: Check Authentication
+      description: Returns anonymous or authenticated status for the current request.
+      tags: [Auth]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Auth status
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/auth/profile:
+    get:
+      summary: Get Current User Profile
+      description: Returns the authenticated user's id, email, role, and metadata.
+      tags: [Auth]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Current user profile
+          content:
+            application/json:
+              schema:
+                type: object
+        '401':
+          description: Authentication required when JWT enforcement is enabled
+  /server/permissions/matrix:
+    get:
+      summary: Get Permission Matrix
+      description: Returns all supported permissions and effective permissions for each user.
+      tags: [Permissions]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Permission matrix
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/users:
+    get:
+      summary: List Users
+      description: Returns all users with profile and team information.
+      tags: [Users]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/users/{user_id}:
+    get:
+      summary: Get User
+      tags: [Users]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: User details
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: User not found
+    put:
+      summary: Update User
+      tags: [Users]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated user
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: User not found
+    delete:
+      summary: Delete User
+      tags: [Users]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: User deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: User not found
+  /server/users/{user_id}/assign-team:
+    post:
+      summary: Assign User To Team
+      tags: [Users]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id:
+                  type: string
+                  description: Team to assign
+                team_role:
+                  type: string
+                  description: Team role for the membership
+      responses:
+        '200':
+          description: User assigned to team
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/users/{user_id}/remove-team:
+    post:
+      summary: Remove User From Team
+      tags: [Users]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id:
+                  type: string
+                  description: Team to remove
+      responses:
+        '200':
+          description: User removed from team
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/users/{user_id}/permissions:
+    get:
+      summary: Get User Effective Permissions
+      tags: [Permissions]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: User identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Effective permission breakdown
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: User not found
+  /server/teams:
+    get:
+      summary: List Teams
+      tags: [Teams]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Team list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      summary: Create Team
+      tags: [Teams]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Team name
+      responses:
+        '201':
+          description: Created team
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/teams/{team_id}:
+    get:
+      summary: Get Team
+      tags: [Teams]
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Team details
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Team not found
+    put:
+      summary: Update Team
+      tags: [Teams]
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated team
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Team not found
+    delete:
+      summary: Delete Team
+      tags: [Teams]
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Team deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Team not found
+  /server/teams/{team_id}/members:
+    get:
+      summary: List Team Members
+      tags: [Teams]
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Team members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      summary: Add Team Member
+      tags: [Teams]
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                role:
+                  type: string
+      responses:
+        '201':
+          description: Team member added
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/teams/{team_id}/members/{user_id}:
+    delete:
+      summary: Remove Team Member
+      tags: [Teams]
+      parameters:
+        - name: team_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Team member removed
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/workspaces:
+    get:
+      summary: List Workspaces
+      tags: [Workspaces]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Workspace list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      summary: Create Workspace
+      tags: [Workspaces]
+      parameters:
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: Workspace name
+      responses:
+        '201':
+          description: Created workspace
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/workspaces/user/{user_id}:
+    get:
+      summary: Get User Workspaces
+      tags: [Workspaces]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Workspaces for the user
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/workspaces/{workspace_id}:
+    get:
+      summary: Get Workspace
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Workspace details
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Workspace not found
+    put:
+      summary: Update Workspace
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200':
+          description: Updated workspace
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Workspace not found
+    delete:
+      summary: Delete Workspace
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Workspace deleted
+          content:
+            application/json:
+              schema:
+                type: object
+        '404':
+          description: Workspace not found
+  /server/workspaces/{workspace_id}/members:
+    get:
+      summary: List Workspace Members
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Workspace members
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+  /server/workspaces/{workspace_id}/members/user:
+    post:
+      summary: Add User To Workspace
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [user_id]
+              properties:
+                user_id:
+                  type: string
+                role:
+                  type: string
+      responses:
+        '201':
+          description: Workspace user added
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/workspaces/{workspace_id}/members/team:
+    post:
+      summary: Add Team To Workspace
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id]
+              properties:
+                team_id:
+                  type: string
+                role:
+                  type: string
+      responses:
+        '201':
+          description: Workspace team added
+          content:
+            application/json:
+              schema:
+                type: object
+  /server/workspaces/{workspace_id}/members/{member_id}:
+    delete:
+      summary: Remove Workspace Member
+      tags: [Workspaces]
+      parameters:
+        - name: workspace_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: member_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Workspace member removed
+          content:
+            application/json:
+              schema:
+                type: object

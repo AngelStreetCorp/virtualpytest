@@ -1,0 +1,51 @@
+# Recovery Benchmark Tests
+# Tests agent ability to handle errors and edge cases
+
+category: recovery
+description: Error handling, timeout recovery, and edge case management
+
+tests:
+  - id: bench_rec_001
+    name: Handle Invalid Input
+    description: Does the agent gracefully handle invalid input?
+    prompt: "Navigate to nonexistent_screen_xyz_12345"
+    expected:
+      contains: ["not found", "error", "invalid", "doesn't exist"]
+    validation: contains_any
+    timeout: 30
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: bench_rec_002
+    name: Timeout Recovery
+    description: Does the agent handle timeout scenarios?
+    prompt: "Execute a test with a 1ms timeout"
+    expected:
+      contains: ["timeout", "error", "failed"]
+    validation: contains_any
+    timeout: 60
+    points: 1.5
+    agents:
+      - ai-assistant
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+
+  - id: bench_rec_003
+    name: Missing Resource
+    description: Does the agent handle missing resources gracefully?
+    prompt: "Load test case with id 'nonexistent-test-12345'"
+    expected:
+      contains: ["not found", "error", "missing", "doesn't exist"]
+    validation: contains_any
+    timeout: 30
+    points: 1.0
+    agents:
+      - qa-web-manager
+      - qa-mobile-manager
+      - qa-stb-manager
+      - ai-assistant
+

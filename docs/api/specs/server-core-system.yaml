@@ -1,0 +1,44 @@
+openapi: 3.0.0
+info:
+  title: SERVER - System
+  version: 1.0.0
+  description: >-
+    Public server endpoints for frontend health checks and system status.
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+paths:
+  /server/system/health:
+    get:
+      summary: Health Check
+      description: Basic health check endpoint to verify server status and get system stats
+      tags:
+        - System
+      responses:
+        '200':
+          description: Server is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  timestamp:
+                    type: number
+                  mode:
+                    type: string
+                  system_stats:
+                    type: object

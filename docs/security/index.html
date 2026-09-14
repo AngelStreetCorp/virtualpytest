@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Security Report</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            padding: 12px;
+            font-size: 12px;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .header h1 { font-size: 14px; color: #fff; }
+        .timestamp { font-size: 10px; color: #666; }
+        
+        /* Summary Card */
+        .summary {
+            background: #252540;
+            border-radius: 6px;
+            padding: 12px 16px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #333;
+        }
+        .summary-metrics {
+            display: flex;
+            gap: 24px;
+        }
+        .metric { text-align: center; }
+        .metric-value { font-size: 28px; font-weight: 700; line-height: 1; }
+        .metric-label { font-size: 9px; color: #666; text-transform: uppercase; margin-top: 2px; }
+        .summary-info { font-size: 10px; color: #555; }
+        
+        .high { color: #ff6b6b; }
+        .medium { color: #ffd93d; }
+        .low { color: #6bcb77; }
+        
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        .filter-btn {
+            padding: 4px 10px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            background: transparent;
+            color: #888;
+            font-size: 10px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .filter-btn:hover { border-color: #666; color: #fff; }
+        .filter-btn.active { background: #333; color: #fff; border-color: #555; }
+        .filter-btn.active.high { border-color: #ff6b6b; color: #ff6b6b; }
+        .filter-btn.active.medium { border-color: #ffd93d; color: #ffd93d; }
+        .filter-btn.active.low { border-color: #6bcb77; color: #6bcb77; }
+        
+        /* Sections */
+        .section {
+            background: #252540;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border: 1px solid #333;
+            overflow: hidden;
+        }
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .section-header:hover { background: #2a2a4a; }
+        .section-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .section-arrow {
+            font-size: 10px;
+            color: #666;
+            transition: transform 0.2s;
+        }
+        .section.expanded .section-arrow { transform: rotate(90deg); }
+        .section-title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #aaa;
+            text-transform: uppercase;
+        }
+        .section-counts {
+            display: flex;
+            gap: 8px;
+            font-size: 11px;
+        }
+        .section-counts span { opacity: 0.8; }
+        .section-counts .ignored { color: #888; font-weight: 400; margin-left: 4px; }
+        .json-link {
+            font-size: 10px;
+            color: #4dabf7;
+            text-decoration: none;
+            padding: 2px 6px;
+            border-radius: 3px;
+        }
+        .json-link:hover { background: #333; }
+        
+        /* Issue list */
+        .issues {
+            display: none;
+            max-height: 300px;
+            overflow-y: auto;
+            border-top: 1px solid #333;
+        }
+        .section.expanded .issues { display: block; }
+        .issue {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 12px;
+            border-left: 3px solid #444;
+            font-size: 11px;
+        }
+        .issue:nth-child(odd) { background: rgba(0,0,0,0.1); }
+        .issue.high { border-left-color: #ff6b6b; }
+        .issue.medium { border-left-color: #ffd93d; }
+        .issue.low { border-left-color: #6bcb77; }
+        .issue.hidden { display: none; }
+        .issue-id {
+            font-weight: 600;
+            color: #aaa;
+            min-width: 50px;
+        }
+        .issue-loc {
+            color: #666;
+            font-family: monospace;
+            font-size: 10px;
+            min-width: 200px;
+        }
+        .issue-text {
+            color: #888;
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .issue-fix {
+            color: #6bcb77;
+            font-size: 10px;
+        }
+        .no-issues {
+            padding: 12px;
+            color: #555;
+            text-align: center;
+            font-style: italic;
+        }
+        
+        /* Scrollbar */
+        .issues::-webkit-scrollbar { width: 6px; }
+        .issues::-webkit-scrollbar-track { background: #1a1a2e; }
+        .issues::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔒 Security Report</h1>
+        <span class="timestamp">2026-09-07 18:23</span>
+    </div>
+
+    <!-- Summary -->
+    <div class="summary">
+        <div class="summary-metrics">
+            <div class="metric">
+                <div class="metric-value high">0</div>
+                <div class="metric-label">High</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value medium">2</div>
+                <div class="metric-label">Medium</div>
+            </div>
+            <div class="metric">
+                <div class="metric-value low">30</div>
+                <div class="metric-label">Low</div>
+            </div>
+        </div>
+        <div class="summary-info">143,069 lines scanned</div>
+    </div>
+
+    <!-- Filters -->
+    <div class="filters">
+        <button class="filter-btn active high" data-filter="high" onclick="toggleFilter('high')">High</button>
+        <button class="filter-btn active medium" data-filter="medium" onclick="toggleFilter('medium')">Medium</button>
+        <button class="filter-btn active low" data-filter="low" onclick="toggleFilter('low')">Low</button>
+    </div>
+
+    <!-- Backend Host -->
+    <div class="section" id="section-host">
+        <div class="section-header" onclick="toggleSection('host')">
+            <div class="section-left">
+                <span class="section-arrow">▶</span>
+                <span class="section-title">Backend Host</span>
+                <div class="section-counts">
+                    <span class="high">0</span> /
+                    <span class="medium">2</span> /
+                    <span class="low">8</span>
+                </div>
+            </div>
+            <a class="json-link" href="host-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
+        </div>
+        <div class="issues">
+            <div class="issue medium" data-severity="medium">
+                <span class="issue-id">B102</span>
+                <span class="issue-loc">src/builder/blocks/custom_code.py:71</span>
+                <span class="issue-text">Use of exec detected.</span>
+            </div><div class="issue medium" data-severity="medium">
+                <span class="issue-id">B103</span>
+                <span class="issue-loc">src/controllers/remote/bluetooth/hid_remote.py:1651</span>
+                <span class="issue-text">Chmod setting a permissive mask 0o660 on file (FIFO_PATH).</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B311</span>
+                <span class="issue-loc">src/controllers/web/playwright.py:521</span>
+                <span class="issue-text">Standard pseudo-random generators are not suitable for security/cryptographic pu</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B405</span>
+                <span class="issue-loc">src/lib/utils/adb_utils.py:13</span>
+                <span class="issue-text">Using xml.etree.ElementTree to parse untrusted XML data is known to be vulnerabl</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B106</span>
+                <span class="issue-loc">src/services/ai/ai_context_filter.py:87</span>
+                <span class="issue-text">Possible hardcoded password: '\b\w+\b'</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B105</span>
+                <span class="issue-loc">src/services/verifications/verification_executor.py:239</span>
+                <span class="issue-text">Possible hardcoded password: 'all'</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B105</span>
+                <span class="issue-loc">src/services/verifications/verification_executor.py:356</span>
+                <span class="issue-text">Possible hardcoded password: 'any'</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B105</span>
+                <span class="issue-loc">src/services/verifications/verification_executor.py:374</span>
+                <span class="issue-text">Possible hardcoded password: 'any'</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B105</span>
+                <span class="issue-loc">src/services/verifications/verification_executor.py:1050</span>
+                <span class="issue-text">Possible hardcoded password: 'any'</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B105</span>
+                <span class="issue-loc">src/services/verifications/verification_executor.py:1052</span>
+                <span class="issue-text">Possible hardcoded password: 'any'</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Backend Server -->
+    <div class="section" id="section-server">
+        <div class="section-header" onclick="toggleSection('server')">
+            <div class="section-left">
+                <span class="section-arrow">▶</span>
+                <span class="section-title">Backend Server</span>
+                <div class="section-counts">
+                    <span class="high">0</span> /
+                    <span class="medium">0</span> /
+                    <span class="low">1</span>
+                </div>
+            </div>
+            <a class="json-link" href="server-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
+        </div>
+        <div class="issues">
+            <div class="issue low" data-severity="low">
+                <span class="issue-id">B105</span>
+                <span class="issue-loc">src/routes/server_integrations_routes.py:473</span>
+                <span class="issue-text">Possible hardcoded password: ''</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Shared Library -->
+    <div class="section" id="section-shared">
+        <div class="section-header" onclick="toggleSection('shared')">
+            <div class="section-left">
+                <span class="section-arrow">▶</span>
+                <span class="section-title">Shared Library</span>
+                <div class="section-counts">
+                    <span class="high">0</span> /
+                    <span class="medium">0</span> /
+                    <span class="low">3</span>
+                </div>
+            </div>
+            <a class="json-link" href="shared-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
+        </div>
+        <div class="issues">
+            <div class="issue low" data-severity="low">
+                <span class="issue-id">B311</span>
+                <span class="issue-loc">src/lib/database/folder_tag_db.py:115</span>
+                <span class="issue-text">Standard pseudo-random generators are not suitable for security/cryptographic pu</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B105</span>
+                <span class="issue-loc">src/lib/utils/local_debug_browser_helpers.py:566</span>
+                <span class="issue-text">Possible hardcoded password: '--local_debug'</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">B105</span>
+                <span class="issue-loc">src/lib/utils/local_debug_browser_helpers.py:567</span>
+                <span class="issue-text">Possible hardcoded password: '--local-debug'</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Frontend -->
+    <div class="section" id="section-frontend">
+        <div class="section-header" onclick="toggleSection('frontend')">
+            <div class="section-left">
+                <span class="section-arrow">▶</span>
+                <span class="section-title">Frontend (npm)</span>
+                <div class="section-counts">
+                    <span class="high">0</span> /
+                    <span class="medium">0</span> /
+                    <span class="low">0</span>
+                </div>
+            </div>
+            <a class="json-link" href="frontend-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
+        </div>
+        <div class="issues">
+            <div class="no-issues">No issues</div>
+        </div>
+    </div>
+
+    <!-- Snyk Code - Host -->
+    <div class="section" id="section-snyk-host">
+        <div class="section-header" onclick="toggleSection('snyk-host')">
+            <div class="section-left">
+                <span class="section-arrow">▶</span>
+                <span class="section-title">🔍 Snyk Code - Host</span>
+                <div class="section-counts">
+                    <span class="high">0</span> /
+                    <span class="medium">0</span> /
+                    <span class="low">8</span>
+                    <span class="ignored" title="suppressed by .snyk">· 20 ignored</span>
+                </div>
+            </div>
+            <a class="json-link" href="snyk-host-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
+        </div>
+        <div class="issues">
+            <div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">controllers/remote/bluetooth/bluez-patches/apply_ccc_patch.py:379</span>
+                <span class="issue-text">Unsanitized input from a command line argument flows into open, where it is used</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">controllers/remote/bluetooth/bluez-patches/apply_ccc_patch.py:458</span>
+                <span class="issue-text">Unsanitized input from a command line argument flows into open, where it is used</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:168</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into json.dump, where it is</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:169</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into os.replace, where it i</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:214</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into open, where it is used</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:1627</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into os.unlink, where it is</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:1651</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into os.chmod, where it is </span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:1655</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into os.chown, where it is </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Snyk Code - Server -->
+    <div class="section" id="section-snyk-server">
+        <div class="section-header" onclick="toggleSection('snyk-server')">
+            <div class="section-left">
+                <span class="section-arrow">▶</span>
+                <span class="section-title">🔍 Snyk Code - Server</span>
+                <div class="section-counts">
+                    <span class="high">0</span> /
+                    <span class="medium">0</span> /
+                    <span class="low">6</span>
+                    <span class="ignored" title="suppressed by .snyk">· 81 ignored</span>
+                </div>
+            </div>
+            <a class="json-link" href="snyk-server-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
+        </div>
+        <div class="issues">
+            <div class="issue low" data-severity="low">
+                <span class="issue-id">NoHardcodedCredentials</span>
+                <span class="issue-loc">lib/auth_middleware.py:163</span>
+                <span class="issue-text">Do not hardcode credentials in code. Found hardcoded credential used in user_id.</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">NoHardcodedCredentials</span>
+                <span class="issue-loc">lib/auth_middleware.py:642</span>
+                <span class="issue-text">Do not hardcode credentials in code. Found hardcoded credential used in user_id.</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">NoHardcodedCredentials</span>
+                <span class="issue-loc">lib/auth_middleware.py:667</span>
+                <span class="issue-text">Do not hardcode credentials in code. Found hardcoded credential used in user_id.</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">routes/server_branding_routes.py:139</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into save, where it is used</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">routes/server_branding_routes.py:145</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into shutil.copy2, where it</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">test</span>
+                <span class="issue-loc">routes/server_api_testing_routes.py:612</span>
+                <span class="issue-text">Unsanitized input from an HTTP parameter flows into the return value of get_html</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Snyk Code - Shared -->
+    <div class="section" id="section-snyk-shared">
+        <div class="section-header" onclick="toggleSection('snyk-shared')">
+            <div class="section-left">
+                <span class="section-arrow">▶</span>
+                <span class="section-title">🔍 Snyk Code - Shared</span>
+                <div class="section-counts">
+                    <span class="high">0</span> /
+                    <span class="medium">0</span> /
+                    <span class="low">4</span>
+                    <span class="ignored" title="suppressed by .snyk">· 5 ignored</span>
+                </div>
+            </div>
+            <a class="json-link" href="snyk-shared-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
+        </div>
+        <div class="issues">
+            <div class="issue low" data-severity="low">
+                <span class="issue-id">NoHardcodedCredentials</span>
+                <span class="issue-loc">lib/config/settings.py:16</span>
+                <span class="issue-text">Do not hardcode credentials in code. Found hardcoded credential used in here.</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">lib/utils/network_utils.py:109</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into open, where it is used</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">lib/utils/system_utils.py:276</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into open, where it is used</span>
+            </div><div class="issue low" data-severity="low">
+                <span class="issue-id">PT</span>
+                <span class="issue-loc">lib/utils/network_utils.py:138</span>
+                <span class="issue-text">Unsanitized input from an environment variable flows into json.dump, where it is</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Toggle section expand/collapse
+        function toggleSection(id) {
+            const section = document.getElementById('section-' + id);
+            section.classList.toggle('expanded');
+        }
+        
+        // Active filters
+        const activeFilters = { high: true, medium: true, low: true };
+        
+        // Toggle filter
+        function toggleFilter(severity) {
+            activeFilters[severity] = !activeFilters[severity];
+            
+            // Update button state
+            const btn = document.querySelector(`[data-filter="${severity}"]`);
+            btn.classList.toggle('active', activeFilters[severity]);
+            
+            // Filter issues
+            document.querySelectorAll('.issue').forEach(issue => {
+                const issueSeverity = issue.dataset.severity;
+                const show = activeFilters[issueSeverity];
+                issue.classList.toggle('hidden', !show);
+            });
+        }
+    </script>
+</body>
+</html>

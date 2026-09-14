@@ -1,0 +1,275 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Deployment & Scheduling
+  version: 1.0.0
+  description: Deployment management and scheduling
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: deployment_id
+    value: 'deploy_001'
+    description: Deployment identifier
+  - key: host_name
+    value: 'backend_host_1'
+    description: Host name
+  - key: device_id
+    value: 'device_001'
+    description: Device identifier
+  - key: script_name
+    value: 'validation_test.py'
+    description: Script name
+  - key: userinterface_name
+    value: 'example_mobile'
+    description: User interface name
+paths:
+  /server/deployment/create:
+    post:
+      summary: Create Deployment
+      description: Create a new scheduled deployment for automated script execution
+      tags: [Deployment]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - host_name
+                - device_id
+                - script_name
+                - userinterface_name
+                - cron_expression
+              properties:
+                name:
+                  type: string
+                  description: Deployment name
+                host_name:
+                  type: string
+                  description: Host name where deployment will run
+                device_id:
+                  type: string
+                  description: Device identifier
+                script_name:
+                  type: string
+                  description: Script to execute
+                userinterface_name:
+                  type: string
+                  description: User interface name
+                parameters:
+                  type: string
+                  description: Script parameters (optional)
+                cron_expression:
+                  type: string
+                  description: Cron schedule expression (e.g., '0 2 * * *' for 2 AM daily)
+                start_date:
+                  type: string
+                  format: date-time
+                  description: Start date for deployment (optional)
+                end_date:
+                  type: string
+                  format: date-time
+                  description: End date for deployment (optional)
+                max_executions:
+                  type: integer
+                  description: Maximum number of executions (optional)
+            example:
+              name: "Daily Regression Test"
+              host_name: "{{host_name}}"
+              device_id: "{{device_id}}"
+              script_name: "{{script_name}}"
+              userinterface_name: "{{userinterface_name}}"
+              parameters: "--mode full"
+              cron_expression: "0 2 * * *"
+              start_date: "2024-01-01T00:00:00Z"
+              end_date: "2024-12-31T23:59:59Z"
+              max_executions: 100
+      responses:
+        '200':
+          description: Deployment created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  deployment:
+                    type: object
+        '400':
+          description: Bad request - missing required fields
+        '500':
+          description: Failed to create deployment
+  /server/deployment/list:
+    get:
+      summary: List Deployments
+      description: Get a list of all deployments for a team
+      tags: [Deployment]
+      parameters:
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: List of deployments retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    name:
+                      type: string
+                    host_name:
+                      type: string
+                    status:
+                      type: string
+                    cron_expression:
+                      type: string
+  /server/deployment/pause/{deployment_id}:
+    post:
+      summary: Pause Deployment
+      description: Pause a scheduled deployment temporarily
+      tags: [Deployment]
+      parameters:
+        - name: deployment_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Deployment identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Deployment paused successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '404':
+          description: Deployment not found
+  /server/deployment/resume/{deployment_id}:
+    post:
+      summary: Resume Deployment
+      description: Resume a paused deployment
+      tags: [Deployment]
+      parameters:
+        - name: deployment_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Deployment identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Deployment resumed successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '404':
+          description: Deployment not found
+  /server/deployment/delete/{deployment_id}:
+    delete:
+      summary: Delete Deployment
+      description: Delete a scheduled deployment permanently
+      tags: [Deployment]
+      parameters:
+        - name: deployment_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Deployment identifier
+        - name: team_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Team identifier
+        - name: Authorization
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Optional in open mode. Required when ENFORCE_FRONTEND_JWT=true and SUPABASE_JWT_SECRET is configured.
+      responses:
+        '200':
+          description: Deployment deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+        '404':
+          description: Deployment not found

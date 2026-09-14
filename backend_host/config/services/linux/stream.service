@@ -1,0 +1,36 @@
+[Unit]
+Description=VirtualPyTest FFmpeg Capture Service
+After=network.target
+Wants=network.target
+# Order after the VNC server so its xstartup has started PulseAudio before the
+# x11grab/desktop grabber tries to capture `-f pulse -i default` (pulse is coupled
+# to the VNC session — see docs/agent/devices/STREAM.md §5). Wants (not Requires) on
+# purpose: STB (v4l2/ALSA) and Android grabbers don't need VNC, so a VNC failure
+# must NOT tear down all captures — it only delays start until VNC is up.
+After=vpt-vnc.service
+Wants=vpt-vnc.service
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+# For X11 screen capture, set DISPLAY and XAUTHORITY if needed
+# Environment=DISPLAY=:0
+# Environment=XAUTHORITY=/run/user/1000/gdm/Xauthority
+WorkingDirectory=%PROJECT_ROOT%/backend_host/scripts
+# Sync /hot tmpfs mounts with .env before ffmpeg starts. `-` ignores non-zero
+# exit (no-RAM hosts must still start in SD fallback mode), `+` runs as root
+# regardless of User=. The script itself also always exits 0.
+ExecStartPre=-+%PROJECT_ROOT%/setup/local/linux/backend_host/ensure_hot_mounts.sh
+ExecStart=/bin/bash %PROJECT_ROOT%/backend_host/scripts/run_ffmpeg.sh
+Restart=always
+RestartSec=15
+TimeoutStopSec=20
+
+# Logging to systemd journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=stream
+
+[Install]
+WantedBy=multi-user.target

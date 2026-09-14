@@ -1,0 +1,2542 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Real-time system performance monitoring for server",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 0.5
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "value"
+            },
+            "properties": [
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "options": {
+                      "0": {
+                        "color": "red",
+                        "index": 0,
+                        "text": "KO"
+                      }
+                    },
+                    "type": "value"
+                  },
+                  {
+                    "options": {
+                      "1": {
+                        "color": "green",
+                        "index": 1,
+                        "text": "OK"
+                      }
+                    },
+                    "type": "value"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 0,
+        "y": 0
+      },
+      "id": 43,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "vertical",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "showPercentChange": false,
+        "text": {
+          "valueSize": 30
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n    'server' as \"metric\",\n    CASE \n        WHEN recent_ping.last_ping IS NULL \n             OR recent_ping.last_ping < $__timeFrom() \n        THEN 0  -- Server is down (no recent ping)\n        ELSE 1  -- Server is up (recent ping received)\n    END as \"value\"\nFROM (\n    -- Get the most recent ping for servers within selected time range\n    SELECT \n        MAX(timestamp) as last_ping\n    FROM system_metrics \n    WHERE server_name IS NOT NULL\n      AND $__timeFilter(timestamp)\n) recent_ping",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "\ud83d\udea8 Server Status",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 70
+              },
+              {
+                "color": "red",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 3,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT ROUND(AVG(cpu_percent), 1) as \"Server CPU %\" FROM system_metrics WHERE $__timeFilter(timestamp) AND server_name IS NOT NULL",
+          "refId": "A"
+        }
+      ],
+      "title": "Server CPU",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 80
+              },
+              {
+                "color": "red",
+                "value": 95
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 6,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "percentSize": 1
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT ROUND(AVG(memory_percent), 1) as \"Server Memory %\" FROM system_metrics WHERE $__timeFilter(timestamp) AND server_name IS NOT NULL",
+          "refId": "A"
+        }
+      ],
+      "title": "Server Memory",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 85
+              },
+              {
+                "color": "red",
+                "value": 95
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 9,
+        "y": 0
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ROUND(AVG(disk_percent), 1) as \"Server Disk %\" FROM system_metrics WHERE $__timeFilter(timestamp) AND server_name IS NOT NULL",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Server Disk",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 3600
+              },
+              {
+                "color": "green",
+                "value": 86400
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT MAX(uptime_seconds) as \"Server Uptime\" FROM system_metrics WHERE $__timeFilter(timestamp) AND host_name = 'server'",
+          "refId": "A"
+        }
+      ],
+      "title": "Server Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 1,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "orange",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "unit": "celsius"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 15,
+        "y": 0
+      },
+      "id": 52,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT ROUND(AVG(cpu_temperature_celsius), 1) as \"Server CPU Temperature\" FROM system_metrics WHERE $__timeFilter(timestamp) AND host_name = 'server' AND cpu_temperature_celsius IS NOT NULL",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83c\udf21\ufe0f CPU Temp",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 3,
+        "x": 18,
+        "y": 0
+      },
+      "id": 50,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH uptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    LAG(uptime_seconds) OVER (ORDER BY timestamp) as prev_uptime\n  FROM system_metrics \n  WHERE host_name = 'server'\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY timestamp\n),\nreboot_candidates AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > uptime_seconds\n    AND (prev_uptime - uptime_seconds) > 3600  -- Significant drop\n),\nreboot_events AS (\n  SELECT \n    timestamp,\n    LAG(timestamp) OVER (ORDER BY timestamp) as prev_reboot_time\n  FROM reboot_candidates\n),\nfiltered_reboots AS (\n  SELECT timestamp\n  FROM reboot_events\n  WHERE prev_reboot_time IS NULL  -- First reboot\n     OR timestamp > prev_reboot_time + INTERVAL '10 minutes'  -- At least 10 min gap\n)\nSELECT COUNT(*) as \"Total Reboots\"\nFROM filtered_reboots",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "\ud83d\udd04 Total Reboots",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 3
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  server_name as metric, \n  AVG(cpu_percent::float) as value \nFROM system_metrics \nWHERE $__timeFilter(timestamp)\n  AND server_name IS NOT NULL\nGROUP BY DATE_TRUNC('minute', timestamp), server_name\nORDER BY time",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "CPU Usage by Server",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 8,
+        "y": 3
+      },
+      "id": 14,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  server_name as metric, \n  AVG(memory_percent::float) as value \nFROM system_metrics \nWHERE $__timeFilter(timestamp)\n  AND server_name IS NOT NULL\nGROUP BY DATE_TRUNC('minute', timestamp), server_name\nORDER BY time",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Memory Usage by Server",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 16,
+        "y": 3
+      },
+      "id": 25,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  server_name as metric, \n  AVG(disk_percent::float) as value \nFROM system_metrics \nWHERE $__timeFilter(timestamp)\n  AND server_name IS NOT NULL\nGROUP BY DATE_TRUNC('minute', timestamp), server_name\nORDER BY time",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Disk Usage by Server",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 2
+              },
+              {
+                "color": "orange",
+                "value": 4
+              },
+              {
+                "color": "red",
+                "value": 6
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "id": 54,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": 0,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH latest_server_metrics AS (\n  SELECT DISTINCT ON (server_name) \n    server_name,\n    load_average_1m,\n    timestamp\n  FROM system_metrics \n  WHERE server_name IS NOT NULL\n    AND $__timeFilter(timestamp)\n  ORDER BY server_name, timestamp DESC\n)\nSELECT \n  NOW() as time,\n  server_name as metric, \n  load_average_1m as value \nFROM latest_server_metrics\nORDER BY server_name;",
+          "refId": "A"
+        }
+      ],
+      "title": "Load Average (1m)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 60
+              },
+              {
+                "color": "orange",
+                "value": 75
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          },
+          "unit": "celsius"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "server_cpu_temp"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 8
+      },
+      "id": 53,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  CONCAT(server_name, '_cpu_temp') as metric, \n  AVG(cpu_temperature_celsius::float) as value \nFROM system_metrics \nWHERE server_name IS NOT NULL\n  AND cpu_temperature_celsius IS NOT NULL\n  AND timestamp >= $__timeFrom()\n  AND timestamp <= $__timeTo()\nGROUP BY DATE_TRUNC('minute', timestamp), server_name\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83c\udf21\ufe0f Server CPU Temperature by Server",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "fillOpacity": 80,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineWidth": 1,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "decimals": 1,
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "orange",
+                "value": 100
+              },
+              {
+                "color": "red",
+                "value": 200
+              }
+            ]
+          },
+          "unit": "Mbits"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*Download.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*Upload.*"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "orange",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 8
+      },
+      "id": 55,
+      "options": {
+        "barRadius": 0,
+        "barWidth": 0.97,
+        "fullHighlight": false,
+        "groupWidth": 0.7,
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "orientation": "vertical",
+        "showValue": "auto",
+        "stacking": "none",
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        },
+        "xTickLabelRotation": -45,
+        "xTickLabelSpacing": 0
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH latest_server_metrics AS (\n  SELECT DISTINCT ON (server_name) \n    server_name,\n    download_mbps,\n    upload_mbps,\n    timestamp\n  FROM system_metrics \n  WHERE server_name IS NOT NULL\n    AND download_mbps IS NOT NULL\n    AND $__timeFilter(timestamp)\n  ORDER BY server_name, timestamp DESC\n),\nnetwork_data AS (\n  SELECT server_name, 'Download' as metric_type, download_mbps as speed FROM latest_server_metrics\n  UNION ALL\n  SELECT server_name, 'Upload' as metric_type, upload_mbps as speed FROM latest_server_metrics\n)\nSELECT \n  NOW() as time,\n  CONCAT(server_name, ' - ', metric_type) as metric,\n  speed as value\nFROM network_data\nORDER BY server_name, metric_type ASC;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "Network Speed (Down/Up)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "points",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 8,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "always",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "reboot"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              },
+              {
+                "id": "custom.pointSize",
+                "value": 10
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "id": 51,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH uptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    LAG(uptime_seconds) OVER (ORDER BY timestamp) as prev_uptime\n  FROM system_metrics \n  WHERE host_name = 'server'\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY timestamp\n),\nreboot_candidates AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > uptime_seconds\n    AND (prev_uptime - uptime_seconds) > 3600  -- Significant drop\n),\nreboot_events AS (\n  SELECT \n    timestamp,\n    LAG(timestamp) OVER (ORDER BY timestamp) as prev_reboot_time\n  FROM reboot_candidates\n),\nfiltered_reboots AS (\n  SELECT \n    timestamp as time,\n    'reboot' as metric,\n    1 as value\n  FROM reboot_events\n  WHERE prev_reboot_time IS NULL  -- First reboot\n     OR timestamp > prev_reboot_time + INTERVAL '10 minutes'  -- At least 10 min gap\n)\nSELECT \n  time,\n  metric,\n  value\nFROM filtered_reboots\nORDER BY time",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "\ud83d\udd04 Reboot Events Timeline",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "barWidthFactor": 0.6,
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "line"
+            }
+          },
+          "decimals": 2,
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "green",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "MBs"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
+      "id": 56,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  server_name as metric, \n  AVG(disk_write_mb_per_sec::float) as value \nFROM system_metrics \nWHERE server_name IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), server_name\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udcbe Disk Write Activity",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "yellow",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 98
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 0,
+        "y": 21
+      },
+      "id": 30,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {},
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT \n    ROUND(\n        LEAST(100, (uptime_seconds / 3600.0) / 24.0 * 100), 2\n    ) as \"Daily Availability %\"\nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udcc5 Daily (24h)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "yellow",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 6,
+        "y": 21
+      },
+      "id": 31,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT \n    ROUND(\n        LEAST(100, (uptime_seconds / 86400.0) / 7.0 * 100), 2\n    ) as \"Weekly Availability %\"\nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udcca Weekly (7d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "yellow",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 21
+      },
+      "id": 32,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "text": {
+          "percentSize": 1
+        },
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT \n    ROUND(\n        LEAST(100, (uptime_seconds / 86400.0) / 30.0 * 100), 2\n    ) as \"Monthly Availability %\"\nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udcc8 Monthly (30d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 90
+              },
+              {
+                "color": "yellow",
+                "value": 95
+              },
+              {
+                "color": "green",
+                "value": 99
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 21
+      },
+      "id": 33,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT \n    ROUND(\n        LEAST(100, (uptime_seconds / 86400.0) / 365.0 * 100), 2\n    ) as \"Yearly Availability %\"\nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udcc6 Yearly (365d)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 24,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 20
+              },
+              {
+                "color": "yellow",
+                "value": 22
+              },
+              {
+                "color": "green",
+                "value": 23
+              }
+            ]
+          },
+          "unit": "h"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 0,
+        "y": 24
+      },
+      "id": 35,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT \n    ROUND(uptime_seconds / 3600.0, 1) as \"Daily Uptime (hours)\"\nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "\u23f1\ufe0f Daily Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 7,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 5
+              },
+              {
+                "color": "yellow",
+                "value": 6
+              },
+              {
+                "color": "green",
+                "value": 6.5
+              }
+            ]
+          },
+          "unit": "d"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 6,
+        "y": 24
+      },
+      "id": 37,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT \n    ROUND(uptime_seconds / 86400.0, 1) as \"Weekly Uptime (days)\"\nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "\u23f1\ufe0f Weekly Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 30,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 25
+              },
+              {
+                "color": "yellow",
+                "value": 28
+              },
+              {
+                "color": "green",
+                "value": 29
+              }
+            ]
+          },
+          "unit": "d"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 24
+      },
+      "id": 39,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT \n    ROUND(uptime_seconds / 86400.0, 1) as \"Monthly Uptime (days)\"\nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "\u23f1\ufe0f Monthly Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 365,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 300
+              },
+              {
+                "color": "yellow",
+                "value": 350
+              },
+              {
+                "color": "green",
+                "value": 360
+              }
+            ]
+          },
+          "unit": "d"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 24
+      },
+      "id": 41,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "SELECT \n    ROUND(uptime_seconds / 86400.0, 1) as \"Yearly Uptime (days)\"\nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 1;",
+          "refId": "A"
+        }
+      ],
+      "title": "\u23f1\ufe0f Yearly Uptime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 24,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 2
+              },
+              {
+                "color": "red",
+                "value": 4
+              }
+            ]
+          },
+          "unit": "h"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 0,
+        "y": 27
+      },
+      "id": 36,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "WITH uptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    LAG(uptime_seconds) OVER (ORDER BY timestamp) as prev_uptime,\n    ROW_NUMBER() OVER (ORDER BY timestamp) as row_num\n  FROM system_metrics \n  WHERE host_name = 'server'\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY timestamp\n),\nreboot_candidates AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > uptime_seconds\n    AND (prev_uptime - uptime_seconds) > 3600  -- Significant drop\n),\nreboot_events AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    prev_uptime,\n    uptime_drop,\n    LAG(timestamp) OVER (ORDER BY timestamp) as prev_reboot_time\n  FROM reboot_candidates\n),\nfiltered_reboots AS (\n  SELECT *\n  FROM reboot_events\n  WHERE prev_reboot_time IS NULL  -- First reboot\n     OR timestamp > prev_reboot_time + INTERVAL '10 minutes'  -- At least 10 min gap\n)\nSELECT COUNT(*) as \"Reboots in Selected Period\"\nFROM filtered_reboots",
+          "refId": "A"
+        }
+      ],
+      "title": "\ud83d\udd04 Reboots (Selected Period)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 7,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 0.5
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 2
+              }
+            ]
+          },
+          "unit": "d"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 6,
+        "y": 27
+      },
+      "id": 38,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "WITH uptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    LAG(uptime_seconds) OVER (ORDER BY timestamp) as prev_uptime,\n    ROW_NUMBER() OVER (ORDER BY timestamp) as row_num\n  FROM system_metrics \n  WHERE host_name = 'server'\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY timestamp\n),\nreboot_candidates AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > uptime_seconds\n    AND (prev_uptime - uptime_seconds) > 3600  -- Significant drop\n),\nreboot_events AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    prev_uptime,\n    uptime_drop,\n    LAG(timestamp) OVER (ORDER BY timestamp) as prev_reboot_time\n  FROM reboot_candidates\n),\nfiltered_reboots AS (\n  SELECT \n    timestamp as time,\n    'reboot' as metric,\n    1 as value\n  FROM reboot_events\n  WHERE prev_reboot_time IS NULL  -- First reboot\n     OR timestamp > prev_reboot_time + INTERVAL '10 minutes'  -- At least 10 min gap\n)\nSELECT \n  time,\n  metric,\n  value\nFROM filtered_reboots\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "\u23ec Weekly Downtime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 30,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "orange",
+                "value": 3
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          },
+          "unit": "d"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 12,
+        "y": 27
+      },
+      "id": 40,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "WITH uptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    LAG(uptime_seconds) OVER (ORDER BY timestamp) as prev_uptime\n  FROM system_metrics \n  WHERE host_name = 'server'\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY timestamp\n),\nreboot_candidates AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > uptime_seconds\n    AND (prev_uptime - uptime_seconds) > 3600  -- Significant drop\n),\nreboot_events AS (\n  SELECT \n    timestamp,\n    LAG(timestamp) OVER (ORDER BY timestamp) as prev_reboot_time\n  FROM reboot_candidates\n),\nfiltered_reboots AS (\n  SELECT timestamp\n  FROM reboot_events\n  WHERE prev_reboot_time IS NULL  -- First reboot\n     OR timestamp > prev_reboot_time + INTERVAL '10 minutes'  -- At least 10 min gap\n)\nSELECT COUNT(*) as \"Total Reboots\"\nFROM filtered_reboots",
+          "refId": "A"
+        }
+      ],
+      "title": "\u23ec Monthly Downtime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "decimals": 0,
+          "mappings": [],
+          "max": 365,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "yellow",
+                "value": 5
+              },
+              {
+                "color": "orange",
+                "value": 15
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "unit": "d"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 3,
+        "w": 6,
+        "x": 18,
+        "y": 27
+      },
+      "id": 42,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawSql": "WITH uptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    LAG(uptime_seconds) OVER (ORDER BY timestamp) as prev_uptime\n  FROM system_metrics \n  WHERE host_name = 'server'\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY timestamp\n),\nreboot_candidates AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > uptime_seconds\n    AND (prev_uptime - uptime_seconds) > 3600  -- Significant drop\n),\nreboot_events AS (\n  SELECT \n    timestamp,\n    LAG(timestamp) OVER (ORDER BY timestamp) as prev_reboot_time\n  FROM reboot_candidates\n),\nfiltered_reboots AS (\n  SELECT \n    timestamp as time,\n    'reboot' as metric,\n    1 as value\n  FROM reboot_events\n  WHERE prev_reboot_time IS NULL  -- First reboot\n     OR timestamp > prev_reboot_time + INTERVAL '10 minutes'  -- At least 10 min gap\n)\nSELECT \n  time,\n  metric,\n  value\nFROM filtered_reboots\nORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "\u23ec Yearly Downtime",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 80
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 30
+      },
+      "id": 34,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true
+      },
+      "pluginVersion": "12.1.1",
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT \n    server_name as \"Server\",\n    TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\",\n    uptime_seconds as \"Uptime (seconds)\",\n    ROUND(uptime_seconds / 3600.0, 2) as \"Uptime (hours)\",\n    ROUND(uptime_seconds / 86400.0, 2) as \"Uptime (days)\",\n    \n    -- Daily calculation (24h)\n    ROUND(LEAST(100, (uptime_seconds / 3600.0) / 24.0 * 100), 2) as \"Daily % (24h)\",\n    ROUND(24 - (uptime_seconds / 3600.0), 2) as \"Daily Downtime (h)\",\n    \n    -- Weekly calculation (7d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 7.0 * 100), 2) as \"Weekly % (7d)\",\n    ROUND(7 - (uptime_seconds / 86400.0), 2) as \"Weekly Downtime (d)\",\n    \n    -- Monthly calculation (30d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 30.0 * 100), 2) as \"Monthly % (30d)\",\n    ROUND(30 - (uptime_seconds / 86400.0), 2) as \"Monthly Downtime (d)\",\n    \n    -- Yearly calculation (365d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 365.0 * 100), 2) as \"Yearly % (365d)\",\n    ROUND(365 - (uptime_seconds / 86400.0), 2) as \"Yearly Downtime (d)\"\n    \nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 5;",
+          "refId": "A",
+          "sql": {
+            "columns": [
+              {
+                "parameters": [],
+                "type": "function"
+              }
+            ],
+            "groupBy": [
+              {
+                "property": {
+                  "type": "string"
+                },
+                "type": "groupBy"
+              }
+            ],
+            "limit": 50
+          }
+        }
+      ],
+      "title": "\ud83d\udd0d Server Availability Debug Data",
+      "type": "table"
+    }
+  ],
+  "preload": false,
+  "refresh": "30s",
+  "schemaVersion": 41,
+  "tags": [
+    "system",
+    "monitoring",
+    "performance",
+    "server"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "System Server Monitoring",
+  "uid": "system-monitoring"
+}

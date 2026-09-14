@@ -1,0 +1,590 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "type": "bargauge",
+      "title": "Occupancy % by device",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "decimals": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 50
+              },
+              {
+                "color": "red",
+                "value": 85
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "showUnfilled": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT host_name || ':' || device_id AS device, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz))) / NULLIF(EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)), 0) AS occupancy FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ]
+    },
+    {
+      "type": "barchart",
+      "title": "Busy vs idle repartition per device",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "stacking": {
+              "mode": "normal",
+              "group": "A"
+            },
+            "fillOpacity": 85,
+            "lineWidth": 0
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "manual"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "script"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "idle"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#4a4a4a"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "orientation": "horizontal",
+        "xTickLabelRotation": 0,
+        "showValue": "never",
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "WITH agg AS (SELECT host_name || ':' || device_id AS device, EXTRACT(EPOCH FROM SUM(CASE WHEN owner_type = 'manual_control' THEN LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz) ELSE interval '0' END)) AS manual_s, EXTRACT(EPOCH FROM SUM(CASE WHEN owner_type <> 'manual_control' THEN LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz) ELSE interval '0' END)) AS script_s, EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)) AS range_s FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1) SELECT device, ROUND((100.0 * manual_s / range_s)::numeric, 2) AS manual, ROUND((100.0 * script_s / range_s)::numeric, 2) AS script, ROUND((100.0 * GREATEST(0, range_s - manual_s - script_s) / range_s)::numeric, 2) AS idle FROM agg ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "type": "piechart",
+      "title": "Occupied time by owner type",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "manual_control"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "blue"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "script_execution"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "deployment_execution"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "orange"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": [
+          "percent"
+        ],
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT owner_type, EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz)))::bigint AS seconds FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ]
+    },
+    {
+      "type": "piechart",
+      "title": "Manual control time by user",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 6,
+        "x": 6,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "pieType": "donut",
+        "displayLabels": [
+          "percent"
+        ],
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": true
+        },
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT COALESCE(p.full_name, p.email, 'user-' || LEFT(s.owner_user_id, 8), 'unknown') AS \"user\", EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(s.ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(s.started_at, $__timeFrom()::timestamptz)))::bigint AS seconds FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s LEFT JOIN profiles p ON p.id::text = s.owner_user_id WHERE s.owner_type = 'manual_control' AND s.started_at < $__timeTo()::timestamptz AND COALESCE(s.ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ]
+    },
+    {
+      "type": "state-timeline",
+      "title": "Busy timeline per device",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "interval": "1m",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "fillOpacity": 80,
+            "lineWidth": 0,
+            "spanNulls": false
+          },
+          "displayName": "${__field.labels.device}",
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "manual_control": {
+                  "text": "manual",
+                  "color": "blue",
+                  "index": 0
+                },
+                "script_execution": {
+                  "text": "script",
+                  "color": "green",
+                  "index": 1
+                },
+                "deployment_execution": {
+                  "text": "deploy",
+                  "color": "orange",
+                  "index": 2
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "rowHeight": 0.8,
+        "mergeValues": true,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "transformations": [
+        {
+          "id": "partitionByValues",
+          "options": {
+            "fields": [
+              "device"
+            ],
+            "naming": {
+              "asLabels": true
+            },
+            "keepFields": false
+          }
+        }
+      ],
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT b.bucket AS time, s.host_name || ':' || s.device_id AS device, MAX(s.owner_type) AS state FROM (SELECT generate_series($__timeFrom()::timestamptz, $__timeTo()::timestamptz, interval '$__interval') AS bucket) b JOIN (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s ON s.started_at < b.bucket + interval '$__interval' AND COALESCE(s.ended_at, NOW()) > b.bucket GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Hourly occupancy % per device",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "stacking": {
+              "mode": "none"
+            },
+            "barAlignment": 0
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "WITH buckets AS (SELECT generate_series(date_trunc('hour', $__timeFrom()::timestamptz), $__timeTo()::timestamptz, interval '1 hour') AS bucket) SELECT b.bucket AS time, s.host_name || ':' || s.device_id AS metric, LEAST(100.0, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(s.ended_at, NOW()), b.bucket + interval '1 hour') - GREATEST(s.started_at, b.bucket))) / 3600.0) AS occupancy FROM buckets b JOIN (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s ON s.started_at < b.bucket + interval '1 hour' AND COALESCE(s.ended_at, NOW()) > b.bucket GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Sessions (newest first)",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 11,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "filterable": true
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "duration"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "table",
+          "rawSql": "SELECT s.started_at, s.ended_at, s.host_name, s.device_id, s.owner_type, s.end_reason, s.lock_reason, COALESCE(p.full_name, p.email, s.owner_user_id) AS \"user\", EXTRACT(EPOCH FROM (COALESCE(s.ended_at, NOW()) - s.started_at))::bigint AS duration FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s LEFT JOIN profiles p ON p.id::text = s.owner_user_id WHERE $__timeFilter(s.started_at) ORDER BY s.started_at DESC LIMIT 300"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "History before session tracking (2026-07-15)",
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 38
+      },
+      "panels": [
+        {
+          "type": "bargauge",
+          "title": "Script occupancy % by device — script_results",
+          "description": "Computed from script_results started_at/completed_at; useful for ranges before device_control_sessions collection began (2026-07-15). Scripts only — manual sessions were not tracked.",
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 12,
+            "x": 0,
+            "y": 39
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "percent",
+              "min": 0,
+              "max": 100,
+              "decimals": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 50
+                  },
+                  {
+                    "color": "red",
+                    "value": 85
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "options": {
+            "displayMode": "gradient",
+            "orientation": "horizontal",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": true
+            },
+            "showUnfilled": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT host_name || ':' || COALESCE(device_name, 'device1') AS device, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(completed_at, $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz))) / NULLIF(EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)), 0) AS occupancy FROM (SELECT * FROM script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE started_at < $__timeTo()::timestamptz AND completed_at > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 41,
+  "tags": [
+    "virtualpytest",
+    "occupancy"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "Filter by device tags set on the Device page",
+        "includeAll": true,
+        "allValue": "__ALL__",
+        "label": "Tag",
+        "multi": true,
+        "name": "flag",
+        "options": [],
+        "refresh": 2,
+        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Device Occupancy",
+  "uid": "device-occupancy",
+  "weekStart": ""
+}

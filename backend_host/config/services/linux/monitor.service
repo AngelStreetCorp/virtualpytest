@@ -1,0 +1,24 @@
+[Unit]
+Description=VirtualPyTest Capture Monitor Service
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=%PROJECT_ROOT%/backend_host/scripts
+Environment=PYTHONPATH=%PROJECT_ROOT%/shared/lib:%PROJECT_ROOT%/backend_host/src
+Environment=PATH=%PROJECT_ROOT%/venv/bin:/usr/bin:/usr/local/bin
+ExecStart=%PROJECT_ROOT%/venv/bin/python %PROJECT_ROOT%/backend_host/scripts/capture_monitor.py
+TimeoutStopSec=10
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

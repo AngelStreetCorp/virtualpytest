@@ -1,0 +1,38 @@
+-- ============================================================================
+-- postgres role (Grafana datasource / admin): no parallel query workers
+-- ============================================================================
+-- BUG-0074. Postgres parallel workers exchange data through dynamic shared
+-- memory segments in /dev/shm. Docker gives every container 64 MB of /dev/shm
+-- by default and the Supabase CLI does not raise it (verified: ShmSize=67108864
+-- on the customer DB hostdb1 AND on the lab DB). When a Grafana dashboard
+-- loads, its template variables and panels fire many queries at once; on a
+-- large script_results (customer: 1.7M rows) each one gets a parallel plan,
+-- the 64 MB fill up, and the next query fails with
+--
+--   ERROR: could not resize shared memory segment "/PostgreSQL.NNN"
+--          to 2097152 bytes: No space left on device
+--
+-- Grafana shows that as a warning on the variable (the dropdown keeps its
+-- last cached values, so it looks like a timeout). 103 such failures in 48 h
+-- on the customer DB, all from the Grafana VM as role `postgres`.
+--
+-- Fix: the `postgres` role (what the Grafana datasource connects as, plus
+-- admin psql) stops requesting parallel workers, so its queries never touch
+-- /dev/shm. Cost: those queries run single-threaded (customer variable
+-- query: ~1.4 s instead of ~0.7 s) — but they never fail. Application traffic
+-- (PostgREST roles) is untouched.
+--
+-- Session-level setting: applies to NEW connections of the role. Grafana
+-- pools its connections (up to 4 h) — after applying, terminate its idle
+-- backends so the pool reconnects:
+--   SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+--   WHERE usename = 'postgres' AND client_addr = '<grafana vm ip>' AND state = 'idle';
+--
+-- Proper fix (needs a DB container recreate / Postgres restart, so it is a
+-- maintenance-window item, see docs/agent/infra/DATABASE.md): give the
+-- container a real /dev/shm (shm_size 1g) or set min_dynamic_shared_memory
+-- so parallel queries use the main shared segment. Once either is in place
+-- this can be undone:
+--   ALTER ROLE postgres RESET max_parallel_workers_per_gather;
+
+ALTER ROLE postgres SET max_parallel_workers_per_gather = 0;

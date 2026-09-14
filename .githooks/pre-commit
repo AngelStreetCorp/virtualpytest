@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+#
+# VirtualPyTest pre-commit hook
+# Bumps VERSION.txt (build number) before each commit and stages it, so the
+# committed tree always carries the version it represents. Idempotent: if the
+# computed version equals the current file, bump_version.sh is a no-op.
+#
+# Activated by: git config core.hooksPath .githooks  (done by bootstrap.sh)
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+BUMP_SCRIPT="${REPO_ROOT}/scripts/bump_version.sh"
+
+# Nothing to do if the bump script is absent (e.g. partial checkout)
+[[ -x "${BUMP_SCRIPT}" ]] || exit 0
+
+# Skip during merge / rebase / cherry-pick so we don't rewrite VERSION.txt
+# in the middle of an operation that already manages it.
+GIT_DIR="$(git rev-parse --git-dir)"
+if [[ -f "${GIT_DIR}/MERGE_HEAD" || -d "${GIT_DIR}/rebase-merge" || -d "${GIT_DIR}/rebase-apply" || -f "${GIT_DIR}/CHERRY_PICK_HEAD" ]]; then
+  exit 0
+fi
+
+"${BUMP_SCRIPT}"
+git add "${REPO_ROOT}/VERSION.txt"
+
+exit 0
