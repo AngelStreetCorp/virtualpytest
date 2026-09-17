@@ -144,7 +144,9 @@
         // By default, use the host and port of server that served this file
         const host = readQueryVariable('host', window.location.hostname);
         let port = readQueryVariable('port', window.location.port);
-        const password = readQueryVariable('password', 'admin1234');
+        // No default: HOST_VNC_PASSWORD is generated per install, and the URL the
+        // platform builds carries it. Unset means noVNC prompts, which is right.
+        const password = readQueryVariable('password', null);
         const path = readQueryVariable('path', getDefaultWebsockifyPath());
 
         // | | |         | | |

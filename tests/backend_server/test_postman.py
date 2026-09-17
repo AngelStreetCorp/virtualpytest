@@ -291,15 +291,11 @@ class TestRunApiTest:
         assert resp.json().get("success") is False
 
 
-@pytest.mark.skip(
-    reason=(
-        "Every collections/environments/request-definition endpoint that "
-        "finds a real configured workspace calls out to the real Postman "
-        "API (https://api.getpostman.com) using that workspace's API key — "
-        "no safe way to exercise the success path without a live "
-        "third-party Postman account."
-    )
-)
+# Every collections/environments/request-definition endpoint that finds a real configured
+# workspace calls out to the real Postman API (https://api.getpostman.com) using that
+# workspace's API key — no safe way to exercise the success path without a live third-party
+# Postman account.
+@pytest.mark.manual
 class TestPostmanLiveApiCalls:
     def test_collections_and_environments(self):
         ...

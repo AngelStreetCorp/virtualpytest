@@ -17,12 +17,15 @@ import {
 import { useNavigate } from 'react-router-dom';
 
 import { featureDeviceLinks } from '../../config/features';
+import { useResponsiveMode } from '../../hooks/useResponsiveMode';
 import { Box, IconButton, Typography, Button, CircularProgress, ToggleButtonGroup, ToggleButton, Tooltip } from '@mui/material';
 import React from 'react';
 
 import { Host, Device } from '../../types/common/Host_Types';
 import LocalizeButton from '../navigation/Navigation_LocalizeButton';
 import { PowerButton } from '../controller/power/PowerButton';
+
+import { DeviceStatusChip } from './DeviceStatusChip';
 
 interface RecStreamModalHeaderProps {
   host: Host;
@@ -54,6 +57,12 @@ interface RecStreamModalHeaderProps {
   showRemote: boolean;
   isDesktopDevice: boolean;
   hasPowerControl: boolean;
+  // When true, hide the "power user" controls (localize, fullscreen, AI query,
+  // live/archive toggle, take control, restart, AI agent, show remote) and keep
+  // only the basic viewing controls. Used for the mobile device-control page,
+  // where the full toolbar doesn't fit a 375px-wide screen. Defaults to false so
+  // every other caller (desktop pages reusing this header) is unaffected.
+  minimalControls?: boolean;
 
   // Handlers
   onScreenshot: () => void;
@@ -92,6 +101,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
   showRemote,
   isDesktopDevice,
   hasPowerControl,
+  minimalControls = false,
   onScreenshot,
   onOpenFullscreen,
   onAIImageQuery,
@@ -107,6 +117,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
   onClose,
 }) => {
   const navigate = useNavigate();
+  const { isMobile } = useResponsiveMode();
   // host_vnc now has audio too: live via the hidden HLS companion behind the noVNC
   // iframe, archive via the HLS player. So audio is available for all device types.
   const isAudioSupported = true;
@@ -194,6 +205,9 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
             />
           </Tooltip>
         )}
+        {/* Same status chip as the preview card: "running" (blue) while a script drives
+            the device, else online/offline — or error when host services are stuck. */}
+        <DeviceStatusChip host={host} isRunning={hasDeployment} sx={{ ml: 0.5 }} />
       </Typography>
 
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '1 1 auto', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
@@ -219,7 +233,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
         {/* Localize Button - identify which navigation node the live screen is.
             Uses the device's preferred userinterface/variant; only shown when one
             is configured (otherwise there's no tree to match against). */}
-        {!restartMode && device?.preferred_userinterface && (
+        {!minimalControls && !restartMode && device?.preferred_userinterface && (
           <LocalizeButton
             hostName={host.host_name}
             deviceId={device.device_id}
@@ -236,7 +250,8 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
         )}
 
         {/* Optional-feature per-device pages (docs/technical/FEATURES.md) */}
-        {device &&
+        {!minimalControls &&
+          device &&
           featureDeviceLinks().map((link) => (
             <IconButton
               key={link.label}
@@ -254,7 +269,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
 
         {/* Fullscreen Player Button - opens a dedicated quality-focused player in a new tab.
             Disabled in archive/restart mode (live stream only). */}
-        {!restartMode && onOpenFullscreen && (
+        {!minimalControls && !restartMode && onOpenFullscreen && (
           <IconButton
             onClick={onOpenFullscreen}
             disabled={!isLiveMode}
@@ -275,7 +290,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
         )}
 
         {/* AI Image Query Button - disabled in archive/restart mode */}
-        {!restartMode && onAIImageQuery && (
+        {!minimalControls && !restartMode && onAIImageQuery && (
           <IconButton
             onClick={onAIImageQuery}
             disabled={!isLiveMode}
@@ -294,7 +309,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
         )}
 
         {/* Live/Archive Mode Toggle Button Group */}
-        {!restartMode && (
+        {!minimalControls && !restartMode && (
           <ToggleButtonGroup
             value={isLiveMode ? 'live' : 'restart'}
             exclusive
@@ -334,8 +349,46 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
           </ToggleButtonGroup>
         )}
 
+        {/* Quality control, mobile: the full LOW/SD/HD/HD+ group doesn't fit a narrow
+            toolbar, so a single button shows the current level and cycles to the next
+            one on tap (low -> sd -> hd -> hd+ -> low), instead of showing every option
+            at once. */}
+        {!restartMode && !isDesktopDevice && minimalControls && (
+          <Button
+            variant="contained"
+            size="small"
+            disabled={!isLiveMode}
+            onClick={(e) => {
+              const order: Array<'low' | 'sd' | 'hd' | 'hd_plus'> = supportsHdPlus
+                ? ['low', 'sd', 'hd', 'hd_plus']
+                : ['low', 'sd', 'hd'];
+              const next = order[(order.indexOf(currentQuality) + 1) % order.length];
+              onQualityChange(e, next);
+            }}
+            sx={{
+              fontSize: '0.75rem',
+              minWidth: 44,
+              px: 1,
+              opacity: !isLiveMode ? 0.5 : 1,
+              backgroundColor: isQualitySwitching
+                ? 'warning.main'
+                : currentQuality === 'low'
+                  ? 'success.main'
+                  : currentQuality === 'sd'
+                    ? 'primary.main'
+                    : currentQuality === 'hd'
+                      ? 'secondary.main'
+                      : 'error.main',
+              color: 'white',
+            }}
+            title="Tap to switch quality"
+          >
+            {currentQuality === 'hd_plus' ? 'HD+' : currentQuality.toUpperCase()}
+          </Button>
+        )}
+
         {/* Quality Toggle Button Group - Hidden for VNC/Desktop devices */}
-        {!restartMode && !isDesktopDevice && (
+        {!restartMode && !isDesktopDevice && !minimalControls && (
           <ToggleButtonGroup
             value={currentQuality}
             exclusive
@@ -433,8 +486,28 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
           </ToggleButtonGroup>
         )}
 
-        {/* Monitoring Toggle Button - Only available in Live mode */}
-        {!restartMode && (
+        {/* Monitoring Toggle - icon-only on mobile, no room for the "Monitoring" label */}
+        {!restartMode && minimalControls && (
+          <IconButton
+            onClick={onToggleMonitoring}
+            disabled={!isLiveMode}
+            sx={{
+              color: monitoringMode ? 'primary.main' : 'grey.300',
+              opacity: !isLiveMode ? 0.5 : 1,
+            }}
+            aria-label={monitoringMode ? 'Hide Monitoring Overlay' : 'Show Monitoring Overlay'}
+            title={
+              !isLiveMode
+                ? 'Monitoring only available in Live mode'
+                : monitoringMode
+                  ? 'Hide Monitoring Overlay'
+                  : 'Show Monitoring Overlay (Freeze, Blackscreen, Audio, Subtitles, AI)'
+            }
+          >
+            {monitoringMode ? <VisibilityIcon /> : <VisibilityOffIcon />}
+          </IconButton>
+        )}
+        {!restartMode && !minimalControls && (
           <Button
             variant={monitoringMode ? 'contained' : 'outlined'}
             size="small"
@@ -451,8 +524,8 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
             title={
               !isLiveMode
                 ? 'Monitoring only available in Live mode'
-                : monitoringMode 
-                  ? 'Hide Monitoring Overlay' 
+                : monitoringMode
+                  ? 'Hide Monitoring Overlay'
                   : 'Show Monitoring Overlay (Freeze, Blackscreen, Audio, Subtitles, AI)'
             }
           >
@@ -484,34 +557,36 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
         )}
 
         {/* Take Control Button */}
-        <Button
-          variant={isControlActive ? 'contained' : 'outlined'}
-          size="small"
-          onClick={onToggleControl}
-          disabled={isControlLoading || !isLiveMode}
-          startIcon={isControlLoading ? <CircularProgress size={16} /> : <TvIcon />}
-          color={isControlActive ? 'success' : 'primary'}
-          sx={{
-            fontSize: '0.75rem',
-            minWidth: 120,
-            color: isControlActive ? 'white' : 'inherit',
-          }}
-          title={
-            !isLiveMode
-              ? 'Switch to Live mode to take control'
-              : isControlLoading
-                ? 'Processing...'
-                : isControlActive
-                  ? 'Release Control'
-                  : 'Take Control'
-          }
-        >
-          {isControlLoading
-            ? 'Processing...'
-            : isControlActive
-              ? 'Release'
-              : 'Take Control'}
-        </Button>
+        {!minimalControls && (
+          <Button
+            variant={isControlActive ? 'contained' : 'outlined'}
+            size="small"
+            onClick={onToggleControl}
+            disabled={isControlLoading || !isLiveMode}
+            startIcon={isControlLoading ? <CircularProgress size={16} /> : <TvIcon />}
+            color={isControlActive ? 'success' : 'primary'}
+            sx={{
+              fontSize: '0.75rem',
+              minWidth: 120,
+              color: isControlActive ? 'white' : 'inherit',
+            }}
+            title={
+              !isLiveMode
+                ? 'Switch to Live mode to take control'
+                : isControlLoading
+                  ? 'Processing...'
+                  : isControlActive
+                    ? 'Release Control'
+                    : 'Take Control'
+            }
+          >
+            {isControlLoading
+              ? 'Processing...'
+              : isControlActive
+                ? 'Release'
+                : 'Take Control'}
+          </Button>
+        )}
 
         {/* Power Control Button */}
         {hasPowerControl && device && (
@@ -519,59 +594,65 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
         )}
 
         {/* Restart Toggle Button */}
-        <Button
-          variant={restartMode ? 'contained' : 'outlined'}
-          size="small"
-          onClick={onToggleRestart}
-          disabled={!isControlActive || !isLiveMode}
-          startIcon={<RefreshIcon />}
-          color={restartMode ? 'secondary' : 'primary'}
-          sx={{
-            fontSize: '0.75rem',
-            minWidth: 120,
-            color: restartMode ? 'white' : 'inherit',
-          }}
-          title={
-            !isLiveMode
-              ? 'Only available in Live mode'
-              : !isControlActive
-                ? 'Take control first to enable restart mode'
-                : restartMode
-                  ? 'Disable Restart Player'
-                  : 'Enable Restart Player'
-          }
-        >
-          {restartMode ? 'Stop Restart' : 'Restart'}
-        </Button>
+        {!minimalControls && (
+          <Button
+            variant={restartMode ? 'contained' : 'outlined'}
+            size="small"
+            onClick={onToggleRestart}
+            disabled={!isControlActive || !isLiveMode}
+            startIcon={<RefreshIcon />}
+            color={restartMode ? 'secondary' : 'primary'}
+            sx={{
+              fontSize: '0.75rem',
+              minWidth: 120,
+              color: restartMode ? 'white' : 'inherit',
+            }}
+            title={
+              !isLiveMode
+                ? 'Only available in Live mode'
+                : !isControlActive
+                  ? 'Take control first to enable restart mode'
+                  : restartMode
+                    ? 'Disable Restart Player'
+                    : 'Enable Restart Player'
+            }
+          >
+            {restartMode ? 'Stop Restart' : 'Restart'}
+          </Button>
+        )}
 
         {/* AI Agent Toggle Button */}
-        <Button
-          variant={aiAgentMode ? 'contained' : 'outlined'}
-          size="small"
-          onClick={onToggleAiAgent}
-          disabled={!isControlActive || !isLiveMode}
-          startIcon={<AIIcon />}
-          color={aiAgentMode ? 'info' : 'primary'}
-          sx={{
-            fontSize: '0.75rem',
-            minWidth: 120,
-            color: aiAgentMode ? 'white' : 'inherit',
-          }}
-          title={
-            !isLiveMode
-              ? 'Only available in Live mode'
-              : !isControlActive
-                ? 'Take control first to enable AI agent'
-                : aiAgentMode
-                  ? 'Disable AI Agent'
-                  : 'Enable AI Agent'
-          }
-        >
-          {aiAgentMode ? 'Stop AI Agent' : 'AI Agent'}
-        </Button>
+        {!minimalControls && (
+          <Button
+            variant={aiAgentMode ? 'contained' : 'outlined'}
+            size="small"
+            onClick={onToggleAiAgent}
+            disabled={!isControlActive || !isLiveMode}
+            startIcon={<AIIcon />}
+            color={aiAgentMode ? 'info' : 'primary'}
+            sx={{
+              fontSize: '0.75rem',
+              minWidth: 120,
+              color: aiAgentMode ? 'white' : 'inherit',
+            }}
+            title={
+              !isLiveMode
+                ? 'Only available in Live mode'
+                : !isControlActive
+                  ? 'Take control first to enable AI agent'
+                  : aiAgentMode
+                    ? 'Disable AI Agent'
+                    : 'Enable AI Agent'
+            }
+          >
+            {aiAgentMode ? 'Stop AI Agent' : 'AI Agent'}
+          </Button>
+        )}
 
-        {/* Web Panel Toggle Button */}
-        {isDesktopDevice && (
+        {/* Web Panel Toggle Button. Hidden on a phone-width layout: the web automation
+            panel it opens needs the room to sit beside the stream, and the header is already
+            fighting for width there. */}
+        {isDesktopDevice && !isMobile && (
           <Button
             variant={showWeb ? 'contained' : 'outlined'}
             size="small"
@@ -599,30 +680,32 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
         )}
 
         {/* Remote/Terminal Toggle Button */}
-        <Button
-          variant="outlined"
-          size="small"
-          onClick={onToggleRemote}
-          disabled={!isControlActive || !isLiveMode}
-          sx={{
-            fontSize: '0.75rem',
-            minWidth: 100,
-            color: 'inherit',
-          }}
-          title={
-            !isLiveMode
-              ? 'Only available in Live mode'
-              : !isControlActive
-                ? `Take control first to use ${isDesktopDevice ? 'terminal' : 'remote'}`
-                : showRemote
-                  ? `Hide ${isDesktopDevice ? 'Terminal' : 'Remote'}`
-                  : `Show ${isDesktopDevice ? 'Terminal' : 'Remote'}`
-          }
-        >
-          {showRemote
-            ? `Hide ${isDesktopDevice ? 'Terminal' : 'Remote'}`
-            : `Show ${isDesktopDevice ? 'Terminal' : 'Remote'}`}
-        </Button>
+        {!minimalControls && (
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={onToggleRemote}
+            disabled={!isControlActive || !isLiveMode}
+            sx={{
+              fontSize: '0.75rem',
+              minWidth: 100,
+              color: 'inherit',
+            }}
+            title={
+              !isLiveMode
+                ? 'Only available in Live mode'
+                : !isControlActive
+                  ? `Take control first to use ${isDesktopDevice ? 'terminal' : 'remote'}`
+                  : showRemote
+                    ? `Hide ${isDesktopDevice ? 'Terminal' : 'Remote'}`
+                    : `Show ${isDesktopDevice ? 'Terminal' : 'Remote'}`
+            }
+          >
+            {showRemote
+              ? `Hide ${isDesktopDevice ? 'Terminal' : 'Remote'}`
+              : `Show ${isDesktopDevice ? 'Terminal' : 'Remote'}`}
+          </Button>
+        )}
 
         {/* Close Button */}
         <IconButton

@@ -13,13 +13,13 @@
   pwsh -File .\setup\proxmox\vm\shared\sync_code.ps1
 
 .EXAMPLE
-  pwsh -File .\setup\proxmox\vm\shared\sync_code.ps1 -SourceRoot C:\Users\jndoye\virtualpytest -DestRoot C:\virtualpytest\virtualpytest
+  pwsh -File .\setup\proxmox\vm\shared\sync_code.ps1 -SourceRoot C:\Users\<user>\virtualpytest -DestRoot C:\virtualpytest\virtualpytest
 #>
 
 #Requires -Version 5.1
 
 param(
-  [string]$SourceRoot = "C:\Users\jndoye\virtualpytest",
+  [string]$SourceRoot = "C:\Users\<user>\virtualpytest",
   [string]$DestRoot = "C:\virtualpytest\virtualpytest"
 )
 

@@ -13,6 +13,11 @@ Type=simple
 User=vpt_user
 Group=vpt_user
 WorkingDirectory=%PROJECT_ROOT%
+# Load the project .env through systemd as well as python-dotenv (override=False, so
+# these win) and make the loaded environment inspectable. Note this still only reads
+# the file at start: a credential change needs a restart on every host (BUG-0109).
+# Leading '-' = tolerate a missing file rather than refusing to start.
+EnvironmentFile=-%PROJECT_ROOT%/.env
 Environment=PYTHONPATH=%PROJECT_ROOT%/shared/lib:%PROJECT_ROOT%/backend_host/src
 Environment=PATH=%PROJECT_ROOT%/venv/bin:/usr/bin:/usr/local/bin
 ExecStart=%PROJECT_ROOT%/venv/bin/python backend_host/scripts/kpi_executor.py

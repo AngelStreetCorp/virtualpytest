@@ -50,6 +50,10 @@ High-level system design and component interaction.
 **Integrations:**
 - **[Appium Remote Implementation](./architecture/APPIUM_REMOTE_IMPLEMENTATION.md)** - Mobile automation
 
+**Optional features:**
+- **[Features](./FEATURES.md)** - How optional features are packaged, enabled, disabled and tested (`features/<name>/`)
+- **[Mobile App & Phone as a Device](./MOBILE_APP.md)** - Slot provisioning, pairing, permissions, reachability, troubleshooting for `phone_agent`
+
 **Monitoring:**
 - **[Incidents](./architecture/incidents.md)** - Incident management system
 

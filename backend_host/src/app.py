@@ -96,6 +96,7 @@ try:
     from  backend_host.src.lib.utils.host_utils import (
         register_host_with_server,
         start_ping_thread,
+        start_metrics_thread,
         cleanup_on_exit
     )
 except ImportError as e:
@@ -200,6 +201,13 @@ def start_background_services():
             start_ping_thread()
         except Exception as e:
             print(f"❌ [HOST] Failed to start ping thread: {e}")
+
+        # Metrics collection runs on its own thread so its database round-trips
+        # can never delay a ping and get this host evicted (BUG-0093).
+        try:
+            start_metrics_thread()
+        except Exception as e:
+            print(f"❌ [HOST] Failed to start metrics thread: {e}")
         
         # Start deployment scheduler
         try:

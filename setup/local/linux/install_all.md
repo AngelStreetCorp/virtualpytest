@@ -14,7 +14,7 @@ sudo -v && ./setup/local/linux/install_all.sh [--no-grafana] [--no-storage] [--n
 | service account + permissions | `shared/create_vpt_user.sh`, `backend_host/setup_permissions.sh` | |
 | 1 database | `database/install_db.sh` → `install_supabase.sh` | Supabase CLI stack as `supabase.service`, schema applied, keys in `config/database/local.env`, per-install JWT secret |
 | `.env` files | `shared/write_env.sh` | root `.env`, `backend_host/src/.env`, `frontend/.env` filled (keys, `API_KEY`, URLs from `--public-host` or the LAN address, `SERVER_OPEN_MODE`) |
-| 2 storage (unless `--no-storage`) | `storage/install_storage.sh` | MinIO (`minio.service`, 9000/9001, `admin`/`admin1234`) + Redis (`redis-server`, 6379) |
+| 2 storage (unless `--no-storage`) | `storage/install_storage.sh` | MinIO (`minio.service`, 9000/9001, `admin` / `MINIO_SECRET_KEY` from `.env`) + Redis (`redis-server`, 6379) |
 | 3 shared library | `shared/install_shared.sh` | `venv/` |
 | 4 server | `backend_server/install_server.sh` | `vpt-server.service` (5109), `vpt-heatmap.service` |
 | 5 host (unless `--no-host`) | `backend_host/install_host.sh` | `vpt-host` (6109), `vpt-vnc`, `vpt-stream`, `vpt-monitor`, … |

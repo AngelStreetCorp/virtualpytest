@@ -14,7 +14,7 @@
 
 ## Service Overview
 
-All services run as `vpt_user`. This is critical — if the emulator runs as a different user (e.g. `jndoye`), ADB screencap loses connection on emulator restart.
+All services run as `vpt_user`. This is critical — if the emulator runs as a different user (e.g. `<user>`), ADB screencap loses connection on emulator restart.
 
 Each android host VM runs these `vpt-*` services:
 
@@ -56,7 +56,7 @@ All VMs were cloned from the same template with an identical `pixel_6` AVD (1080
 ```bash
 # Check AVD config on a host VM
 grep -E "hw.lcd.(width|height|density)|hw.device.name|hw.initialOrientation" \
-  /home/jndoye/.android/avd/pixel6.avd/config.ini
+  /home/<user>/.android/avd/pixel6.avd/config.ini
 # If all VMs show pixel_6 / 1080x2400 — that's the bug
 ```
 
@@ -69,7 +69,7 @@ s/hw.lcd.height = 2400/hw.lcd.height = 1080/;\
 s/hw.lcd.density = 420/hw.lcd.density = 320/;\
 s/hw.device.name = pixel_6/hw.device.name = tv_1080p/;\
 s/hw.initialOrientation = portrait/hw.initialOrientation = landscape/" \
-  /home/jndoye/.android/avd/pixel6.avd/config.ini
+  /home/<user>/.android/avd/pixel6.avd/config.ini
 
 # Tablet host — 10" tablet portrait
 sed -i "\
@@ -77,7 +77,7 @@ s/hw.lcd.width = 1080/hw.lcd.width = 1600/;\
 s/hw.lcd.height = 2400/hw.lcd.height = 2560/;\
 s/hw.lcd.density = 420/hw.lcd.density = 320/;\
 s/hw.device.name = pixel_6/hw.device.name = pixel_tablet/" \
-  /home/jndoye/.android/avd/pixel6.avd/config.ini
+  /home/<user>/.android/avd/pixel6.avd/config.ini
 
 # Then restart emulator + streaming
 sudo systemctl restart vpt-emulator vpt-stream vpt-emulator-fifo
@@ -232,7 +232,7 @@ adb devices
 **Root cause — user mismatch (fixed 2026-03-27):**
 If the emulator runs as a different user than `vpt-emulator-fifo`, ADB screencap loses connection on emulator restart. Both must run as `vpt_user`. This was fixed on all VMs (380/381/382) — `vpt-emulator.service` now uses `User=vpt_user` with AVD at `/var/lib/vpt_user/.android/avd/`.
 
-If you see this issue on a new VM, check `vpt-emulator.service` — if `User=jndoye`, migrate per the procedure below.
+If you see this issue on a new VM, check `vpt-emulator.service` — if `User=<user>`, migrate per the procedure below.
 
 **Diagnosis:**
 ```bash
@@ -458,7 +458,7 @@ sudo rm -f /mnt/vmfix/etc/resolv.conf
 echo "nameserver 192.168.x.3" | sudo tee /mnt/vmfix/etc/resolv.conf > /dev/null
 
 # Add SSH key
-cat ~/.ssh/id_ed25519.pub | sudo tee -a /mnt/vmfix/home/jndoye/.ssh/authorized_keys > /dev/null
+cat ~/.ssh/id_ed25519.pub | sudo tee -a /mnt/vmfix/home/<user>/.ssh/authorized_keys > /dev/null
 
 # Regenerate machine-id
 sudo rm /mnt/vmfix/etc/machine-id && sudo systemd-machine-id-setup --root=/mnt/vmfix
@@ -470,12 +470,12 @@ sudo qm start <vmid>
 # === STEP 4: Post-boot (~2 min, wait 60s for emulator boot) ===
 
 sleep 60
-ssh jndoye@192.168.0.<VMID> "ip route | head -1"  # verify gateway is .3
+ssh <user>@192.168.0.<VMID> "ip route | head -1"  # verify gateway is .3
 
 # Update VPT code (VMs have no GitHub deploy key)
 rsync -az --delete --exclude='.git' --exclude='venv' --exclude='node_modules' \
-  --exclude='__pycache__' /opt/virtualpytest/ jndoye@192.168.0.<VMID>:/tmp/vpt_update/
-ssh jndoye@192.168.0.<VMID> "sudo rsync -a /tmp/vpt_update/ /opt/virtualpytest/ \
+  --exclude='__pycache__' /opt/virtualpytest/ <user>@192.168.0.<VMID>:/tmp/vpt_update/
+ssh <user>@192.168.0.<VMID> "sudo rsync -a /tmp/vpt_update/ /opt/virtualpytest/ \
   --exclude='.env' --exclude='backend_host/src/.env' && rm -rf /tmp/vpt_update \
   && sudo systemctl restart vpt-host"
 ```
@@ -483,7 +483,7 @@ ssh jndoye@192.168.0.<VMID> "sudo rsync -a /tmp/vpt_update/ /opt/virtualpytest/ 
 > **What's already in templates (996/997/998) — no need to fix:**
 > - Emulator runs as `vpt_user` (no ADB user mismatch)
 > - AVD at `/var/lib/vpt_user/.android/avd/` owned by vpt_user
-> - Passwordless sudo for jndoye (`/etc/sudoers.d/jndoye`)
+> - Passwordless sudo for <user> (`/etc/sudoers.d/<user>`)
 > - fstab: swap and NFS mount already commented out
 > - All 10 VPT services pre-configured and enabled
 
@@ -504,7 +504,7 @@ ssh proxmox "sudo qm start <temp-vmid>"
 # 3. SSH via node 1 and fix. The lab sudo password is NOT in this repo — put it in your
 #    shell first (it expands locally, the remote never sees the literal):
 #      export SUDO_PASSWORD='...'
-ssh proxmox "sshpass -p '$SUDO_PASSWORD' ssh -o StrictHostKeyChecking=no jndoye@<vm-ip> \
+ssh proxmox "sshpass -p '$SUDO_PASSWORD' ssh -o StrictHostKeyChecking=no <user>@<vm-ip> \
   'echo $SUDO_PASSWORD | sudo -S bash -c \"<your fix commands>\"'"
 
 # 4. Stop, rename, convert to template
@@ -524,7 +524,7 @@ ssh proxmox "sudo qm set <temp-vmid> --template 1"
 | NIC name mismatch | ens18 doesn't exist | PCI layout differs from template | **YES** — must include `--ide2 none,media=cdrom` in Step 2 |
 | Boot hangs 90s+ | VM unreachable for minutes | fstab swap/NFS | **NO** — fixed in templates 996/997/998 |
 | `sudo` needs password | Commands fail remotely | No NOPASSWD in sudoers | **NO** — fixed in templates |
-| ADB user mismatch | FFmpeg stuck after emulator restart | Emulator ran as jndoye, screencap as vpt_user | **NO** — fixed in templates |
+| ADB user mismatch | FFmpeg stuck after emulator restart | Emulator ran as <user>, screencap as vpt_user | **NO** — fixed in templates |
 | GitHub access denied | `git fetch origin` fails | No deploy key on VM | Expected — use rsync from node 3 |
 
 ## Useful Commands

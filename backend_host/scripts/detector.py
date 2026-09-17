@@ -44,6 +44,7 @@ import numpy as np
 import json
 from datetime import datetime
 from contextlib import contextmanager
+from collections import deque
 
 # === CONFIGURATION ===
 # OCR is handled by subtitle_monitor.py - removed from detector.py
@@ -202,7 +203,7 @@ def detect_freeze_pixel_diff(current_img, thumbnails_dir, filename, fps=5, queue
     
     # Initialize cache for this device if needed
     if device_key not in _freeze_thumbnail_cache:
-        _freeze_thumbnail_cache[device_key] = []
+        _freeze_thumbnail_cache[device_key] = deque(maxlen=FREEZE_THUMBNAIL_CACHE_MAXLEN)
     
     cache = _freeze_thumbnail_cache[device_key]
     
@@ -210,8 +211,6 @@ def detect_freeze_pixel_diff(current_img, thumbnails_dir, filename, fps=5, queue
     if frame_number < 2:
         # Add current frame to cache and return
         cache.append((frame_number, current_img.copy()))
-        if len(cache) > 3:
-            cache.pop(0)
         return False, {}
     
     # Compare with cached thumbnails (last 3 frames)
@@ -278,10 +277,8 @@ def detect_freeze_pixel_diff(current_img, thumbnails_dir, filename, fps=5, queue
         if diff_percentage > 5.0:
             break
     
-    # Add current frame to cache (keep last 3 only)
+    # Add current frame to cache (deque maxlen evicts the oldest)
     cache.append((frame_number, current_img.copy()))
-    if len(cache) > 3:
-        cache.pop(0)
     
     # Frozen if ALL checked frames have < threshold difference (VERY STRICT)
     frozen = len(pixel_diffs) >= 2 and all(diff < FREEZE_THRESHOLD for diff in pixel_diffs)
@@ -312,8 +309,18 @@ def detect_freeze_pixel_diff(current_img, thumbnails_dir, filename, fps=5, queue
 # Zap state tracking for CPU optimization
 _zap_state_cache = {}  # In-memory cache for fast access
 
-# Freeze detection optimization - cache thumbnails in memory
-_freeze_thumbnail_cache = {}  # {device_dir: [(frame_number, thumbnail_img), ...]}
+# Freeze detection optimization - cache thumbnails in memory.
+#
+# Bounded at the structure, not by the callers. Two bugs used to let this grow
+# without limit (BUG-0095): the disk-fallback branch appended without a matching
+# pop, and the hourly cleanup was called with a key that never matched, so it
+# freed nothing while logging success. 4.84 GB on vpt-pi1 over seven days.
+# A deque with maxlen cannot grow whatever the call sites do.
+#
+# 8 = the 3 previous frames the comparison needs, the current one, and headroom
+# so a burst of disk-fallback inserts cannot evict a frame we are about to read.
+FREEZE_THUMBNAIL_CACHE_MAXLEN = 8
+_freeze_thumbnail_cache = {}  # {device_dir: deque[(frame_number, thumbnail_img)], maxlen bounded}
 
 # Freeze result cache for adaptive sampling (when overloaded)
 _freeze_result_cache = {}  # {device_dir: {'frozen': bool, 'details': dict, 'frame_number': int}}
@@ -342,7 +349,8 @@ def cleanup_old_caches(device_key):
     # Clear freeze thumbnail cache for this device
     if device_key in _freeze_thumbnail_cache:
         old_size = len(_freeze_thumbnail_cache[device_key])
-        _freeze_thumbnail_cache[device_key] = []
+        # clear(), not a new list: reassigning would drop the maxlen bound
+        _freeze_thumbnail_cache[device_key].clear()
         logger.debug(f"[{device_key}] Cache cleanup: Freed {old_size} freeze thumbnails")
     
     # Clear freeze result cache
@@ -576,9 +584,6 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
     
     # === FULL PATH: Normal detection (not zapping) ===
     
-    # Periodic cache cleanup to prevent memory leaks (every hour per device)
-    cleanup_old_caches(capture_dir)
-    
     # Get thumbnails directory (handles both RAM and SD modes)
     try:
         from shared.src.lib.utils.build_url_utils import get_device_local_thumbnails_path
@@ -588,6 +593,14 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
         captures_dir = os.path.dirname(image_path)
         capture_parent = os.path.dirname(captures_dir)
         thumbnails_dir = os.path.join(capture_parent, 'thumbnails')
+
+    # Periodic cache cleanup (every hour per device). This MUST use the same key
+    # the caches are stored under — os.path.dirname(thumbnails_dir), e.g.
+    # /var/www/html/stream/capture1/hot — not capture_dir. It used to be called
+    # with capture_dir, which never matched, so it freed nothing while logging
+    # "Memory cache cleanup completed" (BUG-0095). Hence it sits here, after
+    # thumbnails_dir exists, rather than earlier where the key was not available.
+    cleanup_old_caches(os.path.dirname(thumbnails_dir))
     
     # TIMING: Load image
     start = time.perf_counter()

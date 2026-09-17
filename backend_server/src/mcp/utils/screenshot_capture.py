@@ -62,8 +62,14 @@ def image_block_from_url(screenshot_url: str) -> Optional[Dict[str, Any]]:
         if not url:
             return None
 
-        # /host/<name>/stream/... screenshots are served as static files (auth-exempt).
-        resp = requests.get(url, timeout=10)
+        # /host/<name>/stream/... now sits behind the host-session auth_request gate
+        # (BUG-0107 step 2) — this is a server-to-server fetch with no browser cookie,
+        # so it authenticates with the shared service key instead.
+        headers = {}
+        api_key = os.getenv('API_KEY')
+        if api_key:
+            headers['X-API-Key'] = api_key
+        resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code != 200 or not resp.content:
             print(f"[@MCP:image_block_from_url] Screenshot fetch HTTP {resp.status_code}")
             return None

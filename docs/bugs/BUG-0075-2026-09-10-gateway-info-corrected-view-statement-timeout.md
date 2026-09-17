@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | Medium (hosts listing waits ~8 s per call, gateway info never attached, 8 s of heavy scan on the DB every minute) |
 | Area      | `setup/db/schema/036_gateway_info.sql` view · `backend_server/src/routes/server_system_routes.py:1497` · `shared/src/lib/database/device_info_overrides_db.py` |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

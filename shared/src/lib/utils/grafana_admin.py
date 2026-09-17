@@ -6,7 +6,7 @@ request carries `grafana: true`, and exposed as a thin HTTP route
 (server_grafana_routes) for any other caller.
 
 Env (server-side only):
-  GRAFANA_URL             internal base incl. sub-path, e.g. http://192.168.0.106:3000/grafana
+  GRAFANA_URL             internal base incl. sub-path, e.g. http://192.168.x.106:3000/grafana
   GRAFANA_ADMIN_USER      Grafana *server* admin (Basic auth)
   GRAFANA_ADMIN_PASSWORD
 

@@ -3,7 +3,7 @@
 ## Target
 
 - Requested path: `test_campaign/campaign_fullzap.py`
-- Resolved file found at: `/home/jndoye/shared/projects/virtualpytest/test_campaign/campaign_fullzap.py`
+- Resolved file found at: `~/virtualpytest/test_campaign/campaign_fullzap.py`
 - Verification date: 2026-03-05
 
 ## What The Script Does

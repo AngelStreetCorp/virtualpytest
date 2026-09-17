@@ -98,6 +98,7 @@ if [ $IS_RUNNER -eq 1 ]; then
     apt_noninteractive install -y --no-install-recommends \
         locales \
         nmap \
+        traceroute \
         dnsutils 2>&1 | grep -v "is already the newest" || true
 
     if [[ "$HOST_TYPE_FROM_ENV" == "runner_host" ]]; then
@@ -347,8 +348,20 @@ if [ -f "$ENV_FILE" ]; then
     source "$ENV_FILE"
 fi
 
-# Set default VNC password if not configured
-HOST_VNC_PASSWORD="${HOST_VNC_PASSWORD:-admin1234}"
+# The VNC desktop is a real remote-desktop service on this machine, so it never gets a
+# shipped default password (it used to, the same one in every install of a public repo).
+# Generate one on first install and write it back to .env, where controller_manager.py
+# and the noVNC page read it from.
+if [ -z "${HOST_VNC_PASSWORD:-}" ] || [ "$HOST_VNC_PASSWORD" = CHANGE_ME ]; then
+    # vncpasswd truncates at 8 characters, so a longer value buys nothing.
+    HOST_VNC_PASSWORD="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | cut -c1-8)"
+    if grep -qE '^HOST_VNC_PASSWORD=' "$ENV_FILE" 2>/dev/null; then
+        sed -i "s|^HOST_VNC_PASSWORD=.*|HOST_VNC_PASSWORD=$HOST_VNC_PASSWORD|" "$ENV_FILE"
+    else
+        echo "HOST_VNC_PASSWORD=$HOST_VNC_PASSWORD" >> "$ENV_FILE"
+    fi
+    echo "🔑 generated a VNC password into $ENV_FILE (HOST_VNC_PASSWORD)"
+fi
 HOST_ACCOUNT_DISPLAY_NAME="${HOST_ACCOUNT_DISPLAY_NAME:-Host Service Account}"
 
 echo ""
@@ -768,6 +781,58 @@ chmod +x "$XINITRC_FILE"
 echo "✅ XFCE4 startup configured"
 
 fi # end IS_RUNNER skip for XFCE4
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🔥 STEP 11: Restricting the host API port to the LAN..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# Port 6109 (vpt-host's Flask API + the phone_agent Socket.IO bridge) has no
+# network-level protection of its own - everything on it is meant to be reached
+# only via nginx or another VPT server on the same LAN, but nothing enforced that
+# until now (docs/tasks/TASK-19-mobile-app-public-pairing-hardening.md P0 #4).
+# This restricts just that one port; every other port and ufw's own default
+# policy are left untouched, and a failure here never aborts the rest of the
+# install - see docs/get-started/security.md for the manual command if you need
+# a different subnet than what gets auto-detected below.
+
+VPT_FIREWALL_PORT=6109
+VPT_FIREWALL_TAG="vpt-host: LAN only ($VPT_FIREWALL_PORT/tcp)"
+
+if ! command -v ufw >/dev/null 2>&1; then
+    sudo apt-get install -y ufw >/dev/null 2>&1 || true
+fi
+
+if ! command -v ufw >/dev/null 2>&1; then
+    echo "⚠️  ufw not available (and could not be installed) - skipping port $VPT_FIREWALL_PORT LAN restriction."
+    echo "    If your org manages firewalling separately that's fine; otherwise restrict it yourself, e.g.:"
+    echo "    sudo ufw allow from <your-lan-cidr> to any port $VPT_FIREWALL_PORT proto tcp"
+elif sudo ufw status 2>/dev/null | grep -qF "$VPT_FIREWALL_TAG"; then
+    echo "✅ Port $VPT_FIREWALL_PORT already LAN-restricted (found existing rule) - leaving as-is"
+else
+    LAN_CIDR="${VPT_HOST_LAN_CIDR:-}"
+    if [ -z "$LAN_CIDR" ]; then
+        DEFAULT_IF=$(ip -o -4 route show to default 2>/dev/null | awk '{print $5; exit}')
+        [ -z "$DEFAULT_IF" ] && DEFAULT_IF=$(ip -o -4 addr show 2>/dev/null | awk '$2!="lo"{print $2; exit}')
+        IF_CIDR=$(ip -o -4 addr show dev "$DEFAULT_IF" 2>/dev/null | awk '{print $4; exit}')
+        LAN_CIDR=$(python3 -c "import ipaddress,sys; print(ipaddress.ip_interface(sys.argv[1]).network)" "$IF_CIDR" 2>/dev/null || true)
+    fi
+
+    if [ -z "$LAN_CIDR" ]; then
+        echo "⚠️  Could not auto-detect this host's LAN subnet - skipping port $VPT_FIREWALL_PORT restriction."
+        echo "    Set VPT_HOST_LAN_CIDR=<your-lan-cidr> and re-run, or apply it yourself:"
+        echo "    sudo ufw allow from <your-lan-cidr> to any port $VPT_FIREWALL_PORT proto tcp"
+    else
+        sudo ufw default allow incoming >/dev/null 2>&1 || true
+        sudo ufw default allow outgoing >/dev/null 2>&1 || true
+        if sudo ufw allow from "$LAN_CIDR" to any port "$VPT_FIREWALL_PORT" proto tcp comment "$VPT_FIREWALL_TAG" \
+           && sudo ufw deny "$VPT_FIREWALL_PORT"/tcp comment "vpt-host: deny non-LAN ($VPT_FIREWALL_PORT/tcp)" \
+           && sudo ufw --force enable >/dev/null 2>&1; then
+            echo "✅ Port $VPT_FIREWALL_PORT restricted to $LAN_CIDR (override with VPT_HOST_LAN_CIDR before re-running)"
+        else
+            echo "⚠️  Failed to apply the ufw rule for port $VPT_FIREWALL_PORT - continuing install anyway"
+        fi
+    fi
+fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

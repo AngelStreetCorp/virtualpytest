@@ -49,13 +49,26 @@ def screenshot_and_dump():
 def get_apps():
     """Proxy get apps request to selected host"""
     print("[@route:server_remote:get_apps] Proxying get apps request")
-    
+
     # Get request data
     request_data = request.get_json() or {}
-    
+
     # Proxy to host
     response_data, status_code = proxy_to_host_with_params('/host/remote/getApps', 'POST', request_data, {})
-    
+
+    return jsonify(response_data), status_code
+
+@server_remote_bp.route('/getOrientation', methods=['POST'])
+@handle_route_exceptions('remote:get_orientation')
+def get_orientation():
+    """Proxy get orientation request to selected host"""
+
+    # Get request data
+    request_data = request.get_json() or {}
+
+    # Proxy to host
+    response_data, status_code = proxy_to_host_with_params('/host/remote/getOrientation', 'POST', request_data, {})
+
     return jsonify(response_data), status_code
     
 @server_remote_bp.route('/clickElement', methods=['POST'])

@@ -1,3 +1,4 @@
+import { getEnv } from '../config/constants';
 const AUTO_SIGN_FLAG_KEY = 'vpt_auto_signed';
 // Token supplied at runtime via ?auto_signed=<token> (CI). Stored so it — not a
 // token baked into the public bundle — is what gets sent to the backend.
@@ -16,14 +17,14 @@ const TRUSTED_LAN_REGEX = /^192\.168\.0\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)$/;
 // Check both build-time (VITE_*) and runtime (E2E_) environment variables
 const getAutoSignEnabled = () => {
   // First check build-time env var
-  const buildTimeEnabled = (import.meta as any).env?.VITE_AUTO_SIGN_ENABLED || '';
+  const buildTimeEnabled = getEnv('VITE_AUTO_SIGN_ENABLED') || '';
   if (buildTimeEnabled) return buildTimeEnabled;
   // Fall back to runtime env var (set by CI)
   return (import.meta as any).env?.E2E_AUTO_SIGN_ENABLED || '';
 };
 const getAutoSignToken = () => {
   // First check build-time env var
-  const buildTimeToken = (import.meta as any).env?.VITE_AUTO_SIGN_TOKEN || '';
+  const buildTimeToken = getEnv('VITE_AUTO_SIGN_TOKEN') || '';
   if (buildTimeToken) return buildTimeToken;
   // Fall back to runtime env var (set by CI)
   return (import.meta as any).env?.E2E_AUTO_SIGN_TOKEN || '';

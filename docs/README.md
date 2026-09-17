@@ -30,6 +30,12 @@ Installers live under `setup/` (`setup/README.md` maps them); infrastructure con
 - [AI-Powered Validation](./features/ai-validation.md) - Smart verification
 - [Real-time Analytics](./features/analytics.md) - Grafana dashboards
 - [Test Automation](./features/test-automation.md) - Low-code automation
+- [QuickTest Builder](./features/quicktest.md) - A linear step list, no navigation map required
+- [AI Test Agent](./features/ai-test.md) - Describe a test in plain English; the AI drives the device
+- [Audio & Video Quality Monitoring](./features/avq.md) - Picture and sound quality, scored automatically
+- [Virtual Scripts](./features/virtual-scripts.md) - Edit and run tests from the browser, no deployment
+- [CI/CD Automation](./features/cicd.md) - Run your test suite on every code change
+- [Mobile App & Phone as a Device](./features/mobile-app.md) - One APK: the lab on your phone, or your phone as a device under test
 - [Integrations](./features/integrations.md) - Connect external tools
 - [Navigation Tree History](./features/navigation-tree-history.md) - Version control and restore for navigation trees
 - [Navbar Visibility](./features/nav-visibility.md) - How navbar item visibility is controlled

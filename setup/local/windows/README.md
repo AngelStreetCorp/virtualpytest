@@ -177,7 +177,7 @@ nssm restart vpt-host
 After installation, VirtualPyTest is accessible at:
 
 - **REST API**: http://localhost:6109
-- **VNC Server**: localhost:5900 (password: admin1234)
+- **VNC Server**: localhost:5900 (no VNC authentication; firewall rule limited to the local subnet)
 - **noVNC Web Interface**: http://localhost:6080/vnc_lite.html
 - **IIS Web Server**: http://localhost (if configured)
 

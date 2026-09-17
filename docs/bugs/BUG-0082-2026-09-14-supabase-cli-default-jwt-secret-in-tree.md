@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy) — rotation on existing installs still open |
 | Severity  | Critical                                                     |
 | Area      | setup / database / security                                 |
-| Fixed in  | build NNNN                                                   |
+| Fixed in  | build 8887                                                   |
 | Commit    | `this commit`                                                |
 
 ---

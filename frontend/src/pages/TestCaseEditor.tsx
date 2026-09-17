@@ -18,6 +18,7 @@ import { TestCaseSelector } from '../components/testcase/TestCaseSelector';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { useToast } from '../hooks/useToast';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { invalidateTestCaseListCache } from '../utils/testcaseCache';
@@ -29,6 +30,7 @@ const TestCaseEditor: React.FC = () => {
   const [showHidden, setShowHidden] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  const { isMobile } = useResponsiveMode();
   const { showSuccess, showError } = useToast();
 
   // Confirmation dialog
@@ -161,9 +163,16 @@ const TestCaseEditor: React.FC = () => {
   return (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+      <Box
+        display="flex"
+        flexDirection={isMobile ? 'column' : 'row'}
+        justifyContent="space-between"
+        alignItems={isMobile ? 'stretch' : 'center'}
+        gap={isMobile ? 1.5 : 0}
+        mb={3}
+      >
         <Box display="flex" alignItems="center" gap={1}>
-          <Typography variant="h4" component="h1">
+          <Typography variant={isMobile ? 'h5' : 'h4'} component="h1">
             Test Case
           </Typography>
           <IconButton
@@ -174,26 +183,34 @@ const TestCaseEditor: React.FC = () => {
             {showHidden ? <VisibilityIcon /> : <VisibilityOffIcon />}
           </IconButton>
         </Box>
-        <Box display="flex" gap={1}>
-          <Button
-            variant="outlined"
-            startIcon={<CloudUploadIcon />}
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-          >
-            Upload Python Script
-          </Button>
-          <Button variant="contained" startIcon={<AddIcon />} onClick={handleCreateNew}>
-            Create Test Case
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".py"
-            hidden
-            onChange={handleScriptFile}
-          />
-        </Box>
+        {/* Upload/Create are power-user actions with no room on a 375px screen; hidden
+            on mobile until this page gets a dedicated mobile flow. */}
+        {!isMobile && (
+          <Box display="flex" gap={1}>
+            <Button
+              variant="outlined"
+              startIcon={<CloudUploadIcon />}
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              Upload Python Script
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={handleCreateNew}
+            >
+              Create Test Case
+            </Button>
+          </Box>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".py"
+          hidden
+          onChange={handleScriptFile}
+        />
       </Box>
 
       {/* Reuse TestCaseSelector component - same as dialog */}

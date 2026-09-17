@@ -44,7 +44,7 @@ DNS-over-HTTPS, because they upgrade to the same provider's family endpoint.
 ## Lab on Proxmox (one change for every VM and emulator)
 
 In the reference layout the Proxmox node runs `dnsmasq` as the DNS forwarder for
-the VM LAN (`192.168.0.1`). Every VM points at it, and Android emulators inherit
+the VM LAN (`192.168.x.1`). Every VM points at it, and Android emulators inherit
 the DNS of the VM they run on, so changing its upstream filters the whole lab.
 
 ### Check first: can the node reach a public resolver over UDP?

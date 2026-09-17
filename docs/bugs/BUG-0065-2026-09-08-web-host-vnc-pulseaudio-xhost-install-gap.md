@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                        |
 | Area      | infra / install script / stream                              |
-| Fixed in  | build NNNN (Unreleased)                                      |
+| Fixed in  | build 8713                                                   |
 | Commit    | this commit                                                  |
 
 ---

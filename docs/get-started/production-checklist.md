@@ -12,20 +12,26 @@ Companion pages: [Security setup](security.md) (TLS, firewall, VPN, CORS),
 ## 0. Know what the installer already did for you
 
 `setup/local/linux/shared/write_env.sh` **generates** a random `API_KEY`, `FLASK_SECRET_KEY`,
-`MCP_SECRET_KEY` and Grafana admin password, and sets `AUTO_SIGN_ENABLED=false`.
-`install_supabase.sh` generates a per-install Supabase JWT secret.
+`MCP_SECRET_KEY`, Grafana admin password, `MINIO_SECRET_KEY` and `REDIS_PASSWORD`, and sets
+`AUTO_SIGN_ENABLED=false`. `install_supabase.sh` generates a per-install Supabase JWT secret,
+and `install_host.sh` generates `HOST_VNC_PASSWORD`. The MinIO and Redis services are
+configured *from* those values, so there is nothing to keep in sync by hand.
 
-It **does not** change: the MinIO root credentials, the Redis password, the VNC password, the
-Postgres superuser password, or the open-mode switch you passed at install time. Those are the
-first section below.
+It **does not** change: the Postgres superuser password, or the open-mode switch you passed at
+install time. Those are in the first section below.
+
+**Installed before 2026-09-15?** MinIO, Redis and VNC shipped one shared password back then —
+the same value in every install, published in the repo. A re-run of `write_env.sh` deliberately
+keeps whatever your `.env` already has, so it will not rotate them for you. Rotate those three
+by hand (section 1), then re-run the storage and host installers.
 
 ## 1. Replace every default credential
 
 | Service | Shipped default | Where to change | Also update |
 |---|---|---|---|
-| MinIO (object storage) | user `admin`, password `admin1234` | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` in `/etc/default/minio` (or the compose file), then `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` in `.env` and `backend_host/src/.env` | every host `.env`; restart `minio` and `vpt-server` |
-| Redis | password `admin1234` | `REDIS_URL` in `.env`; `requirepass` in `redis.conf`; the `redis-commander` unit if installed | restart `redis`, `vpt-server` |
-| VNC on every host | `admin1234` (`HOST_VNC_PASSWORD` in `install_host.sh`) | `HOST_VNC_PASSWORD` in `backend_host/src/.env`, then rewrite the password file: `echo "$HOST_VNC_PASSWORD" \| vncpasswd -f > ~vpt_user/.vnc/passwd` (what `install_host.sh` does) and restart the VNC unit | the `vnc_lite_*` pages read it from the host `.env`, nothing else to touch |
+| MinIO (object storage) | user `admin`, password **generated per install** since 2026-09-15 — older installs carry the old shared default | `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` in `/etc/default/minio` (or the compose file), then `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` in `.env` and `backend_host/src/.env` | every host `.env`; restart `minio` and `vpt-server` |
+| Redis | **generated per install** since 2026-09-15 — older installs carry the old shared default | `REDIS_URL` in `.env`; `requirepass` in `redis.conf`; the `redis-commander` unit if installed | restart `redis`, `vpt-server` |
+| VNC on every host | **generated per install** since 2026-09-15 (`HOST_VNC_PASSWORD`) — older installs carry the old shared default | `HOST_VNC_PASSWORD` in `backend_host/src/.env`, then rewrite the password file: `echo "$HOST_VNC_PASSWORD" \| vncpasswd -f > ~vpt_user/.vnc/passwd` (what `install_host.sh` does) and restart the VNC unit | the `vnc_lite_*` pages read it from the host `.env`, nothing else to touch |
 | Postgres superuser | `postgres` / `postgres` (`SUPABASE_DB_URI`) | `ALTER USER postgres PASSWORD '…'` and `ALTER USER supabase_admin PASSWORD '…'` in the DB, then `SUPABASE_DB_URI` in `.env`, Grafana's datasource, and `/etc/cron.d/vpt-db-backup` | restart `vpt-server`, `grafana-server` |
 | Supabase JWT secret | per-install on new installs; **older installs may still carry the Supabase CLI default** (`super-secret-jwt-token-with-at-least-32-characters-long`) | `supabase/config.toml` → `jwt_secret`, then regenerate the anon and service-role keys, then `SUPABASE_JWT_SECRET`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` in `.env` and `VITE_SUPABASE_ANON_KEY` in `frontend/.env` | `supabase stop && supabase start`; every host `.env`; rebuild the frontend |
 | Grafana | generated on install; `admin`/`admin` if you installed Grafana yourself | `GRAFANA_ADMIN_PASSWORD` in `.env` and `grafana.ini` `[security] admin_password`; set `secret_key` to a random value (the file ships Grafana's sample) | restart `grafana-server` |
@@ -69,11 +75,44 @@ grep -oE '^[A-Z_]*(KEY|SECRET|TOKEN|PASSWORD|PASS)[A-Z_]*=' .env backend_host/sr
 
 | Switch | Meaning | Production value |
 |---|---|---|
-| `SERVER_OPEN_MODE` | `true` = every `/server/*` call is accepted **without any credential** and runs as admin. The quick-start installers may set it to `true` so the UI works before Supabase Auth is configured. | `false` (or remove the key). Then configure Supabase Auth ([supabase.md](supabase.md), "Closed" mode) so users log in. |
+| `SERVER_OPEN_MODE` | `true` = every `/server/*` call **from a browser** is accepted without any credential and runs as admin — anyone who can reach the URL is an administrator. (A non-browser call still needs `X-API-Key`, but setting one header defeats that, so it is not protection.) The quick-start installers may set it to `true` so the UI works before Supabase Auth is configured. | `false` (or remove the key). Then configure Supabase Auth ([supabase.md](supabase.md), "Closed" mode) so users log in. |
 | `SERVER_PUBLIC_KEY` / `SERVER_PUBLIC_ROLE` | a key baked into the frontend bundle that lets a browser call the server without a login; the role it grants defaults to `admin` | unset, or `SERVER_PUBLIC_ROLE=viewer` at most. Anyone who can load the UI can read the key. |
 | `AUTO_SIGN_ENABLED` / `AUTO_SIGN_TOKEN` / `AUTO_SIGN_ROLE` | `?auto_signed=<token>` on any URL signs the visitor in with `AUTO_SIGN_ROLE`; meant for CI and demos | `false`. If you need it for CI, give it a random token, role `tester`, and rotate it after every exposure (it travels in URLs and logs). |
 | `VITE_DEV_MODE` | dev conveniences in the UI | `false` |
 | Supabase `anon` key | the public key the UI uses to log in; it must **not** be able to read application tables | run `setup/db/apply_schema.sh` on the current schema: RLS is on and only `service_role` is granted. Verify: `curl -H "apikey: <anon>" http://db:54321/rest/v1/device` must return an error, not rows. |
+
+## 2b. CORS — the only origin gate in front of the API
+
+nginx's `/server/` and `/host/` locations have **no IP or origin restriction** in any shipped
+template — CORS is the only thing standing between "the internet" and "a browser tab can call
+this API cross-origin." Until 2026-09-15 (**BUG-0092**) the code shipped `CORS(app, origins="*",
+supports_credentials=True)`, which Flask-CORS turns into: reflect whatever `Origin` header the
+caller sends, and allow credentials for it. Verified live against a production deployment before
+the fix: a request with `Origin: https://evil.example.com` got that exact value echoed back with
+`Access-Control-Allow-Credentials: true` — any web page, on any site, could make a fully
+credentialed cross-origin call to the API and read the response. Auth here is a bearer token /
+`X-Server-Key` header the frontend attaches itself, not a cookie, so this specific config did not
+enable classic session-riding CSRF — but it meant `SERVER_PUBLIC_KEY` (row above — shipped in
+every frontend bundle, already "weak by design") could be used against you by any page a visitor
+merely loaded, not only by someone who deliberately went looking for the key.
+
+**Fixed in code, and deployed + verified on the vendor's own lab server (2026-09-15)**:
+`CORS_ALLOWED_ORIGINS` (`.env`, comma-separated) is now the allowlist, and there is no `*`
+fallback — an origin you don't list cannot call the API from a browser, period. Unset, it
+defaults to the vendor's own known frontend domains, not a wildcard. **This does not fix your
+own deployment** — the code has to actually be redeployed there too, which the vendor's own fix
+does not do for you.
+
+**You still have to enforce it on your deployment:**
+- [ ] Pull/redeploy the current code — a server still running from before 2026-09-15 has the
+      old wildcard regardless of what `.env` says, because the fallback itself changed.
+- [ ] Set `CORS_ALLOWED_ORIGINS` in `.env` to your actual frontend origin(s) if your frontend
+      is on a different origin than this server (split Vercel/Render, a customer overlay's own
+      domain, a self-hoster's separate frontend host). A same-origin deployment — frontend and
+      `/server/` behind one nginx host, the default in the Proxmox and Docker install paths —
+      needs nothing set; same-origin requests never trigger CORS checks at all.
+- [ ] Verify: `curl -s -D - -o /dev/null <your-server-url>/server/health -H "Origin: https://evil.example.com"`
+      must NOT return an `access-control-allow-origin` header matching that value.
 
 ## 3. Expose only what has to be public
 

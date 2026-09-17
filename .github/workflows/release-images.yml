@@ -1,0 +1,235 @@
+# Publishes the release artifacts a user installs from:
+#   - the three container images (server, host, frontend), so a first run pulls instead
+#     of building (docs/get-started/docker.md, `VPT_IMAGE_TAG` in setup/docker/.env.example)
+#   - the standalone Docker bundle, ~0.5 MB of the config the stack mounts, so nobody has
+#     to clone 330 MB of git history to run it (setup/docker/make_bundle.sh)
+#
+# The frontend is publishable because it takes its VITE_* at runtime: its entrypoint
+# (frontend/docker/entrypoint.sh) writes dist/config.js from the container environment on
+# every start, and getEnv() in src/config/constants.ts prefers that over the baked value.
+# Its Dockerfile context is `frontend`, not the repo root, unlike the backends'.
+#
+# PUBLISHING IS GATED TO THE PUBLIC REPO. An image embeds the source it was built from,
+# where the leak gate cannot see it, so images must only ever be built from the public
+# snapshot. On `virtualpytest-internal` a manual run builds both images and throws them
+# away, which still verifies the Dockerfiles and this workflow.
+name: Release artifacts
+
+on:
+  push:
+    tags: ['release-*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to build (and to publish, on the public repo only)'
+        type: string
+        required: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io/angelstreetcorp
+  PUBLIC_REPO: AngelStreetCorp/virtualpytest
+
+jobs:
+  build:
+    name: Build ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: virtualpytest-server
+            dockerfile: backend_server/Dockerfile
+          - image: virtualpytest-host
+            dockerfile: backend_host/Dockerfile
+          - image: virtualpytest-frontend
+            dockerfile: frontend/Dockerfile
+            context: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      # The host image is ~3.7 GB; a runner's default free space does not hold it
+      # alongside the build cache.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h / | tail -1
+
+      - name: Resolve tag and whether to publish
+        id: meta
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.repository }}" = "${PUBLIC_REPO}" ]; then
+            echo "push=true" >> "$GITHUB_OUTPUT"
+            echo "publishing ${REGISTRY}/${{ matrix.image }}:${tag}"
+          else
+            echo "push=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::${{ github.repository }} is not the public repo — building ${{ matrix.image }} without publishing"
+          fi
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: steps.meta.outputs.push == 'true'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # linux/amd64 only. arm64 would matter for Docker-on-Raspberry-Pi, but the Pi
+      # hosts install natively (setup/local/linux/backend_host) and an emulated arm64
+      # build of the host image does not finish inside a sensible timeout.
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context || '.' }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64
+          push: ${{ steps.meta.outputs.push == 'true' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.image }}:${{ steps.meta.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  # The test that matters: a user sets VPT_IMAGE_TAG, runs launch.sh, and gets a working
+  # stack without building the backends. Runs only after a real publish — there is nothing
+  # to pull otherwise.
+  verify:
+    name: Published images bring the stack up
+    needs: build
+    if: github.repository == 'AngelStreetCorp/virtualpytest'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af >/dev/null 2>&1 || true
+          df -h / | tail -1
+
+      # launch.sh creates .env from .env.example on a first run, so seed the tag first.
+      - name: Point .env at the published tag
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          sed "s/^VPT_IMAGE_TAG=local/VPT_IMAGE_TAG=${tag}/" \
+            setup/docker/.env.example > setup/docker/.env
+          grep '^VPT_IMAGE_TAG=' setup/docker/.env
+
+      - name: Launch the stack exactly like a user
+        run: ./setup/docker/launch.sh
+
+      # launch.sh falls back to building when a pull fails; that fallback must not be what
+      # made this job pass, or the published images are never actually exercised.
+      - name: Assert the backends came from the registry, not a local build
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          for svc in vpt-server vpt-host; do
+            got="$(docker inspect --format '{{.Config.Image}}' "$svc")"
+            echo "${svc}: ${got}"
+            case "$got" in
+              ghcr.io/angelstreetcorp/*:"${tag}") ;;
+              *) echo "::error::${svc} is running ${got}, expected the published ${tag} image"; exit 1 ;;
+            esac
+          done
+
+      - name: Smoke — API, UI, host, Supabase, Grafana answer
+        run: |
+          set -e
+          curl -fsS http://localhost:5109/server/health && echo
+          curl -fsS -o /dev/null -w 'frontend %{http_code}\n' http://localhost:5073/
+          for i in $(seq 1 30); do curl -fsS http://localhost:6109/host/system/health >/dev/null 2>&1 && break; sleep 5; done
+          curl -fsS http://localhost:6109/host/system/health && echo
+          source setup/docker/.env
+          curl -fsS -o /dev/null -w 'supabase rest %{http_code}\n' -H "apikey: ${SERVICE_ROLE_KEY}" http://localhost:54321/rest/v1/
+          curl -fsS -o /dev/null -w 'grafana %{http_code}\n' http://localhost:3000/api/health
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose -f setup/docker/docker-compose.yml -f setup/docker/docker-compose.linux.yml logs --tail=100
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f setup/docker/docker-compose.yml -f setup/docker/docker-compose.linux.yml down -v || true
+
+  # The bundle is what "download it and run it" downloads. Building and extracting it here
+  # means a path that only resolves inside the repo checkout fails CI rather than a user's
+  # first run. Runs everywhere — there is nothing secret in it to gate.
+  bundle:
+    name: Standalone bundle stands alone
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the bundle
+        id: build
+        run: |
+          tag="${{ inputs.tag || github.ref_name }}"
+          ./setup/docker/make_bundle.sh --tag "$tag" --out dist
+          echo "tarball=dist/vpt-docker-${tag}.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "name=vpt-docker-${tag}" >> "$GITHUB_OUTPUT"
+
+      # Extract somewhere with no repo above it and assert every bind mount the compose
+      # files declare resolves inside the bundle. This is the property that makes the
+      # bundle a bundle; a forgotten path would otherwise only surface for a user.
+      - name: Every mount resolves inside the bundle
+        run: |
+          work="$(mktemp -d)"
+          tar -xzf "${{ steps.build.outputs.tarball }}" -C "$work"
+          b="$work/${{ steps.build.outputs.name }}"
+          sed 's/CHANGE_ME/citestvalue/g' "$b/setup/docker/.env.example" > "$b/setup/docker/.env"
+          cp "$b/backend_host/src/.env.example" "$b/backend_host/src/.env"
+          cd "$b/setup/docker"
+          docker compose -f docker-compose.yml -f docker-compose.linux.yml config > /tmp/resolved.yml
+          python3 - "$b" << 'PYEOF'
+          import os, sys, yaml
+          bundle = sys.argv[1]
+          d = yaml.safe_load(open('/tmp/resolved.yml'))
+          missing, ok = [], 0
+          for name, svc in sorted(d['services'].items()):
+              for v in svc.get('volumes', []):
+                  if v.get('type') != 'bind':
+                      continue
+                  src = v['source']
+                  if src == '/dev':
+                      continue          # host hardware, correctly outside the bundle
+                  if not os.path.exists(src):
+                      missing.append((name, src))
+                  elif not src.startswith(bundle):
+                      missing.append((name, src + ' (outside the bundle)'))
+                  else:
+                      ok += 1
+          print(f'{ok} bind mounts resolved inside the bundle')
+          for n, s in missing:
+              print(f'::error::{n} mounts {s}')
+          sys.exit(1 if missing else 0)
+          PYEOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.build.outputs.name }}
+          path: ${{ steps.build.outputs.tarball }}
+          if-no-files-found: error
+
+      # Attach it to the GitHub Release, public repo only — same reasoning as the images.
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/') && github.repository == 'AngelStreetCorp/virtualpytest'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes
+          gh release upload "$tag" "${{ steps.build.outputs.tarball }}" --clobber
+          # Also under a stable name, so the install doc can hand out one URL that keeps
+          # working: releases/latest/download/vpt-docker.tar.gz
+          cp "${{ steps.build.outputs.tarball }}" dist/vpt-docker.tar.gz
+          gh release upload "$tag" dist/vpt-docker.tar.gz --clobber

@@ -6,6 +6,7 @@ instance backed by the VirtualPyTest Postgres/Supabase schema.
 ## Dashboards
 
 **Test execution & results**
+- `home-dashboard.json` — one page for the checks worth watching: a sanity table over a fixed script list, then one collapsed row per script (Ookla, Superping, DNS, Facebook, YouTube)
 - `script-results.json` — script run history, success rate, durations
 - `campaign-results.json` — campaign run results
 - `fullzap-results.json` — full zapping campaign results
@@ -59,32 +60,52 @@ Notes:
 ## Gateway filters (network dashboards)
 
 `dns-lookup.json`, `ookla-speedtest.json`, and `superping.json` can filter their
-data by gateway attributes (technology, network type, model, firmware) even though
-those scripts don't collect that metadata themselves. They join each host's most
-recent `gw_info` result via a CTE:
+data by gateway attributes (technology, network type, model, firmware, MAC) even though
+those scripts don't collect that metadata themselves. Each panel wraps its query in an
+`enriched_results` CTE that attaches the host's gateway facts from `gw_info_latest`, the
+trigger-maintained table of the latest auth-successful `gw_info` scan per host
+(`setup/db/migrations/20260910c_gw_info_latest.sql`):
 
 ```sql
-WITH gw_latest AS (
-  SELECT DISTINCT ON (host_name)
-    host_name,
-    COALESCE(metadata->>'technology', 'Unknown')      AS technology,
-    metadata->>'network_type'                          AS network_type,
-    COALESCE(metadata->>'modem_name', 'Unknown')       AS model,
-    COALESCE(metadata->>'firmware_version', 'Unknown') AS firmware
-  FROM script_results
-  WHERE script_name = 'gw_info' AND success = true
+WITH gw AS (
+  SELECT DISTINCT ON (host_name) host_name,
+    COALESCE(technology, 'Unknown')       as gw_technology,
+    COALESCE(network_type, 'Unknown')     as gw_network_type,
+    COALESCE(modem_name, 'Unknown')       as gw_model,
+    COALESCE(firmware_version, 'Unknown') as gw_firmware,
+    COALESCE(hgw_mac, 'Unknown')          as gw_mac
+  FROM gw_info_latest
   ORDER BY host_name, started_at DESC
+),
+enriched_results AS (
+  SELECT sr.*,
+    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,
+    -- ... one column per fact ...
+  FROM script_results sr
+  LEFT JOIN gw ON gw.host_name = sr.host_name
+  WHERE sr.script_name = 'superping'
 )
 ```
 
 Then each panel appends, as needed:
 
 ```sql
-AND ('${technology:csv}' = '' OR host_name IN (SELECT host_name FROM gw_latest WHERE technology IN ($technology)))
-AND ('${network:csv}'    = '' OR host_name IN (SELECT host_name FROM gw_latest WHERE network_type IN ($network)))
-AND ('${model:csv}'      = '' OR host_name IN (SELECT host_name FROM gw_latest WHERE model IN ($model)))
-AND ('${firmware:csv}'   = '' OR host_name IN (SELECT host_name FROM gw_latest WHERE firmware IN ($firmware)))
+AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')
+AND ('${model:csv}'      = '' OR gw_model      = ANY(string_to_array('${model:csv}', ','))      OR gw_model = 'Unknown')
+-- same for gw_network_type / gw_firmware / gw_mac
 ```
 
-To add gateway filters to another dashboard: copy the four `technology`/`network`/`model`/`firmware`
-template variables from one of the above, prepend the `gw_latest` CTE to each query, and append the filter clauses.
+A host with no auth-successful scan reads `Unknown` and passes every gateway filter, so
+filtering never hides a host for lack of gateway data. The template variables read
+`gw_info_values` (every value ever seen per kind), not `script_results`.
+
+**Do not attach the gateway facts per result row** (a `LEFT JOIN LATERAL ... ORDER BY
+started_at DESC LIMIT 1` against `gw_info` for each row). It is fast on a small DB and
+collapses on a large one: on a 1.7M-row production DB with `gw_info` running every 40
+minutes it cost 57K index probes plus a metadata fetch each per 7-day panel load, and a
+range-join rewrite of it cost a 16.8M-row join. The 19-row join above is the pattern.
+See `docs/agent/infra/GRAFANA_DASHBOARD_PERF.md`.
+
+To add gateway filters to another dashboard: copy the five `technology`/`network`/`model`/
+`firmware`/`mac` template variables from one of the above, prepend the two CTEs to each query,
+and append the filter clauses.

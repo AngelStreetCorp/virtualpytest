@@ -44,6 +44,8 @@ import { buildServerUrl } from '../utils/buildUrlUtils';
 import { AGENT_CHAT_PALETTE as PALETTE, AGENT_COLORS } from '../constants/agentChatTheme';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { UserinterfaceSelector } from '../components/common/UserinterfaceSelector';
+import { MobileAgentChat } from '../components/ai/MobileAgentChat';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { useHostData, useHostControl } from '../hooks/useHostManager';
 import { VNCStateProvider } from '../contexts/VNCStateContext';
 import { useUserInterface } from '../hooks/pages/useUserInterface';
@@ -190,6 +192,7 @@ const AgentChat: React.FC = () => {
   const location = useLocation();
   const theme = useTheme();
   const isDarkMode = theme.palette.mode === 'dark';
+  const { isMobile } = useResponsiveMode();
 
   // Shared dropdown styles for consistency across all selectors
   const getDropdownStyles = () => ({
@@ -1182,7 +1185,12 @@ useEffect(() => {
       window.removeEventListener('slack-message-received', handleSlackMessage as EventListener);
     };
   }, [status, setInput, sendMessage, addPromptToHistory]);
-  
+
+  // Fixed two-pane desktop layout isn't usable on mobile yet — use a simple
+  // single-column chat instead (sidebar/selectors/uploads stay desktop-only).
+  if (isMobile) {
+    return <MobileAgentChat />;
+  }
 
   // --- Renderers ---
 

@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 440" font-family="Archivo, -apple-system, Helvetica, Arial, sans-serif">
+  <title>VirtualPyTest architecture</title>
+  <desc>Browser talks to frontend on port 5073, which talks to backend_server on port 5109. backend_server fans out to Supabase (Postgres, auth, REST) on port 54321, MinIO or R2 for files, Redis for queues, and Grafana dashboards on port 3000. backend_server also drives backend_host on port 6109, which controls devices via HDMI capture, IR, Bluetooth, ADB and web. backend_host runs once per machine with hardware, with a VNC desktop on port 6080.</desc>
+
+  <defs>
+    <marker id="arrow-blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#60a5fa"/>
+    </marker>
+    <marker id="arrow-gold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#f2b705"/>
+    </marker>
+  </defs>
+
+  <rect x="0" y="0" width="900" height="440" rx="12" fill="#0a1120"/>
+
+  <!-- Main path boxes -->
+  <g>
+    <!-- browser -->
+    <rect x="30" y="30" width="150" height="50" rx="6" fill="#243049" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="105" y="60" text-anchor="middle" fill="#e8edf8" font-size="14" font-weight="600">browser</text>
+
+    <!-- frontend -->
+    <rect x="30" y="130" width="150" height="50" rx="6" fill="#243049" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="105" y="153" text-anchor="middle" fill="#e8edf8" font-size="14" font-weight="600">frontend</text>
+    <text x="105" y="169" text-anchor="middle" fill="#93a0b8" font-size="11">:5073</text>
+
+    <!-- backend_server (hub) -->
+    <rect x="30" y="230" width="170" height="50" rx="6" fill="#243049" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="115" y="253" text-anchor="middle" fill="#e8edf8" font-size="14" font-weight="600">backend_server</text>
+    <text x="115" y="269" text-anchor="middle" fill="#93a0b8" font-size="11">:5109</text>
+
+    <!-- backend_host -->
+    <rect x="30" y="330" width="150" height="50" rx="6" fill="#243049" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="105" y="353" text-anchor="middle" fill="#e8edf8" font-size="14" font-weight="600">backend_host</text>
+    <text x="105" y="369" text-anchor="middle" fill="#93a0b8" font-size="11">:6109</text>
+
+    <!-- devices -->
+    <rect x="230" y="330" width="220" height="50" rx="6" fill="#1c2440" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="340" y="350" text-anchor="middle" fill="#e8edf8" font-size="14" font-weight="600">devices</text>
+    <text x="340" y="366" text-anchor="middle" fill="#93a0b8" font-size="10">HDMI capture · IR/BLE · ADB · web</text>
+  </g>
+
+  <!-- Main path arrows -->
+  <line x1="105" y1="80" x2="105" y2="128" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="115" y="107" fill="#93a0b8" font-size="10">5073</text>
+
+  <line x1="105" y1="180" x2="105" y2="228" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="115" y="207" fill="#93a0b8" font-size="10">5109</text>
+
+  <line x1="105" y1="280" x2="105" y2="328" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+  <text x="115" y="307" fill="#93a0b8" font-size="10">6109</text>
+
+  <line x1="180" y1="355" x2="228" y2="355" stroke="#60a5fa" stroke-width="2" marker-end="url(#arrow-blue)"/>
+
+  <!-- backend_host annotation -->
+  <text x="230" y="315" fill="#93a0b8" font-size="10">one host per machine with hardware · VNC desktop :6080</text>
+
+  <!-- Auxiliary services fanning out from backend_server -->
+  <g>
+    <rect x="600" y="185" width="270" height="42" rx="6" fill="#243049" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="615" y="203" fill="#e8edf8" font-size="13" font-weight="600">Supabase</text>
+    <text x="615" y="218" fill="#93a0b8" font-size="10">:54321 · Postgres + auth + REST</text>
+
+    <rect x="600" y="237" width="270" height="42" rx="6" fill="#243049" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="615" y="255" fill="#e8edf8" font-size="13" font-weight="600">MinIO / R2</text>
+    <text x="615" y="270" fill="#93a0b8" font-size="10">files</text>
+
+    <rect x="600" y="289" width="270" height="42" rx="6" fill="#243049" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="615" y="307" fill="#e8edf8" font-size="13" font-weight="600">Redis</text>
+    <text x="615" y="322" fill="#93a0b8" font-size="10">queues</text>
+
+    <rect x="600" y="341" width="270" height="42" rx="6" fill="#243049" stroke="rgba(122,162,255,.35)" stroke-width="1.5"/>
+    <text x="615" y="359" fill="#e8edf8" font-size="13" font-weight="600">Grafana</text>
+    <text x="615" y="374" fill="#93a0b8" font-size="10">:3000 · dashboards</text>
+  </g>
+
+  <!-- Gold fan-out arrows from backend_server -->
+  <path d="M200,245 C 420,245 420,206 598,206" fill="none" stroke="#f2b705" stroke-width="1.5" marker-end="url(#arrow-gold)"/>
+  <path d="M200,252 C 380,252 380,258 598,258" fill="none" stroke="#f2b705" stroke-width="1.5" marker-end="url(#arrow-gold)"/>
+  <path d="M200,258 C 380,258 380,310 598,310" fill="none" stroke="#f2b705" stroke-width="1.5" marker-end="url(#arrow-gold)"/>
+  <path d="M200,265 C 420,265 420,362 598,362" fill="none" stroke="#f2b705" stroke-width="1.5" marker-end="url(#arrow-gold)"/>
+</svg>

@@ -7,7 +7,7 @@
 #
 # Run AFTER install_runner.sh (which installs vpt-host.service).
 #
-# Usage (on the VM, as jndoye with sudo):
+# Usage (on the VM, as <user> with sudo):
 #   bash /opt/virtualpytest/setup/proxmox/vm/runner/install_android_emulator.sh \
 #     --avd-type mobile
 #
@@ -182,6 +182,28 @@ else
   echo "   ✅ AVD '$AVD_NAME' created"
 fi
 
+# avdmanager leaves hw.cpu.ncore at the device profile's default — 1 for pixel_6 and the
+# tablet profiles — and vm.heapSize at 228M. A one-core guest boots in ~5 min on an idle
+# node, but on a loaded node (45-70% steal seen 2026-09-16) it sat 90 min in the boot
+# animation, zygote verifying bytecode at 25-44 bytecodes/s, and SystemUI ANRs on every
+# start. 4 cores / 576M is the TV host's known-good (docs/agent/devices/EMULATOR.md,
+# "Sizing"); the same AVDs then booted in 45 s (tablet) and 2 min (mobile).
+AVD_HOME_DIR="$(getent passwd "$SERVICE_USER" | cut -d: -f6)/.android/avd"
+AVD_CONFIG="$AVD_HOME_DIR/$AVD_NAME.avd/config.ini"
+if [ -f "$AVD_CONFIG" ]; then
+  for kv in "hw.cpu.ncore = 4" "vm.heapSize = 576M"; do
+    key="${kv%% =*}"
+    if grep -q "^$key = " "$AVD_CONFIG"; then
+      sudo -u $SERVICE_USER sed -i "s|^$key = .*|$kv|" "$AVD_CONFIG"
+    else
+      echo "$kv" | sudo -u $SERVICE_USER tee -a "$AVD_CONFIG" > /dev/null
+    fi
+  done
+  echo "   ✅ $AVD_CONFIG: $(grep -E '^(hw.cpu.ncore|vm.heapSize) = ' "$AVD_CONFIG" | tr '\n' ' ')"
+else
+  echo "   ⚠️  $AVD_CONFIG not found — set hw.cpu.ncore = 4 and vm.heapSize = 576M by hand"
+fi
+
 # --- Step 5: Install emulator systemd service ---
 echo ""
 echo "🔧 [Step 5] Installing vpt-emulator.service..."
@@ -189,8 +211,10 @@ echo "🔧 [Step 5] Installing vpt-emulator.service..."
 sudo tee /etc/systemd/system/vpt-emulator.service > /dev/null <<EOF
 [Unit]
 Description=VirtualPyTest Android Emulator ($AVD_NAME)
-After=network.target vpt-host.service
-Wants=network.target
+# vpt-vnc owns X display :1 (the hidden Qt window needs an X server); vpt-pulse is the
+# PulseAudio daemon the emulator plays into (installed by enable_emulator_audio.sh).
+After=network.target vpt-host.service vpt-vnc.service vpt-pulse.service
+Wants=network.target vpt-vnc.service vpt-pulse.service
 
 [Service]
 Type=simple
@@ -198,12 +222,34 @@ User=$SERVICE_USER
 Group=$SERVICE_USER
 Environment=ANDROID_HOME=$ANDROID_HOME
 Environment=PATH=$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=DISPLAY=:0
+Environment=DISPLAY=:1
+Environment=XAUTHORITY=/var/lib/$SERVICE_USER/.Xauthority
+Environment=PULSE_SERVER=unix:/run/vpt-pulse/native
 ExecStartPre=$ANDROID_HOME/platform-tools/adb start-server
+# Audio: the emulator's OWN sound reaches the host's PulseAudio, where run_ffmpeg.sh's
+# imagefile grabber records it (DEVICEn_VIDEO_AUDIO=default). Two things make it work,
+# both found on labox-mobile 2026-09-16 with emulator 36.4.10 after two failed attempts:
+#   * `-qt-hide-window`, NOT `-no-window`. `-no-window` makes the launcher exec
+#     qemu-system-x86_64-headless, and that build has no PulseAudio client at all (no
+#     libpulse.so.0 and no pa_* symbol in `strings`): `-audio pa` prints "Failed to
+#     initialize PA context" without ever loading libpulse, and `-audio alsa` is accepted
+#     but opens no /dev/snd fd — the guest plays, the samples stop in QEMU. The Qt build
+#     dlopens the system libpulse and works; -qt-hide-window keeps its window off-screen,
+#     and DISPLAY/XAUTHORITY above point it at vpt-vnc's :1.
+#   * PULSE_SERVER set explicitly. The launcher exports XDG_RUNTIME_DIR=/tmp, so libpulse
+#     looks for /tmp/pulse/native and gives up ("XDG_RUNTIME_DIR (/tmp) is not owned by
+#     us ... Connection refused"). The target is vpt-pulse.service's own socket: a daemon
+#     we run (enable_emulator_audio.sh), not a per-login one — those come and go with
+#     their sessions, depend on which HOME started them (vpt-vnc: /var/lib/vpt_user,
+#     vpt-stream: /home/vpt_user) and race for TCP 4713. QEMU's pa backend never
+#     reconnects, so vpt-emulator-audio.timer restarts the emulator if it drops off.
+# Verified: a 1 kHz tinyplay tone in the guest measured -25 dB on the host's sink monitor
+# (-91 dB baseline). Cold boot took ~8 min with this config on a loaded host, against
+# ~5 min with -no-window -no-audio.
 ExecStart=$ANDROID_HOME/emulator/emulator \
   -avd $AVD_NAME \
-  -no-window \
-  -no-audio \
+  -qt-hide-window \
+  -audio pa \
   -no-boot-anim \
   -gpu swiftshader_indirect \
   -no-snapshot \
@@ -221,6 +267,9 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable vpt-emulator.service
+# vpt-pulse.service + the audio watchdog timer; the unit above is already in its final
+# shape, so the in-place patch inside is a no-op here.
+sudo bash "$(dirname "$0")/enable_emulator_audio.sh" --no-restart
 sudo systemctl start vpt-emulator.service
 
 echo "   ✅ vpt-emulator.service installed and started"
@@ -263,8 +312,17 @@ DEVICE1_IP=localhost
 DEVICE1_ADB_PORT=5554
 EOF
   fi
+  # The emulator plays into the host's PulseAudio (-audio pa above); `default` makes the
+  # imagefile grabber record it, so the device gets a real audio track and audio-loss
+  # detection instead of N/A.
+  if grep -q "^DEVICE1_VIDEO_AUDIO=" "$ENV_FILE"; then
+    sudo -u $SERVICE_USER sed -i 's/^DEVICE1_VIDEO_AUDIO=.*/DEVICE1_VIDEO_AUDIO=default/' "$ENV_FILE"
+  else
+    echo "DEVICE1_VIDEO_AUDIO=default" | sudo -u $SERVICE_USER tee -a "$ENV_FILE" > /dev/null
+  fi
   sudo systemctl restart vpt-host.service
-  echo "   ✅ .env updated, vpt-host restarted"
+  sudo systemctl try-restart vpt-stream.service 2>/dev/null || true
+  echo "   ✅ .env updated (ADB + DEVICE1_VIDEO_AUDIO=default), vpt-host restarted"
 fi
 
 # --- Summary ---

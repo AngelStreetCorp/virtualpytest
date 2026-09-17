@@ -1,0 +1,3184 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 101,
+      "panels": [],
+      "title": "Service Status",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "footer": {
+              "reducers": []
+            },
+            "inspect": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "text",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Success Rate %"
+            },
+            "properties": [
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "orange",
+                      "value": 80
+                    },
+                    {
+                      "color": "yellow",
+                      "value": 90
+                    },
+                    {
+                      "color": "green",
+                      "value": 95
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "basic",
+                  "type": "color-background"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 1
+      },
+      "id": 2,
+      "options": {
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": false,
+            "displayName": "Test Category"
+          }
+        ]
+      },
+      "pluginVersion": "12.3.2",
+      "targets": [
+        {
+          "format": "table",
+          "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name IN ('ookla_speedtest', 'superping', 'dns_lookuptime', 'facebook_check', 'youtube_video_check')\n    AND $__timeFilter(sr.started_at)\n)\nSELECT\n  COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, er.script_name) as \"Test Category\",\n  COUNT(*) as \"Total Tests\",\n  COUNT(CASE WHEN er.success THEN 1 END) as \"Passed\",\n  COUNT(CASE WHEN NOT er.success THEN 1 END) as \"Failed\",\n  ROUND((COUNT(CASE WHEN er.success THEN 1 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) as \"Success Rate %\"\nFROM enriched_results er\nLEFT JOIN ident i ON i.name = er.script_name\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nGROUP BY er.script_name, i.prefix, i.display_name\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "title": "Sanity Check - Service Overview",
+      "type": "table"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "id": 102,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Nr. of failed test"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "red",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success Rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 80
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 90
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 0,
+            "y": 8
+          },
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "sum"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "text": {
+              "titleSize": 12,
+              "valueSize": 40
+            },
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT\n  COUNT(*) as \"Nr. of total test\",\n  COUNT(*) FILTER (WHERE success = false) as \"Nr. of failed test\",\n  ROUND((COUNT(*) FILTER (WHERE success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) as \"Success Rate\"FROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A"
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Download Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "Mbits"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "blue",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Upload Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "Mbits"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "blue",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Packet Loss"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 1
+                        },
+                        {
+                          "color": "red",
+                          "value": 5
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Latency"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "blue",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Jitter"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "blue",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 16,
+            "x": 8,
+            "y": 8
+          },
+          "id": 5,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "text": {
+              "titleSize": 12,
+              "valueSize": 40
+            },
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT\n  AVG((metadata->>'download_mbps')::numeric) as \"Download Avg\",\n  AVG((metadata->>'upload_mbps')::numeric) as \"Upload Avg\",\n  AVG((metadata->>'packet_loss_percent')::numeric) as \"Packet Loss\",\n  AVG((metadata->>'ping_latency_ms')::numeric) as \"Latency\",\n  AVG((metadata->>'ping_jitter_ms')::numeric) as \"Jitter\"FROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "Mbits"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 204
+          },
+          "id": 11,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "time_series",
+              "rawQuery": true,
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT \n  started_at as time,\n  host_name || ' - Download' as metric,\n  (metadata->>'download_mbps')::numeric as value\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\n\nUNION ALL\n\nSELECT \n  started_at as time,\n  host_name || ' - Upload' as metric,\n  (metadata->>'upload_mbps')::numeric as value\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\n\nORDER BY time, metric",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Ookla Speedtest - Download/Upload over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 204
+          },
+          "id": 12,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "time_series",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT \n  started_at as time,\n  host_name as metric,\n  (metadata->>'ping_latency_ms')::numeric as value\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY time, metric",
+              "refId": "A"
+            }
+          ],
+          "title": "Ookla Speedtest - Latency over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "✔": {
+                            "color": "green",
+                            "index": 0
+                          }
+                        },
+                        "type": "value"
+                      },
+                      {
+                        "options": {
+                          "✘": {
+                            "color": "red",
+                            "index": 1
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "html_report_r2_url"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": ".+",
+                          "result": {
+                            "text": "Report"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "targetBlank": true,
+                        "title": "show report",
+                        "url": "${__value.raw}"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "displayName",
+                    "value": "Report"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 204
+          },
+          "id": 13,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Time"
+              }
+            ]
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'ookla_speedtest'\n)\nSELECT \n  started_at as \"Time\",\n  host_name as \"Host\",\n  CASE WHEN success THEN '✔' ELSE '✘' END as \"Status\",\n  html_report_r2_url\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY started_at DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Ookla Speedtest - Availability",
+          "type": "table"
+        }
+      ],
+      "title": "Internet - Ookla Speedtest",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 10
+      },
+      "id": 103,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Nr. of failed test"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "red",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success Rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 80
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 90
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 8,
+            "x": 0,
+            "y": 9
+          },
+          "id": 14,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "sum"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "text": {
+              "titleSize": 12,
+              "valueSize": 40
+            },
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'superping'\n)\nSELECT\n  COUNT(*) as \"Nr. of total test\",\n  COUNT(*) FILTER (WHERE success = false) as \"Nr. of failed test\",\n  ROUND((COUNT(*) FILTER (WHERE success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) as \"Success Rate\"FROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A"
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Superping Score Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "none"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "blue",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Latency Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "blue",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Packet Loss Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 1
+                        },
+                        {
+                          "color": "red",
+                          "value": 5
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 16,
+            "x": 8,
+            "y": 9
+          },
+          "id": 16,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "text": {
+              "titleSize": 12,
+              "valueSize": 40
+            },
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'superping'\n)\nSELECT\n  AVG((metadata->>'superping_score')::numeric) as \"Superping Score Avg\",\n  AVG((metadata->>'rtt_avg_ms')::numeric) as \"Latency Avg\",\n  AVG((metadata->>'packet_loss_percent')::numeric) as \"Packet Loss Avg\"FROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A"
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 0,
+            "y": 169
+          },
+          "id": 20,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "time_series",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'superping'\n)\nSELECT \n  started_at as time,\n  host_name as metric,\n  (metadata->>'rtt_avg_ms')::numeric as value\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY time, metric",
+              "refId": "A"
+            }
+          ],
+          "title": "Superping - RTT over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "percent"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 8,
+            "y": 169
+          },
+          "id": 21,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "time_series",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'superping'\n)\nSELECT \n  started_at as time,\n  host_name as metric,\n  (metadata->>'packet_loss_percent')::numeric as value\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY time, metric",
+              "refId": "A"
+            }
+          ],
+          "title": "Superping - Packet Loss over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "✔": {
+                            "color": "green",
+                            "index": 0
+                          }
+                        },
+                        "type": "value"
+                      },
+                      {
+                        "options": {
+                          "✘": {
+                            "color": "red",
+                            "index": 1
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "html_report_r2_url"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": ".+",
+                          "result": {
+                            "text": "Report"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "targetBlank": true,
+                        "title": "show report",
+                        "url": "${__value.raw}"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "displayName",
+                    "value": "Report"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 8,
+            "x": 16,
+            "y": 169
+          },
+          "id": 22,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Time"
+              }
+            ]
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'superping'\n)\nSELECT \n  started_at as \"Time\",\n  host_name as \"Host\",\n  CASE WHEN success THEN '✔' ELSE '✘' END as \"Status\",\n  html_report_r2_url\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY started_at DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Superping - Availability",
+          "type": "table"
+        }
+      ],
+      "title": "Internet - Superping",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 11
+      },
+      "id": 104,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Nr. of failed test"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "red",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success Rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 80
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 90
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 12,
+            "x": 0,
+            "y": 322
+          },
+          "id": 23,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "sum"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "text": {
+              "titleSize": 12,
+              "valueSize": 40
+            },
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'dns_lookuptime'\n)\nSELECT\n  COUNT(*) as \"Nr. of total test\",\n  COUNT(*) FILTER (WHERE success = false) as \"Nr. of failed test\",\n  ROUND((COUNT(*) FILTER (WHERE success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) as \"Success Rate\"FROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A"
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Avg Lookup Time"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "blue",
+                          "value": 0
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 12,
+            "x": 12,
+            "y": 322
+          },
+          "id": 25,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "mean"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "text": {
+              "titleSize": 12,
+              "valueSize": 40
+            },
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'dns_lookuptime'\n)\nSELECT\n  AVG((metadata->>'lookup_time_ms')::numeric) as \"Avg Lookup Time\"FROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A"
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "smooth",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 326
+          },
+          "id": 27,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "lastNotNull"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "desc"
+            }
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "time_series",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'dns_lookuptime'\n)\nSELECT \n  started_at as time,\n  host_name as metric,\n  (metadata->>'lookup_time_ms')::numeric as value\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND success = true\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY time, metric",
+              "refId": "A"
+            }
+          ],
+          "title": "DNS Lookup - Lookup Time over Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "✔": {
+                            "color": "green",
+                            "index": 0
+                          }
+                        },
+                        "type": "value"
+                      },
+                      {
+                        "options": {
+                          "✘": {
+                            "color": "red",
+                            "index": 1
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "html_report_r2_url"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": ".+",
+                          "result": {
+                            "text": "Report"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "targetBlank": true,
+                        "title": "show report",
+                        "url": "${__value.raw}"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "displayName",
+                    "value": "Report"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 326
+          },
+          "id": 28,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Time"
+              }
+            ]
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'dns_lookuptime'\n)\nSELECT \n  started_at as \"Time\",\n  host_name as \"Host\",\n  CASE WHEN success THEN '✔' ELSE '✘' END as \"Status\",\n  html_report_r2_url\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY started_at DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "DNS Lookup - Availability",
+          "type": "table"
+        }
+      ],
+      "title": "Internet - DNS Lookup",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 106,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Nr. of failed test"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "red",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success Rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 80
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 90
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 9,
+            "x": 0,
+            "y": 20
+          },
+          "id": 110,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "sum"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "text": {
+              "titleSize": 12,
+              "valueSize": 40
+            },
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'facebook_check'\n)\nSELECT\n  COUNT(*) as \"Nr. of total test\",\n  COUNT(*) FILTER (WHERE success = false) as \"Nr. of failed test\",\n  ROUND((COUNT(*) FILTER (WHERE success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) as \"Success Rate\"\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Page Load Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Video Load Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Playback Success Rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Dropped Frame Rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 15,
+            "x": 9,
+            "y": 20
+          },
+          "id": 115,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'facebook_check'\n)\nSELECT\n  ROUND(AVG((metadata->>'page_load_time_ms')::numeric), 0) AS \"Page Load Avg\",\n  ROUND(AVG((metadata->>'video_load_time_ms')::numeric), 0) AS \"Video Load Avg\",\n  ROUND(100.0 * AVG(CASE WHEN (metadata->>'playing')::boolean = true THEN 1 ELSE 0 END), 2) AS \"Playback Success Rate\",\n  ROUND(AVG(CASE WHEN (metadata->'samples'->-1->>'totalVideoFrames')::numeric > 0 THEN 100.0 * (metadata->'samples'->-1->>'droppedVideoFrames')::numeric / (metadata->'samples'->-1->>'totalVideoFrames')::numeric END), 2) AS \"Dropped Frame Rate\"\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 24
+          },
+          "id": 116,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "last"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "timezone": [
+              ""
+            ],
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'facebook_check'\n)\nSELECT\n  started_at AS time,\n  (metadata->>'page_load_time_ms')::numeric AS \"Page Load Avg\",\n  (metadata->>'video_load_time_ms')::numeric AS \"Video Load Avg\"\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY started_at",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Facebook - Page Load vs Video Load Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "✔": {
+                            "color": "green",
+                            "index": 0
+                          }
+                        },
+                        "type": "value"
+                      },
+                      {
+                        "options": {
+                          "✘": {
+                            "color": "red",
+                            "index": 1
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "html_report_r2_url"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": ".+",
+                          "result": {
+                            "text": "Report"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "targetBlank": true,
+                        "title": "show report",
+                        "url": "${__value.raw}"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "displayName",
+                    "value": "Report"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 24
+          },
+          "id": 107,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": []
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'facebook_check'\n)\nSELECT \n  started_at as \"Time\",\n  host_name as \"Host\",\n  CASE WHEN success THEN '✔' ELSE '✘' END as \"Status\",\n  html_report_r2_url\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY started_at DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Facebook - Availability",
+          "type": "table"
+        }
+      ],
+      "title": "Web - Facebook",
+      "type": "row"
+    },
+    {
+      "collapsed": true,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 108,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "blue",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "none"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Nr. of failed test"
+                },
+                "properties": [
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "green",
+                          "value": 0
+                        },
+                        {
+                          "color": "red",
+                          "value": 1
+                        }
+                      ]
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success Rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "max",
+                    "value": 100
+                  },
+                  {
+                    "id": "min",
+                    "value": 0
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": 0
+                        },
+                        {
+                          "color": "orange",
+                          "value": 80
+                        },
+                        {
+                          "color": "yellow",
+                          "value": 90
+                        },
+                        {
+                          "color": "green",
+                          "value": 95
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 9,
+            "x": 0,
+            "y": 21
+          },
+          "id": 113,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "center",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "sum"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "text": {
+              "titleSize": 12,
+              "valueSize": 40
+            },
+            "textMode": "value_and_name",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'youtube_video_check'\n)\nSELECT\n  COUNT(*) as \"Nr. of total test\",\n  COUNT(*) FILTER (WHERE success = false) as \"Nr. of failed test\",\n  ROUND((COUNT(*) FILTER (WHERE success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) as \"Success Rate\"\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Page Load Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Video Load Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Playback Success Rate"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Playback Progress Avg"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 4,
+            "w": 15,
+            "x": 9,
+            "y": 21
+          },
+          "id": 117,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "area",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "percentChangeColorMode": "standard",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            },
+            "showPercentChange": false,
+            "textMode": "auto",
+            "wideLayout": true
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'youtube_video_check'\n)\nSELECT\n  ROUND(AVG((metadata->>'page_load_time_ms')::numeric), 0) AS \"Page Load Avg\",\n  ROUND(AVG((metadata->>'video_load_time_ms')::numeric), 0) AS \"Video Load Avg\",\n  ROUND(100.0 * AVG(CASE WHEN (metadata->'video_result'->>'playing')::boolean = true THEN 1 ELSE 0 END), 2) AS \"Playback Success Rate\",\n  ROUND(AVG((metadata->'video_result'->>'progress_seconds')::numeric), 2) AS \"Playback Progress Avg\"\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 0,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 1,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "showValues": false,
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "ms"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 25
+          },
+          "id": 118,
+          "options": {
+            "legend": {
+              "calcs": [
+                "min",
+                "max",
+                "mean",
+                "last"
+              ],
+              "displayMode": "table",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "timezone": [
+              ""
+            ],
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'youtube_video_check'\n)\nSELECT\n  started_at AS time,\n  (metadata->>'page_load_time_ms')::numeric AS \"Page Load Avg\",\n  (metadata->>'video_load_time_ms')::numeric AS \"Video Load Avg\"\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY started_at",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "YouTube - Page Load vs Video Load Time",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "footer": {
+                  "reducers": []
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "text",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "✔": {
+                            "color": "green",
+                            "index": 0
+                          }
+                        },
+                        "type": "value"
+                      },
+                      {
+                        "options": {
+                          "✘": {
+                            "color": "red",
+                            "index": 1
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "html_report_r2_url"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "pattern": ".+",
+                          "result": {
+                            "text": "Report"
+                          }
+                        },
+                        "type": "regex"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "targetBlank": true,
+                        "title": "show report",
+                        "url": "${__value.raw}"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "displayName",
+                    "value": "Report"
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 25
+          },
+          "id": 109,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Time"
+              }
+            ]
+          },
+          "pluginVersion": "12.3.2",
+          "targets": [
+            {
+              "format": "table",
+              "rawSql": "WITH gw AS (\n  SELECT DISTINCT ON (host_name) host_name,\n    COALESCE(technology, 'Unknown') as gw_technology,\n    COALESCE(network_type, 'Unknown') as gw_network_type,\n    COALESCE(modem_name, 'Unknown') as gw_model,\n    COALESCE(firmware_version, 'Unknown') as gw_firmware,\n    COALESCE(hgw_mac, 'Unknown') as gw_mac\n  FROM gw_info_latest\n  ORDER BY host_name, started_at DESC\n),\nenriched_results AS (\n  SELECT\n    sr.*,\n    COALESCE(gw.gw_technology, 'Unknown') as gw_technology,\n    COALESCE(gw.gw_network_type, 'Unknown') as gw_network_type,\n    COALESCE(gw.gw_model, 'Unknown') as gw_model,\n    COALESCE(gw.gw_firmware, 'Unknown') as gw_firmware,\n    COALESCE(gw.gw_mac, 'Unknown') as gw_mac\n  FROM script_results sr\n  LEFT JOIN gw ON gw.host_name = sr.host_name\n  WHERE sr.script_name = 'youtube_video_check'\n)\nSELECT \n  started_at as \"Time\",\n  host_name as \"Host\",\n  CASE WHEN success THEN '✔' ELSE '✘' END as \"Status\",\n  html_report_r2_url\nFROM enriched_results\nWHERE 1=1 AND success::text = ANY(string_to_array('${success:csv}', ','))\n  AND $__timeFilter(started_at)\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND ('${technology:csv}' = '' OR gw_technology = ANY(string_to_array('${technology:csv}', ',')) OR gw_technology = 'Unknown')\n  AND ('${network:csv}' = '' OR gw_network_type = ANY(string_to_array('${network:csv}', ',')) OR gw_network_type = 'Unknown')\n  AND ('${model:csv}' = '' OR gw_model = ANY(string_to_array('${model:csv}', ',')) OR gw_model = 'Unknown')\n  AND ('${firmware:csv}' = '' OR gw_firmware = ANY(string_to_array('${firmware:csv}', ',')) OR gw_firmware = 'Unknown')\n  AND ('${mac:csv}' = '' OR gw_mac = ANY(string_to_array('${mac:csv}', ',')) OR gw_mac = 'Unknown')\nORDER BY started_at DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "YouTube - Availability",
+          "type": "table"
+        }
+      ],
+      "title": "Web - YouTube",
+      "type": "row"
+    }
+  ],
+  "preload": false,
+  "refresh": "1m",
+  "schemaVersion": 42,
+  "tags": [
+    "home"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Host",
+        "multi": true,
+        "name": "host",
+        "options": [],
+        "query": "SELECT DISTINCT host_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "hide": 2,
+        "includeAll": true,
+        "label": "Device",
+        "multi": true,
+        "name": "device_name",
+        "options": [],
+        "query": "SELECT DISTINCT device_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Access Type",
+        "multi": true,
+        "name": "technology",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'technology' ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "LAN Type",
+        "multi": true,
+        "name": "network",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'network_type' ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Gateway Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'modem_name' ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Gateway MAC",
+        "multi": true,
+        "name": "mac",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'hgw_mac' ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "includeAll": true,
+        "label": "Gateway Firmware",
+        "multi": true,
+        "name": "firmware",
+        "options": [],
+        "query": "SELECT DISTINCT value FROM gw_info_values WHERE kind = 'firmware_version' ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": [
+            "$__all"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "includeAll": true,
+        "label": "Success",
+        "multi": true,
+        "name": "success",
+        "options": [
+          {
+            "selected": false,
+            "text": "PASS",
+            "value": "true"
+          },
+          {
+            "selected": false,
+            "text": "FAIL",
+            "value": "false"
+          }
+        ],
+        "query": "PASS : true,FAIL : false",
+        "type": "custom"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Home Dashboard",
+  "uid": "home-dashboard",
+  "version": 1,
+  "description": "Overview of the network and web checks the lab keeps an eye on: one sanity table, one row per script."
+}

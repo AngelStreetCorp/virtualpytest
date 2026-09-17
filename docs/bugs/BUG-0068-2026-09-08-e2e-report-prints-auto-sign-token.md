@@ -9,7 +9,7 @@
 | Status    | Fixed                                                                       |
 | Severity  | Medium (security) — the token grants a signed-in session; reports are served to anyone who can open the CI/CD Reports page |
 | Area      | tests/e2e/playwright/specs/_navigate.js, tests/e2e/playwright/global-setup.js |
-| Fixed in  | build 8713                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

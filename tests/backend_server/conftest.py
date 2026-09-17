@@ -21,7 +21,7 @@ def _normalize_server_base(url: str) -> str:
 
 @pytest.fixture(scope="session")
 def base_url() -> str:
-    raw = os.environ.get("SERVER_URL", "http://192.168.0.103:5109")
+    raw = os.environ.get("SERVER_URL", "http://localhost:5109")
     return _normalize_server_base(raw)
 
 
@@ -133,6 +133,83 @@ def ci_team_id(base_url: str, api_headers: dict, verify_ssl: bool, request_timeo
     return (body.get("team") or body)["id"]
 
 
+CI_FIXTURE_INTERFACE_NAME = "__ci_fixture_interface__"
+CI_FIXTURE_NODE_LABEL = "home"
+
+
+@pytest.fixture(scope="session")
+def ci_userinterface(base_url: str, api_headers: dict, verify_ssl: bool,
+                     request_timeout: float, team_id: str) -> str:
+    """A CI-owned userinterface with a root navigation tree and one `home` node.
+
+    test_quicktest saves a testcase whose graph navigates to `home`, and
+    /server/testcase/save validates that label against the interface's tree. The fixture used
+    to name `virtualpytest_web`, which exists only under the real team — so against the CI
+    fixture team every save answered 400 "Graph validation failed" and six tests skipped
+    themselves, on every run, forever.
+
+    Find-or-create like ci_team_id, so a fresh database self-heals on the first run instead of
+    needing a provisioning step. Assert rather than skip: if the platform cannot create an
+    interface, a tree and a node, that is the regression, not a reason to stop asking.
+    """
+    def _req(method: str, path: str, **kwargs):
+        return requests.request(
+            method, f"{base_url}{path}", headers=api_headers,
+            timeout=request_timeout, verify=verify_ssl, **kwargs,
+        )
+
+    listing = _req("GET", f"/server/userinterface/getAllUserInterfaces?team_id={team_id}")
+    assert listing.status_code == 200, f"cannot list userinterfaces: {listing.text[:200]}"
+    body = listing.json()
+    interfaces = body if isinstance(body, list) else body.get("userinterfaces", [])
+    existing = next((u for u in interfaces if u.get("name") == CI_FIXTURE_INTERFACE_NAME), None)
+    if existing:
+        interface_id = existing["id"]
+    else:
+        created = _req(
+            "POST", f"/server/userinterface/createUserInterface?team_id={team_id}",
+            json={"name": CI_FIXTURE_INTERFACE_NAME, "models": ["web"]},
+        )
+        assert created.status_code == 201, f"cannot create the CI userinterface: {created.text[:200]}"
+        interface_id = created.json()["userinterface"]["id"]
+
+    trees = _req("GET", f"/server/navigationTrees?team_id={team_id}")
+    assert trees.status_code == 200, f"cannot list navigation trees: {trees.text[:200]}"
+    root = next(
+        (t for t in (trees.json().get("trees") or [])
+         if t.get("userinterface_id") == interface_id and t.get("is_root_tree")),
+        None,
+    )
+    if root:
+        tree_id = root["id"]
+    else:
+        made = _req(
+            "POST", f"/server/navigationTrees?team_id={team_id}",
+            json={"name": f"{CI_FIXTURE_INTERFACE_NAME} root",
+                  "userinterface_id": interface_id,
+                  "is_root_tree": True,
+                  "description": "CI fixture tree — created by tests/backend_server/conftest.py"},
+        )
+        assert made.status_code == 200 and made.json().get("success"), (
+            f"cannot create the CI navigation tree: {made.text[:200]}")
+        tree_id = made.json()["tree"]["id"]
+
+    nodes = _req("GET", f"/server/navigationTrees/{tree_id}/nodes?team_id={team_id}")
+    assert nodes.status_code == 200, f"cannot list tree nodes: {nodes.text[:200]}"
+    nodes_body = nodes.json()
+    node_list = nodes_body if isinstance(nodes_body, list) else (nodes_body.get("nodes") or [])
+    if CI_FIXTURE_NODE_LABEL not in {n.get("label") for n in node_list}:
+        node = _req(
+            "POST", f"/server/navigationTrees/{tree_id}/nodes?team_id={team_id}",
+            json={"node_id": CI_FIXTURE_NODE_LABEL, "label": CI_FIXTURE_NODE_LABEL,
+                  "node_type": "screen", "position_x": 250, "position_y": 0,
+                  "verifications": [], "data": {}},
+        )
+        assert node.status_code in (200, 201), f"cannot create the `home` node: {node.text[:200]}"
+
+    return CI_FIXTURE_INTERFACE_NAME
+
+
 def pytest_configure(config):
     config.addinivalue_line(
         "markers", "unit: pure unit test — runs without a live backend server"
@@ -141,6 +218,21 @@ def pytest_configure(config):
         "markers",
         "device: tier-B black-box test — executes on the device host (host-clone-1), "
         "not just against the server API. Deselect with -m 'not device'.",
+    )
+    # One reason a test cannot run on every push. It used to be a permanent
+    # `pytest.mark.skip`, which put a row saying "skipped" in every CI report forever and
+    # made the test unrunnable even where it WOULD work. As a marker it is deselected in
+    # CI (-m "not manual") and still runs on demand.
+    #
+    # `local_only` is gone as of 2026-09-16: the three route groups that carried it
+    # (/api/events, /navigate, /docs/api) were unreachable because they were mounted
+    # outside /server/*, which is the only prefix nginx proxies. That was a platform
+    # defect wearing a marker — the events API was dead in production. The blueprints
+    # moved under /server/*, and their 12 tests now run everywhere like any other.
+    config.addinivalue_line(
+        "markers",
+        "manual: has a real external side effect (spends LLM credits, posts to Slack, "
+        "restarts a service). Run deliberately: -m manual.",
     )
 
 
@@ -220,13 +312,12 @@ def system_health_reachable(base_url: str, verify_ssl: bool, api_headers: dict) 
             verify=verify_ssl,
         )
         return response.status_code == 200
-    except (
-        requests.exceptions.ConnectionError,
-        requests.exceptions.Timeout,
-        requests.exceptions.ReadTimeout,
-        requests.exceptions.SSLError,
-        requests.exceptions.SSLVerificationError,
-    ):
+    # Same latent AttributeError _probe_server had: the explicit tuple named
+    # requests.exceptions.SSLVerificationError, which doesn't exist (it is a
+    # urllib3 name). Evaluating the tuple raised, so a probe that should have
+    # skipped the two tests reported them as ERROR instead — and only when the
+    # server was genuinely unreachable, i.e. exactly when the skip mattered.
+    except requests.exceptions.RequestException:
         return False
 
 
@@ -380,7 +471,22 @@ def _sweep_ci_fixtures(base_url, verify_ssl, request_timeout, team_id, api_heade
 
 @pytest.fixture(scope="session")
 def host_url() -> str:
-    return os.environ.get("HOST_URL", "http://192.168.0.104:5108")
+    return os.environ.get("HOST_URL", "http://localhost:5108")
+
+
+@pytest.fixture(scope="session")
+def device_team_id(team_id: str) -> str:
+    """The team the tier-B device tests run against.
+
+    Tier A writes to the CI fixture team, whose interface (ci_userinterface) is a shell: one
+    `home` node and no edges, enough to save a testcase and nothing more. A real execution has
+    to resolve a navigable path, so it needs the team that owns the real navigation trees —
+    verified 2026-09-16: tier B passes against the real team with DEVICE_USERINTERFACE=
+    virtualpytest_web and fails against the CI team with "No path found from Entry to home".
+
+    Defaults to team_id, so nothing changes until DEVICE_TEAM_ID is set.
+    """
+    return os.environ.get("DEVICE_TEAM_ID", "") or team_id
 
 
 @pytest.fixture(scope="session")
@@ -399,7 +505,7 @@ def device_id() -> str:
 
 
 @pytest.fixture(scope="session")
-def device_userinterface() -> str:
+def device_userinterface(request) -> str:
     """The userinterface the tier-B device tests navigate.
 
     Defaults to `virtualpytest_web`, which `host-clone-1` drives through Playwright. The
@@ -412,5 +518,14 @@ def device_userinterface() -> str:
 
     Verified on stb3 (IR remote) on 2026-09-07: navigated to `home`, verified against the
     tree's reference image, recorded success with a video and HTML report.
+
+    With DEVICE_USERINTERFACE unset it falls back to the CI fixture interface rather than to
+    a hardcoded `virtualpytest_web`, which exists only under the real team — naming it meant
+    every tier-A quicktest test skipped itself against the CI fixture team. getfixturevalue
+    defers the provisioning, so an explicit DEVICE_USERINTERFACE (a tier-B device run against
+    a real tree) never creates anything.
     """
-    return os.environ.get("DEVICE_USERINTERFACE", "virtualpytest_web")
+    override = os.environ.get("DEVICE_USERINTERFACE", "")
+    if override:
+        return override
+    return request.getfixturevalue("ci_userinterface")

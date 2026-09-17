@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { getServerBaseUrl, buildServerUrl } from '../utils/buildUrlUtils';
+import { getAccessTokenForServer } from '../lib/serverIdentity';
 
 // Event handler registered by consumers (AIContext, useAgentChat)
 type AgentEventHandler = (event: any) => void;
@@ -55,6 +56,15 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     const serverBaseUrl = getServerBaseUrl();
     connectedServerUrlRef.current = serverBaseUrl;
     socketRef.current = io(`${serverBaseUrl}/agent`, {
+      // Carry the token of THIS server's Supabase identity (TASK-18). Resolved through a
+      // callback rather than a fixed value so every reconnect re-reads it: a socket that
+      // reconnects after a refresh (or after the user switches servers) must not present
+      // a stale token, or one minted for a different Supabase.
+      auth: (cb: (data: Record<string, unknown>) => void) => {
+        void getAccessTokenForServer(serverBaseUrl)
+          .then((token) => cb(token ? { token } : {}))
+          .catch(() => cb({}));
+      },
       transports: ['polling', 'websocket'],
       reconnection: true,
       // Never give up: a capped attempt count (was 5) meant a tab whose laptop

@@ -9,7 +9,7 @@
 | Status    | Fixed (deployed to labox-dongle, labox-mobile, labox-tablet)                  |
 | Severity  | High (the device looks alive and online, but every capture, verification and report screenshot is black) |
 | Area      | backend_host/scripts/emulator_screencap.sh · backend_host/config/services/linux/emulator-fifo.service |
-| Fixed in  | Unreleased                                                                   |
+| Fixed in  | build 8887                                                                   |
 
 ---
 

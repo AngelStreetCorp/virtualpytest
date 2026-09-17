@@ -3,7 +3,7 @@ CI/CD feature — the slice of the GitHub REST API the pages need.
 
 Uses `GITHUB_TOKEN` (checked 2026-09-03: OAuth token of `angelstreet`, scopes
 `gist, read:org, repo, workflow`, no expiry — enough for runners, workflow runs and
-workflow_dispatch on both AngelStreetCorp/virtualpytest and example-org/sample-app).
+workflow_dispatch on both AngelStreetCorp/virtualpytest-internal and example-org/sample-app).
 
 stdlib only (urllib) to match the rest of the server; every call raises GitHubError
 with a readable message so routes can turn it into a 502 + reason instead of a stack.

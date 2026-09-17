@@ -227,14 +227,10 @@ class TestJiraInstanceNotFound:
         assert resp.json().get("success") is False
 
 
-@pytest.mark.skip(
-    reason=(
-        "get_jira_tickets/get_jira_stats call the real JIRA REST API "
-        "(https://<domain>/rest/api/3) for any configured instance — no "
-        "safe way to exercise the success path without a live third-party "
-        "JIRA account."
-    )
-)
+# get_jira_tickets/get_jira_stats call the real JIRA REST API (https://<domain>/rest/api/3) for
+# any configured instance — no safe way to exercise the success path without a live third-party
+# JIRA account.
+@pytest.mark.manual
 class TestJiraLiveApiCalls:
     def test_get_tickets_and_stats(self):
         ...
@@ -335,14 +331,10 @@ class TestSlackConfig:
         assert restore_resp.status_code == 200, restore_resp.text
 
 
-@pytest.mark.skip(
-    reason=(
-        "test_slack_connection and send_test_message call the real "
-        "slack-sdk WebClient — either an external API call or (for "
-        "send-test) a visible message posted to a real Slack channel. Not "
-        "safe to run unconditionally in CI."
-    )
-)
+# test_slack_connection and send_test_message call the real slack-sdk WebClient — either an
+# external API call or (for send-test) a visible message posted to a real Slack channel. Not
+# safe to run unconditionally in CI.
+@pytest.mark.manual
 class TestSlackLiveApiCalls:
     def test_slack_connection_and_send_test(self):
         ...

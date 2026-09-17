@@ -11,6 +11,7 @@
 # Usage:
 #   build_customer_bundle.sh [overlay_dir] [--pin <ref>] [--disabled-features a,b]
 #                            [--out <dir>] [--zip] [--no-checkout] [--keep-stage]
+#                            [--prev-pin <ref>] [--no-delivery-note]
 #
 #   [overlay_dir]    customer overlay clone (customer.conf); omitted = pure platform
 #                    (PIN from --pin or ~/deploy.local.conf, as deploy_customer.sh)
@@ -21,8 +22,15 @@
 #                    tar.gz keeps modes/symlinks and is smaller)
 #   --no-checkout    use REPO_DIR's working tree as is (no fetch/checkout of PIN)
 #   --keep-stage     keep the temp staged tree (path printed)
+#   --prev-pin <ref> platform ref the customer runs TODAY, for the delivery note's changelog
+#                    and rollout checklist. Default: read from the previous release-* tag's
+#                    customer.conf in the overlay (first delivery = no delta)
+#   --no-delivery-note   skip DELIVERY-<archive>.md
 #
-# Output: <out>/vpt-<overlay|platform>-<version>.tar.gz or .zip (+ .sha256), where <overlay> is
+# Output: <out>/vpt-<overlay|platform>-<version>.tar.gz or .zip (+ .sha256 + DELIVERY-<base>.md,
+#   the one page describing the delivery: versions, features, changelog since the customer's
+#   current pin, rollout checklist. Commit it to the overlay's deliveries/ and use it as the
+#   GitHub Release body — RELEASING.md, "Where the customer bundle is kept"), where <overlay> is
 #   the overlay folder name without its vpt-customer- prefix and <version> is the deployed
 #   identity with '/' replaced by '_' (e.g. vpt-demo-main-2026.09.02-8549_demo-2026.09.02-1).
 #   The archive contains no .git, node_modules, venv, __pycache__, frontend/dist and NO .env
@@ -39,12 +47,14 @@ DEPLOY_SCRIPT="${HERE}/deploy_customer.sh"
 REPO_DIR="${REPO_DIR:-${HOME}/virtualpytest}"
 export REPO_DIR
 
-usage() { sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; }
 
 OVERLAY_DIR=""
 OUT_DIR="${PWD}"
 KEEP_STAGE=false
 ZIP=false
+PREV_PIN=""
+DELIVERY_NOTE=true
 PASS=()   # forwarded to deploy_customer.sh
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -52,6 +62,9 @@ while [[ $# -gt 0 ]]; do
     --out=*)        OUT_DIR="${1#--out=}" ;;
     --zip)          ZIP=true ;;
     --keep-stage)   KEEP_STAGE=true ;;
+    --prev-pin)     [[ $# -gt 1 ]] || { echo "--prev-pin needs a value" >&2; exit 1; }; PREV_PIN="$2"; shift ;;
+    --prev-pin=*)   PREV_PIN="${1#--prev-pin=}" ;;
+    --no-delivery-note) DELIVERY_NOTE=false ;;
     --no-checkout)  PASS+=("$1") ;;
     --pin|--disabled-features)
                     [[ $# -gt 1 ]] || { echo "$1 needs a value" >&2; exit 1; }; PASS+=("$1" "$2"); shift ;;
@@ -212,9 +225,45 @@ fi
 if command -v sha256sum >/dev/null 2>&1; then sum="$(sha256sum "${ARCHIVE}" | awk '{ print $1 }')"
 else sum="$(shasum -a 256 "${ARCHIVE}" | awk '{ print $1 }')"; fi
 printf '%s  %s\n' "${sum}" "$(basename "${ARCHIVE}")" > "${ARCHIVE}.sha256"
+# A customer bundle is ~34 MB. It reached 385 MB once, from build output and scratch
+# directories the exclude deny-list had never heard of, and nothing said a word -- the number
+# was printed and looked like any other number. Anything this far out is a packing bug, not a
+# release that grew.
+MAX_MB="${VPT_BUNDLE_MAX_MB:-150}"
+size_mb=$(( $(wc -c < "${ARCHIVE}") / 1024 / 1024 ))
+if (( size_mb > MAX_MB )); then
+  echo "ERROR: archive is ${size_mb} MB (limit ${MAX_MB} MB). Biggest things in it:" >&2
+  list_archive | sed 's|^virtualpytest/||' | awk -F/ 'NF>1 { print $1"/"$2 }' | sort | uniq -c | sort -rn | head -8 >&2
+  echo "Set VPT_BUNDLE_MAX_MB to override if this is genuinely the release." >&2
+  rm -f "${ARCHIVE}" "${ARCHIVE}.sha256"
+  exit 1
+fi
 echo "archive: ${ARCHIVE}"
 echo "size:    $(du -h "${ARCHIVE}" | awk '{ print $1 }') ($(list_archive | grep -vc '/$' || true) files)"
 echo "sha256:  ${sum}  (also in ${ARCHIVE}.sha256)"
 echo "version: ${VERSION}"
+
+# ---- 5. delivery note (what changed, which features, what to DO) ----
+# The archive answers "what code"; this answers "what changed and what must the operator run".
+# Without it the rollout checklist existed only as terminal output of upgrade_notes.py and the
+# feature list only inside the 35 MB archive, so the overlay repo recorded neither.
+if ${DELIVERY_NOTE}; then
+  NOTE="${OUT_DIR}/DELIVERY-${ARCHIVE_BASE}.md"
+  NOTE_SCRIPT="${REPO_DIR}/scripts/release/delivery_note.sh"
+  if [[ -f "${NOTE_SCRIPT}" ]]; then
+    if bash "${NOTE_SCRIPT}" --pin "${PIN}" ${PREV_PIN:+--prev-pin "${PREV_PIN}"} \
+         ${OVERLAY_DIR:+--overlay "${OVERLAY_DIR}"} \
+         --manifest "${STAGE_DIR}/BUNDLE_MANIFEST.txt" --archive "${ARCHIVE}" > "${NOTE}.tmp" 2>"${NOTE}.err"; then
+      mv "${NOTE}.tmp" "${NOTE}"; rm -f "${NOTE}.err"
+      echo "delivery: ${NOTE}"
+      echo "          -> commit to the overlay's deliveries/ and use as the GitHub Release body"
+    else
+      echo "WARNING: delivery note failed (bundle is fine); see ${NOTE}.err" >&2
+      rm -f "${NOTE}.tmp"
+    fi
+  else
+    echo "WARNING: ${NOTE_SCRIPT} not found; no delivery note written" >&2
+  fi
+fi
 ${KEEP_STAGE} && echo "stage kept at ${STAGE_DIR}"
 exit 0

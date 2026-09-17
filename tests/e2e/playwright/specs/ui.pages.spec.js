@@ -37,7 +37,6 @@ const PAGES = [
   { name: 'Heatmap',                path: '/monitoring/heatmap' },
   { name: 'AI Queue',               path: '/monitoring/ai-queue' },
   { name: 'Docs Get Started',       path: '/docs/get-started' },
-  { name: 'Docs Get Started',       path: '/docs/get-started' },   // section renamed from quickguide (TASK-15)
   { name: 'Docs FAQ',               path: '/docs/faq' },
   { name: 'Docs Features',          path: '/docs/features' },
   { name: 'Docs User Guide',        path: '/docs/user-guide' },
@@ -62,6 +61,8 @@ const PAGES = [
   { name: 'Virtual Scripts',        path: '/builder/virtual-scripts' },
   { name: 'Run CICD',               path: '/test-execution/cicd' },
   { name: 'Test Prompt',            path: '/test-prompt' },
+  { name: 'Mobile App',             path: '/configuration/mobile-app' },
+  { name: 'This phone',             path: '/mobile-app/this-phone' },
   // Parameterised feature route — needs a concrete host/device. host-clone-1 is
   // VirtualPyTest's own device host and runs vpt-avq.service (see FEATURES.md).
   { name: 'AVQ Device',             path: '/monitoring/avq/host-clone-1/host' },

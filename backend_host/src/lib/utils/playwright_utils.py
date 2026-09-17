@@ -130,6 +130,15 @@ class ChromeManager:
                 return True
     
     @staticmethod
+    def cdp_healthy(debug_port: int = 9222, timeout: float = 2.0) -> bool:
+        """True when a live Chrome DevTools endpoint answers on the port."""
+        try:
+            import requests
+            return requests.get(f'http://127.0.0.1:{debug_port}/json/version', timeout=timeout).status_code == 200
+        except Exception:
+            return False
+    
+    @staticmethod
     def find_chrome_executable() -> str:
         """Find Chrome executable on Linux system."""
         possible_paths = [
@@ -223,12 +232,15 @@ class ChromeManager:
         # Close existing Chrome instances gracefully
         cls.close_chrome_gracefully(debug_port)
         
-        # Kill any process using the debug port
+        # Kill the process LISTENING on the debug port - never its CDP clients.
+        # A bare `lsof -i :PORT` also matches established client sockets, i.e. every
+        # Playwright node driver connected to that Chrome; killing one of those aborts
+        # its run with "Connection closed while reading from the driver" (BUG-0114).
         if cls.is_port_in_use(debug_port):
-            print(f'[ChromeManager] Port {debug_port} is in use. Killing processes...')
+            print(f'[ChromeManager] Port {debug_port} is in use. Killing the listener...')
             # Use subprocess to avoid xargs executing kill with no arguments
             try:
-                result = subprocess.run(['lsof', '-ti', f':{debug_port}'], 
+                result = subprocess.run(['lsof', '-t', '-sTCP:LISTEN', '-i', f':{debug_port}'],
                                       capture_output=True, text=True, timeout=5)
                 if result.returncode == 0 and result.stdout.strip():
                     pids = result.stdout.strip().split('\n')

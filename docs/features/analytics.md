@@ -75,7 +75,7 @@ CSV/Excel/JSON export.
 
 ## Integration with CI/CD
 
-The [GitHub Actions CI/CD feature](../technical/CICD_FEATURE.md) stores its own results in a
+The [CI/CD feature](./cicd.md) stores its own results in a
 dedicated `cicd` schema and ships a Grafana dashboard (`features/cicd/grafana/cicd-quality.json`)
 for it — that's the real CI/metrics integration path, not a generic Jenkins/webhook mechanism.
 
@@ -84,7 +84,7 @@ for it — that's the real CI/metrics integration path, not a generic Jenkins/we
 ## Next Steps
 
 - 📖 [Test Automation](./test-automation.md) - Generate the metrics
-- 🔧 [Technical Docs - CI/CD Feature](../technical/CICD_FEATURE.md)
+- 🔁 [CI/CD](./cicd.md)
 - 🔌 [Integrations](../integrations/README.md) - Connect other tools
 
 ---

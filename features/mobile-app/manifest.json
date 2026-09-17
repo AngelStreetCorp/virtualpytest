@@ -1,0 +1,12 @@
+{
+  "name": "mobile-app",
+  "description": "VirtualPyTest Android app (Capacitor shell around the web frontend) + phone-as-device: a paired phone streams its screen to a host over Socket.IO (/phone namespace) and accepts taps/swipes/keys/text/app launches through an AccessibilityService, so it shows up as a normal device (model phone_agent) of that host. Parts: /server/mobile-app pairing routes, host bridge + PhoneAgentRemoteController + phone_sim, Settings -> 'Mobile app & phones' page + native 'This phone' page, lib/protocol.py, the phone_agent device_models row (db/, applied by hand), the Android project under app/. NOT this feature: the phone/tablet layout of the web UI (bottom nav, mobile Run Tests) is core and stays when this is disabled. Core keeps inert hooks only; the full list is in README.md ('Core hooks'): controller_registry (remote 'phone_agent' + verification ('phone_agent','adb') -> the phone's accessibility tree, so android_mobile navigation trees run unchanged) + register_feature_controllers, the phone_agent model in device_capabilities (verification map ['adb']) / device.py, the RemotePanel case, the previewActions slot in config/features.ts + RecHostPreview (an unpaired slot's card offers pairing), runtime config (window.__VPT_CONFIG__), the APK origin in the default CORS list, the feature-gated More-menu/footer entries, the nginx /host/<name>/phone/socket.io location. Docs: docs/features/mobile-app.md (users), docs/technical/MOBILE_APP.md (operators), docs/agent/devices/PHONE_AGENT.md (agents), docs/tasks/TASK-17-mobile-app-phone-agent.md (design).",
+  "parts": [
+    "backend_server",
+    "backend_host",
+    "frontend",
+    "lib",
+    "app",
+    "db"
+  ]
+}

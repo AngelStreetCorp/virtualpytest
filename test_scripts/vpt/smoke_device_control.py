@@ -28,35 +28,7 @@ if project_root not in sys.path:
 
 from shared.src.lib.executors.script_decorators import script, get_args, get_context
 from shared.src.lib.utils.build_url_utils import get_host_api_origin
-
-
-def _headers() -> dict:
-    h = {"Content-Type": "application/json"}
-    api_key = os.getenv("API_KEY", "")
-    if api_key:
-        h["X-API-Key"] = api_key
-        h["Authorization"] = f"Bearer {api_key}"
-    return h
-
-
-def _step(action: str, description: str, success: bool, error: str = None,
-          status_code: int = None, response_time_ms: float = 0) -> dict:
-    outcome = "✅" if success else "❌"
-    msg = f"  {outcome} {description}"
-    if error:
-        msg += f": {error}"
-    elif status_code:
-        msg += f": HTTP {status_code} ({response_time_ms:.0f}ms)"
-    print(msg)
-    return {
-        "action": action,
-        "description": description,
-        "timestamp": time.time(),
-        "success": success,
-        "error": error,
-        "status_code": status_code,
-        "response_time_ms": response_time_ms,
-    }
+from test_scripts.vpt.smoke_common import headers as _headers, make_step as _step
 
 
 def capture_summary(context, server_url: str, host_info: dict = None) -> str:
@@ -109,7 +81,7 @@ def main():
         data = resp.json() if resp.status_code == 200 else {}
         hosts = data.get("hosts", [])
         ok = resp.status_code == 200 and len(hosts) > 0
-        context.step_results.append(_step(
+        context.record_step_immediately(_step(
             "GET /server/system/getAllHosts",
             f"Hosts registered ({len(hosts)} found)",
             ok,
@@ -120,7 +92,7 @@ def main():
         if ok:
             host_info = hosts[0]
     except Exception as e:
-        context.step_results.append(_step("GET /server/system/getAllHosts", "Hosts registered", False, error=str(e)))
+        context.record_step_immediately(_step("GET /server/system/getAllHosts", "Hosts registered", False, error=str(e)))
         context.error_message = str(e)
         context.overall_success = False
         context.execution_summary = capture_summary(context, server_url)
@@ -155,7 +127,7 @@ def main():
         ms = round((time.time() - t0) * 1000, 1)
         ok = resp.status_code == 200
         body = resp.json() if ok else {}
-        context.step_results.append(_step(
+        context.record_step_immediately(_step(
             f"GET {host_url}/health",
             f"Host '{host_name}' health endpoint",
             ok,
@@ -164,7 +136,7 @@ def main():
             response_time_ms=ms,
         ))
     except Exception as e:
-        context.step_results.append(_step(f"GET {host_url}/health", f"Host '{host_name}' health endpoint", False, error=str(e)))
+        context.record_step_immediately(_step(f"GET {host_url}/health", f"Host '{host_name}' health endpoint", False, error=str(e)))
 
     # ── Step 3: List devices on host ───────────────────────────────────────────
     try:
@@ -179,7 +151,7 @@ def main():
         data = resp.json() if resp.status_code == 200 else {}
         devices = data.get("devices", [])
         ok = resp.status_code == 200 and len(devices) > 0
-        context.step_results.append(_step(
+        context.record_step_immediately(_step(
             f"GET {host_url}/host/devices",
             f"Devices accessible on '{host_name}' ({len(devices)} found)",
             ok,
@@ -190,7 +162,7 @@ def main():
         if ok:
             host_info["devices"] = devices
     except Exception as e:
-        context.step_results.append(_step(
+        context.record_step_immediately(_step(
             f"GET {host_url}/host/devices",
             f"Devices accessible on '{host_name}'",
             False,
@@ -203,9 +175,11 @@ def main():
         device_id_probe = devices[0].get("device_id", "device1")
         device_name = devices[0].get("device_name", device_id_probe)
         # The host exposes no per-device *info* endpoint; the real per-device read
-        # is is_busy (host_system_routes.py), which proves the host can answer a
-        # question about this specific device.
-        endpoint = f"/host/device/{device_id_probe}/is_busy"
+        # is is_busy, which proves the host can answer a question about this
+        # specific device. Note the blueprint prefix is /host/system, and the
+        # /host/* auth guard answers 401 before routing — so an unauthenticated
+        # probe cannot tell a wrong path from a right one.
+        endpoint = f"/host/system/device/{device_id_probe}/is_busy"
         try:
             t0 = time.time()
             resp = requests.get(
@@ -216,7 +190,7 @@ def main():
             )
             ms = round((time.time() - t0) * 1000, 1)
             ok = resp.status_code == 200 and isinstance(resp.json().get("busy"), bool)
-            context.step_results.append(_step(
+            context.record_step_immediately(_step(
                 f"GET {endpoint}",
                 f"Device addressable on host: '{device_name}'",
                 ok,
@@ -225,7 +199,7 @@ def main():
                 response_time_ms=ms,
             ))
         except Exception as e:
-            context.step_results.append(_step(
+            context.record_step_immediately(_step(
                 f"GET {endpoint}",
                 f"Device addressable on host: '{device_name}'",
                 False,

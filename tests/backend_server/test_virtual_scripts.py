@@ -215,7 +215,15 @@ class TestConvertDiskScript:
 
     CONVERTIBLE = "gw/dns_lookuptime"   # no helper imports, no __file__ paths
 
-    def test_dry_run_reports_a_plan_and_writes_nothing(self, post, get, api_headers, team_id):
+    def test_dry_run_reports_a_plan_and_writes_nothing(self, post, get, delete, api_headers, team_id):
+        # A CI run cancelled mid-conversion (cancel-in-progress) leaves the converted row behind;
+        # clear it first so this checks the dry run, not the previous run's leftovers.
+        for s in (get("/server/virtual-script/list", headers=api_headers,
+                      params={"team_id": team_id}).json().get("scripts") or []):
+            if s.get("name") == "dns_lookuptime" and s.get("id"):
+                delete(f"/server/virtual-script/{s['id']}", headers=api_headers,
+                       params={"team_id": team_id})
+
         response = post("/server/virtual-script/convert", headers=api_headers,
                         params={"team_id": team_id},
                         json={"script_name": self.CONVERTIBLE, "dry_run": True})

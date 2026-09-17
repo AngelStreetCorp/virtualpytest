@@ -12,18 +12,7 @@ with a tracked reason instead of silently omitted.
 
 import uuid
 
-import pytest
 import requests
-
-
-def test_goto_navigation_node_requires_host_device():
-    pytest.skip(
-        "POST /server/navigation/goto requires a host process with "
-        "current_app.my_host_device already populated by a real device "
-        "controller (backend_host runtime state) — not reachable from the "
-        "backend_server API test suite. See server_navigation_routes.py "
-        "goto_navigation_node()."
-    )
 
 
 def test_create_empty_navigation_config_unknown_interface_returns_404(

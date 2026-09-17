@@ -143,50 +143,52 @@ class TestSaveAndRevertBranding:
         assert original_resp.status_code == 200, original_resp.text
         original = original_resp.json().get("branding", {})
 
-        save_resp = requests.post(
-            f"{base_url}/server/branding",
-            json={"name": "__smoke_test_branding__", "tagline": "temporary"},
-            headers=headers,
-            timeout=request_timeout,
-            verify=verify_ssl,
-        )
-        assert save_resp.status_code == 200, save_resp.text
-        save_data = save_resp.json()
-        assert save_data.get("success") is True
-        assert save_data.get("saved", {}).get("name") == "__smoke_test_branding__"
-
-        if not save_data.get("backup_available"):
-            # No branding file existed before this test wrote one, so there is
-            # nothing meaningful for /revert to restore. Put back an empty
-            # branding config to avoid leaving our throwaway value live, and
-            # stop here rather than asserting an exact revert target.
-            requests.post(
+        try:
+            save_resp = requests.post(
                 f"{base_url}/server/branding",
-                json={},
+                json={"name": "__smoke_test_branding__", "tagline": "temporary"},
                 headers=headers,
                 timeout=request_timeout,
                 verify=verify_ssl,
             )
-            pytest.skip("No branding existed before this test — nothing for /revert to restore")
+            assert save_resp.status_code == 200, save_resp.text
+            save_data = save_resp.json()
+            assert save_data.get("success") is True
+            assert save_data.get("saved", {}).get("name") == "__smoke_test_branding__"
 
-        revert_resp = requests.post(
-            f"{base_url}/server/branding/revert",
-            headers=headers,
-            timeout=request_timeout,
-            verify=verify_ssl,
-        )
-        assert revert_resp.status_code == 200, revert_resp.text
-        assert revert_resp.json().get("branding") == original
+            if not save_data.get("backup_available"):
+                pytest.skip("No branding existed before this test — nothing for /revert to restore")
 
-        # Confirm the live branding now matches what it was before the test.
-        confirm_resp = requests.get(
-            f"{base_url}/server/branding",
-            headers=headers,
-            timeout=request_timeout,
-            verify=verify_ssl,
-        )
-        assert confirm_resp.status_code == 200, confirm_resp.text
-        assert confirm_resp.json().get("branding") == original
+            revert_resp = requests.post(
+                f"{base_url}/server/branding/revert",
+                headers=headers,
+                timeout=request_timeout,
+                verify=verify_ssl,
+            )
+            assert revert_resp.status_code == 200, revert_resp.text
+            assert revert_resp.json().get("branding") == original
+
+            # Confirm the live branding now matches what it was before the test.
+            confirm_resp = requests.get(
+                f"{base_url}/server/branding",
+                headers=headers,
+                timeout=request_timeout,
+                verify=verify_ssl,
+            )
+            assert confirm_resp.status_code == 200, confirm_resp.text
+            assert confirm_resp.json().get("branding") == original
+        finally:
+            # No matter what failed above, force live branding back to what this
+            # test found — never rely on /revert's own backup chain for cleanup,
+            # since a concurrent/interrupted run can leave it pointing at another
+            # test's throwaway value instead of the real original.
+            requests.post(
+                f"{base_url}/server/branding",
+                json=original,
+                headers=headers,
+                timeout=request_timeout,
+                verify=verify_ssl,
+            )
 
     def test_save_filters_unknown_keys(
         self, base_url, verify_ssl, request_timeout, auth_jwt
@@ -203,26 +205,28 @@ class TestSaveAndRevertBranding:
         assert original_resp.status_code == 200
         original = original_resp.json().get("branding", {})
 
-        save_resp = requests.post(
-            f"{base_url}/server/branding",
-            json={"name": "__smoke_filter_test__", "not_a_real_field": "should be dropped"},
-            headers=headers,
-            timeout=request_timeout,
-            verify=verify_ssl,
-        )
-        assert save_resp.status_code == 200, save_resp.text
-        saved = save_resp.json().get("saved", {})
-        assert "not_a_real_field" not in saved
-        assert saved.get("name") == "__smoke_filter_test__"
-
-        # Restore whatever branding existed before this test ran.
-        requests.post(
-            f"{base_url}/server/branding",
-            json=original,
-            headers=headers,
-            timeout=request_timeout,
-            verify=verify_ssl,
-        )
+        try:
+            save_resp = requests.post(
+                f"{base_url}/server/branding",
+                json={"name": "__smoke_filter_test__", "not_a_real_field": "should be dropped"},
+                headers=headers,
+                timeout=request_timeout,
+                verify=verify_ssl,
+            )
+            assert save_resp.status_code == 200, save_resp.text
+            saved = save_resp.json().get("saved", {})
+            assert "not_a_real_field" not in saved
+            assert saved.get("name") == "__smoke_filter_test__"
+        finally:
+            # Restore whatever branding existed before this test ran, even if an
+            # assertion above failed — never leave the throwaway value live.
+            requests.post(
+                f"{base_url}/server/branding",
+                json=original,
+                headers=headers,
+                timeout=request_timeout,
+                verify=verify_ssl,
+            )
 
 
 # ---------------------------------------------------------------------------

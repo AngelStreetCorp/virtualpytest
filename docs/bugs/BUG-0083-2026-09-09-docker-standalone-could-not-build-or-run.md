@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | High (the documented "5-minute" Docker install cannot produce a running platform) |
 | Area      | backend_server/Dockerfile · backend_host/Dockerfile · backend_host/docker/supervisord.conf · frontend/Dockerfile · setup/docker/ |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

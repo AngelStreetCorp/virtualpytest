@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../../frontend/src/contexts/HostManagerProvider', () => ({
   HostManagerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -49,6 +49,9 @@ vi.mock('../../frontend/src/hooks/useHostManager', () => ({
   }),
 }));
 
+// Mutable so a test can put the hook in the "this minute has no frame" state.
+const heatmapState = { hasDataError: false };
+
 vi.mock('../../frontend/src/hooks/useHeatmap', () => ({
   useHeatmap: () => ({
     timeline: [
@@ -72,7 +75,8 @@ vi.mock('../../frontend/src/hooks/useHeatmap', () => ({
     },
     hasIncidents: () => false,
     goToLatest: () => {},
-    hasDataError: false,
+    loadedItem: null,
+    hasDataError: heatmapState.hasDataError,
     generateReport: async () => {},
     getMosaicUrl: () => 'https://example.com/mosaic.jpg',
     getFilteredDevices: (devices: any[]) => devices,
@@ -82,6 +86,10 @@ vi.mock('../../frontend/src/hooks/useHeatmap', () => ({
 import Heatmap from '../../frontend/src/pages/Heatmap';
 
 describe('Heatmap page', () => {
+  beforeEach(() => {
+    heatmapState.hasDataError = false;
+  });
+
   it('renders timeline sections', () => {
     render(<Heatmap />);
 
@@ -89,5 +97,16 @@ describe('Heatmap page', () => {
     expect(screen.getByText('Data Analysis')).toBeInTheDocument();
     expect(screen.getByText('Heatmap History')).toBeInTheDocument();
     expect(screen.getByTestId('mosaic-player')).toBeInTheDocument();
+    expect(screen.queryByText(/No heatmap was generated/)).not.toBeInTheDocument();
+  });
+
+  // A minute the processor skipped still holds the previous day's frame in the HHMM
+  // circular buffer; the page must say so instead of passing it off as this minute's.
+  it('reports a missing frame for the selected minute', () => {
+    heatmapState.hasDataError = true;
+
+    render(<Heatmap />);
+
+    expect(screen.getByText(/No heatmap was generated/)).toBeInTheDocument();
   });
 });

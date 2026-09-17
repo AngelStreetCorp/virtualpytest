@@ -12,6 +12,8 @@ When a JWT variable is empty the corresponding tests are skipped automatically.
 """
 
 import os
+import uuid
+
 import pytest
 import requests
 
@@ -84,17 +86,22 @@ class TestWorkspaceCRUD:
 
     @pytest.fixture(scope="class")
     def workspace_id(self, admin_jwt, base_url, verify_ssl, request_timeout):
-        """Create a workspace for the class tests, delete it on teardown."""
+        """Create a workspace for the class tests, delete it on teardown.
+
+        Unique name per run: the slug is derived from it and is unique in the table, so a
+        fixed name turns any run whose teardown did not fire into a permanent collision.
+        """
         _skip_if_no_jwt(admin_jwt, "admin")
         resp = requests.post(
             f"{base_url}/server/workspaces",
-            json={"name": "Test Workspace Smoke", "description": "Smoke test workspace"},
+            json={"name": f"Test Workspace Smoke {uuid.uuid4().hex[:8]}",
+                  "description": "Smoke test workspace"},
             headers=jwt_headers(admin_jwt),
             timeout=request_timeout,
             verify=verify_ssl,
         )
-        if resp.status_code != 201:
-            pytest.skip(f"Could not create workspace: {resp.status_code} {resp.text}")
+        # Fail, never skip: creating a workspace as admin is a thing this platform must do.
+        assert resp.status_code == 201, f"could not create workspace: {resp.status_code} {resp.text}"
         wid = resp.json()["id"]
         yield wid
         # teardown
@@ -124,7 +131,8 @@ class TestWorkspaceCRUD:
         _skip_if_no_jwt(admin_jwt, "admin")
         resp = requests.post(
             f"{base_url}/server/workspaces",
-            json={"name": "Smoke Create Test", "description": "Created by smoke test"},
+            json={"name": f"Smoke Create Test {uuid.uuid4().hex[:8]}",
+                  "description": "Created by smoke test"},
             headers=jwt_headers(admin_jwt),
             timeout=request_timeout,
             verify=verify_ssl,
@@ -178,13 +186,14 @@ class TestWorkspaceCRUD:
         _skip_if_no_jwt(admin_jwt, "admin")
         create_resp = requests.post(
             f"{base_url}/server/workspaces",
-            json={"name": "Smoke Delete Target", "description": "To be deleted"},
+            json={"name": f"Smoke Delete Target {uuid.uuid4().hex[:8]}",
+                  "description": "To be deleted"},
             headers=jwt_headers(admin_jwt),
             timeout=request_timeout,
             verify=verify_ssl,
         )
-        if create_resp.status_code != 201:
-            pytest.skip(f"Could not create workspace for delete test: {create_resp.status_code} {create_resp.text}")
+        assert create_resp.status_code == 201, (
+            f"could not create workspace for delete test: {create_resp.status_code} {create_resp.text}")
         wid = create_resp.json()["id"]
 
         del_resp = requests.delete(
@@ -282,17 +291,26 @@ class TestWorkspaceMembers:
 
     @pytest.fixture(scope="class")
     def workspace_id(self, admin_jwt, base_url, verify_ssl, request_timeout):
-        """Create a workspace for member tests, delete it on teardown."""
+        """Create a workspace for member tests, delete it on teardown.
+
+        The name is unique per run. It used to be the fixed "Smoke Member Test Workspace",
+        whose derived slug is unique in the table — so the first run whose teardown did not
+        fire (an interrupt, a failed delete) left a row that made every later run collide.
+        That surfaced as a 500 and the fixture skipped on it, so three tests stopped asking
+        their question permanently and nothing said so.
+        """
         _skip_if_no_jwt(admin_jwt, "admin")
+        unique = uuid.uuid4().hex[:8]
         resp = requests.post(
             f"{base_url}/server/workspaces",
-            json={"name": "Smoke Member Test Workspace", "description": "Workspace for member tests"},
+            json={"name": f"Smoke Member Test Workspace {unique}",
+                  "description": "Workspace for member tests"},
             headers=jwt_headers(admin_jwt),
             timeout=request_timeout,
             verify=verify_ssl,
         )
-        if resp.status_code != 201:
-            pytest.skip(f"Could not create workspace: {resp.status_code} {resp.text}")
+        # Fail, never skip: creating a workspace as admin is a thing this platform must do.
+        assert resp.status_code == 201, f"could not create workspace: {resp.status_code} {resp.text}"
         wid = resp.json()["id"]
         yield wid
         requests.delete(

@@ -121,7 +121,12 @@ export interface Host {
 
   // === NETWORK CONFIGURATION ===
   host_url: string; // Host base URL (e.g., https://virtualpytest.com or http://localhost:6109)
-  host_api_url?: string; // Direct server-to-server URL (e.g., http://192.168.0.108:6109)
+  // Public base URL of the server this host is registered on, stamped by ServerManagerProvider
+  // at fetch time. host_url is usually the RELATIVE nginx path (/host/<name>), which the browser
+  // resolves against the page origin — wrong whenever the selected server is not the one serving
+  // the frontend. buildUrlUtils uses this to prefix it.
+  server_url?: string;
+  host_api_url?: string; // Direct server-to-server URL (e.g., http://192.168.x.108:6109)
   host_port: number; // Host port number
 
   // === MULTI-DEVICE CONFIGURATION ===

@@ -351,4 +351,39 @@ def dump_ui():
             'success': False,
             'error': ui_error or 'UI dump failed'
         }), 400
-        
+
+@host_remote_bp.route('/getOrientation', methods=['POST'])
+@route_exception_handler()
+def get_orientation():
+    # Get device_id from request (defaults to device1)
+    data = get_json_payload()
+    device_id = data.get('device_id', 'device1')
+
+    # Get remote controller for the specified device
+    remote_controller = get_controller(device_id, 'remote')
+
+    if not remote_controller:
+        return controller_missing_for_device('remote', device_id)
+
+    if not hasattr(remote_controller, 'get_orientation'):
+        return jsonify({
+            'success': False,
+            'error': 'Orientation detection not supported by this remote controller'
+        }), 400
+
+    orientation = remote_controller.get_orientation()
+
+    if orientation:
+        return jsonify({
+            'success': True,
+            'width': orientation['width'],
+            'height': orientation['height'],
+            'is_landscape': orientation['is_landscape'],
+            'device_id': device_id
+        })
+    else:
+        return jsonify({
+            'success': False,
+            'error': 'Failed to read device orientation'
+        }), 400
+

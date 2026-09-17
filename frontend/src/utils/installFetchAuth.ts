@@ -6,6 +6,13 @@
  * the `apiClient` wrapper) authenticate once the server enforces frontend JWT
  * (ENFORCE_FRONTEND_JWT=true). Installed once from main.tsx.
  *
+ * Which JWT: the one belonging to the TARGET server's Supabase identity, resolved
+ * through `lib/serverIdentity` (TASK-18). Servers in the picker do not all share a
+ * Supabase, so there is no single "current" token — sending the primary session to
+ * every server is exactly the behaviour this replaced. A target that advertises no
+ * identity (or is not yet discovered) falls back to the primary session, so nothing
+ * regresses for single-Supabase deployments.
+ *
  * Design constraints (why this is safe to ship before the flip):
  *  - Header-only. It never touches method, body, or non-/server/ requests, so
  *    while enforcement is OFF the extra header is simply ignored by the server.
@@ -28,7 +35,11 @@
  */
 import { supabase, isAuthEnabled } from '../lib/supabase';
 import { getAutoSignHeaderToken } from '../lib/autoSign';
+import { getClientForRequest, getSessionForServer } from '../lib/serverIdentity';
+import { getServerBaseUrl } from './buildUrlUtils';
+import { capturePristineFetch } from './pristineFetch';
 import type { Session } from '@supabase/supabase-js';
+import { getEnv } from '../config/constants';
 
 let installed = false;
 
@@ -49,7 +60,14 @@ function clearNavCookie(name: string): void {
 export async function syncNavigationAuthCookies(session?: Session | null): Promise<void> {
   try {
     if (isAuthEnabled) {
-      const current = session === undefined ? (await supabase.auth.getSession()).data.session : session;
+      // A navigation always lands on the SELECTED server, so the cookie must carry that
+      // server's identity — not the primary session, which may belong to a different
+      // Supabase (TASK-18). Fall back to the primary session when the selected server
+      // advertises no identity of its own, which is the pre-TASK-18 behaviour.
+      const selectedServerSession = await getSessionForServer(getServerBaseUrl());
+      const current =
+        selectedServerSession ??
+        (session === undefined ? (await supabase.auth.getSession()).data.session : session);
       if (current?.access_token) {
         const nowSec = Math.floor(Date.now() / 1000);
         const ttl = current.expires_at ? Math.max(60, current.expires_at - nowSec) : 3600;
@@ -58,7 +76,7 @@ export async function syncNavigationAuthCookies(session?: Session | null): Promi
         clearNavCookie(NAV_COOKIE_JWT);
       }
     }
-    const serverPublicKey = (import.meta as any).env?.VITE_SERVER_PUBLIC_KEY || '';
+    const serverPublicKey = getEnv('VITE_SERVER_PUBLIC_KEY') || '';
     if (serverPublicKey) {
       writeNavCookie(NAV_COOKIE_SERVER_KEY, serverPublicKey, 30 * 24 * 3600);
     }
@@ -84,6 +102,7 @@ export function installFetchAuth(): void {
   }
 
   const originalFetch = window.fetch.bind(window);
+  capturePristineFetch(originalFetch);
 
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     try {
@@ -99,18 +118,24 @@ export function installFetchAuth(): void {
         const headers = new Headers(init?.headers || (input instanceof Request ? input.headers : undefined));
 
         if (isAuthEnabled && !headers.has('Authorization')) {
-          const {
-            data: { session },
-          } = await supabase.auth.getSession();
-          if (session?.access_token) {
-            headers.set('Authorization', `Bearer ${session.access_token}`);
+          // TASK-18: the session is chosen by the request's TARGET server, not globally.
+          // Servers can sit behind different Supabase instances, and sending one
+          // server's token to another is what this replaces.
+          const client = getClientForRequest(url);
+          if (client) {
+            const {
+              data: { session },
+            } = await client.auth.getSession();
+            if (session?.access_token) {
+              headers.set('Authorization', `Bearer ${session.access_token}`);
+            }
           }
         }
 
         // No-JWT deployments (no Supabase): present the weak, published
         // SERVER_PUBLIC_KEY so the closed-by-default server still accepts the SPA.
         // Never the strong API_KEY. Skipped once an Authorization/JWT is set.
-        const serverPublicKey = (import.meta as any).env?.VITE_SERVER_PUBLIC_KEY || '';
+        const serverPublicKey = getEnv('VITE_SERVER_PUBLIC_KEY') || '';
         if (serverPublicKey && !headers.has('Authorization') && !headers.has('X-Server-Key')) {
           headers.set('X-Server-Key', serverPublicKey);
         }

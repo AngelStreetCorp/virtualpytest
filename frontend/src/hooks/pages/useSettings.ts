@@ -7,6 +7,7 @@
 
 import { useState, useCallback } from 'react';
 
+import { getEnv } from '../../config/constants';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { getCached, setCached } from '../../utils/pageCache';
@@ -127,15 +128,15 @@ const getDefaultConfig = (): SettingsConfig => ({
     LOCAL_AI_API_KEY: '',
   },
   frontend: {
-    // Vite only replaces static import.meta.env.VITE_* references at build time.
-    // Dynamic access like import.meta.env[key] produces empty strings in code-split chunks.
-    VITE_SERVER_URL: import.meta.env.VITE_SERVER_URL ?? '',
-    VITE_SLAVE_SERVER_URL: import.meta.env.VITE_SLAVE_SERVER_URL ?? '',
-    VITE_GRAFANA_URL: import.meta.env.VITE_GRAFANA_URL ?? '',
-    VITE_CLOUDFLARE_R2_PUBLIC_URL: import.meta.env.VITE_CLOUDFLARE_R2_PUBLIC_URL ?? '',
-    VITE_DEV_MODE: import.meta.env.VITE_DEV_MODE ?? 'true',
-    VITE_FEATURE_DEPLOYMENTS: import.meta.env.VITE_FEATURE_DEPLOYMENTS ?? 'true',
-    VITE_FEATURE_RUN_VERSION_SELECTOR: import.meta.env.VITE_FEATURE_RUN_VERSION_SELECTOR ?? 'false',
+    // These show the EFFECTIVE values, so they go through getEnv: a container that
+    // overrode them at runtime (public/config.js) must not display the baked-in ones.
+    VITE_SERVER_URL: getEnv('VITE_SERVER_URL'),
+    VITE_SLAVE_SERVER_URL: getEnv('VITE_SLAVE_SERVER_URL'),
+    VITE_GRAFANA_URL: getEnv('VITE_GRAFANA_URL'),
+    VITE_CLOUDFLARE_R2_PUBLIC_URL: getEnv('VITE_CLOUDFLARE_R2_PUBLIC_URL'),
+    VITE_DEV_MODE: getEnv('VITE_DEV_MODE', 'true'),
+    VITE_FEATURE_DEPLOYMENTS: getEnv('VITE_FEATURE_DEPLOYMENTS', 'true'),
+    VITE_FEATURE_RUN_VERSION_SELECTOR: getEnv('VITE_FEATURE_RUN_VERSION_SELECTOR', 'false'),
     VITE_NAV_HIDDEN: '',
     VITE_NAV_DISABLED: '',
     VITE_NAV_COMING_SOON: '',

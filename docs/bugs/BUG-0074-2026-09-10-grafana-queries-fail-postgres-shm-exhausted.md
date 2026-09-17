@@ -9,7 +9,7 @@
 | Status    | Fixed (applied by hand on the customer DB; migration pending on lab / QualiAI) |
 | Severity  | Medium (dashboard filters show a query error on load; values stay cached, panels sharing the DB can fail the same way) |
 | Area      | Postgres in Docker (Supabase CLI stack) · Grafana `postgres` datasource role |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

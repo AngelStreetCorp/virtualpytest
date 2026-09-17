@@ -19,7 +19,6 @@ here; their hardware-driving paths are skipped.
 
 import uuid
 
-import pytest
 import requests
 
 
@@ -276,24 +275,3 @@ def test_batch_execute_navigation_requires_list_batch_data(base_url, api_headers
     )
     assert response.status_code == 400
 
-
-@pytest.mark.skip(
-    reason="Hosts/devices ARE online right now (see GET /server/system/getAllHosts), "
-    "so this isn't blocked by missing hardware. It's excluded from the every-push "
-    "regression suite because take/release/takeover control and navigation execute "
-    "act on a real, possibly-shared device (takeover explicitly preempts whoever "
-    "currently has it); candidate for a separate, manually- or schedule-triggered "
-    "hardware suite instead of a permanent skip — see tests/docs/testing-strategy.md."
-)
-@pytest.mark.parametrize("scenario", [
-    "take_control_full_flow_starts_background_host_setup",
-    "release_control_full_flow_notifies_real_host",
-    "takeover_full_flow_preempts_and_reconnects_host",
-    "navigation_execute_drives_real_device",
-    "navigation_batch_execute_drives_real_device",
-])
-def test_hardware_dependent_control_flows(scenario):
-    """These flows call out to a registered host to drive/query real hardware
-    (take/release control's host handshake, takeover's abort+reconnect, and
-    navigation execution) and are not safely testable without a connected
-    device/host in CI."""

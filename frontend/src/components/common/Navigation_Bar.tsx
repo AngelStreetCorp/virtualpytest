@@ -19,6 +19,7 @@ import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import NavigationDropdown from './Navigation_Dropdown';
 import NavigationGroupedDropdown from './Navigation_GroupedDropdown';
+import { getEnv } from '../../config/constants';
 
 const NavigationBar: React.FC = () => {
   const location = useLocation();
@@ -56,7 +57,7 @@ const NavigationBar: React.FC = () => {
   }, []);
 
   // Langfuse URL from env — if set, the dropdown item opens externally
-  const langfuseUrl = (import.meta as any).env?.VITE_LANGFUSE_URL as string | undefined;
+  const langfuseUrl = getEnv('VITE_LANGFUSE_URL') as string | undefined;
   const integrationsItems = buildIntegrationsItems({ slackUrl, langfuseUrl });
 
   const isActive = (path: string, prefix = false) =>

@@ -247,7 +247,11 @@ HOST_REGISTRATION_INITIAL_RETRY_DELAY = _read_int_env("HOST_REGISTRATION_INITIAL
 HOST_REGISTRATION_MAX_RETRY_DELAY = _read_int_env("HOST_REGISTRATION_MAX_RETRY_DELAY", 45)
 HOST_RECONNECT_MAX_ATTEMPTS = _read_int_env("HOST_RECONNECT_MAX_ATTEMPTS", 20)
 HOST_RECONNECT_INTERVAL_SECONDS = _read_int_env("HOST_RECONNECT_INTERVAL_SECONDS", 15)
-HOST_PING_INTERVAL_SECONDS = _read_int_env("HOST_PING_INTERVAL_SECONDS", 60)
+# 30s against the server's 90s stale-display threshold and 180s eviction, so three
+# pings must be lost before the host is even shown offline and six before it is
+# evicted. At the old 60s there was only 30s of slack (BUG-0093). The ping itself
+# is a cheap local POST — metrics keep their own, slower cycle.
+HOST_PING_INTERVAL_SECONDS = _read_int_env("HOST_PING_INTERVAL_SECONDS", 30)
 HOST_DISCONNECTED_PING_INTERVAL_SECONDS = _read_int_env("HOST_DISCONNECTED_PING_INTERVAL_SECONDS", 20)
 HOST_PING_FAILURE_THRESHOLD = _read_int_env("HOST_PING_FAILURE_THRESHOLD", 3)
 
@@ -484,6 +488,138 @@ def get_devices_with_running_deployments():
         print(f"[@host] Error checking running deployments: {e}")
         return set()
 
+# ---------------------------------------------------------------------------
+# Metrics snapshot (BUG-0093)
+#
+# Collecting host/device metrics and storing them costs ~7 sequential WAN
+# database round-trips. That work used to run inline in the ping, *before* the
+# ping was actually sent, so one hung DB call stalled the ping thread for
+# minutes — the server evicted the host after 180s and it vanished from the UI.
+# On vpt-pi1 that cost ~70 minutes of registry absence in a single morning.
+#
+# Collection now runs on its own thread and publishes a snapshot here. The ping
+# reads the latest snapshot without blocking and posts immediately, so
+# registration liveness no longer depends on the database being reachable.
+# ---------------------------------------------------------------------------
+HOST_METRICS_INTERVAL_SECONDS = _read_int_env("HOST_METRICS_INTERVAL_SECONDS", 60)
+
+_metrics_snapshot = {
+    'host_system_stats': {},
+    'per_device_metrics': [],
+    'running_deployment_devices': set(),
+    'collected_at': 0.0,
+}
+_metrics_snapshot_lock = threading.Lock()
+metrics_thread = None
+metrics_stop_event = threading.Event()
+
+
+def get_metrics_snapshot():
+    """Latest metrics for the ping payload. Never touches the database."""
+    with _metrics_snapshot_lock:
+        return dict(_metrics_snapshot)
+
+
+def collect_and_store_metrics():
+    """Collect host + device metrics, store them, and publish a snapshot.
+
+    Runs on the metrics thread. Every database call in here is allowed to be
+    slow or to fail: the worst case is that the ping carries slightly stale
+    metrics, which is never a reason to drop a live host from the registry.
+    """
+    host = get_host()
+
+    # Speedtest stays disabled here to keep the cycle cheap; it runs separately.
+    host_system_stats = get_host_system_stats(skip_speedtest=True, devices=host.get_devices())
+
+    disk_write = host_system_stats.get('disk_write_mb_per_sec', 'N/A')
+    disk_write_str = f", Write={disk_write}MB/s" if disk_write != 'N/A' and disk_write != 0 else ""
+
+    temp_str = f", Temp={host_system_stats.get('cpu_temperature_celsius', 'N/A')}°C" if 'cpu_temperature_celsius' in host_system_stats else ""
+
+    load_1m = host_system_stats.get('load_average_1m')
+    load_5m = host_system_stats.get('load_average_5m')
+    load_15m = host_system_stats.get('load_average_15m')
+    if load_1m is not None and load_5m is not None and load_15m is not None:
+        load_str = f", Load: {load_1m:.2f}/{load_5m:.2f}/{load_15m:.2f}"
+    else:
+        load_str = ", Load: N/A"
+
+    ffmpeg_service_uptime = host_system_stats.get('ffmpeg_service_uptime_seconds', 0)
+    monitor_service_uptime = host_system_stats.get('monitor_service_uptime_seconds', 0)
+    service_uptime_str = f", Services: FFmpeg={ffmpeg_service_uptime}s, Monitor={monitor_service_uptime}s"
+
+    print(f"[@host:debug] 🔍 Host system stats: CPU={host_system_stats.get('cpu_percent', 'N/A')}%, RAM={host_system_stats.get('memory_percent', 'N/A')}%, Disk={host_system_stats.get('disk_percent', 'N/A')}%{disk_write_str}{temp_str}{load_str}{service_uptime_str}")
+
+    per_device_metrics = get_per_device_metrics(host.get_devices())
+
+    # HOST INDEPENDENCE: store metrics locally (not via server). Each store is
+    # isolated so one unreachable write cannot skip the rest or the snapshot.
+    from shared.src.lib.database.system_metrics_db import store_system_metrics, store_device_metrics
+    try:
+        store_system_metrics(host.host_name, host_system_stats)
+        print(f"✅ Host system metrics stored: {host.host_name}")
+    except Exception as e:
+        print(f"⚠️ [HOST] Host system metrics not stored (continuing): {e}")
+
+    for device_metric in per_device_metrics:
+        device_name = device_metric.get('device_name', 'Unknown')
+        capture_folder = device_metric.get('capture_folder', 'unknown')
+        ffmpeg_status = device_metric.get('ffmpeg_status', 'unknown')
+        monitor_status = device_metric.get('monitor_status', 'unknown')
+        ffmpeg_working_time = device_metric.get('ffmpeg_working_uptime_seconds', 0)
+        monitor_working_time = device_metric.get('monitor_working_uptime_seconds', 0)
+        print(f"[@host:device_debug] 📹 {device_name} ({capture_folder}): FFmpeg={ffmpeg_status}({ffmpeg_working_time}s), Monitor={monitor_status}({monitor_working_time}s)")
+        try:
+            store_device_metrics(host.host_name, device_metric, host_system_stats)
+        except Exception as e:
+            print(f"⚠️ [HOST] Device metrics not stored for {device_name} (continuing): {e}")
+
+    running_deployment_devices = get_devices_with_running_deployments()
+
+    with _metrics_snapshot_lock:
+        _metrics_snapshot.update({
+            'host_system_stats': host_system_stats,
+            'per_device_metrics': per_device_metrics,
+            'running_deployment_devices': running_deployment_devices,
+            'collected_at': time.time(),
+        })
+
+
+def start_metrics_thread():
+    """Start the metrics collection thread (separate from the ping thread)."""
+    global metrics_thread, metrics_stop_event
+
+    if metrics_thread and metrics_thread.is_alive():
+        print("🔄 [HOST] Stopping existing metrics thread...")
+        metrics_stop_event.set()
+        metrics_thread.join(timeout=2)
+
+    metrics_stop_event.clear()
+
+    def metrics_worker():
+        while not metrics_stop_event.is_set():
+            try:
+                collect_and_store_metrics()
+            except Exception as e:
+                print(f"⚠️ [HOST] Metrics cycle failed (continuing): {e}")
+            metrics_stop_event.wait(HOST_METRICS_INTERVAL_SECONDS)
+
+    metrics_thread = threading.Thread(target=metrics_worker, daemon=True)
+    metrics_thread.start()
+    print("📊 [HOST] Metrics thread started")
+
+
+def stop_metrics_thread():
+    """Stop the metrics collection thread."""
+    global metrics_thread, metrics_stop_event
+
+    if metrics_thread and metrics_thread.is_alive():
+        metrics_stop_event.set()
+        metrics_thread.join(timeout=5)
+        print("⏹️ [HOST] Metrics thread stopped")
+
+
 def send_ping_to_server():
     """Send ping to server to maintain registration."""
     global client_registration_state
@@ -506,64 +642,28 @@ def send_ping_to_server():
     
     try:
         host = get_host()
-        
-        # Store host's own system metrics (speedtest disabled to prevent resource issues)
-        host_system_stats = get_host_system_stats(skip_speedtest=True, devices=host.get_devices())
-        
-        # Debug: Show host's own system stats including service uptime and load averages
-        disk_write = host_system_stats.get('disk_write_mb_per_sec', 'N/A')
-        disk_write_str = f", Write={disk_write}MB/s" if disk_write != 'N/A' and disk_write != 0 else ""
-        
-        temp_str = f", Temp={host_system_stats.get('cpu_temperature_celsius', 'N/A')}°C" if 'cpu_temperature_celsius' in host_system_stats else ""
-        
-        # Load averages (format with 2 decimal places)
-        load_1m = host_system_stats.get('load_average_1m')
-        load_5m = host_system_stats.get('load_average_5m')
-        load_15m = host_system_stats.get('load_average_15m')
-        if load_1m is not None and load_5m is not None and load_15m is not None:
-            load_str = f", Load: {load_1m:.2f}/{load_5m:.2f}/{load_15m:.2f}"
-        else:
-            load_str = ", Load: N/A"
-        
-        # Service uptimes
-        ffmpeg_service_uptime = host_system_stats.get('ffmpeg_service_uptime_seconds', 0)
-        monitor_service_uptime = host_system_stats.get('monitor_service_uptime_seconds', 0)
-        service_uptime_str = f", Services: FFmpeg={ffmpeg_service_uptime}s, Monitor={monitor_service_uptime}s"
-        
-        print(f"[@host:debug] 🔍 Host system stats: CPU={host_system_stats.get('cpu_percent', 'N/A')}%, RAM={host_system_stats.get('memory_percent', 'N/A')}%, Disk={host_system_stats.get('disk_percent', 'N/A')}%{disk_write_str}{temp_str}{load_str}{service_uptime_str}")
-        
-        # Store host system metrics directly (same function as server uses)
-        from shared.src.lib.database.system_metrics_db import store_system_metrics
-        store_system_metrics(host.host_name, host_system_stats)
-        print(f"✅ Host system metrics stored: {host.host_name}")
-        
-        # Get only operational device metrics (no config recalculation)
-        per_device_metrics = get_per_device_metrics(host.get_devices())
-        
-        # HOST INDEPENDENCE: Store device metrics locally (not via server)
-        from shared.src.lib.database.system_metrics_db import store_device_metrics
-        for device_metric in per_device_metrics:
-            device_name = device_metric.get('device_name', 'Unknown')
-            capture_folder = device_metric.get('capture_folder', 'unknown')
-            ffmpeg_status = device_metric.get('ffmpeg_status', 'unknown')
-            monitor_status = device_metric.get('monitor_status', 'unknown')
-            ffmpeg_working_time = device_metric.get('ffmpeg_working_uptime_seconds', 0)
-            monitor_working_time = device_metric.get('monitor_working_uptime_seconds', 0)
-            print(f"[@host:device_debug] 📹 {device_name} ({capture_folder}): FFmpeg={ffmpeg_status}({ffmpeg_working_time}s), Monitor={monitor_status}({monitor_working_time}s)")
-            
-            # Store device metrics independently on host
-            store_device_metrics(host.host_name, device_metric, host_system_stats)
-        
-        # Check which devices have running deployments
-        running_deployment_devices = get_devices_with_running_deployments()
-        
+
+        # Read the metrics the collector thread published. Never collect or store
+        # here: the ping must go out on time even when the database is slow or
+        # unreachable, or the server evicts this host (BUG-0093).
+        snapshot = get_metrics_snapshot()
+        host_system_stats = snapshot.get('host_system_stats') or {}
+        per_device_metrics = snapshot.get('per_device_metrics') or []
+        running_deployment_devices = snapshot.get('running_deployment_devices') or set()
+
+        collected_at = snapshot.get('collected_at') or 0
+        if collected_at:
+            age = int(time.time() - collected_at)
+            if age > HOST_METRICS_INTERVAL_SECONDS * 3:
+                print(f"⚠️ [HOST] Metrics snapshot is {age}s old — collector is behind, pinging anyway")
+
         # Add deployment status to device data
         devices_with_status = []
         for device in host.get_devices():
             device_dict = device.to_dict()
             device_dict['has_running_deployment'] = device.device_id in running_deployment_devices
             devices_with_status.append(device_dict)
-        
+
         ping_data = {
             'host_name': host.host_name,
             'timestamp': time.time(),
@@ -572,7 +672,7 @@ def send_ping_to_server():
             'per_device_metrics': per_device_metrics,  # Only operational status
             'devices': devices_with_status  # Include device deployment status
         }
-        
+
         ping_url = client_registration_state['urls'].get('ping')
         if ping_url:
             response = requests.post(ping_url, json=ping_data, headers=server_auth_headers(), timeout=60)
@@ -755,6 +855,7 @@ def cleanup_on_exit():
     """Cleanup function called on exit."""
     print("🧹 [HOST] Cleaning up...")
     stop_ping_thread()
+    stop_metrics_thread()
     unregister_from_server()
     # Host instance will be cleaned up automatically when process exits
 

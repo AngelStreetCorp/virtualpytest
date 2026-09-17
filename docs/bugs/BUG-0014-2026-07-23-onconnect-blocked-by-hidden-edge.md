@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | frontend / navigation                                        |
-| Fixed in  | build 8713                                                   |
+| Fixed in  | build 8414                                                   |
 | Commit    | `f3804d7de` (reveal) · scope-aware + create fix `5df676c99` |
 
 ---

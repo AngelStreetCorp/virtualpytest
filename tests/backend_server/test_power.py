@@ -32,6 +32,7 @@ def test_power_endpoint_requires_host_name(path, base_url, api_headers, verify_s
     assert body.get("success") is False
 
 
+@pytest.mark.manual  # hardware read: set REMOTE_TEST_HOST and run with -m manual
 def test_get_power_status_no_power_controller_configured(base_url, api_headers, verify_ssl, request_timeout):
     """Configure REMOTE_TEST_HOST to a lab device without a power controller."""
     host = os.environ.get("REMOTE_TEST_HOST")
@@ -49,17 +50,3 @@ def test_get_power_status_no_power_controller_configured(base_url, api_headers, 
     assert body.get("success") is False
     assert "power controller" in body.get("error", "").lower()
 
-
-@pytest.mark.skip(
-    reason="Would turn a real device on/off/reboot it on every CI run — "
-    "deliberately not run in the every-push regression suite regardless of "
-    "hardware availability. Candidate for a separate, manually- or "
-    "schedule-triggered hardware suite instead of a permanent skip; see "
-    "tests/docs/testing-strategy.md. Also currently unreachable anyway: no "
-    "online host has a power controller configured (see "
-    "test_get_power_status_no_power_controller_configured)."
-)
-def test_execute_power_command_not_run_in_regression_suite():
-    """Real on/off/reboot commands against a physical power controller
-    (e.g. Tapo smart plug via uhubctl) — intentionally excluded from the
-    push/PR-triggered suite even if hardware existed for it."""

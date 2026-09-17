@@ -170,7 +170,7 @@ Enable-ScheduledTask vpt-stream
 | Service | URL/Address |
 |---------|-------------|
 | Flask API | `http://localhost:6109` |
-| VNC Desktop | `vnc://localhost:5900` (password: admin1234) |
+| VNC Desktop | `vnc://localhost:5900` (TightVNC runs without authentication; the firewall rule is limited to the local subnet) |
 | noVNC Web | `http://localhost:6080/vnc_lite.html` |
 
 ## Ports Used

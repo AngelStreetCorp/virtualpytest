@@ -70,7 +70,7 @@ echo ""
 # ── 3. Android SDK & AVD ──────────────────────────────────────────
 echo "── Android SDK & AVD ──"
 SDK_PATH=""
-for candidate in /home/jndoye/android-sdk /mnt/avd-storage/android-sdk; do
+for candidate in $HOME/android-sdk /mnt/avd-storage/android-sdk; do
     if [ -x "$candidate/emulator/emulator" ]; then
         SDK_PATH="$candidate"
         break
@@ -80,11 +80,11 @@ done
 if [ -n "$SDK_PATH" ]; then
     pass "Android SDK found at $SDK_PATH"
 else
-    fail "Android SDK not found at /home/jndoye/android-sdk or /mnt/avd-storage/android-sdk"
+    fail "Android SDK not found at $HOME/android-sdk or /mnt/avd-storage/android-sdk"
 fi
 
 AVD_HOME=""
-for candidate in /home/jndoye/.android/avd /mnt/avd-storage/.android/avd; do
+for candidate in $HOME/.android/avd /mnt/avd-storage/.android/avd; do
     if [ -f "$candidate/pixel6.ini" ]; then
         AVD_HOME="$candidate"
         break

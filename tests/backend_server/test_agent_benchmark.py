@@ -29,7 +29,6 @@ agent tasks for real.
 
 import uuid
 
-import pytest
 import requests
 
 
@@ -97,15 +96,6 @@ def test_create_and_delete_benchmark_run_round_trip(base_url, request_timeout, v
         verify=verify_ssl,
     )
     assert gone.status_code == 404, gone.text
-
-
-@pytest.mark.skip(
-    reason="Would run real agent tasks for real against a live agent — not "
-    "repeatable-safe in CI regardless of run cleanup. Also currently unreachable "
-    "anyway without a live agent to benchmark."
-)
-def test_execute_benchmark_run_not_exercised():
-    pass
 
 
 def test_delete_benchmark_run_unknown_id_returns_404(base_url, request_timeout, verify_ssl, api_headers):

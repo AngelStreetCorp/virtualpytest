@@ -13,9 +13,28 @@
 // =====================================================
 
 /**
- * Get environment variable with type safety
+ * Read a configuration value, runtime first.
+ *
+ * Vite bakes `VITE_*` into the bundle at build time, so a built artifact can otherwise
+ * only serve the address it was built for — which is why a prebuilt frontend image was
+ * impossible. `public/config.js` is loaded by index.html before this module and the
+ * container entrypoint rewrites it from its environment, so anything it defines wins.
+ * The mobile app (features/mobile-app) uses the same mechanism: its native shell serves
+ * `/config.js` from stored prefs before the bundle boots (RuntimeConfigWebViewClient in
+ * MainActivity.kt) — one runtime-config global, not a parallel app-specific one.
+ *
+ * Order: window.__VPT_CONFIG__ → import.meta.env (build-time) → defaultValue. A build
+ * made with a .env and no runtime override behaves exactly as it did before.
  */
-const getEnv = (key: string, defaultValue: string = ''): string => {
+export const getEnv = (key: string, defaultValue: string = ''): string => {
+  try {
+    const runtime = (window as any).__VPT_CONFIG__?.[key];
+    // An empty string in the runtime config means "not set" — the entrypoint writes every
+    // known key, and an unset env var must not shadow a baked-in value.
+    if (runtime !== undefined && runtime !== null && runtime !== '') return String(runtime);
+  } catch {
+    /* no window (SSR/tests) — fall through to the build-time value */
+  }
   try {
     return (import.meta as any).env?.[key] || defaultValue;
   } catch {
@@ -228,6 +247,13 @@ export const STORAGE_KEYS = {
    * Server hosts data cache
    */
   SERVER_HOSTS_CACHE: 'serverHostsData_cache',
+
+  /**
+   * Per-server auth identity map, cached from /server/auth/check (TASK-18).
+   * Hydrated synchronously at startup so the very first /server/* request of a page
+   * load already attaches the right identity's token, before discovery re-runs.
+   */
+  SERVER_IDENTITIES: 'vpt_server_identities',
 
   /**
    * User interfaces cache

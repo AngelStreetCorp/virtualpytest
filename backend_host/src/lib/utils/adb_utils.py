@@ -72,6 +72,26 @@ class AndroidApp:
         }
 
 
+def _record_ui_trace(device_id: str, reason: str, elements) -> None:
+    """Put one dumped tree into this execution's UI trace.
+
+    Imported lazily and wrapped: a trace is diagnostics, and adb_utils is used by paths that
+    must not take a hard dependency on the reporting layer, nor fail because of it.
+    """
+    try:
+        from shared.src.lib.utils import ui_dump_capture
+
+        rows = [
+            {'text': e.text, 'content_desc': e.content_desc,
+             'class_name': e.class_name, 'clickable': e.clickable}
+            for e in elements
+            if (e.text or '').strip() or (e.content_desc or '').strip()
+        ]
+        ui_dump_capture.record(device_id, reason, rows, len(elements))
+    except Exception as e:
+        print(f"[@lib:adbUtils:_record_ui_trace] skipped: {e}")
+
+
 class ADBUtils:
     """ADB utilities for Android device control using direct ADB commands."""
     
@@ -466,8 +486,13 @@ class ADBUtils:
         """
         return self.close_app(device_id, package_name)
             
-    def dump_elements(self, device_id: str) -> Tuple[bool, List[AndroidElement], str]:
+    def dump_elements(self, device_id: str, reason: str = 'dump') -> Tuple[bool, List[AndroidElement], str]:
         """
+        Every dump is recorded into this execution's UI trace (ui_dump_capture), which the
+        report uploads and links. `reason` is whatever the caller was doing — a selector, a
+        verification, a bare 'dump' — so the trace says why each tree was read without
+        anything here needing to know what the caller considers significant.
+
         Dump UI elements from Android device (similar to TypeScript version).
         
         Args:
@@ -507,6 +532,7 @@ class ADBUtils:
             elements = self._parse_ui_elements(stdout)
 
             print(f"[@lib:adbUtils:dump_elements] Processing complete: {len(elements)} useful elements")
+            _record_ui_trace(device_id, reason, elements)
             return True, elements, ""
             
         except Exception as e:
@@ -854,20 +880,30 @@ class ADBUtils:
                 print(f"[@lib:adbUtils:get_device_resolution] Command failed: {stderr}")
                 return None
             
-            # Look for current display dimensions in dumpsys output
-            # Pattern matches: mDisplayWidth=2340, mDisplayHeight=1080 (landscape)
-            # or mDisplayWidth=1080, mDisplayHeight=2340 (portrait)
+            # Look for current display dimensions in dumpsys output. Prefer
+            # mOverrideDisplayInfo's "real WxH" - this is the live, rotation-aware size
+            # DisplayManagerService is actually compositing right now. Verified on a rotated
+            # S21 (Android 15-ish) where mDisplayWidth/mDisplayHeight ALSO exist elsewhere in
+            # the same dumpsys output but are stale (report the base portrait size even while
+            # rotated to landscape) - mBaseDisplayInfo's "real" has the same staleness problem,
+            # so neither of those is a safe substitute for mOverrideDisplayInfo.
+            override_match = re.search(r'mOverrideDisplayInfo=DisplayInfo\{[^\n]*?real (\d+) x (\d+)', stdout)
+            if override_match:
+                width = int(override_match.group(1))
+                height = int(override_match.group(2))
+                return {'width': width, 'height': height}
+
+            # Fall back for older Android versions that predate mOverrideDisplayInfo, where
+            # mDisplayWidth/mDisplayHeight are the live rotation-aware fields instead.
             width_match = re.search(r'mDisplayWidth=(\d+)', stdout)
             height_match = re.search(r'mDisplayHeight=(\d+)', stdout)
-            
-            if not width_match or not height_match:
-                print(f"[@lib:adbUtils:get_device_resolution] Could not parse display resolution")
-                return None
-                
-            width = int(width_match.group(1))
-            height = int(height_match.group(1))
-            
-            return {'width': width, 'height': height}
+            if width_match and height_match:
+                width = int(width_match.group(1))
+                height = int(height_match.group(1))
+                return {'width': width, 'height': height}
+
+            print(f"[@lib:adbUtils:get_device_resolution] Could not parse display resolution")
+            return None
             
         except Exception as e:
             print(f"[@lib:adbUtils:get_device_resolution] Error: {e}")
@@ -1094,7 +1130,8 @@ class ADBUtils:
             print(f"[@lib:adbUtils:smart_element_search] Smart searching for '{search_term}' on device {device_id}")
             
             # Get all UI elements
-            dump_success, elements, dump_error = self.dump_elements(device_id)
+            dump_success, elements, dump_error = self.dump_elements(
+                device_id, f'smart_element_search({search_term!r})')
             
             if not dump_success:
                 # Make infrastructure failures more explicit in smart search

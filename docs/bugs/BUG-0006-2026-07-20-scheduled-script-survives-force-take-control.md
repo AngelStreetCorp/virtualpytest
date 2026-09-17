@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | device locks / deployment scheduler / abort                  |
-| Fixed in  | build 8713                                                   |
+| Fixed in  | build 8414                                                   |
 | Commit    | `320490598`                                                    |
 
 ---

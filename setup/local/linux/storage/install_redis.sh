@@ -6,6 +6,22 @@
 set -e
 
 echo "🔴 VirtualPyTest - Installing Redis Server"
+
+# The password comes from the project .env, which shared/write_env.sh generates before this
+# script runs (install_all.sh order). It used to be a fixed literal written into
+# redis.conf — the same password on every install of a public repo. Nothing is defaulted:
+# a missing value means write_env.sh has not run.
+REDIS_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$REDIS_SCRIPT_DIR/../../../.." && pwd)"
+ROOT_ENV="$PROJECT_ROOT/.env"
+env_value() { grep -E "^$1=" "$ROOT_ENV" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | xargs; }
+REDIS_PASS="$(env_value REDIS_PASSWORD)"
+if [ -z "$REDIS_PASS" ] || [ "$REDIS_PASS" = CHANGE_ME ]; then
+    echo "❌ REDIS_PASSWORD is not set in $ROOT_ENV"
+    echo "   Run setup/local/linux/shared/write_env.sh --with-storage first (install_all.sh does)."
+    exit 1
+fi
+echo "   using the Redis password from $ROOT_ENV"
 echo "📦 Installing Redis server..."
 
 # Install Redis server
@@ -22,7 +38,12 @@ sudo chown -R redis:redis /etc/redis
 
 # Configure Redis
 echo "⚙️ Configuring Redis server..."
-sudo tee /etc/redis/redis.conf > /dev/null << 'EOF'
+sudo tee /etc/redis/redis.conf > /dev/null << EOF
+# requirepass mirrors REDIS_PASSWORD in the project .env. Change it there and re-run this
+# script; the app reads the same value through REDIS_URL.
+requirepass $REDIS_PASS
+EOF
+sudo tee -a /etc/redis/redis.conf > /dev/null << 'EOF'
 # Redis configuration for VirtualPyTest
 bind 0.0.0.0
 port 6379
@@ -32,9 +53,6 @@ daemonize no
 supervised systemd
 loglevel notice
 logfile /var/log/redis/redis-server.log
-
-# Security
-requirepass admin1234
 
 # Memory management
 maxmemory 256mb
@@ -124,7 +142,7 @@ done
 
 # Test Redis connection
 echo "🧪 Testing Redis connection..."
-if redis-cli -a admin1234 ping | grep -q "PONG"; then
+if redis-cli -a "$REDIS_PASS" --no-auth-warning ping | grep -q "PONG"; then
     echo "   ✅ Redis is running and responding to commands"
 else
     echo "   ❌ Redis is not responding to ping command"
@@ -215,7 +233,7 @@ sudo cp "${CONFIG_DIR}/redis-commander.service" /etc/systemd/system/redis-comman
 
 # Update ExecStart with the correct binary path if it was detected
 if [ -n "$REDIS_COMMANDER_PATH" ]; then
-    sudo sed -i "s|ExecStart=.*redis-commander.*|ExecStart=$REDIS_COMMANDER_PATH --redis-host 127.0.0.1 --redis-port 6379 --redis-password admin1234 --http-auth admin:admin1234|" /etc/systemd/system/redis-commander.service
+    sudo sed -i "s|ExecStart=.*redis-commander.*|ExecStart=$REDIS_COMMANDER_PATH --redis-host 127.0.0.1 --redis-port 6379 --redis-password $REDIS_PASS --http-auth admin:$REDIS_PASS|" /etc/systemd/system/redis-commander.service
     echo "   ✅ Service file updated with binary path: $REDIS_COMMANDER_PATH"
 fi
 
@@ -306,7 +324,7 @@ echo "   • Port: 8081"
 echo "   • Status: $(sudo systemctl is-active redis-commander)"
 echo "   • Local URL: http://localhost:8081"
 echo "   • Proxied URL: https://your-domain/redis/"
-echo "   • Web login: admin / admin1234"
+echo "   • Web login: admin / the REDIS_PASSWORD in $ROOT_ENV"
 echo ""
 echo "🔧 Management Commands:"
 echo "   Redis Server:"
@@ -326,15 +344,15 @@ echo "📝 Configuration Values for VirtualPyTest:"
 echo ""
 echo "   Redis Server:"
 echo "   • Local Redis (with password):"
-echo "     REDIS_URL=redis://:admin1234@localhost:6379/0"
+echo "     REDIS_URL=redis://:\$REDIS_PASSWORD@localhost:6379/0   # from .env"
 echo "   • Remote Redis (with password):"
-echo "     REDIS_URL=redis://:admin1234@192.168.0.101:6379/0"
+echo "     REDIS_URL=redis://:\$REDIS_PASSWORD@<storage-host>:6379/0"
 echo ""
 echo "   Redis Commander Web GUI:"
 echo "   • Local URL: http://localhost:8081"
 echo "   • Proxied URL: https://your-domain/redis/"
-echo "   • Web login: admin / admin1234"
-echo "   • Redis connection: 127.0.0.1:6379 with password 'admin1234' (auto-configured)"
+echo "   • Web login: admin / the REDIS_PASSWORD in $ROOT_ENV"
+echo "   • Redis connection: 127.0.0.1:6379, password from REDIS_PASSWORD in .env (auto-configured)"
 echo ""
 echo "   Test script available: test_redis.py (supports password auth)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

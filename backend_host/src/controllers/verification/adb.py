@@ -16,6 +16,7 @@ import os
 
 from  backend_host.src.lib.utils.adb_utils import ADBUtils, AndroidElement
 from ..base_controller import VerificationControllerInterface
+from . import element_watch
 
 
 class ADBVerificationController(VerificationControllerInterface):
@@ -64,7 +65,7 @@ class ADBVerificationController(VerificationControllerInterface):
             self.is_connected = False
             return False
 
-    def getElementLists(self) -> Tuple[bool, List[Dict[str, Any]], str]:
+    def getElementLists(self, reason: str = 'getElementLists') -> Tuple[bool, List[Dict[str, Any]], str]:
         """
         Get list of all UI elements from ADB UI dump.
         
@@ -75,7 +76,7 @@ class ADBVerificationController(VerificationControllerInterface):
             print(f"[@controller:ADBVerification:getElementLists] Getting elements for device {self.device_id}")
             
             # Use existing adbUtils to dump UI elements
-            success, elements, error = self.adb_utils.dump_elements(self.device_id)
+            success, elements, error = self.adb_utils.dump_elements(self.device_id, reason)
             
             if not success:
                 print(f"[@controller:ADBVerification:getElementLists] Failed: {error}")
@@ -453,6 +454,33 @@ class ADBVerificationController(VerificationControllerInterface):
             
             return False, error_msg, result_data
     
+    # ---- watching one element's label over time -----------------------------------------
+    # Shared with the mobile-app feature's phone controller via element_watch, so a navigation
+    # tree that uses these runs unchanged on an adb device and on a paired phone.
+
+    def _element_label(self, term: str) -> Tuple[bool, str, Dict[str, Any], str]:
+        """What element_watch needs: the label of the first element matching `term`."""
+        ok, elements, error = self.getElementLists(f'watch {term!r}')
+        if not ok:
+            return False, '', {}, error
+        return element_watch.first_labelled_match(elements, term)
+
+    def waitForElementToChange(self, search_term: str, timeout: float = 0.0):
+        """Pass as soon as the element's label differs from the first reading.
+
+        A UI dump carries a player's own position, which answers "is this playing?" directly
+        instead of inferring it from pixels that move.
+        """
+        return element_watch.wait_for_change(self._element_label, search_term, timeout,
+                                             '[@controller:ADBVerification]')
+
+    def waitForElementToStopChanging(self, search_term: str,
+                                     duration: float = element_watch.DEFAULT_STABLE_S,
+                                     timeout: float = 0.0):
+        """Pass once the element's label has held the same value for `duration` seconds."""
+        return element_watch.wait_for_stable(self._element_label, search_term, duration,
+                                             timeout, '[@controller:ADBVerification]')
+
     def getMenuInfo(self, area: dict = None, context = None) -> Dict[str, Any]:
         """
         Extract menu info from UI dump (ADB-based alternative to OCR getMenuInfo).
@@ -668,7 +696,7 @@ class ADBVerificationController(VerificationControllerInterface):
         """Get available verifications for ADB controller with typed parameters."""
         from shared.src.lib.schemas.param_types import create_param, create_output, ParamType, OutputType
         
-        return [
+        return element_watch.declare_verifications(create_param, ParamType, 'ADB UI dump') + [
             {
                 'command': 'waitForElementToAppear',
                 'label': 'Wait for Element to Appear',
@@ -817,6 +845,21 @@ class ADBVerificationController(VerificationControllerInterface):
             elif command == 'waitForElementToDisappear':
                 success, message, details = self.waitForElementToDisappear(
                     search_term=search_term,
+                    timeout=timeout
+                )
+            elif command == 'waitForElementToChange':
+                success, message, details = self.waitForElementToChange(
+                    search_term=search_term,
+                    timeout=timeout
+                )
+            elif command == 'waitForElementToStopChanging':
+                # `duration` is seconds, matching DetectMotion, while `timeout` arrives in
+                # milliseconds like every other verification a tree records (converted above).
+                duration = float(params.get('duration', element_watch.DEFAULT_STABLE_S)
+                                 or element_watch.DEFAULT_STABLE_S)
+                success, message, details = self.waitForElementToStopChanging(
+                    search_term=search_term,
+                    duration=duration,
                     timeout=timeout
                 )
             else:

@@ -39,8 +39,6 @@ builds its own local dict and is never stored as `TEST_CONFIG`). Calling
 instead of assuming a future fix.
 """
 
-import pytest
-
 
 def test_get_test_config_auto_discovers_routes(get, api_headers):
     response = get("/server/api-testing/config", headers=api_headers)
@@ -79,20 +77,3 @@ def test_get_categories_groups_static_routes(get, api_headers):
     assert isinstance(body.get("total_endpoints"), int)
 
 
-@pytest.mark.skip(
-    reason="POST /server/api-testing/run is a real test-runner that fires HTTP "
-    "requests at other live server endpoints as a side effect — not safe to "
-    "exercise from this non-regression suite."
-)
-def test_run_tests_not_exercised():
-    pass
-
-
-@pytest.mark.skip(
-    reason="POST /server/api-testing/quick executes the 'critical' endpoint "
-    "battery (navigation execution, script execution, etc.) against other "
-    "live server endpoints as a side effect — not safe to exercise from this "
-    "non-regression suite."
-)
-def test_quick_test_not_exercised():
-    pass

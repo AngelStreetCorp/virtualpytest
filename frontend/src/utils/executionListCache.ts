@@ -66,6 +66,29 @@ export async function getCachedCampaignExecutableList(apiUrl: string): Promise<a
   return campaignExecutableListInflight;
 }
 
+/**
+ * What is cached right now, without fetching — or null when there is nothing fresh.
+ *
+ * The async getters above already avoid the request on a cache hit, but a caller still has to
+ * `await` them, and a page that flips a loading flag before awaiting shows its loading state
+ * for a frame on every mount. Peeking first lets it seed from the cache synchronously and skip
+ * the flag entirely, which is the difference between a list that is simply there and one that
+ * visibly rebuilds each time you come back to the page.
+ */
+export function peekCachedExecutableList(apiUrl: string): any | null {
+  return executableListCache && executableListCache.apiUrl === apiUrl
+    && isFresh(executableListCache.timestamp)
+    ? executableListCache.data
+    : null;
+}
+
+export function peekCachedCampaignExecutableList(apiUrl: string): any | null {
+  return campaignExecutableListCache && campaignExecutableListCache.apiUrl === apiUrl
+    && isFresh(campaignExecutableListCache.timestamp)
+    ? campaignExecutableListCache.data
+    : null;
+}
+
 export function invalidateExecutableListCache(): void {
   executableListCache = null;
   executableListInflight = null;

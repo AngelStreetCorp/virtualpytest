@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | user provisioning (`backend_server/src/routes/server_users_routes.py`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 8887                                                   |
 | Commit    | `daa7efb31c`                                                 |
 
 ---

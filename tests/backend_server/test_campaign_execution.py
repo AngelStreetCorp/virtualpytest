@@ -15,7 +15,6 @@ hardware-driving paths are skipped.
 
 import uuid
 
-import pytest
 import requests
 
 
@@ -208,18 +207,6 @@ def test_execute_campaign_unknown_host_returns_404(base_url, api_headers, team_i
     assert response.json().get("success") is False
 
 
-@pytest.mark.skip(
-    reason="Hosts/devices ARE online right now (see GET /server/system/getAllHosts), "
-    "so this isn't blocked by missing hardware. It's excluded from the every-push "
-    "regression suite because it locks a real device and drives a full campaign/host "
-    "flow for real; candidate for a separate, manually- or schedule-triggered "
-    "hardware suite instead of a permanent skip — see tests/docs/testing-strategy.md."
-)
-def test_execute_campaign_full_flow_on_real_device():
-    """Actual campaign execution locks a real device and drives a host —
-    not safely testable without hardware in CI."""
-
-
 # ---------------------------------------------------------------------------
 # POST /server/campaigns/executionComplete
 # ---------------------------------------------------------------------------
@@ -235,19 +222,6 @@ def test_execution_complete_requires_execution_id(base_url, api_headers, verify_
     )
     assert response.status_code == 400
     assert response.json().get("success") is False
-
-
-@pytest.mark.skip(
-    reason="Hosts/devices ARE online right now (see GET /server/system/getAllHosts), "
-    "so this isn't blocked by missing hardware. It's excluded from the every-push "
-    "regression suite because it locks a real device and drives a full campaign/host "
-    "flow for real; candidate for a separate, manually- or schedule-triggered "
-    "hardware suite instead of a permanent skip — see tests/docs/testing-strategy.md."
-)
-def test_execution_complete_full_callback_flow():
-    """This is the completion webhook a real host calls after a campaign
-    finishes; invoking it with synthetic data would release real locks /
-    write real deployment_execution rows without an actual run behind it."""
 
 
 # ---------------------------------------------------------------------------
@@ -266,17 +240,6 @@ def test_get_all_campaign_results_requires_team_id(base_url, api_headers, verify
     assert response.json().get("success") is False
 
 
-@pytest.mark.xfail(
-    reason=(
-        "known bug: get_all_campaign_results() reads results['campaign_results'] "
-        "and results['count'], but shared.src.lib.database.campaign_executions_db"
-        ".get_campaign_results() only ever returns {'success', 'data'} (or "
-        "{'success': False, 'error'}) — the KeyError is caught by "
-        "handle_route_exceptions and surfaces as a 500 on every call, even with "
-        "a valid team_id. See server_campaign_execution_routes.py:446-463."
-    ),
-    strict=False,
-)
 def test_get_all_campaign_results_returns_expected_shape(base_url, api_headers, team_id, verify_ssl, request_timeout):
     response = requests.get(
         f"{base_url}/server/campaigns/results",

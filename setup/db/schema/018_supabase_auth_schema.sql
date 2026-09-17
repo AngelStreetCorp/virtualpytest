@@ -21,6 +21,15 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- a team must not delete the user's profile.
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS team_id UUID REFERENCES teams(id) ON DELETE SET NULL;
 
+-- provider_type: which platform the account is administered from. 'virtualpytest' for
+-- anyone created here; an external system provisioning over /server/users sends its own
+-- name (e.g. 'dmacp'). NOT NULL + DEFAULT so no row is ever unattributable.
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS provider_type TEXT NOT NULL DEFAULT 'virtualpytest';
+ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_provider_type_not_blank;
+ALTER TABLE public.profiles
+  ADD CONSTRAINT profiles_provider_type_not_blank CHECK (length(btrim(provider_type)) > 0);
+
 -- Enable Row Level Security
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
@@ -66,15 +75,23 @@ BEGIN
   WHERE is_default = true 
   LIMIT 1;
   
-  -- Create profile with default team assignment
-  INSERT INTO public.profiles (id, email, full_name, avatar_url, role, team_id)
+  -- Create profile with default team assignment.
+  -- full_name falls back to the local part of the email (marie.dupont@x -> marie.dupont):
+  -- admin-created users carry no user_metadata at all, so without it every provisioned
+  -- account lands with a blank name.
+  INSERT INTO public.profiles (id, email, full_name, avatar_url, role, team_id, provider_type)
   VALUES (
     NEW.id,
     NEW.email,
-    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name'),
+    COALESCE(
+      NULLIF(btrim(NEW.raw_user_meta_data->>'full_name'), ''),
+      NULLIF(btrim(NEW.raw_user_meta_data->>'name'), ''),
+      NULLIF(split_part(COALESCE(NEW.email, ''), '@', 1), '')
+    ),
     NEW.raw_user_meta_data->>'avatar_url',
     'viewer', -- Default role for new users
-    default_team_id
+    default_team_id,
+    COALESCE(NULLIF(btrim(NEW.raw_app_meta_data->>'provider_type'), ''), 'virtualpytest')
   );
   
   -- Add user to default team in team_members table

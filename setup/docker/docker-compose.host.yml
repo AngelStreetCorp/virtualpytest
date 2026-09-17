@@ -16,7 +16,7 @@ services:
     build:
       context: ../..
       dockerfile: backend_host/Dockerfile
-    image: virtualpytest/backend-host:local
+    image: ${VPT_REGISTRY:-ghcr.io/angelstreetcorp}/virtualpytest-host:${VPT_IMAGE_TAG:-local}
     restart: unless-stopped
     env_file: .env
     environment:

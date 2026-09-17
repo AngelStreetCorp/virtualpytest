@@ -9,7 +9,7 @@
 | Status    | Fixed — migration applied on both environments; pending code deploy and customer DBs |
 | Severity  | Low (latent — not reachable today)                           |
 | Area      | database schema (`setup/db/schema/011_deployments.sql`)       |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 8887                                                   |
 | Commit    | `daa7efb31c`                                                 |
 
 ---

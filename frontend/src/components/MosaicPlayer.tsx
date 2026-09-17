@@ -27,6 +27,7 @@ interface MosaicPlayerProps {
   onCellClick?: (deviceData: any) => void;
   hasIncidents?: boolean;
   hasDataError?: boolean;
+  displayItem?: TimelineItem | null; // Slot the loaded data came from (may lag currentIndex)
   analysisData?: any; // Device analysis data for overlays
   filter?: FilterType;
   getMosaicUrl?: (item: TimelineItem, filter: FilterType) => string;
@@ -40,6 +41,7 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   onCellClick,
   hasIncidents = false,
   hasDataError = false,
+  displayItem,
   analysisData,
   filter = 'ALL',
   getMosaicUrl,
@@ -63,7 +65,13 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   }>>([]);
   
   const currentItem = timeline[currentIndex];
-  const mosaicSrcOriginal = getMosaicUrl ? getMosaicUrl(currentItem, filter) : currentItem?.mosaicUrl || '';
+  // Show the mosaic of the frame that was actually loaded. Files are keyed by HHMM
+  // in a 24h circular buffer, so the slot's image can be a previous-day leftover the
+  // loader rejected - rendering it would contradict the "no data" state.
+  const imageItem = hasDataError ? null : displayItem ?? currentItem;
+  const mosaicSrcOriginal = imageItem
+    ? (getMosaicUrl ? getMosaicUrl(imageItem, filter) : imageItem.mosaicUrl)
+    : '';
   
   // Convert R2 URL to signed URL (handles public/private mode automatically)
   const { url: mosaicSrc } = useR2Url(mosaicSrcOriginal || null);
@@ -72,7 +80,7 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   useEffect(() => {
     setImageLoading(true);
     setImageError(false);
-  }, [filter, currentIndex]);
+  }, [filter, currentIndex, mosaicSrcOriginal]);
 
   // Calculate overlay positions based on actual image dimensions
   const calculatePositions = useCallback(() => {
@@ -179,8 +187,16 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
       return;
     }
     
-    // Preload image
+    // Preload image.
+    // crossOrigin matters here, it is not decoration: storage serves these mosaics with
+    // `Cross-Origin-Resource-Policy: same-origin`, which blocks a plain (no-cors) <img> load
+    // from any other origin — net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin. On the web the page
+    // and the image share an origin so nothing notices, but the mobile app runs on
+    // https://localhost and every mosaic failed there ("No mosaic available"). CORP is only
+    // enforced for no-cors requests, and the response already carries a matching
+    // Access-Control-Allow-Origin, so asking for CORS mode is what makes it load.
     const img = new Image();
+    img.crossOrigin = 'anonymous';
     img.onload = () => {
       imageCache.current.set(mosaicSrc, img);
       setImageLoading(false);
@@ -313,7 +329,7 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
           justifyContent: 'center'
         }}
       >
-        {imageError ? (
+        {imageError || !imageItem ? (
           <Alert 
             severity="warning" 
             sx={{ 
@@ -327,6 +343,7 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
           <>
             <img
               ref={imgElementRef}
+              crossOrigin="anonymous"
               src={mosaicSrc || undefined}
               alt={`Heatmap ${currentItem.timeKey} - ${filter}`}
               style={{

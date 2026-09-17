@@ -319,7 +319,11 @@ class Device:
             
             for remote_controller in remote_controllers:
                 controller_name = remote_controller.__class__.__name__.lower()
-                if 'androidmobile' in controller_name:
+                if 'phoneagent' in controller_name:
+                    # features/mobile-app paired phone — must precede the generic
+                    # checks so it never reads as an ADB remote.
+                    remote_implementations.append('phone_agent')
+                elif 'androidmobile' in controller_name:
                     remote_implementations.append('android_mobile')
                 elif 'androidtv' in controller_name:
                     remote_implementations.append('android_tv')

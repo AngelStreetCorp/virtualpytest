@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  VptAccessibilityService config — drives every §1.3 input command (tap/swipe/key/text/dump_ui).
+  canPerformGestures: dispatchGesture for tap/swipe.
+  canRetrieveWindowContent: rootInActiveWindow traversal for dump_ui and ACTION_SET_TEXT.
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeAllMask"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagDefault|flagRetrieveInteractiveWindows"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:canRequestFilterKeyEvents="false"
+    android:notificationTimeout="0" />

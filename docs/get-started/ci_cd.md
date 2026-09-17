@@ -16,7 +16,7 @@ with two inputs: `suite` (`all` / `white` / `grey`) and `runner` (`self-hosted` 
 | **E2E All Pages (Screenshot + Error Check)** | self-hosted | every page renders without console errors |
 | **E2E Viewport Tests** | self-hosted | layout at phone / tablet / desktop widths |
 | **Web Script Local Debug (Python Playwright)** (`web-script-local-debug`) | self-hosted | a real `web/…` test script runs end to end on the runner's own browser |
-| **API Route Sweep (Python)** (`api-routes`) | self-hosted | `run_api_tests.py --discover` calls every GET route the server registers |
+| **API Route Sweep (Python)** (`api-routes`) | self-hosted | `run_api_tests.py --discover` calls every GET route the server registers — with a real id where one exists, a synthetic one otherwise |
 
 `white` = the first six (code checks, no devices); `grey` = the browser and script jobs, which
 need the LAN runners and a running platform. Self-hosted jobs are skipped when `runner` is

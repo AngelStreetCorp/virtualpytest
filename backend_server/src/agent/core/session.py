@@ -4,8 +4,9 @@ Session Management
 Tracks chat sessions, conversation history, and pending approvals.
 """
 
-import uuid
+import json
 import logging
+import uuid
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
@@ -133,6 +134,28 @@ class Session:
         self.messages = [first_msg, summary_msg] + recent_msgs
         self.updated_at = datetime.utcnow()
     
+    def _serializable_context(self) -> Dict[str, Any]:
+        """The part of `context` that can cross the API boundary.
+
+        `context` is a free-form bag any agent may write to, and ToolBridge parks a live
+        ToolResultCache in it under `_tool_result_cache`. jsonify then answered
+        500 "Object of type ToolResultCache is not JSON serializable" for GET
+        /server/agent/sessions and /sessions/<id> — for every session that had ever run a
+        tool, i.e. intermittently, depending on what was in memory (caught by CI run 708).
+        Underscore-prefixed keys are internal by convention; anything else that cannot be
+        serialized is dropped rather than taking the whole response down with it.
+        """
+        safe = {}
+        for key, value in self.context.items():
+            if key.startswith('_'):
+                continue
+            try:
+                json.dumps(value)
+            except (TypeError, ValueError):
+                continue
+            safe[key] = value
+        return safe
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
         return {
@@ -142,7 +165,7 @@ class Session:
             "mode": self.mode,
             "active_agent": self.active_agent,
             "message_count": len(self.messages),
-            "context": self.context,
+            "context": self._serializable_context(),
             "pending_approval": self.pending_approval.to_dict() if self.pending_approval else None,
             "result_count": len(self.results),
         }

@@ -991,6 +991,48 @@ def cleanup_reports(capture_dir: str) -> int:
     return _delete_stale_recursive(reports_dir, REPORTS_MAX_AGE_SECONDS, "Reports")
 
 
+# Report artifacts written directly into the capture ROOT by verification and KPI
+# runs. They are not under reports/, not under a hot subdir, and do not match any
+# per-type rotation pattern, so before this nothing ever deleted them: vpt-pi1 had
+# 5105 original_with_crop_*.png (1.8 GB) dating back to May, plus 2462 stray
+# verification_failure_*.html. Matched by explicit prefix so the sweep can never
+# touch config, manifests or test_video.mp4 sitting in the same directory.
+CAPTURE_ROOT_ARTIFACT_PREFIXES = (
+    'original_with_crop_',
+    'verification_failure_',
+    'kpi_failure_',
+)
+
+
+def cleanup_capture_root_artifacts(capture_dir: str) -> int:
+    """Delete stale verification/KPI artifacts left loose in the capture root.
+
+    Non-recursive and prefix-scoped by design — reports/ has its own sweep
+    (cleanup_reports) and the hot subdirs have theirs (sweep_stale_hot_files).
+    Shares the 30-day reports retention: these are the same class of artifact,
+    referenced by the same HTML reports.
+    """
+    cutoff = time.time() - REPORTS_MAX_AGE_SECONDS
+    deleted = 0
+    try:
+        with os.scandir(capture_dir) as it:
+            for entry in it:
+                if not entry.name.startswith(CAPTURE_ROOT_ARTIFACT_PREFIXES):
+                    continue
+                try:
+                    if entry.is_file(follow_symlinks=False) and \
+                            entry.stat(follow_symlinks=False).st_mtime < cutoff:
+                        os.remove(entry.path)
+                        deleted += 1
+                except OSError:
+                    pass
+    except OSError as e:
+        logger.error(f"Error cleaning capture root artifacts in {capture_dir}: {e}")
+    if deleted:
+        logger.info(f"Capture root: Deleted {deleted} stale artifacts older than {REPORTS_MAX_AGE_SECONDS / 86400:.0f}d")
+    return deleted
+
+
 def merge_metadata_batch(source_dir: str, pattern: str, output_path: Optional[str], batch_size: int, fps: int = 5, is_final: bool = False, capture_dir: Optional[str] = None) -> bool:
     """
     Merge metadata files into batches (mirrors merge_progressive_batch for MP4)
@@ -2231,6 +2273,9 @@ def cold_storage_loop():
                     # Reports cleanup every 1 hour (30-day retention), same per-channel tracking.
                     if time.time() - last_reports_cleanup.get(capture_dir, 0) > REPORTS_CLEANUP_INTERVAL:
                         cleanup_reports(capture_dir)
+                        # Same cadence and retention for the loose artifacts that
+                        # sit in the capture root rather than under reports/.
+                        cleanup_capture_root_artifacts(capture_dir)
                         last_reports_cleanup[capture_dir] = time.time()
 
                 except Exception as e:

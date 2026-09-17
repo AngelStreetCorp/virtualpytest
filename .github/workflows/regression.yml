@@ -109,7 +109,7 @@ jobs:
 
       - name: Clean up the venv
         if: always()
-        run: rm -rf "$RUNNER_TEMP/deps-${{ matrix.component }}-$GITHUB_RUN_ID"
+        run: rm -rf "$RUNNER_TEMP/deps-${{ matrix.component }}-$GITHUB_RUN_ID" || true   # a cancelled pip may still be writing here; never fail the job on cleanup
 
   # Runs FIRST and gates nothing else on purpose: the other jobs are about whether the code
   # works, this one is about whether the change is safe to have left the machine. It is the
@@ -195,6 +195,13 @@ jobs:
           docker system prune -af >/dev/null 2>&1 || true
           df -h / | tail -1
 
+      - name: Pre-pull images (registries time out; a red run for a slow quay.io is noise)
+        run: |
+          for attempt in 1 2 3; do
+            docker compose -f setup/docker/docker-compose.yml -f setup/docker/docker-compose.linux.yml pull --quiet && exit 0
+            echo "pull attempt ${attempt} failed; retrying in 30s"; sleep 30
+          done
+          echo "::warning::image pre-pull failed three times — launch.sh will try once more"
       - name: Launch the stack exactly like a user
         run: ./setup/docker/launch.sh
 
@@ -226,8 +233,13 @@ jobs:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'white' }}
     timeout-minutes: 5
     steps:
+      # full history + tags: check_bug_meta.py compares each shipped release-note section
+      # against the tag that carries it, which a depth-1 clone cannot see.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - run: scripts/docs/check_paths.sh
+      - run: scripts/docs/check_bug_ids.sh
 
   lint:
     name: Frontend Lint
@@ -300,7 +312,7 @@ jobs:
         if: ${{ always() && inputs.runner != 'github-hosted' }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"
           KEY="$HOME/.ssh/ci_reports_key"
           RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/jobs /opt/ci-reports/$RUN/lint"
@@ -427,7 +439,7 @@ jobs:
         if: ${{ always() && inputs.runner != 'github-hosted' }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"
           KEY="$HOME/.ssh/ci_reports_key"
           RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/jobs /opt/ci-reports/$RUN/typecheck"
@@ -509,6 +521,13 @@ jobs:
           # Unlocks the authenticated MCP protocol test (server MCP_SECRET_KEY) and the
           # cicd ingest auth/validation tests; both skipped without these.
           MCP_AUTH_TOKEN: ${{ secrets.MCP_AUTH_TOKEN }}
+          # Tier B (-m device) executes for real, so it needs the team that owns a navigable
+          # navigation tree — the CI fixture team's interface is a shell with no edges and an
+          # execution there dies with "No path found from Entry to home". Tier A keeps using
+          # TEAM_ID. The id is not a secret (it is committed in frontend/src/config/constants.ts
+          # among others); the secret is only an override hook.
+          DEVICE_TEAM_ID: ${{ secrets.DEVICE_TEAM_ID || '7fdeb4bb-3639-4ec3-959f-b54769a219ce' }}
+          DEVICE_USERINTERFACE: virtualpytest_web
           CICD_INGEST_TOKEN: ${{ secrets.CICD_INGEST_TOKEN }}
           # Role JWTs for the permission/workspace/org/integration suites (~107 tests skip
           # without them). Minted by scripts/setup_test_accounts.py for the fixed *.test@vpt.local
@@ -526,7 +545,9 @@ jobs:
           # --timeout-method=signal: a test that overruns fails on its own and pytest keeps going, so
           # the HTML report is still written. The thread method aborts the whole process on the first
           # timeout (no report at all — run #290 backend-server-tests was an empty directory).
-          pytest tests/backend_server -v --timeout=30 --timeout-method=signal --html=pytest-report/index.html --self-contained-html || rc=$?
+          # -m: `manual` has real external side effects (LLM credits, Slack posts).
+          # Deselected rather than skipped, so the report carries only tests that actually ran.
+          pytest tests/backend_server -v -m "not manual" --timeout=30 --timeout-method=signal --html=pytest-report/index.html --self-contained-html || rc=$?
           # pytest-html 4.x hardcodes its result order (Error, Failed, …, Skipped, Passed) in the
           # inline JS; rewrite it so the report lists Passed, then Failed, then Skipped.
           sed -i "s/const initialOrder = \['Error', 'Failed', 'Rerun', 'XFailed', 'XPassed', 'Skipped', 'Passed'\]/const initialOrder = ['Passed', 'Failed', 'Error', 'XPassed', 'XFailed', 'Rerun', 'Skipped']/" pytest-report/index.html || true
@@ -536,7 +557,7 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/jobs /opt/ci-reports/$RUN/backend-server-tests"
           # Advertise a report only when one was actually produced; otherwise the Reports page
           # would link to an empty directory (404).
@@ -630,7 +651,7 @@ jobs:
         if: ${{ always() && inputs.runner != 'github-hosted' }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/jobs /opt/ci-reports/$RUN/frontend-component-tests"
           if [ -f "vitest-report/index.html" ]; then
             scp -i "$KEY" -o StrictHostKeyChecking=no -r vitest-report/. "$SERVER:/opt/ci-reports/$RUN/frontend-component-tests/"
@@ -756,7 +777,7 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/e2e-smoke /opt/ci-reports/$RUN/jobs"
           if [ -d "tests/e2e/playwright/playwright-report" ]; then
             scp -i "$KEY" -o StrictHostKeyChecking=no -r tests/e2e/playwright/playwright-report/. "$SERVER:/opt/ci-reports/$RUN/e2e-smoke/"
@@ -921,7 +942,7 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/e2e-pages /opt/ci-reports/$RUN/jobs"
           if [ -d "tests/e2e/playwright/playwright-report" ]; then
             scp -i "$KEY" -o StrictHostKeyChecking=no -r tests/e2e/playwright/playwright-report/. "$SERVER:/opt/ci-reports/$RUN/e2e-pages/"
@@ -1030,7 +1051,7 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/e2e-viewport /opt/ci-reports/$RUN/jobs"
           if [ -d "tests/e2e/playwright/playwright-report" ]; then
             scp -i "$KEY" -o StrictHostKeyChecking=no -r tests/e2e/playwright/playwright-report/. "$SERVER:/opt/ci-reports/$RUN/e2e-viewport/"
@@ -1039,6 +1060,17 @@ jobs:
           ssh -i "$KEY" "$SERVER" "[ -f /opt/ci-reports/$RUN/meta.json ] || echo '{\"run\":$RUN,\"branch\":\"${{ github.ref_name }}\",\"sha\":\"${{ github.sha }}\",\"date\":\"$(date -u '+%Y-%m-%d %H:%M UTC')\"}' > /opt/ci-reports/$RUN/meta.json"
           echo '{"status":"${{ steps.run-e2e-viewport.outcome }}","report":"e2e-viewport","category":"browser"}' \
             | ssh -i "$KEY" "$SERVER" "cat > /opt/ci-reports/$RUN/jobs/e2e-viewport.json"
+          # ci_runs fallback, for the same reason as the meta.json fallback above: the run row is
+          # written by the lint job, and this is the one job with no `needs: lint`, so it can finish
+          # first — it did on runs 715 and 717, by 21s. ci_jobs has a foreign key on (project, run),
+          # so the job row was rejected ("violates foreign key constraint ci_jobs_project_run_fkey")
+          # and swallowed by the `|| echo ::warning`. The job ran and passed, its report uploaded,
+          # and the dashboard still read 9/9 with e2e-viewport simply absent — a green job missing
+          # from the scoreboard is worse than a red one. DO NOTHING, so lint's own insert stays
+          # authoritative for trigger/suite/runner when it lands after this.
+          psql "$CICD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO ci_runs (project, run, run_number, branch, sha, report_url)
+            VALUES ('virtualpytest', '$RUN', $RUN, '${{ github.ref_name }}', '${{ github.sha }}', 'https://virtualpytest.angelstreet.io/server/cicd/report/$RUN/')
+            ON CONFLICT (project, run) DO NOTHING;" || echo "::warning::ci_runs fallback insert failed"
           psql "$CICD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO ci_jobs (project, run, job, category, layer, status, report_url)
             VALUES ('virtualpytest', '$RUN', 'e2e-viewport', 'browser', 'grey', '${{ steps.run-e2e-viewport.outcome }}', 'https://virtualpytest.angelstreet.io/server/cicd/report/$RUN/e2e-viewport/')
             ON CONFLICT (project, run, job) DO UPDATE SET status = EXCLUDED.status, report_url = EXCLUDED.report_url, finished_at = now();" || echo "::warning::ci_jobs insert failed"
@@ -1181,7 +1213,7 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/jobs /opt/ci-reports/$RUN/web-script-local-debug"
           if [ -d "script-report" ]; then
             scp -i "$KEY" -o StrictHostKeyChecking=no -r script-report/. "$SERVER:/opt/ci-reports/$RUN/web-script-local-debug/"
@@ -1250,7 +1282,7 @@ jobs:
         if: ${{ always() }}
         continue-on-error: true
         run: |
-          SERVER="jndoye@192.168.0.103"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
           ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/jobs /opt/ci-reports/$RUN/api-routes"
           if [ -d "api-report" ]; then
             scp -i "$KEY" -o StrictHostKeyChecking=no -r api-report/. "$SERVER:/opt/ci-reports/$RUN/api-routes/"
@@ -1259,4 +1291,108 @@ jobs:
             | ssh -i "$KEY" "$SERVER" "cat > /opt/ci-reports/$RUN/jobs/api-routes.json"
           psql "$CICD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO ci_jobs (project, run, job, category, layer, status, report_url)
             VALUES ('virtualpytest', '$RUN', 'api-routes', 'api', 'grey', '${{ steps.run-api-tests.outcome }}', 'https://virtualpytest.angelstreet.io/server/cicd/report/$RUN/api-routes/')
+            ON CONFLICT (project, run, job) DO UPDATE SET status = EXCLUDED.status, report_url = EXCLUDED.report_url, finished_at = now();" || echo "::warning::ci_jobs insert failed"
+
+  # The platform's own self-test scripts (TC050-TC054): hosts registered, host API
+  # reachable, devices addressable, UI pages served, HLS pipeline alive. They run
+  # through the real execute path (POST /server/script/execute, poll the task) —
+  # they cannot run standalone here, because @script needs a host and a device.
+  #
+  # Added after two of the five (smoke_device_control, smoke_video_stream) were
+  # found broken with no signal at all: nothing in CI had ever run them (BUG-0091).
+  vpt-smoke:
+    name: VPT Self-Test Smoke (Python)
+    runs-on: [self-hosted, Linux, X64]
+    if: >-
+      ${{ !cancelled()
+      && (needs.lint.result == 'success' || needs.lint.result == 'skipped')
+      && (github.event_name != 'workflow_dispatch'
+          || inputs.suite == 'all' || inputs.suite == 'grey')
+      && inputs.runner != 'github-hosted' }}
+    needs: lint
+    environment: production
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Configure CI Reports SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.CI_REPORTS_SSH_KEY }}" > ~/.ssh/ci_reports_key
+          chmod 600 ~/.ssh/ci_reports_key
+          # A stale ci_reports_key.pub next to the key makes ssh offer THAT public key while signing
+          # with the new private key -> 'Permission denied' (runner clone 164, 2026-09-07).
+          rm -f ~/.ssh/ci_reports_key.pub
+          ssh-keyscan -H 192.168.0.103 >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Verify Python 3.11 (system)
+        run: python3.11 --version
+
+      - name: Install dependencies
+        run: pip install requests --break-system-packages
+
+      - name: Run VPT smoke scripts
+        id: run-vpt-smoke
+        continue-on-error: true
+        env:
+          SERVER_URL: ${{ secrets.E2E_BASE_URL }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+          API_KEY: ${{ secrets.API_KEY }}
+        run: python tests/test_scripts/run_vpt_smoke.py --json-out vpt-smoke.json
+
+      - name: Generate smoke HTML report
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          mkdir -p vpt-smoke-report
+          python3 - << 'PYEOF'
+          import html, json, os
+
+          data = {"results": []}
+          if os.path.exists("vpt-smoke.json"):
+              with open("vpt-smoke.json", encoding="utf-8") as handle:
+                  data = json.load(handle)
+
+          rows = []
+          for r in data.get("results", []):
+              colour = "#1a7f37" if r["ok"] else "#cf222e"
+              detail = html.escape(str(r.get("detail") or ""))
+              link = (f'<a href="{detail}">report</a>'
+                      if detail.startswith("http") else detail)
+              rows.append(
+                  f'<tr><td style="color:{colour};font-weight:600">'
+                  f'{"PASS" if r["ok"] else "FAIL"}</td>'
+                  f'<td><code>{html.escape(r["script"])}</code></td>'
+                  f'<td>{r.get("seconds", 0)}s</td><td>{link}</td></tr>'
+              )
+
+          passed = sum(1 for r in data.get("results", []) if r["ok"])
+          total = len(data.get("results", []))
+          with open("vpt-smoke-report/index.html", "w", encoding="utf-8") as handle:
+              handle.write(
+                  "<html><head><meta charset='utf-8'><title>VPT Self-Test Smoke</title>"
+                  "<style>body{font:14px system-ui;margin:2rem}"
+                  "table{border-collapse:collapse}td,th{padding:.4rem .8rem;"
+                  "border-bottom:1px solid #d0d7de;text-align:left}</style></head><body>"
+                  f"<h1>VPT Self-Test Smoke</h1><p>{passed}/{total} passed"
+                  f" &middot; host <code>{html.escape(str(data.get('host')))}</code>"
+                  f" device <code>{html.escape(str(data.get('device')))}</code></p>"
+                  "<table><tr><th>Result</th><th>Script</th><th>Time</th><th></th></tr>"
+                  + "".join(rows) + "</table></body></html>"
+              )
+          PYEOF
+
+      - name: Save job result
+        if: ${{ always() }}
+        continue-on-error: true
+        run: |
+          SERVER="${{ secrets.CI_REPORTS_SERVER }}"; KEY="$HOME/.ssh/ci_reports_key"; RUN="${{ github.run_number }}"
+          ssh -i "$KEY" "$SERVER" "mkdir -p /opt/ci-reports/$RUN/jobs /opt/ci-reports/$RUN/vpt-smoke"
+          if [ -d "vpt-smoke-report" ]; then
+            scp -i "$KEY" -o StrictHostKeyChecking=no -r vpt-smoke-report/. "$SERVER:/opt/ci-reports/$RUN/vpt-smoke/"
+          fi
+          echo '{"status":"${{ steps.run-vpt-smoke.outcome }}","report":"vpt-smoke","category":"script"}' \
+            | ssh -i "$KEY" "$SERVER" "cat > /opt/ci-reports/$RUN/jobs/vpt-smoke.json"
+          psql "$CICD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "INSERT INTO ci_jobs (project, run, job, category, layer, status, report_url)
+            VALUES ('virtualpytest', '$RUN', 'vpt-smoke', 'script', 'grey', '${{ steps.run-vpt-smoke.outcome }}', 'https://virtualpytest.angelstreet.io/server/cicd/report/$RUN/vpt-smoke/')
             ON CONFLICT (project, run, job) DO UPDATE SET status = EXCLUDED.status, report_url = EXCLUDED.report_url, finished_at = now();" || echo "::warning::ci_jobs insert failed"

@@ -20,9 +20,15 @@ Environment="NODE_OPTIONS=--max-old-space-size=1536"
 # Reload systemd in case the service file was updated via code sync
 ExecStartPre=+/usr/bin/systemctl daemon-reload
 
-# Build with automatic prebuild (generates API docs, security reports, copies to public/)
-# npm prebuild hook runs: scripts/prebuild.sh → generate_api_docs.py + generate-security-docs.sh + copy-docs.sh
-ExecStartPre=/usr/bin/npm run build
+# Make dist/ current — normally a no-op that returns in about a second.
+# This used to be `npm run build`, i.e. the full doc pipeline + Vite build with
+# the service already stopped, so every `systemctl restart` was 4+ minutes of
+# hard downtime (BUG-0103). update_core.sh now runs this same script right after
+# the rsync, while the previous `serve` is still answering requests; by the time
+# systemd gets here the bundle stamp matches and there is nothing to do.
+# It still rebuilds when the tree changed without a deploy build — into dist.new,
+# swapped in at the end — so a restart can never serve a stale bundle.
+ExecStartPre=/usr/bin/env bash scripts/ensure_dist.sh
 
 # Serve the built dist folder on port 5073
 ExecStart=/usr/bin/npm run start
@@ -31,9 +37,10 @@ ExecStart=/usr/bin/npm run start
 Restart=on-failure
 RestartSec=10
 
-# Resource limits (prebuild + vite build can take up to 120s with doc generation)
-# ExecStartPre runs the production build (docs generation + Vite). On a 4-vCPU machine the
-# first build takes 10-20 min; a shorter timeout makes systemd kill and restart it forever.
+# Resource limits. ExecStartPre is a stamp check on the normal path, but it still
+# has to cover the fallback where it finds no usable bundle and builds one: on a
+# 4-vCPU machine a cold build (doc generation + Vite) takes 10-20 min, and a
+# shorter timeout makes systemd kill and restart it forever.
 TimeoutStartSec=1800
 TimeoutStopSec=30
 

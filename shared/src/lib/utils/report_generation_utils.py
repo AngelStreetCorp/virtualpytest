@@ -149,28 +149,47 @@ def _build_default_overview_section(
     final_screenshot_html: str,
     test_video_html: str,
 ) -> str:
-    """Build the standard script report overview section."""
-    return f"""
-            <div class="state-video-grid-container">
+    """Build the standard script report overview section.
+
+    Each state/video box only renders when it has content, so scripts run with
+    capture_artifacts=False (no screenshots, no video - e.g. network/CLI
+    diagnostics) don't leave behind empty "not available" boxes.
+    """
+    grid_items = []
+    if initial_screenshot_html:
+        grid_items.append(f"""
                 <div class="state-video-grid-item">
                     <h3>Initial State</h3>
                     <div class="screenshot-container">
                         {initial_screenshot_html}
                     </div>
-                </div>
+                </div>""")
+    if final_screenshot_html:
+        grid_items.append(f"""
                 <div class="state-video-grid-item">
                     <h3>Final State</h3>
                     <div class="screenshot-container">
                         {final_screenshot_html}
                     </div>
-                </div>
+                </div>""")
+    if test_video_html:
+        grid_items.append(f"""
                 <div class="state-video-grid-item">
                     <h3>Test Execution Video</h3>
                     <div class="test-video-content">
                         {test_video_html}
                     </div>
-                </div>
-            </div>
+                </div>""")
+
+    grid_section = ''
+    if grid_items:
+        grid_section = f"""
+            <div class="state-video-grid-container">
+                {''.join(grid_items)}
+            </div>"""
+
+    return f"""
+            {grid_section}
             <div class="execution-summary-section">
                 <h3>Execution Summary</h3>
                 <div class="execution-summary-content">
@@ -285,6 +304,8 @@ def generate_validation_report(report_data: Dict) -> str:
             ('📝 Execution Logs', report_data.get('logs_url', '')),
             ('📦 Metadata', metadata_url),
             ('📝 Verification review', verification_review_url),
+            # Only present when a selector missed; _build_report_links_bar drops empty URLs.
+            ('🔍 UI dumps', report_data.get('ui_dumps_url', '')),
             ('📝 Code Source', script_source_url),
             ('📺 Zap Report', zap_report_url),
             ('🧩 Mosaic', report_data.get('mosaic_url', '')),
@@ -320,7 +341,7 @@ def generate_validation_report(report_data: Dict) -> str:
 
         initial_screenshot_html = get_thumbnail_screenshot_html(screenshots.get('initial'))
         final_screenshot_html = get_thumbnail_screenshot_html(screenshots.get('final'))
-        test_video_html = get_video_thumbnail_html(test_video_url, 'Test Execution')
+        test_video_html = get_video_thumbnail_html(test_video_url, 'Test Execution') if test_video_url else ''
         execution_summary_html = format_console_summary_for_html(report_data.get('execution_summary', ''))
         overview_section = _build_default_overview_section(
             execution_summary_html=execution_summary_html,
@@ -559,6 +580,32 @@ def generate_and_upload_script_report(
         except Exception as dom_error:
             print(f"[@utils:report_utils:generate_and_upload_script_report] DOM capture upload skipped: {dom_error}")
 
+        # Upload this execution's UI dump traces (device scripts) the same way: a selector
+        # that missed is only diagnosable against the tree it actually searched, and that
+        # belongs in the report rather than in execution.txt. Empty for scripts that never
+        # missed a selector, and for web scripts.
+        ui_dumps_url = ''
+        try:
+            from .ui_dump_capture import get_ui_dump_count, get_ui_dump_file
+            ui_dumps_path = get_ui_dump_file()
+            if ui_dumps_path:
+                dump_count = get_ui_dump_count()
+                print(f"[@utils:report_utils:generate_and_upload_script_report] "
+                      f"Uploading {dump_count} UI dump trace(s)...")
+                ui_dumps_result = get_cloudflare_utils().upload_files([{
+                    'local_path': ui_dumps_path,
+                    'remote_path': f"{artifact_folder_path}/ui_dumps.txt",
+                    'content_type': 'text/plain; charset=utf-8',
+                }], for_report_assets=True)
+                uploaded = ui_dumps_result.get('uploaded_files', [])
+                ui_dumps_url = uploaded[0]['url'] if uploaded else ''
+                try:
+                    os.remove(ui_dumps_path)
+                except OSError:
+                    pass
+        except Exception as ui_dump_error:
+            print(f"[@utils:report_utils:generate_and_upload_script_report] UI dump upload skipped: {ui_dump_error}")
+
         script_source_url = ''
         script_source_path = ''
         script_source_ref = ''
@@ -725,6 +772,7 @@ def generate_and_upload_script_report(
             'code_version': _read_code_version(),
             'trigger': trigger or {},
             'dom_captures': dom_capture_links,
+            'ui_dumps_url': ui_dumps_url,
             'mosaic_url': mosaic_url,
             'mosaic_tiles': mosaic_tiles,
         }
@@ -756,6 +804,7 @@ def generate_and_upload_script_report(
                 'verification_review_path': verification_review_path,
                 'mosaic_url': mosaic_url,
                 'mosaic_path': mosaic_r2_path,
+                'ui_dumps_url': ui_dumps_url,
             }
         else:
             print(f"[@utils:report_utils:generate_and_upload_script_report] Upload failed: {upload_result.get('error', 'Unknown error')}")

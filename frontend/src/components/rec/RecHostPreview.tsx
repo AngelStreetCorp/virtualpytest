@@ -1,9 +1,11 @@
 import { Error as ErrorIcon, Lock as LockIcon, LocalOffer as TagIcon } from '@mui/icons-material';
+import { withVncCacheBust } from '../../utils/buildUrlUtils';
+import { useHostSession } from '../../hooks/useHostSession';
 import { Card, Typography, Box, Chip, CircularProgress, Checkbox, Tooltip, IconButton } from '@mui/material';
 import React, { useState, useCallback, useMemo, useEffect, useRef, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { featureDeviceLinks } from '../../config/features';
+import { featureDeviceLinks, featurePreviewAction } from '../../config/features';
 
 import { DEFAULT_DEVICE_RESOLUTION } from '../../config/deviceResolutions';
 import { isMobileModel } from '../../config/layoutConfig';
@@ -13,11 +15,12 @@ import { useDeviceLockLabel } from '../../hooks/rec/useDeviceLockLabel';
 import { useHostControl } from '../../hooks/useHostManager';
 import { useToast } from '../../hooks/useToast';
 import { Host, Device } from '../../types/common/Host_Types';
-import { calculateVncScaling } from '../../utils/vncUtils';
+import { calculateVncScaling, vncScaledSize } from '../../utils/vncUtils';
 import { getLockTimingLines } from '../../utils/recUtils';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { DeviceInfoTooltipIcon } from '../common/DeviceInfoTooltipIcon';
 import LocalizeButton from '../navigation/Navigation_LocalizeButton';
+import { DeviceStatusChip } from './DeviceStatusChip';
 import { RunningScriptNameBadge } from './RunningScriptNameBadge';
 
 // Memoized HLS player declared outside the component to retain identity across renders
@@ -98,10 +101,22 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
     device_id: device?.device_id || 'device1',
   });
 
+  // BUG-0107 step 2: the proxy's auth_request gate rejects the iframe's navigation to
+  // /host/<name>/vnc_lite.html without this cookie. Must be set BEFORE the iframe is
+  // given a src, so the preview iframe only renders once the mint call resolves. Not
+  // keepAlive: the websocket handshake is the only request the gate ever sees, the
+  // connection then persists independent of cookie expiry. (The non-VNC HLS preview
+  // below is gated separately, internally, by HLSVideoPlayer itself.)
+  const vncSessionReady = useHostSession(isVncDevice ? streamUrl : null, false);
+
   const previewVncScaling = useMemo(
     () => calculateVncScaling({ width: 300, height: 150 }),
     [],
   );
+  // The size that scaling actually paints. The wrapper below takes it so the render can be
+  // centred in the card, which the iframe itself cannot be — its box is the whole remote
+  // desktop.
+  const previewVncSize = useMemo(() => vncScaledSize({ width: 300, height: 150 }), []);
 
   // Memoize layout config to prevent unnecessary re-renders
   const layoutConfig = useMemo(() => ({
@@ -145,8 +160,19 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
     }
   }, []);
 
+  // An optional feature can claim this device model's click (config/features.ts). It is
+  // mounted below and tells us whether it wants it — a phone slot does while it has no phone
+  // on it, since the "stream" behind the card is only the offline placeholder.
+  const previewAction = featurePreviewAction(device?.device_model);
+  const [featureCanHandleClick, setFeatureCanHandleClick] = useState(false);
+  const [featureActionOpen, setFeatureActionOpen] = useState(false);
+
   // Handle opening/closing with restored state — only block if no stream is available
   const handleOpenStreamModal = useCallback(() => {
+    if (previewAction && featureCanHandleClick) {
+      setFeatureActionOpen(true);
+      return;
+    }
     if (!streamUrl || streamError) {
       // Stable per-device id so repeated clicks on a dead-stream card replace
       // the single popup instead of stacking one per click.
@@ -158,30 +184,17 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
     const poster = captureVideoPoster();
     setIsStreamActive(false);
     onOpenModal?.(poster);
-  }, [streamUrl, streamError, showError, onOpenModal, captureVideoPoster, host.host_name, deviceId]);
-
-  const getStatusColor = (status: string, isStuck: boolean = false) => {
-    // If processes are stuck, always show error regardless of host status
-    if (isStuck) {
-      return 'error';
-    }
-    
-    switch (status) {
-      case 'online':
-        return 'success';
-      case 'offline':
-        return 'error';
-      default:
-        return 'default';
-    }
-  };
-
-  // Check if host has stuck processes
-  const isHostStuck = useMemo(() => {
-    const services = host.system_stats?.service_health?.services;
-    if (!services) return false;
-    return services.some((s) => s.status === 'stuck');
-  }, [host.system_stats?.service_health?.services]);
+  }, [
+    previewAction,
+    featureCanHandleClick,
+    streamUrl,
+    streamError,
+    showError,
+    onOpenModal,
+    captureVideoPoster,
+    host.host_name,
+    deviceId,
+  ]);
 
   // Clean display values - special handling for VNC devices
   const displayName = device
@@ -399,13 +412,7 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
               </Tooltip>
             ))}
 
-          {/* Status chip */}
-          <Chip
-            label={isHostStuck ? 'error' : host.status}
-            size="small"
-            color={getStatusColor(host.status, isHostStuck) as any}
-            sx={{ fontSize: '0.7rem', height: 20 }}
-          />
+          <DeviceStatusChip host={host} isRunning={hasNamedDeployment} />
         </Box>
       )}
 
@@ -428,20 +435,40 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                   height: '100%',
                   backgroundColor: 'black',
                   overflow: 'hidden',
+                  // Centring is safe here ONLY because the flex item is the fixed-size
+                  // wrapper below, never the iframe. calculateVncScaling gives the iframe a
+                  // 1440x847 layout box that it shrinks with a transform about 'top left';
+                  // as a flex item that box gets shrunk to ~300px wide and centred, putting
+                  // its top-left ~350px ABOVE the card, and the transform then scales about
+                  // that off-card corner — which overflow hidden clips to a black card
+                  // (BUG-0104). The wrapper is already the painted size, so centring it
+                  // moves the render and nothing else.
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                {/* Only render VNC iframe when stream is active */}
-                {isStreamActive && (
-                  <iframe
-                    src={streamUrl}
-                    style={{
-                      border: 'none',
-                      backgroundColor: '#000',
-                      pointerEvents: 'none',
-                      ...previewVncScaling, // Preview card target size (memoized)
+                {/* Only render VNC iframe when stream is active and the VNC session cookie is set */}
+                {isStreamActive && vncSessionReady && (
+                  <Box
+                    sx={{
+                      width: previewVncSize.width,
+                      height: previewVncSize.height,
+                      flexShrink: 0,
+                      overflow: 'hidden',
                     }}
-                    title="VNC Desktop Preview"
-                  />
+                  >
+                    <iframe
+                      src={withVncCacheBust(streamUrl)}
+                      style={{
+                        border: 'none',
+                        backgroundColor: '#000',
+                        pointerEvents: 'none',
+                        ...previewVncScaling, // Preview card target size (memoized)
+                      }}
+                      title="VNC Desktop Preview"
+                    />
+                  </Box>
                 )}
                 {/* Pause overlay when modal is open */}
                 {isPausingForModal && (
@@ -583,6 +610,19 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
 
       {/* Stream Modal */}
       {/* The RecHostStreamModal component is no longer rendered here */}
+
+      {/* A feature's stand-in for this card's click (config/features.ts). Always mounted so it
+          can tell us whether it wants the click before anyone clicks; it renders nothing until
+          `open`. */}
+      {previewAction && (
+        <previewAction.Component
+          hostName={host.host_name}
+          deviceId={deviceId}
+          open={featureActionOpen}
+          onClose={() => setFeatureActionOpen(false)}
+          onCanHandleChange={setFeatureCanHandleClick}
+        />
+      )}
     </Card>
   );
 };

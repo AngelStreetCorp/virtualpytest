@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | High on a no-login site (Run Command, user administration, security and storage admin routes all unusable) |
 | Area      | backend_server/src/lib/auth_middleware.py                                   |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

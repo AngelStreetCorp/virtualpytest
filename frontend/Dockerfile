@@ -1,5 +1,10 @@
-# Build stage — Vite bakes VITE_* values into the bundle, so they are build args.
-# (setup/docker/docker-compose.yml passes them from setup/docker/.env)
+# Build stage.
+#
+# The VITE_* build args below are now a FALLBACK, not the configuration: the runtime
+# entrypoint writes /app/dist/config.js from the container's environment and getEnv()
+# (src/config/constants.ts) prefers that. This is what makes the image publishable —
+# one build serves any PUBLIC_HOST. Passing them at build time still works and is what
+# the native (non-container) install does.
 FROM node:22-alpine AS builder
 
 ARG VITE_SERVER_URL=http://localhost:5109
@@ -41,9 +46,13 @@ RUN adduser -D vpt_user && npm install -g serve@14
 COPY --from=builder /app/dist /app/dist
 RUN chown -R vpt_user:vpt_user /app
 
+COPY --from=builder /app/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
 EXPOSE 5073
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:5073/ || exit 1
 
 USER vpt_user
-CMD ["serve", "-s", "/app/dist", "-l", "5073"]
+# Writes dist/config.js from the environment, then serves. See frontend/docker/entrypoint.sh
+CMD ["/entrypoint.sh"]

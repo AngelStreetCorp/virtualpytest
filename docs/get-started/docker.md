@@ -14,12 +14,27 @@ storage, Redis and Grafana — all as containers on this machine.
 
 ## 1. Install
 
+Download the standalone bundle — about half a megabyte, everything the stack needs:
+
 ```bash
-git clone https://github.com/AngelStreetCorp/virtualpytest.git
-cd virtualpytest
+curl -L https://github.com/AngelStreetCorp/virtualpytest/releases/latest/download/vpt-docker.tar.gz | tar xz
+cd vpt-docker-*
 ./setup/docker/install_docker.sh   # only if Docker is not installed yet
 ./setup/docker/launch.sh
 ```
+
+Or clone the repo instead, if you also want the source (~330 MB of history):
+
+```bash
+git clone https://github.com/AngelStreetCorp/virtualpytest.git
+cd virtualpytest
+./setup/docker/install_docker.sh
+./setup/docker/launch.sh
+```
+
+Both are the same stack and the same commands from here on. The bundle carries the compose
+files, the database schema, the Grafana dashboards and the shipped test scripts — the
+paths the containers mount — and pulls everything else from the registry.
 
 If `install_docker.sh` just added your user to the `docker` group, log out and back in
 (or run `newgrp docker`) before `launch.sh`.
@@ -35,6 +50,33 @@ If `install_docker.sh` just added your user to the `docker` group, log out and b
 4. applies the database schema once, then waits until the server API answers;
 5. prints the URLs.
 
+### Skip the build (prebuilt images)
+
+Step 3 is the slow part. CI publishes the two backend images for every release, so you can
+pull them instead of building them. Before the first `launch.sh`, or any time afterwards,
+set the tag you checked out in `setup/docker/.env`:
+
+```bash
+VPT_IMAGE_TAG=release-2026.09.15      # default is `local` = build from this checkout
+```
+
+`launch.sh` then pulls all three images — `virtualpytest-server`, `-host` and
+`-frontend` from `ghcr.io/angelstreetcorp` — and **nothing compiles on your machine**: a
+first run in about two minutes instead of fifteen. If the pull fails (no network, or a tag
+that was never published) it falls back to building, so the command always works.
+
+**Use the tag you checked out.** A prebuilt image is the code of *its* release, not of your
+working tree. If you edit anything under `backend_server/`, `backend_host/` or `frontend/`,
+set `VPT_IMAGE_TAG=local` (or run `./setup/docker/launch.sh --rebuild`) or your change will
+not be in the running container.
+
+The frontend image takes its configuration at **run** time, not build time: its entrypoint
+writes `dist/config.js` from the container's environment on every start, so changing
+`PUBLIC_HOST` needs a restart rather than a rebuild, and one image serves any address.
+
+Images are `linux/amd64` only. On arm64 (Apple Silicon, a Raspberry Pi) leave
+`VPT_IMAGE_TAG=local` and build.
+
 ## 2. Open it
 
 | What | URL |
@@ -48,7 +90,8 @@ If `install_docker.sh` just added your user to the `docker` group, log out and b
 
 `PUBLIC_HOST` is printed by `launch.sh` and stored in `setup/docker/.env`. Every URL the
 platform hands to a browser is built from it, so if you later reach the machine by another
-address (a DNS name, a VPN address), change `PUBLIC_HOST` and run `./setup/docker/launch.sh --rebuild`.
+address (a DNS name, a VPN address), change `PUBLIC_HOST` and run `./setup/docker/launch.sh`
+— a restart is enough, the frontend reads it at startup rather than baking it in.
 
 The stack starts in **open mode**: no login, every API call accepted. `launch.sh` prints a
 warning while that is the case. Keep the machine on a trusted network, or enable login —
@@ -66,13 +109,28 @@ see [Supabase and authentication](supabase.md#enforce-login).
 
 ## 4. Add a real device
 
-Devices are declared in `backend_host/src/.env` (the file has commented examples for a
-TV/STB with HDMI capture and IR, an Android device over the network, a smart plug):
+`backend_host/src/.env` is **the only file you edit.** Everything else — secrets,
+addresses, the database — `launch.sh` handles.
+
+It ships with the browser and VNC desktop on and physical devices off. "Off" means each
+device line carries an `x` prefix, which is how this file disables a setting:
 
 ```bash
-nano backend_host/src/.env          # enable DEVICE1_* and set its capture / control paths
+xDEVICE1_NAME=AppleTv          # ← drop the x on the lines you want
+xDEVICE1_MODEL=apple_tv
+xDEVICE1_IP=192.168.1.27
+xDEVICE1_VIDEO=/dev/video0
+```
+
+So enabling a device is: remove the `x`, set its address and capture paths, restart.
+
+```bash
+nano backend_host/src/.env          # drop the x, set DEVICE1_* for your hardware
 ./setup/docker/launch.sh            # restarts the host container with the new config
 ```
+
+The file carries commented examples for a TV/STB with HDMI capture and IR, an Android
+device over the network, and a smart plug.
 
 On Linux the host container sees the machine's `/dev` (USB capture cards, IR transmitters,
 serial). Each capture path also needs a RAM-backed hot directory: add one `tmpfs` line per
@@ -87,7 +145,7 @@ default one). On macOS there is no `/dev` passthrough — use network-controlled
 ./setup/docker/launch.sh --logs      # follow all logs
 ./setup/docker/launch.sh --down      # stop (data kept)
 ./setup/docker/launch.sh             # start again
-./setup/docker/launch.sh --rebuild   # after git pull, or after changing VITE_* / PUBLIC_HOST
+./setup/docker/launch.sh --rebuild   # after a git pull (PUBLIC_HOST / VITE_* now take effect on restart)
 ./setup/docker/launch.sh --reset     # stop AND delete all data volumes (asks for confirmation)
 ```
 
@@ -99,19 +157,11 @@ Data lives in Docker volumes: `virtualpytest_supabase-db-data` (database),
 ## More than one machine
 
 Run the stack on one machine and a device controller on each machine that has the
-hardware:
+hardware — `./setup/docker/launch.sh --host-only`.
 
-```bash
-# on the device machine
-git clone https://github.com/AngelStreetCorp/virtualpytest.git && cd virtualpytest
-cp setup/docker/.env.example setup/docker/.env
-nano setup/docker/.env      # fill the "host-only" block: SERVER_URL, API_KEY, SUPABASE_*, MINIO_*
-nano backend_host/src/.env  # HOST_NAME + devices
-./setup/docker/launch.sh --host-only
-```
-
-The values come from the server machine's `setup/docker/.env`. Ports 5109, 54321 and 9000
-of the server machine must be reachable from the device machine.
+Full instructions, including the one thing that catches everyone (the browser connects to
+the host directly, so a host behind NAT needs a tunnel): **[Add a machine with
+devices](add-a-host.md)**.
 
 ## Before exposing it beyond the LAN
 

@@ -48,7 +48,7 @@ What happens (45–70 minutes on a fresh 4 vCPU VM, most of it downloads and the
 | Host API / desktop | `http://<PUBLIC_HOST>:6109` / noVNC on the port `HOST_VNC_STREAM_PATH` names | `vpt-host`, `vpt-vnc`, `vpt-stream`, `vpt-monitor` |
 | Grafana | `http://<PUBLIC_HOST>:3000` — `admin` / `GRAFANA_ADMIN_PASSWORD` in `/opt/virtualpytest/.env` | `grafana-server` |
 | Supabase API / Studio | `http://<PUBLIC_HOST>:54321` / `:54323` | `supabase` |
-| MinIO console | `http://<PUBLIC_HOST>:9001` — `admin` / `admin1234` | `minio` |
+| MinIO console | `http://<PUBLIC_HOST>:9001` — `admin` / `MINIO_SECRET_KEY` from `.env` | `minio` |
 
 The stack starts in **open mode** (no login) and the installer says so. To enforce login see
 [supabase.md](supabase.md#enforce-login).

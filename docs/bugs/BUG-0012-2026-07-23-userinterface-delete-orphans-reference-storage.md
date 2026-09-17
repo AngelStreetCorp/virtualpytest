@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | backend / storage / userinterface                           |
-| Fixed in  | build 8713                                                   |
+| Fixed in  | build 8414                                                   |
 | Commit    | `80fc0453e`                                                 |
 
 ---

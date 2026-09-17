@@ -100,7 +100,13 @@ def create_workspace():
     data = request.get_json() or {}
     if not data.get('name'):
         return jsonify({"error": "Workspace name is required"}), 400
-    workspace = workspaces_db.create_workspace(data)
+    try:
+        workspace = workspaces_db.create_workspace(data)
+    except workspaces_db.DuplicateSlugError as e:
+        # 409, not 500: the slug is derived from the name the caller sent, so a collision is
+        # something they can act on. As a 500 it read as an outage — and it silently blocked
+        # every rerun of the workspace tests, whose fixture used a fixed name.
+        return jsonify({"error": str(e), "slug": e.slug}), 409
     if not workspace:
         return jsonify({"error": "Failed to create workspace"}), 500
     logger.info(f"Workspace created: {workspace['id']}")

@@ -61,7 +61,7 @@
 set -euo pipefail
 
 # ---- Internal config (same values as the canonical update_core.sh) ----
-SSH_USER="${SSH_USER:-jndoye}"
+SSH_USER="${SSH_USER:-$(id -un)}"
 SSH_KEY="${SSH_KEY:-${HOME}/.ssh/id_ed25519}"
 SSH_OPTS="-i ${SSH_KEY} -o StrictHostKeyChecking=accept-new"
 SYNC_USER="${SYNC_USER:-vpt_user}"
@@ -146,6 +146,7 @@ OVERLAY_EXCLUDES=(
   --exclude='/customer.local.conf.example'
   --exclude='/README.md'
   --exclude='/OVERRIDES.md'
+  --exclude='/deliveries'    # our record of what was delivered when, not part of the tree
   --exclude='/VERSION.txt'   # merged into the staged core VERSION.txt (write_version_identity)
 )
 
@@ -1043,7 +1044,24 @@ else
 fi
 echo "stage: ${STAGE_DIR}"
 FEATURE_UNITS_TREE="${STAGE_DIR}"
-rsync -a --delete "${RSYNC_EXCLUDES[@]}" ${FEATURE_EXCLUDES[@]+"${FEATURE_EXCLUDES[@]}"} "${REPO_DIR}/" "${STAGE_DIR}/"
+
+# Everything git ignores is excluded, on top of the deny-list above. The deny-list is
+# hand-maintained and can only name what someone thought of: it had no entry for tmp/,
+# pitch-deck/, or features/mobile-app/app/android/app/build/ (283 MB of Android build output),
+# so a bundle came out at 385 MB instead of 34 MB -- and the online deploy pushed the same
+# files to the customer's VMs. .gitignore already knows what is not source; ask it rather than
+# keep guessing. Only paths, never content: a tracked file is never excluded by this.
+IGNORE_FILE=""
+if git -C "${REPO_DIR}" rev-parse --git-dir >/dev/null 2>&1; then
+  IGNORE_FILE="$(mktemp "${TMPDIR:-/tmp}/vpt-ignored.XXXXXX")"
+  git -C "${REPO_DIR}" ls-files --others --ignored --exclude-standard --directory 2>/dev/null \
+    | sed 's|^|/|' > "${IGNORE_FILE}" || true
+  n_ign="$(grep -c . "${IGNORE_FILE}" || true)"
+  echo "excluding ${n_ign} git-ignored path(s) from the stage"
+fi
+rsync -a --delete "${RSYNC_EXCLUDES[@]}" ${IGNORE_FILE:+--exclude-from="${IGNORE_FILE}"} \
+  ${FEATURE_EXCLUDES[@]+"${FEATURE_EXCLUDES[@]}"} "${REPO_DIR}/" "${STAGE_DIR}/"
+[[ -z "${IGNORE_FILE}" ]] || rm -f "${IGNORE_FILE}"
 # Overlay on top: same excludes, except the frontend config it carries (FRONTEND_CONFIG_PATHS)
 # which is re-included BEFORE the canonical excludes (first-match). '.env' is never
 # re-included, so no .env can come from the overlay (and the overlay was refused above

@@ -8,6 +8,12 @@ Type=simple
 User=vpt_user
 Group=vpt_user
 WorkingDirectory=%PROJECT_ROOT%/backend_host/scripts
+# Load the project .env through systemd as well as python-dotenv. load_dotenv() runs with
+# override=False, so these values win, and `systemctl show -p Environment vpt-monitor`
+# shows what the service actually holds. Note this still only reads the file at start:
+# a credential change needs a restart on every host (BUG-0109). Leading '-' = tolerate a
+# missing file rather than refusing to start.
+EnvironmentFile=-%PROJECT_ROOT%/.env
 Environment=PYTHONPATH=%PROJECT_ROOT%/shared/lib:%PROJECT_ROOT%/backend_host/src
 Environment=PATH=%PROJECT_ROOT%/venv/bin:/usr/bin:/usr/local/bin
 ExecStart=%PROJECT_ROOT%/venv/bin/python %PROJECT_ROOT%/backend_host/scripts/capture_monitor.py

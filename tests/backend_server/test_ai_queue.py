@@ -5,7 +5,6 @@ Covers backend_server/src/routes/server_ai_queue_routes.py (blueprint:
 /server/ai-queue).
 """
 
-import pytest
 import requests
 
 
@@ -52,11 +51,3 @@ def test_ai_queue_status_with_items(base_url, request_timeout, verify_ssl, api_h
         assert isinstance(body["queues"]["incidents"].get("items"), list)
         assert isinstance(body["queues"]["scripts"].get("items"), list)
 
-
-@pytest.mark.skip(
-    reason="POST /clear empties the real p1_alerts/p2_scripts/p3_reserved Redis "
-    "queues shared with the live AI discard service - destructive against a "
-    "shared deployment, not safe to run on every CI pass"
-)
-def test_clear_queues_happy_path():
-    pass

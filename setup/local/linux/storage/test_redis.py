@@ -173,11 +173,11 @@ print("=== Redis Connection Tests ===\n")
 
 # Original socket test (what you were using)
 print("1. RAW SOCKET TEST (original)")
-socket_success = test_redis_socket("192.168.0.101", 6379, "admin1234")
+socket_success = test_redis_socket("192.168.0.101", 6379, os.environ["REDIS_PASSWORD"])
 
 # Agent simulation test (what agents actually do)
 print("\n2. AGENT SIMULATION TEST")
-redis_url = "redis://:admin1234@192.168.0.101:6379/0"  # Same format as agents use
+redis_url = os.environ.get("REDIS_URL", f'redis://:{os.environ["REDIS_PASSWORD"]}@192.168.0.101:6379/0')  # Same format as agents use
 url_parse_success = test_redis_url_parsing(redis_url)
 agent_success = test_redis_agent_simulation(redis_url, test_operations=True)
 

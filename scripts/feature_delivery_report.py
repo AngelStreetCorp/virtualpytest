@@ -177,10 +177,17 @@ def fetch_run(server: str, run: Optional[str]) -> Optional[Dict[str, Any]]:
     # Cloudflare fronts the public hostname and 403s the default python-urllib UA, so send a
     # browser one — that makes --server https://virtualpytest.angelstreet.io work from a laptop
     # as well as the LAN address from a runner.
-    req = urllib.request.Request(url, headers={
+    headers = {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 '
                       '(KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-    })
+    }
+    # Non-browser caller: authenticate with the shared service key when one is exported
+    # (docs/agent/platform/SERVER_AUTH.md). Without it this 401s on any server that
+    # enforces login, and on an open-mode one — open mode waives only the browser login.
+    api_key = os.environ.get('API_KEY')
+    if api_key:
+        headers['X-API-Key'] = api_key
+    req = urllib.request.Request(url, headers=headers)
     try:
         with urllib.request.urlopen(req, timeout=25) as r:
             runs = json.loads(r.read()).get('runs') or []

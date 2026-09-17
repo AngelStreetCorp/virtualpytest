@@ -12,6 +12,12 @@
 #   frontend 5073 · server API 5109 · host API 6109 · noVNC 6080 · Grafana 3000
 #   Supabase API + Studio 54321 · Postgres 54322 · MinIO 9000 (console 9001)
 # Config reference: docs/get-started/configuration.md
+#
+# Every VirtualPyTest service carries both `image:` and `build:`. With the default
+# VPT_IMAGE_TAG=local they are built from this checkout; set VPT_IMAGE_TAG to a release
+# tag in .env and launch.sh pulls them from GHCR instead, so nothing compiles on the
+# machine. The frontend is publishable because it no longer bakes VITE_* in: its
+# entrypoint writes dist/config.js from the environment above on every start.
 
 name: virtualpytest
 
@@ -94,7 +100,7 @@ services:
     build:
       context: ../..
       dockerfile: backend_server/Dockerfile
-    image: virtualpytest/backend-server:local
+    image: ${VPT_REGISTRY:-ghcr.io/angelstreetcorp}/virtualpytest-server:${VPT_IMAGE_TAG:-local}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -128,7 +134,7 @@ services:
     build:
       context: ../..
       dockerfile: backend_host/Dockerfile
-    image: virtualpytest/backend-host:local
+    image: ${VPT_REGISTRY:-ghcr.io/angelstreetcorp}/virtualpytest-host:${VPT_IMAGE_TAG:-local}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -171,16 +177,19 @@ services:
     build:
       context: ../../frontend
       dockerfile: Dockerfile
-      args:
-        VITE_SERVER_URL: http://${PUBLIC_HOST:-localhost}:5109
-        VITE_GRAFANA_URL: http://${PUBLIC_HOST:-localhost}:3000
-        VITE_CLOUDFLARE_R2_PUBLIC_URL: http://${PUBLIC_HOST:-localhost}:9000/${MINIO_BUCKET:-virtualpytest}
-        # Empty = open mode (no login). To enforce auth see docs/get-started/supabase.md
-        VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
-        VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
-        VITE_PROJECT_NAME: ${VITE_PROJECT_NAME:-VirtualPyTest}
-    image: virtualpytest/frontend:local
+    image: ${VPT_REGISTRY:-ghcr.io/angelstreetcorp}/virtualpytest-frontend:${VPT_IMAGE_TAG:-local}
     restart: unless-stopped
+    # Passed at RUNTIME, not as build args: the entrypoint writes dist/config.js from these
+    # on every start, so changing PUBLIC_HOST needs a restart rather than a rebuild — and
+    # one published image serves any address.
+    environment:
+      VITE_SERVER_URL: http://${PUBLIC_HOST:-localhost}:5109
+      VITE_GRAFANA_URL: http://${PUBLIC_HOST:-localhost}:3000
+      VITE_CLOUDFLARE_R2_PUBLIC_URL: http://${PUBLIC_HOST:-localhost}:9000/${MINIO_BUCKET:-virtualpytest}
+      # Empty = open mode (no login). To enforce auth see docs/get-started/supabase.md
+      VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
+      VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
+      VITE_PROJECT_NAME: ${VITE_PROJECT_NAME:-VirtualPyTest}
     ports:
       - "5073:5073"
     depends_on:

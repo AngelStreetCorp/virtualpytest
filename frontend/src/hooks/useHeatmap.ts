@@ -10,6 +10,7 @@ import { useHostData } from './useHostManager';
 import { buildServerUrl, buildServerUrlForServer } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { getR2Url, openR2Url } from '../utils/infrastructure/cloudflareUtils';
+import { getEnv } from '../config/constants';
 
 export interface TimelineItem {
   timeKey: string;        // "1425" (2:25 PM)
@@ -49,11 +50,26 @@ export interface AnalysisData {
   hosts_count: number;
 }
 
+// Heatmap files use a 24h circular buffer keyed by HHMM only, so a minute the
+// processor skipped still serves yesterday's file for that same HHMM. A frame is
+// only the slot's own data when its timestamp sits within a few minutes of the slot.
+const SLOT_MATCH_TOLERANCE_MS = 5 * 60 * 1000;
+
+const isFrameFromSlot = (timestamp: string | undefined, item: TimelineItem): boolean => {
+  if (!timestamp) return true; // No timestamp to check against - keep legacy files usable
+  const frameTime = new Date(timestamp).getTime();
+  if (Number.isNaN(frameTime)) return true;
+  return Math.abs(frameTime - item.displayTime.getTime()) <= SLOT_MATCH_TOLERANCE_MS;
+};
+
 export const useHeatmap = () => {
   const { selectedServer } = useHostData();
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(1438); // Start at current-1 minute
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
+  // The timeline slot the displayed data actually came from (the loader may walk
+  // back a few minutes), so the mosaic image never shows a frame we rejected.
+  const [loadedItem, setLoadedItem] = useState<TimelineItem | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [hasDataError, setHasDataError] = useState(false);
   const [corsBlocked, setCorsBlocked] = useState(false);
@@ -62,8 +78,8 @@ export const useHeatmap = () => {
   const [serverName, setServerName] = useState<string>('default'); // Server name from backend
   
   // Get storage base URL from environment (Cloudflare R2 or MinIO)
-  const R2_BASE_URL = (import.meta as any).env?.VITE_CLOUDFLARE_R2_PUBLIC_URL ||
-                      (import.meta as any).env?.VITE_MINIO_PUBLIC_URL || '';
+  const R2_BASE_URL = getEnv('VITE_CLOUDFLARE_R2_PUBLIC_URL') ||
+                      getEnv('VITE_MINIO_PUBLIC_URL') || '';
   
   /**
    * Fetch server name from backend
@@ -155,22 +171,26 @@ export const useHeatmap = () => {
         const data = await response.json();
         console.log(`[useHeatmap] Successfully loaded analysis data for ${item.timeKey}:`, data);
         
-        // Validate data freshness - check if timestamp is recent (within 24 hours)
-        if (data.timestamp) {
-          const dataTimestamp = new Date(data.timestamp);
-          const now = new Date();
-          const ageInHours = (now.getTime() - dataTimestamp.getTime()) / (1000 * 60 * 60);
-          
-          if (ageInHours > 24) {
-            console.warn(`[@useHeatmap] ⚠️ STALE DATA: ${item.timeKey} is ${ageInHours.toFixed(1)}h old (timestamp: ${data.timestamp})`);
-            setHasDataError(true); // Mark as error to show warning
-          } else {
-            console.log(`[@useHeatmap] ✓ Fresh data: ${item.timeKey} age: ${ageInHours.toFixed(1)}h`);
-            setHasDataError(false);
+        // The file exists, but it may be the previous day's frame left in the
+        // circular buffer for a minute the processor skipped - never show that.
+        if (!isFrameFromSlot(data.timestamp, item)) {
+          console.warn(`[@useHeatmap] ⚠️ ${item.timeKey} holds a previous-day frame (timestamp: ${data.timestamp}) - treating as missing`);
+          const itemIndex = timeline.findIndex(t => t.timeKey === item.timeKey);
+          const prevIndex = itemIndex - 1;
+          if (retryCount < 10 && prevIndex >= 0 && timeline[prevIndex]) {
+            await loadAnalysisData(timeline[prevIndex], retryCount + 1);
+            return;
           }
+          setAnalysisData(null);
+          setLoadedItem(null);
+          setHasDataError(true);
+          return;
         }
-        
+
+        console.log(`[@useHeatmap] ✓ Frame ${item.timeKey} matches its slot (timestamp: ${data.timestamp})`);
+        setHasDataError(false);
         setAnalysisData(data);
+        setLoadedItem(item);
         // Success - reset flags and track success
         setCorsBlocked(false);
         setRetryAttempts(0);
@@ -187,6 +207,7 @@ export const useHeatmap = () => {
       }
       if (response.status === 404) {
         setAnalysisData(null); // Stop retrying after 10 attempts
+        setLoadedItem(null);
         setHasDataError(true); // Mark as having data error
       }
     } catch (error: any) {
@@ -210,11 +231,13 @@ export const useHeatmap = () => {
           }, 1000 * Math.pow(2, retryAttempts)); // Exponential backoff
         } else {
           setAnalysisData(null);
+          setLoadedItem(null);
           setHasDataError(true);
         }
       } else {
         console.log(`No analysis data available for ${item.timeKey}:`, error.message);
         setAnalysisData(null);
+        setLoadedItem(null);
         setHasDataError(true);
       }
     } finally {
@@ -281,6 +304,7 @@ export const useHeatmap = () => {
   const refreshCurrentData = () => {
     if (timeline[currentIndex]) {
       setAnalysisData(null); // Clear current data first
+      setLoadedItem(null);
       setHasDataError(false); // Reset error flag
       setCorsBlocked(false); // Reset CORS blocked flag
       loadAnalysisData(timeline[currentIndex]);
@@ -295,6 +319,7 @@ export const useHeatmap = () => {
     setCorsBlocked(false);
     setHasDataError(false);
     setAnalysisData(null);
+    setLoadedItem(null);
     setRetryAttempts(0);
     
     // Try to find a working timeframe by going back in time
@@ -438,6 +463,7 @@ export const useHeatmap = () => {
     
     // Analysis data
     analysisData,
+    loadedItem,
     analysisLoading,
     hasDataError,
     corsBlocked,

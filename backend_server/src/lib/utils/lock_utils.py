@@ -180,29 +180,12 @@ class DeviceLockManager:
                             "lock_info": self._serialize_lock(existing),
                         }
 
-                    if existing_owner_type == "script_execution":
-                        # Take over lock from prior script (same user)
-                        session_recorder.record_end(existing, "superseded")
-                        existing.update({
-                            "owner_session_id": owner_session_id,
-                            "owner_user_id": owner_user_id,
-                            "owner_user_name": owner_user_name,
-                            "owner_job_id": owner_job_id,
-                            "locked_at": now,
-                            "last_heartbeat_at": now,
-                            "lock_reason": lock_reason,
-                            "active_script_reason": None,
-                            "active_script_job_id": None,
-                            "can_force_takeover": bool(can_force_takeover),
-                            "locked_ip": client_ip or existing.get("locked_ip"),
-                        })
-                        session_recorder.record_start(existing)
-                        return {
-                            "success": True,
-                            "reused": False,
-                            "subordinate": False,
-                            "lock_info": self._serialize_lock(existing),
-                        }
+                    # A running script's lock is never taken over implicitly, not even by
+                    # the same user. It used to be: "same user, different session" superseded
+                    # the running script and dispatched on top of it, while "same user, same
+                    # session" was refused - so a browser tab queued and an API caller ran
+                    # everything at once (BUG-0118). Taking over a stuck run is what the
+                    # explicit force_unlock flag on the execute routes is for.
 
                 if (
                     allow_same_ip_takeover

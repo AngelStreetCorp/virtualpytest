@@ -1,16 +1,6 @@
-import {
-  AppBar,
-  Box,
-  Tab,
-  Tabs,
-  Toolbar,
-  Typography,
-} from '@mui/material';
+import { Box, Tab, Tabs } from '@mui/material';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-
-import { useBranding } from '../../contexts/BrandingContext';
-import ThemeToggle from '../common/ThemeToggle';
 
 type RunNavSection = 'tests' | 'build' | 'deployments';
 
@@ -18,7 +8,6 @@ const getRunNavSection = (pathname: string): RunNavSection => {
   if (pathname.startsWith('/run/deployments') || pathname.startsWith('/test-execution/deployments')) return 'deployments';
   if (
     pathname.startsWith('/run/build') ||
-    pathname.startsWith('/test-execution/build-campaign') ||
     pathname.startsWith('/test-execution/build-campaign')
   ) return 'build';
   return 'tests';
@@ -36,54 +25,39 @@ const getRunNavPath = (basePath: '/run' | '/test-execution', section: RunNavSect
   return '/run/deployments';
 };
 
-const MobileTopBar: React.FC = () => {
-  const { branding } = useBranding();
+/**
+ * Mobile-only sub-navigation for switching between Tests / Build / Deployments
+ * within the Run Execution area (/run/* and /test-execution/*).
+ *
+ * This used to be a secondary Tabs row rendered inside MobileTopBar's fixed
+ * AppBar. The mobile top app bar (logo + theme toggle) was removed since the
+ * bottom nav already provides navigation context, but this Tabs row is the
+ * only way to reach these sub-views on mobile, so it's relocated inline at
+ * the top of the Run Execution page content instead.
+ */
+const MobileRunNavTabs: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const runBasePath: '/run' | '/test-execution' = location.pathname.startsWith('/test-execution/')
     ? '/test-execution'
     : '/run';
 
-  const showRunTabs = location.pathname.startsWith('/run/') || location.pathname.startsWith('/test-execution/');
-
   return (
-    <AppBar position="sticky" elevation={1}>
-      <Toolbar sx={{ minHeight: 56, px: 1.25 }}>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flexGrow: 1 }}>
-          {branding.logoUrl ? (
-            <Box
-              component="img"
-              src={branding.logoUrl}
-              alt={`${branding.name} logo`}
-              sx={{ height: 22, width: 'auto', maxWidth: 120, objectFit: 'contain' }}
-            />
-          ) : null}
-          {branding.showProjectName ? (
-            <Typography variant="subtitle1" noWrap sx={{ fontWeight: 600 }}>
-              {branding.name}
-            </Typography>
-          ) : null}
-        </Box>
-
-        <ThemeToggle />
-      </Toolbar>
-
-      {showRunTabs ? (
-        <Tabs
-          value={getRunNavSection(location.pathname)}
-          onChange={(_, value: RunNavSection) => navigate(getRunNavPath(runBasePath, value))}
-          variant="fullWidth"
-          textColor="inherit"
-          indicatorColor="secondary"
-          sx={{ minHeight: 42, '& .MuiTab-root': { minHeight: 42, textTransform: 'none', fontSize: '0.8rem' } }}
-        >
-          <Tab label="Tests" value="tests" />
-          <Tab label="Build" value="build" />
-          <Tab label="Deployments" value="deployments" />
-        </Tabs>
-      ) : null}
-    </AppBar>
+    <Box sx={{ width: '100%', mb: 1 }}>
+      <Tabs
+        value={getRunNavSection(location.pathname)}
+        onChange={(_, value: RunNavSection) => navigate(getRunNavPath(runBasePath, value))}
+        variant="fullWidth"
+        textColor="primary"
+        indicatorColor="primary"
+        sx={{ minHeight: 42, '& .MuiTab-root': { minHeight: 42, textTransform: 'none', fontSize: '0.8rem' } }}
+      >
+        <Tab label="Tests" value="tests" />
+        <Tab label="Build" value="build" />
+        <Tab label="Deployments" value="deployments" />
+      </Tabs>
+    </Box>
   );
 };
 
-export default MobileTopBar;
+export default MobileRunNavTabs;

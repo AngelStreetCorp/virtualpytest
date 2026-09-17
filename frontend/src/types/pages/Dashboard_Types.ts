@@ -35,6 +35,7 @@ export interface SystemStats {
       optional: boolean;
       controllable?: boolean;
       description?: string;
+      detail?: string; // Why the status is what it is (e.g. heatmap output freshness)
       runtime?: 'service' | 'task';
       resolved_name?: string;
     }>;

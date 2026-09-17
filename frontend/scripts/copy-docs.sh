@@ -96,6 +96,8 @@ touch "$PROCESSED"
 cat > "$FILES_TO_COPY" << EOF
 README.md
 get-started/README.md
+get-started/install.md
+get-started/add-a-host.md
 get-started/docker.md
 get-started/proxmox.md
 get-started/local-dev.md
@@ -292,7 +294,8 @@ function toTitle(filename) {
     .replace(/ Id\$/, ' ID')
     .replace(/Jira/, 'JIRA')
     .replace(/Hls/, 'HLS')
-    .replace(/Vnc/, 'VNC');
+    .replace(/Vnc/, 'VNC')
+    .replace(/Avq/, 'AVQ');
 }
 
 // Get all markdown files in a directory

@@ -31,6 +31,14 @@ The server is closed and nothing authenticates the browser: see the posture tabl
 [Supabase and authentication](../get-started/supabase.md#authentication-open-mode-or-login).
 Fresh installs are open (`SERVER_OPEN_MODE=true`).
 
+### `curl` returns 401 but the UI works
+Expected. `SERVER_OPEN_MODE` waives the browser **login**, not the server API key: a direct
+call has to present the key from the server's `.env`.
+
+```bash
+curl -H "X-API-Key: $API_KEY" http://<server>:5109/server/system/info
+```
+
 ### Host missing from *Devices*
 ```bash
 docker logs vpt-host --tail 50        # or: sudo journalctl -u vpt-host -n 50

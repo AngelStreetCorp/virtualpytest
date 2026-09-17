@@ -1,13 +1,21 @@
 import { Box, Typography, Paper, Link } from '@mui/material';
 import GitHubIcon from '@mui/icons-material/GitHub';
+import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import React from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 
+import { isFeatureEnabled } from '../../config/features';
 import { useBranding } from '../../contexts/BrandingContext';
+import { useIsNativeApp } from '../../hooks/useIsNativeApp';
 
 const GITHUB_REPO_URL = 'https://github.com/AngelStreetCorp/virtualpytest';
+// features/mobile-app: the "Get the app" card (APK link + config QR) lives on this page.
+// The link is pointless inside the app itself, hence the native check.
+const MOBILE_APP_PAGE = '/configuration/mobile-app';
 
 const Footer: React.FC = () => {
   const { branding } = useBranding();
+  const isNative = useIsNativeApp();
   const year = new Date().getFullYear();
   const embeddedVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown';
   const [appVersion, setAppVersion] = React.useState(embeddedVersion);
@@ -87,6 +95,19 @@ const Footer: React.FC = () => {
         </Box>
 
         <Box display="flex" alignItems="center" gap={2}>
+          {isFeatureEnabled('mobile-app') && !isNative && (
+            <Link
+              component={RouterLink}
+              to={MOBILE_APP_PAGE}
+              underline="hover"
+              color="text.secondary"
+              variant="caption"
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
+            >
+              Get the mobile app
+              <PhoneAndroidIcon sx={{ fontSize: 14 }} />
+            </Link>
+          )}
           <Link
             href={GITHUB_REPO_URL}
             target="_blank"

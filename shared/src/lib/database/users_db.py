@@ -10,6 +10,11 @@ from typing import Dict, List, Optional
 
 from shared.src.lib.utils.supabase_utils import get_supabase_client, get_supabase_admin
 
+# Which platform administers an account. Everything created here is 'virtualpytest';
+# an external system provisioning over /server/users sends its own name (e.g. 'dmacp').
+# Must match the SQL DEFAULT on public.profiles.provider_type (schema 018).
+DEFAULT_PROVIDER_TYPE = 'virtualpytest'
+
 def get_supabase():
     """Get the Supabase client instance (anon key, RLS-bound)."""
     return get_supabase_client()
@@ -55,6 +60,7 @@ def get_all_users() -> List[Dict]:
                 'id': uid,
                 'full_name': profile.get('full_name', ''),
                 'email': profile.get('email', ''),
+                'provider_type': profile.get('provider_type') or DEFAULT_PROVIDER_TYPE,
                 'avatar_url': profile.get('avatar_url'),
                 'role': profile.get('role', 'viewer'),
                 'team_id': profile.get('team_id'),
@@ -109,6 +115,7 @@ def get_user(user_id: str) -> Optional[Dict]:
                 'id': profile['id'],
                 'full_name': profile.get('full_name', ''),
                 'email': profile.get('email', ''),
+                'provider_type': profile.get('provider_type') or DEFAULT_PROVIDER_TYPE,
                 'avatar_url': profile.get('avatar_url'),
                 'role': profile.get('role', 'viewer'),
                 'team_id': profile.get('team_id'),
@@ -252,7 +259,7 @@ def get_user_by_email(email: str) -> Optional[Dict]:
     try:
         admin = _admin_or_raise()
         r = admin.table('profiles')\
-            .select('id, email, full_name, role, team_id')\
+            .select('id, email, full_name, role, team_id, provider_type')\
             .eq('email', email).limit(1).execute()
         if not r.data:
             return None
@@ -264,6 +271,7 @@ def get_user_by_email(email: str) -> Optional[Dict]:
             'role': p.get('role', 'viewer'),
             'team_id': p.get('team_id'),
             'team': _team_name(admin, p.get('team_id')),
+            'provider_type': p.get('provider_type') or DEFAULT_PROVIDER_TYPE,
         }
     except Exception as e:
         print(f"[@db:users_db:get_user_by_email] Error: {e}")
@@ -333,8 +341,29 @@ def _ensure_team(admin, group: str) -> str:
     return created.data[0]['id']
 
 
+def default_full_name(email: str) -> str:
+    """The preferred name we fall back to: the local part of the email.
+
+    `marie.dupont@example.com` -> `marie.dupont`. Accounts created by an admin or by
+    external provisioning carry no user_metadata, so without this every one of them
+    lands with a blank name and shows as an empty cell in the users list.
+    """
+    return (email or '').split('@', 1)[0].strip()
+
+
+def _clean_provider_type(provider_type: Optional[str]) -> Optional[str]:
+    """Normalise a caller-supplied provider_type. None = 'not supplied'."""
+    if provider_type is None:
+        return None
+    cleaned = str(provider_type).strip()
+    if not cleaned:
+        raise ValueError("provider_type must not be blank")
+    return cleaned
+
+
 def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[str] = None,
-                group: Optional[str] = None, default_role: str = 'viewer') -> Dict:
+                group: Optional[str] = None, default_role: str = 'viewer',
+                provider_type: Optional[str] = None) -> Dict:
     """Create-or-update a user (external provisioning).
 
     - Create: auth.admin.create_user(email, password, email_confirm=True); on the
@@ -342,41 +371,84 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
     - Update: optionally reset password; update full_name only.
       NEVER touch role / permissions on update (VirtualPyTest owns them).
     - group -> team auto-created by name (idempotent) + team_members membership.
+    - full_name defaults to the email's local part (see default_full_name).
+    - provider_type records which platform administers the account; it defaults to
+      'virtualpytest' on create and is only rewritten when a caller sends one, so a
+      password reset from one platform never silently reassigns another's user.
 
-    Returns {action, user_id, email, role, team}.
+    Returns {action, user_id, email, role, team, full_name, provider_type}.
     """
     admin = _admin_or_raise()
+    provider_type = _clean_provider_type(provider_type)
     existing = get_user_by_email(email)
 
     if existing is None:
         if not password:
             raise ValueError("password is required to create a user")
+        resolved_full_name = full_name if full_name is not None else default_full_name(email)
         res = admin.auth.admin.create_user({
             'email': email,
             'password': password,
             'email_confirm': True,
+            # Supabase Studio's "Display name" column reads raw_user_meta_data, not our
+            # profiles table — without this an admin-created account shows as "-" there
+            # however good a name we store on our own side. Both keys because Studio's
+            # getDisplayName() checks display_name / full_name / name in that order.
+            'user_metadata': {'display_name': resolved_full_name,
+                              'full_name': resolved_full_name},
         })
         user = getattr(res, 'user', None) or res
         uid = getattr(user, 'id', None) or (user.get('id') if isinstance(user, dict) else None)
         if not uid:
             raise RuntimeError(f"create_user returned no id for {email}")
         # handle_new_user() trigger created the profiles row; set our fields.
-        profile_update = {'role': default_role, 'email': email}
-        if full_name is not None:
-            profile_update['full_name'] = full_name
-        admin.table('profiles').update(profile_update).eq('id', uid).execute()
+        # The trigger applies the same two defaults, but a deployment that predates
+        # the migration has the old trigger, so write them explicitly rather than
+        # trusting what the trigger put there.
+        resolved_provider = provider_type or DEFAULT_PROVIDER_TYPE
+        profile_update = {'role': default_role, 'email': email,
+                          'full_name': resolved_full_name,
+                          'provider_type': resolved_provider}
+        written = admin.table('profiles').update(profile_update).eq('id', uid).execute()
+        # handle_new_user() already put them in the default team. Read the team_id back
+        # off this write rather than reporting `"team": null` at the caller, which reads
+        # as "no team" when the person is in fact in the default one (same class of lie
+        # as BUG-0077, which only covered the `group` path).
+        created_team_id = (written.data or [{}])[0].get('team_id')
         action = 'created'
         role = default_role
     else:
         uid = existing['id']
-        if password:
-            admin.auth.admin.update_user_by_id(uid, {'password': password})
+
+        profile_update = {}
         if full_name is not None:
-            admin.table('profiles').update({'full_name': full_name}).eq('id', uid).execute()
+            profile_update['full_name'] = full_name
+        elif not (existing.get('full_name') or '').strip():
+            # Backfill only — a name the person or an admin already chose is never
+            # overwritten by a call that didn't mention one.
+            profile_update['full_name'] = default_full_name(email)
+        if provider_type is not None:
+            profile_update['provider_type'] = provider_type
+
+        # One auth write, not two: the password and the Studio-visible display name
+        # both live on auth.users.
+        auth_update = {}
+        if password:
+            auth_update['password'] = password
+        if 'full_name' in profile_update:
+            auth_update['user_metadata'] = {'display_name': profile_update['full_name'],
+                                            'full_name': profile_update['full_name']}
+        if auth_update:
+            admin.auth.admin.update_user_by_id(uid, auth_update)
+        if profile_update:
+            admin.table('profiles').update(profile_update).eq('id', uid).execute()
+
+        resolved_full_name = profile_update.get('full_name') or (existing.get('full_name') or '')
+        resolved_provider = provider_type or existing.get('provider_type') or DEFAULT_PROVIDER_TYPE
         action = 'updated'
         role = existing['role']  # untouched — VirtualPyTest owns role
 
-    team_name = existing['team'] if existing else None
+    team_name = existing['team'] if existing else _team_name(admin, created_team_id)
     if group:
         # Raises on failure rather than silently dropping the caller's `group`.
         team_id = _ensure_team(admin, group)
@@ -398,7 +470,8 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
                 ) from e
         team_name = group
 
-    return {'action': action, 'user_id': uid, 'email': email, 'role': role, 'team': team_name}
+    return {'action': action, 'user_id': uid, 'email': email, 'role': role, 'team': team_name,
+            'full_name': resolved_full_name, 'provider_type': resolved_provider}
 
 
 def delete_user_by_email(email: str) -> bool:

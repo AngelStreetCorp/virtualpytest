@@ -55,4 +55,4 @@ sudo systemctl restart grafana-server
 
 echo "✅ Dashboard file provisioning disabled"
 echo "   Backup: $BACKUP_DIR"
-echo "   Verify: curl -su admin:admin1234 http://127.0.0.1:3000/grafana/api/search?type=dash-db"
+echo "   Verify: curl -su admin:\"\$GRAFANA_ADMIN_PASSWORD\" http://127.0.0.1:3000/grafana/api/search?type=dash-db"

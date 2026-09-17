@@ -14,6 +14,9 @@ import { useUserSession } from '../useUserSession';
 import { useAuthContext } from '../../contexts/auth';
 
 interface ScriptExecutionResult {
+  // Set when the server queued the run instead of starting it (device was locked)
+  queued?: boolean;
+  deployment_id?: string;
   success: boolean;
   stdout: string;
   stderr: string;
@@ -277,6 +280,15 @@ export const useScript = (): UseScriptReturn => {
         });
         const initialResult = await response.json();
 
+        // Device busy: the server queued the run as a one-shot deployment and will
+        // complete task_id itself when it actually runs. Nothing to wait on here -
+        // the queued row shows up through the deployment executions feed.
+        if (initialResult.queued) {
+          console.log(`[@hook:useScript:executeScript] Run queued server-side: ${initialResult.deployment_id}`);
+          setLastResult(initialResult);
+          return initialResult;
+        }
+
         // Handle async task response (202 status code)
         if (response.status === 202 && initialResult.task_id) {
           console.log(
@@ -326,6 +338,8 @@ export const useScript = (): UseScriptReturn => {
       parameters?: string;
       callbackUrl?: string;
       forceUnlock?: boolean;
+      // false = fail with 423 on a locked device instead of being queued server-side
+      queueIfLocked?: boolean;
       environment?: 'dev' | 'test' | 'prod';
       virtualScriptId?: string;
     }>,
@@ -366,6 +380,9 @@ export const useScript = (): UseScriptReturn => {
         if (execution.forceUnlock) {
           requestBody.force_unlock = true;
         }
+        if (execution.queueIfLocked === false) {
+          requestBody.queue_if_locked = false;
+        }
         if (execution.environment) {
           requestBody.environment = execution.environment;
         }
@@ -386,6 +403,15 @@ export const useScript = (): UseScriptReturn => {
           body: JSON.stringify(requestBody),
         });
         const initialResult = await response.json();
+
+        // Device busy: queued server-side (see executeScript above). Report it as
+        // its own outcome so the page can drop the local row and refresh the feed.
+        if (initialResult.queued) {
+          const queuedResult = { ...initialResult, success: true, queued: true };
+          results[execution.id] = queuedResult;
+          onExecutionComplete?.(execution.id, queuedResult);
+          return queuedResult;
+        }
 
         if (response.status === 202 && initialResult.task_id) {
           console.log(`[@hook:useScript] Execution ${execution.id} started with task_id: ${initialResult.task_id}`);

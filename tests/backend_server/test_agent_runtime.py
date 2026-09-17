@@ -10,7 +10,6 @@ validation/not-found checks that return before any real instance is
 touched.
 """
 
-import pytest
 import requests
 
 
@@ -50,15 +49,6 @@ def test_start_agent_instance_requires_agent_id(base_url, request_timeout, verif
     )
     assert response.status_code == 400
     assert response.json().get("error") == "agent_id required"
-
-
-@pytest.mark.skip(
-    reason="Starting a real agent instance spawns a live background agent "
-    "task via AgentRuntime.start_agent() - no dry-run mode, not safe to run "
-    "unattended in CI"
-)
-def test_start_agent_instance_happy_path():
-    pass
 
 
 def test_stop_agent_instance_not_found(base_url, request_timeout, verify_ssl, api_headers):
@@ -109,19 +99,3 @@ def test_get_runtime_status(base_url, request_timeout, verify_ssl, api_headers):
     assert isinstance(body.get("event_bus_connected"), bool)
 
 
-@pytest.mark.skip(
-    reason="Toggles the global agent runtime system shared by all clients of "
-    "this server (starts background task processing) - not safe to flip on "
-    "a live/shared deployment from an automated test run"
-)
-def test_start_runtime_happy_path():
-    pass
-
-
-@pytest.mark.skip(
-    reason="Toggles the global agent runtime system shared by all clients of "
-    "this server (would stop background task processing for everyone) - not "
-    "safe to run against a live/shared deployment"
-)
-def test_stop_runtime_happy_path():
-    pass

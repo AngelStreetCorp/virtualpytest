@@ -1,6 +1,7 @@
 import { Box, FormControl, InputLabel, MenuItem, Select, SelectChangeEvent, Tooltip, Typography } from '@mui/material';
 import { OpenInNew } from '@mui/icons-material';
 import React, { useState } from 'react';
+import { getEnv } from '../config/constants';
 
 interface Dashboard {
   title: string;
@@ -10,7 +11,7 @@ interface Dashboard {
 
 const GrafanaDashboard: React.FC = () => {
   // Get Grafana URL from environment variable
-  const grafanaUrl = (import.meta as any).env?.VITE_GRAFANA_URL || 'http://localhost/grafana';
+  const grafanaUrl = getEnv('VITE_GRAFANA_URL') || 'http://localhost/grafana';
 
   // Available dashboards including System Monitoring
   const dashboards: Dashboard[] = [

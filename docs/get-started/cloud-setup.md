@@ -1,6 +1,16 @@
-# ☁️ Cloud + Local Hybrid Setup
+# ☁️ Managed cloud (Vercel + Render) — platform hosted, host local
 
-This guide shows you how to deploy VirtualPyTest in a production-ready hybrid setup:
+> **Read [Install](install.md) first.** One Docker host on a VPS gets you the same result
+> with far fewer moving parts, and it is the path CI tests on every push. This page is a
+> reference architecture for teams that already want managed services; unlike the Docker
+> path it is **not covered by automated tests**, so treat the versions and plan names here
+> as a starting point rather than a guarantee.
+>
+> The device controller **cannot** be hosted: a managed platform gives one container and
+> one port per service, and the controller needs two ports plus access to your hardware.
+> It stays on your own machine — see [Add a machine with devices](add-a-host.md).
+
+This guide deploys VirtualPyTest in a hybrid setup:
 
 - **Frontend**: Deployed on Vercel (global CDN)
 - **Backend Server**: Deployed on Render (scalable API)
@@ -298,23 +308,20 @@ Deploy Backend Host directly to Render using Docker (see Step 3.2 above)
 
 ### 4.1 CORS: only needed if the frontend calls Render directly
 
-`backend_server/src/app.py` does **not** currently call `CORS(app, ...)` anywhere — there's no
-existing origin allowlist to "update". `Flask-CORS>=4.0.0` is already in
-`backend_server/requirements.txt`, so it's available, it's just never wired up.
+`shared/src/lib/utils/app_utils.py` already calls `CORS(app, origins=..., supports_credentials=True)`
+for you — you don't add the call, you set which origins are allowed. `CORS_ALLOWED_ORIGINS`
+(comma-separated, in `.env`) is the allowlist; there is no `*` fallback (BUG-0092), so an origin
+not listed here simply cannot call this API from a browser.
 
-Whether you need it depends on how `VITE_SERVER_URL` is set:
+Whether you need to set it depends on how `VITE_SERVER_URL` is configured:
 - `frontend/vercel.json` maps `/server/(.*)` to `/server/$1` on the **same** Vercel deployment —
   it is a routing rule for the SPA, not a proxy to the backend. So with the frontend on Vercel
   and the server on Render, the browser always makes a cross-origin request and the server
-  needs CORS. Add it to `backend_server/src/app.py`:
+  needs your Vercel domain in its allowlist:
 
-```python
-from flask_cors import CORS
-
-CORS(app, origins=[
-    "https://virtualpytest.vercel.app",  # Your Vercel domain
-    "http://localhost:5073",             # Local development
-])
+```bash
+# .env, on the Render (or wherever backend_server runs) side
+CORS_ALLOWED_ORIGINS=https://virtualpytest.vercel.app,http://localhost:5073
 ```
 
 ### 4.2 Frontend API Endpoint
@@ -328,8 +335,9 @@ CORS(app, origins=[
 
 Both Vercel and Render automatically deploy when you push to your connected Git branch:
 
-- The committed `backend_server/src/render.yaml` pins `branch: dev` — change it to the branch
-  you deploy from (`main` for production)
+- The committed `backend_server/src/render.yaml` tracks `main` on
+  `github.com/AngelStreetCorp/virtualpytest`. Point `repo` and `branch` at your own fork if
+  you deploy from one
 - **Pull requests** → Preview deployments (Vercel)
 
 ### 5.2 Environment-Specific Configurations

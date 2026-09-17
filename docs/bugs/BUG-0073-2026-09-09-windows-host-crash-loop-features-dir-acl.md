@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | High (every Windows host offline after the deploy, restart loop)            |
 | Area      | shared/src/lib/utils/features.py · Windows rsync push in update_core.sh / deploy_customer.sh / customer update_core.local.sh |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

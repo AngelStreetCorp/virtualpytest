@@ -38,6 +38,7 @@ import { useAVQMetrics, SUBTITLE_PRESENT, TRANSCRIPT_PRESENT } from './hooks/use
 import { useAVQFrames } from './hooks/useAVQFrames';
 import { useDeviceTimeline } from './hooks/useDeviceTimeline';
 import { useMonitoring } from '../../../frontend/src/hooks/monitoring/useMonitoring';
+import { useResponsiveMode } from '../../../frontend/src/hooks/useResponsiveMode';
 import { formatScreenVerdict } from '../../../frontend/src/utils/screenVerdict';
 import { useRec } from '../../../frontend/src/hooks/pages/useRec';
 
@@ -62,6 +63,7 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; color?: string }> 
 const AVQDevicePage: React.FC = () => {
   const { hostName, deviceId } = useParams<{ hostName: string; deviceId: string }>();
   const navigate = useNavigate();
+  const { isMobile } = useResponsiveMode();
   const { avDevices } = useRec();
   const [muted, setMuted] = useState(true);
   const [isLiveMode, setIsLiveMode] = useState(true);
@@ -226,9 +228,13 @@ const AVQDevicePage: React.FC = () => {
         {displayMetric && (
           <>
             <Chip size="small" label={`Video ${avail(displayMetric.video_availability)}`} sx={{ bgcolor: availColor(displayMetric.video_availability) || '#9e9e9e', color: '#fff' }} />
-            <Chip size="small" label={`Audio ${avail(displayMetric.audio_availability)}`} sx={{ bgcolor: availColor(displayMetric.audio_availability) || '#9e9e9e', color: '#fff' }} />
             <Chip size="small" label={`Video MOS ${fmt(displayMetric.video_mos)}`} sx={{ bgcolor: mosColor(displayMetric.video_mos), color: '#fff' }} />
-            <Chip size="small" label={`Audio MOS ${fmt(displayMetric.audio_mos)}`} sx={{ bgcolor: mosColor(displayMetric.audio_mos), color: '#fff' }} />
+            {!isMobile && (
+              <>
+                <Chip size="small" label={`Audio ${avail(displayMetric.audio_availability)}`} sx={{ bgcolor: availColor(displayMetric.audio_availability) || '#9e9e9e', color: '#fff' }} />
+                <Chip size="small" label={`Audio MOS ${fmt(displayMetric.audio_mos)}`} sx={{ bgcolor: mosColor(displayMetric.audio_mos), color: '#fff' }} />
+              </>
+            )}
           </>
         )}
       </Stack>
@@ -373,16 +379,20 @@ const AVQDevicePage: React.FC = () => {
                   <Stat label="Freeze" value={fmtIncident(displayMetric.freeze_seconds, 'freeze')} />
                   <Stat label="Macroblocks" value={fmtIncident(displayMetric.macroblocks_seconds, 'macroblocks')} />
                 </Stack>
-                <Divider sx={{ my: 0.75 }} />
-                <Typography variant="overline" color="text.secondary">Audio</Typography>
-                <Stack direction="row" flexWrap="wrap" gap={1.25}>
-                  <Stat label="Available" value={avail(displayMetric.audio_availability)} color={availColor(displayMetric.audio_availability)} />
-                  <Stat label="Audio MOS" value={fmt(displayMetric.audio_mos)} color={mosColor(displayMetric.audio_mos)} />
-                  <Stat label="Audio Level" value={fmt(displayMetric.audio_level_db, ' dB')} />
-                  <Stat label="Loudness" value={fmt(displayMetric.loudness_lkfs, ' LKFS')} />
-                  <Stat label="Silence" value={fmtIncident(displayMetric.silence_seconds, 'noSound')} />
-                  <Stat label="Saturation" value={fmt(displayMetric.saturation_score)} />
-                </Stack>
+                {!isMobile && (
+                  <>
+                    <Divider sx={{ my: 0.75 }} />
+                    <Typography variant="overline" color="text.secondary">Audio</Typography>
+                    <Stack direction="row" flexWrap="wrap" gap={1.25}>
+                      <Stat label="Available" value={avail(displayMetric.audio_availability)} color={availColor(displayMetric.audio_availability)} />
+                      <Stat label="Audio MOS" value={fmt(displayMetric.audio_mos)} color={mosColor(displayMetric.audio_mos)} />
+                      <Stat label="Audio Level" value={fmt(displayMetric.audio_level_db, ' dB')} />
+                      <Stat label="Loudness" value={fmt(displayMetric.loudness_lkfs, ' LKFS')} />
+                      <Stat label="Silence" value={fmtIncident(displayMetric.silence_seconds, 'noSound')} />
+                      <Stat label="Saturation" value={fmt(displayMetric.saturation_score)} />
+                    </Stack>
+                  </>
+                )}
               </>
             )}
           </Paper>

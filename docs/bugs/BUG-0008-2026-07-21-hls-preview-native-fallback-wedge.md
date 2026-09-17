@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | frontend / HLSVideoPlayer                                    |
-| Fixed in  | build 8713                                                   |
+| Fixed in  | build 8414                                                   |
 | Commit    | `649a28500`                                                  |
 
 ---

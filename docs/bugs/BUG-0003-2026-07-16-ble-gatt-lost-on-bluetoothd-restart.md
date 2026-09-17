@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend_host / bluetooth                                     |
-| Fixed in  | build 8713                                                   |
+| Fixed in  | build 8414                                                   |
 | Commit    | `bd620fc5c`                                                  |
 
 ---

@@ -81,11 +81,76 @@ Metadata example:
 }
 ```
 
+## The label — one definition
+
+Everything that shows a script to a human renders the same string, with the same fallback chain:
+
+```
+[prefix] display_name  ->  display_name  ->  [prefix] script_name  ->  script_name
+```
+
+That chain lives in **one place per runtime**, and nothing should re-implement it:
+
+| Runtime | Use |
+|---|---|
+| Python | `format_script_label(script_ref, prefix, display_name)` — `shared/src/lib/utils/script_identity_utils.py` |
+| TypeScript | `formatScriptLabel(scriptName)` — `frontend/src/utils/executionUtils.tsx` |
+| Grafana SQL | `COALESCE('[' \|\| prefix \|\| '] ' \|\| display_name, display_name, '[' \|\| prefix \|\| '] ' \|\| script_name, script_name)` over `metadata->'script_identity'` — as in `script-results.json` / `home-dashboard.json` |
+
+A script with no identity row falls back to its own name, which is always a valid label.
+
+Copies of this chain drifting apart is BUG-0099: one script ended up with four different names.
+
+### In the API
+
+`GET /server/script/list` returns the label so a caller never has to merge the map itself:
+
+```json
+{
+  "scripts": ["gw/windows_networkassessmenttools"],
+  "items": [{
+    "script_ref":   "gw/windows_networkassessmenttools",
+    "prefix":       "TC015",
+    "display_name": "Windows Network Assessment",
+    "label":        "[TC015] Windows Network Assessment"
+  }]
+}
+```
+
+- **`script_ref` is the identifier** — it is what you post back to `/server/script/execute`.
+  Never send `label`.
+- `label` is rendered server-side, so the browser, an external caller (dmacp, MCP) and the reports
+  all show the identical string.
+- `prefix` / `display_name` are `null` for an unmapped script and `label` is then the script name.
+- `scripts` (bare names) is unchanged for existing callers. Prefer `items`.
+
+The map is loaded once per request, so `items` costs no extra query. Identity writes
+(`/server/script-identity/{set,clear,import}`) invalidate the script-list cache, so a rename on the
+Test Cases page is visible immediately.
+
+### In Grafana
+
+A dashboard whose panels all query **one** `script_name` is that script's dashboard, so its **title
+must be that script's label** — `[TC015] Windows Network Assessment`, not a hand-invented name.
+Aggregate dashboards (several scripts, or none) keep free-text titles; their data labels already
+build the label in SQL.
+
+Check it, in the platform repo or any customer overlay:
+
+```bash
+python3 infra/monitoring/grafana/check_dashboard_titles.py          # exits 1 on drift
+python3 infra/monitoring/grafana/check_dashboard_titles.py --fix    # rewrite the titles
+```
+
+It reads the repo's `script_identity_map.json`, so a name edited only in the Test Cases page reads
+as drift until the map is re-exported.
+
 ## What This Does Not Change
 
 - No script file rename is required.
 - No `script_name`/`script_type` behavior is changed.
-- No dashboard contract change is required now.
+- No dashboard contract change is required — `metadata.script_identity` is unchanged;
+  only per-script dashboard *titles* now follow the label (see above).
 - Script identity uses existing `script_results.metadata` JSONB.
 - Campaign identity uses `campaign_executions.metadata` JSONB (requires migration once).
 

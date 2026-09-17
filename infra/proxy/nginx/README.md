@@ -253,6 +253,7 @@ All configs support these routes:
 | Streams | `/host/{name}/stream/{path}` | `proxy_pass` → map | HLS segments, captures, archives (Flask :6109) |
 | VNC | `/host/{name}/vnc_lite.html` | `proxy_pass` → map | Web VNC access (websockify :6080) |
 | WebSocket | `/host/{name}/websockify` | `proxy_pass` → map | VNC WebSocket tunnel (:6080) |
+| Phone link | `/host/{name}/phone/socket.io/` | `proxy_pass` → map | Mobile-app phone WebSocket (Socket.IO `/phone` ns, Flask :6109, TASK-17) |
 | Grafana | `/grafana/` | `proxy_pass` → upstream | Monitoring dashboard |
 | Health | `/health` | local | Health check |
 

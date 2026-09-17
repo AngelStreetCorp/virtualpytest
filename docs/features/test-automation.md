@@ -106,7 +106,7 @@ campaign = {
 ```
 
 There's no built-in cron-style scheduler for campaigns — trigger recurring runs via the
-[CI/CD feature](../technical/CICD_FEATURE.md) or an external scheduler calling the REST API.
+[CI/CD feature](./cicd.md) or an external scheduler calling the REST API.
 
 ---
 
@@ -199,7 +199,7 @@ execution on the host is handled by `CampaignExecutor`
 (`shared/src/lib/executors/campaign_executor.py`), which sequences the campaign's scripts and
 supports abort requests — it isn't something a test script imports and drives directly.
 
-For automatic recurring runs, use the [CI/CD feature](../technical/CICD_FEATURE.md) (GitHub
+For automatic recurring runs, use the [CI/CD feature](./cicd.md) (GitHub
 Actions scheduling) or your own external scheduler calling the REST API — VirtualPyTest itself
 doesn't ship a built-in cron scheduler for campaigns.
 

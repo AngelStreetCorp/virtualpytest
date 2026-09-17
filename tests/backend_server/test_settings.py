@@ -126,14 +126,10 @@ class TestUpdateConfigValidation:
         assert resp.status_code == 400, resp.text
         assert resp.json().get("error") == "No data provided"
 
-    @pytest.mark.skip(
-        reason=(
-            "Writes directly into the live server's own .env files with no "
-            "safe rollback beyond a timestamped backup copy — mutating real "
-            "server/frontend/host config on a shared deployment is out of "
-            "scope for a repeatable CI smoke test."
-        )
-    )
+    # Writes directly into the live server's own .env files with no safe rollback beyond a
+    # timestamped backup copy — mutating real server/frontend/host config on a shared deployment
+    # is out of scope for a repeatable CI smoke test.
+    @pytest.mark.manual
     def test_update_config_happy_path(self):
         ...
 
@@ -143,14 +139,10 @@ class TestUpdateConfigValidation:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.skip(
-    reason=(
-        "Creates a new <file>.backup.<timestamp> file on the server's disk "
-        "for every .env file present, with no corresponding delete endpoint "
-        "— every CI run would leave permanent artifacts behind on a real "
-        "deployment."
-    )
-)
+# Creates a new <file>.backup.<timestamp> file on the server's disk for every .env file present,
+# with no corresponding delete endpoint — every CI run would leave permanent artifacts behind on
+# a real deployment.
+@pytest.mark.manual
 class TestBackupConfig:
     def test_backup_config(self):
         ...

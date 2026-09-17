@@ -5,7 +5,7 @@
 # Installs a lightweight VPT runner host on a new Debian/Ubuntu VM.
 # Only installs vpt-host.service — no stream, VNC, monitor, or capture services.
 #
-# Usage (on the new VM, as jndoye with sudo):
+# Usage (on the new VM, as a sudo-capable user):
 #   bash /opt/virtualpytest/setup/proxmox/vm/runner/install_runner.sh \
 #     --host-name runner-01 \
 #     --host-type runner_host \
@@ -34,6 +34,10 @@ API_KEY=""
 SUPABASE_URL="http://192.168.0.102:54321"
 SUPABASE_ANON_KEY=""
 SUPABASE_DB_URI="postgresql://postgres:postgres@192.168.0.102:54322/postgres"
+# Storage credentials belong to the storage VM and are generated there per install; there
+# is no default to fall back on. Pass them from that machine's .env.
+MINIO_SECRET_KEY=""
+REDIS_PASSWORD=""
 PROJECT_DIR="/opt/virtualpytest"
 VENV_DIR="$PROJECT_DIR/venv"
 SERVICE_USER="vpt_user"
@@ -49,9 +53,20 @@ while [[ $# -gt 0 ]]; do
     --supabase-url)     SUPABASE_URL="$2";     shift 2 ;;
     --supabase-anon-key) SUPABASE_ANON_KEY="$2"; shift 2 ;;
     --supabase-db-uri)  SUPABASE_DB_URI="$2";  shift 2 ;;
+    --minio-secret-key) MINIO_SECRET_KEY="$2"; shift 2 ;;
+    --redis-password)   REDIS_PASSWORD="$2";   shift 2 ;;
     *) echo "Unknown argument: $1"; exit 1 ;;
   esac
 done
+
+if [ -z "$MINIO_SECRET_KEY" ]; then
+  echo "⚠️  MINIO_SECRET_KEY not given (--minio-secret-key) — the runner will not reach MinIO."
+  echo "   Take the value from the storage VM's .env."
+fi
+if [ -z "$REDIS_PASSWORD" ]; then
+  echo "⚠️  REDIS_PASSWORD not given (--redis-password) — the runner will not reach Redis."
+  echo "   Take the value from the storage VM's .env."
+fi
 
 echo "============================================================"
 echo "🏃 VirtualPyTest Runner Host Setup"
@@ -149,11 +164,11 @@ SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 SUPABASE_DB_URI=$SUPABASE_DB_URI
 MINIO_ENDPOINT=http://192.168.0.101:9000
 MINIO_ACCESS_KEY=admin
-MINIO_SECRET_KEY=admin1234
+MINIO_SECRET_KEY=$MINIO_SECRET_KEY
 MINIO_BUCKET=virtualpytest
 MINIO_CONSOLE_URL=http://192.168.0.101:9001
 MINIO_PUBLIC_URL=$SERVER_URL/minio
-REDIS_URL=redis://:admin1234@192.168.0.101:6379/0
+REDIS_URL=redis://:$REDIS_PASSWORD@192.168.0.101:6379/0
 ENVIRONMENT=production
 SKIP_SPEEDTEST=true
 EOF

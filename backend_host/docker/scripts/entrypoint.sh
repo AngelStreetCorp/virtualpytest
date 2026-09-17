@@ -16,14 +16,37 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-echo ""
-echo "📁 Initializing storage directories..."
-
 # Parse devices from .env file (same logic as RAM setup script).
 # env_value KEY: the value with quotes, an inline "# comment" and surrounding whitespace
 # removed — the template writes `HOST_VIDEO_CAPTURE_PATH=/var/www/html/stream/capture    # …`
 # and taking the raw text created a directory named "capture    # Capture output directory".
 env_value() { grep "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d '=' -f 2- | tr -d '"' | tr -d "'" | sed 's/[[:space:]]*#.*$//' | xargs; }
+
+# VNC password. Not baked into the image: it is published to GHCR, so a baked password
+# would be the same on every pull. HOST_VNC_PASSWORD from the environment wins, then .env;
+# otherwise generate one per container and print it, because nothing else can tell the
+# operator what it is.
+echo ""
+echo "🔐 VNC password..."
+VNC_PASS="${HOST_VNC_PASSWORD:-}"
+if [ -z "$VNC_PASS" ] || [ "$VNC_PASS" = CHANGE_ME ]; then
+    VNC_PASS="$(env_value HOST_VNC_PASSWORD)"
+fi
+if [ -z "$VNC_PASS" ] || [ "$VNC_PASS" = CHANGE_ME ]; then
+    # vncpasswd truncates at 8 characters, so a longer value buys nothing.
+    VNC_PASS="$(openssl rand -base64 24 | tr -dc 'A-Za-z0-9' | cut -c1-8)"
+    echo "   generated one for this container: $VNC_PASS"
+    echo "   set HOST_VNC_PASSWORD in backend_host/src/.env to keep it across restarts"
+else
+    echo "   using HOST_VNC_PASSWORD"
+fi
+mkdir -p /home/vpt_user/.vnc
+printf '%s\n' "$VNC_PASS" | vncpasswd -f > /home/vpt_user/.vnc/passwd
+chown vpt_user:vpt_user /home/vpt_user/.vnc/passwd
+chmod 600 /home/vpt_user/.vnc/passwd
+
+echo ""
+echo "📁 Initializing storage directories..."
 CAPTURE_PATHS=()
 
 # Check for HOST device first

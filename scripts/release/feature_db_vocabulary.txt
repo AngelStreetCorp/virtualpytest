@@ -1,0 +1,36 @@
+# What each optional feature owns in the database, as identifier fragments.
+#
+# WHY THIS FILE EXISTS. A delivery note must list the migrations a customer has to apply, and
+# "added since their pin" is the wrong list: a feature in their DISABLED_FEATURES ships no code
+# and no tables, so its migrations must NOT be run. Nothing in the migration's *path* says which
+# feature it belongs to -- a feature's migration sits in setup/db/migrations/ like any other --
+# and the table it touches is often referenced from core files named after the feature rather
+# than from features/<name>/. So the only reliable signal is the identifiers in the migration
+# body, matched against the vocabulary below.
+#
+# A migration is then one of three things for a given customer:
+#   - CORE    no fragment matches            -> apply
+#   - SKIP    matches only disabled features -> must not be applied; the tables do not exist
+#   - MIXED   touches both                   -> WILL FAIL as written ("relation does not exist")
+#             on a deployment missing those tables. Edit it down to the objects that exist.
+#
+# DEFAULT IS CORE. A migration with no matching fragment is applied, always. The list here is
+# the exception, never the rule: an entry that is wrong in the "skip" direction withholds a
+# migration the customer needs, which is the failure that breaks a deployment silently.
+#
+# GOING FORWARD this file should stay short, because a feature's migration belongs in
+# features/<name>/db/ where the PATH says who owns it (features/cicd/db/ already does this) --
+# or, when it has to sit in setup/db/migrations/, its filename should carry the feature so the
+# name alone is coherent. The entries below are history: five of them (20260424j/k/n/o/p,
+# task_* and live_tv_*) are ai-test migrations whose names reveal nothing at all.
+#
+# Keep it short and specific. A fragment too generic ("task", "script") will mark core
+# migrations as feature ones and tell a customer to skip something they need -- the dangerous
+# direction. Reviewed by hand when a feature gains tables.
+#
+# format: <feature>: <fragment>, <fragment>, ...
+ai-test: ai_userinterface, ai_task, live_tv, micro_step
+avq: quality_metrics
+virtual-scripts: virtual_script
+cicd: cicd, ci_projects, ci_runs
+quicktest: quicktest

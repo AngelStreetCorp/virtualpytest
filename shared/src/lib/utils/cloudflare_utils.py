@@ -135,7 +135,9 @@ class CloudflareUtils:
             # Local MinIO configuration (from install_storage.sh)
             minio_endpoint = os.environ.get('MINIO_ENDPOINT', 'http://localhost:9000')
             minio_access_key = os.environ.get('MINIO_ACCESS_KEY', 'admin')
-            minio_secret_key = os.environ.get('MINIO_SECRET_KEY', 'admin1234')
+            # No default: the password is generated per install (shared/write_env.sh).
+            # Falling back to a literal would silently restore the old shared one.
+            minio_secret_key = os.environ.get('MINIO_SECRET_KEY')
 
             # Determine which storage backend to use
             if all([r2_endpoint, r2_access_key, r2_secret_key]):
@@ -219,7 +221,8 @@ class CloudflareUtils:
 
         logger.info(f"Initializing separate presign client for: {presign_endpoint}")
         minio_access_key = os.environ.get('MINIO_ACCESS_KEY', 'admin')
-        minio_secret_key = os.environ.get('MINIO_SECRET_KEY', 'admin1234')
+        # No default: the password is generated per install (shared/write_env.sh).
+        minio_secret_key = os.environ.get('MINIO_SECRET_KEY')
         config = Config(
             signature_version='s3v4',
             connect_timeout=2,

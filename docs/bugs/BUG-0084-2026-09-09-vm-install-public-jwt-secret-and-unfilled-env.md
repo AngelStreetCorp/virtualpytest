@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | High (security: forgeable service-role tokens on every CLI-installed database; usability: install ends with a non-working platform) |
 | Area      | setup/local/linux/database/install_supabase.sh · setup/local/linux/install_all.sh · install_core.sh · .env.example files |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

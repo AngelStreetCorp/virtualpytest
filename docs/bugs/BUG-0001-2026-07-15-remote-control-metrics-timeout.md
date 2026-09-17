@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                   |
 | Severity  | High                                                     |
 | Area      | backend / db / userinterface                             |
-| Fixed in  | build 8713                                               |
+| Fixed in  | build 8414                                               |
 | Commit    | `8a1906888`                                              |
 
 ---

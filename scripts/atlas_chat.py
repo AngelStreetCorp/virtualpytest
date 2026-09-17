@@ -54,13 +54,22 @@ except ImportError as e:
 DEFAULT_SERVER = os.environ.get('SERVER_URL', 'https://virtualpytest.angelstreet.io')
 DEFAULT_TEAM   = os.environ.get('TEAM_ID',   '7fdeb4bb-3639-4ec3-959f-b54769a219ce')
 AUTO_SIGN      = os.environ.get('AUTO_SIGN_TOKEN')
+API_KEY        = os.environ.get('API_KEY')
+
+
+def _service_headers() -> dict:
+    """Service credential for /server/*. This script is a non-browser caller, so it
+    authenticates with the shared X-API-Key when one is exported — auto-sign alone
+    only works on deployments that enable it (docs/agent/platform/SERVER_AUTH.md)."""
+    return {'X-API-Key': API_KEY} if API_KEY else {}
 
 
 def create_session(server: str, verify: bool, auto_sign: str | None) -> str:
     """POST /server/agent/sessions → returns session_id."""
     url = f"{server.rstrip('/')}/server/agent/sessions"
     params = {'auto_signed': auto_sign} if auto_sign else None
-    r = requests.post(url, params=params, json={}, verify=verify, timeout=15)
+    r = requests.post(url, params=params, json={}, headers=_service_headers(),
+                      verify=verify, timeout=15)
     r.raise_for_status()
     body = r.json()
     if not body.get('success'):
@@ -83,7 +92,8 @@ def take_device_control(server: str, verify: bool, auto_sign: str | None,
         'stop_running_execution': True,
         'reason': 'atlas_chat',
     }
-    r = requests.post(url, params=params, json=payload, verify=verify, timeout=15)
+    r = requests.post(url, params=params, json=payload, headers=_service_headers(),
+                      verify=verify, timeout=15)
     r.raise_for_status()
     body = r.json() if r.content else {}
     if not body.get('success', True):  # some builds omit 'success' on happy path

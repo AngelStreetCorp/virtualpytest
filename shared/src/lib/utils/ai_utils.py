@@ -53,6 +53,26 @@ def _format_timestamp(timestamp: float) -> str:
 # Clean AI Interface Functions
 # =============================================================================
 
+def _response_text(resp) -> str:
+    """Text from either response shape.
+
+    OpenAICompatibleProviderClient (openai/openrouter/local) returns a
+    ProviderResponse, which has .text(). AnthropicProviderClient (anthropic,
+    minimax) passes the raw Anthropic SDK Message straight through, and that has
+    no .text() — only a .content list of blocks. Reasoning models also emit
+    thinking blocks, which are never part of the answer.
+    """
+    textf = getattr(resp, "text", None)
+    if callable(textf):
+        return textf() or ""
+    blocks = getattr(resp, "content", None) or []
+    return "".join(
+        getattr(b, "text", "") or ""
+        for b in blocks
+        if getattr(b, "type", None) == "text"
+    )
+
+
 def call_text_ai(prompt: str, max_tokens: int = 200, temperature: float = 0.1, model: str = None) -> Dict[str, Any]:
     """Single text completion via the centralized 'text' task provider."""
     return _run_completion('text', prompt, image=None, max_tokens=max_tokens, temperature=temperature, model=model)
@@ -108,7 +128,7 @@ def _run_completion(task: str, prompt: str, image: Union[str, bytes, None] = Non
             print(f"[AI_UTILS] ❌ {error_msg}")
             return {'success': False, 'error': f'AI call failed: {error_msg}', 'content': '', 'provider_used': provider}
 
-        content = resp.text()
+        content = _response_text(resp)
         if not content or not content.strip():
             if attempt < attempts - 1:
                 print(f"[AI_UTILS] Empty content (attempt {attempt + 1}/{attempts}) - retrying")

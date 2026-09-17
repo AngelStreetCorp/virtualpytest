@@ -91,8 +91,29 @@ def get_workspace(workspace_id: str) -> Optional[Dict]:
         print(f"[@db:workspaces_db:get_workspace] Error: {e}")
         return None
 
+class DuplicateSlugError(Exception):
+    """A workspace with this slug already exists (unique violation on workspaces.slug)."""
+
+    def __init__(self, slug: str):
+        self.slug = slug
+        super().__init__(f"A workspace with slug '{slug}' already exists")
+
+
+def _is_duplicate_slug(error: Exception) -> bool:
+    """True for postgres 23505 on the workspaces_slug_key constraint.
+
+    postgrest reports it as a dict-ish payload on the exception, so match on the code and
+    the constraint name in the string form rather than on an exception type.
+    """
+    text = str(error)
+    return '23505' in text and 'workspaces_slug_key' in text
+
+
 def create_workspace(data: Dict) -> Optional[Dict]:
-    """Create a new workspace."""
+    """Create a new workspace.
+
+    Raises DuplicateSlugError when the slug is taken; returns None for any other failure.
+    """
     supabase = get_supabase()
     try:
         name = data['name']
@@ -133,6 +154,11 @@ def create_workspace(data: Dict) -> Optional[Dict]:
         return None
     except Exception as e:
         print(f"[@db:workspaces_db:create_workspace] Error: {e}")
+        # A taken slug is caller input, not a server fault. Returning None for it made the
+        # route answer a blanket 500 "Failed to create workspace", which reads as an outage
+        # and told the caller nothing about the one thing they could fix. Signal it apart.
+        if _is_duplicate_slug(e):
+            raise DuplicateSlugError(data.get('slug') or _make_slug(data.get('name', '')))
         return None
 
 def update_workspace(workspace_id: str, data: Dict) -> Optional[Dict]:

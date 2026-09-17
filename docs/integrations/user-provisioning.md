@@ -79,13 +79,61 @@ curl -X POST "https://your-server.example.com/server/users?grafana=true" \
         "email": "marie.dupont@example.com",
         "password": "a strong password",
         "full_name": "Marie Dupont",
-        "group": "QA Team"
+        "group": "QA Team",
+        "provider_type": "dmacp"
       }'
 ```
 
 The `?grafana=true` flag is what also creates the Grafana account. Leave it off and only
 VirtualPyTest is written. **Send it every time** unless you deliberately don't want the person to
 reach the dashboards.
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `email` | yes | The identifier both systems recognise the person by |
+| `password` | on create | At least 6 characters |
+| `full_name` | no | Defaults to the part before the `@` — `marie.dupont@example.com` becomes `marie.dupont`. See [Names](#the-default-name) |
+| `group` | no | Team name, created if it doesn't exist. Omit it and the person lands in the installation's default team. See [Teams](#teams-and-the-default-team) |
+| `provider_type` | no | Your platform's name. Defaults to `virtualpytest`. See [Where an account comes from](#where-an-account-comes-from) |
+
+### The default name
+
+`full_name` is the name shown in the users list and on the Grafana account. Send it if you have a
+real one. If you don't, you get the email's local part rather than a blank cell — for
+`marie.dupont@example.com` that is `marie.dupont`.
+
+A later call **never overwrites a name that is already set**: a reset that doesn't mention
+`full_name` leaves whatever is there alone, and only fills it in if it is still blank. So a person
+who renames themselves in VirtualPyTest keeps that name across every future reset you send.
+
+Whatever name ends up being used is written to the account itself as well as to VirtualPyTest, so
+it is what Supabase's own **Display name** column shows for that user — not a blank.
+
+### Teams and the default team
+
+Every installation has one default team, and a new account is put in it automatically. Send `group`
+to place them somewhere else instead: the team is looked up by name and **created if it doesn't
+exist**, then the person is added to it and it becomes their primary team.
+
+An auto-created team is created empty — no team-level permission grants, exactly like every other
+team including the default one. Team permissions are additive grants on top of a person's role, so
+a new team grants nothing by itself and a provisioned account can never come out with more access
+than its role allows. If a team is meant to grant something extra, an admin sets that on the team
+in the Users page afterwards; provisioning never does it for you.
+
+Note that `group` **adds** a team rather than moving the person out of the default one — they stay
+a member of both, and permissions are the union across every team they belong to.
+
+### Where an account comes from
+
+`provider_type` records which platform administers the account. Anything created inside
+VirtualPyTest — a UI signup, an admin, our own tooling — is `virtualpytest`. Send your own platform
+name (`"provider_type": "dmacp"`) and the account is marked as yours, so it is obvious in the users
+list and in the database which side owns a given person.
+
+It is only written when you send it. A password reset that omits it leaves the existing value
+alone, so one platform's reset can never quietly reassign another platform's user. Sending it on a
+later call *does* reassign the account — that is how you take ownership of one deliberately.
 
 ---
 
@@ -103,10 +151,56 @@ curl -X PUT "https://your-server.example.com/server/users/marie.dupont@example.c
 This sets the password on **both** systems. The person can log in immediately — there is no
 confirmation email step.
 
+**Keep the `-X PUT`.** Without it curl sends a `GET`, which only *reads* the person's status and
+never touches the password. That address answers a `GET` with `405` and repeats the call you
+meant, so a dropped `-X PUT` can't be mistaken for a successful reset:
+
+```json
+{
+  "status": "error",
+  "error": "method_not_allowed",
+  "detail": "GET only reads this user's status and never changes a password. To set the password, use: PUT /server/users/marie.dupont@example.com?grafana=true with body {\"password\": \"...\"}."
+}
+```
+
 Resetting a password **never changes the person's role or permissions.**
 
 `PUT` also creates the user if they don't exist yet, so if your side treats "set password" as one
 operation you can use it for both onboarding and reset and ignore `POST` entirely.
+
+---
+
+## Edit a user without touching their password
+
+The same `PUT`, with no `password` field. Send only what you want to change:
+
+```bash
+curl -X PUT "https://your-server.example.com/server/users/marie.dupont@example.com?grafana=true" \
+  -H "X-API-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+        "full_name": "Marie Dupont",
+        "provider_type": "dmacp",
+        "group": "QA Team"
+      }'
+```
+
+All three fields are independent — send one, two or all of them. Their password is left exactly as
+it was, and so is anything you don't mention.
+
+`password` is only **required** when the person doesn't exist yet, because then the call has to
+create them. Editing someone who isn't there yet returns:
+
+```json
+{ "status": "error", "error": "invalid_payload", "detail": "password is required to create a user" }
+```
+
+Two things this route deliberately will not do:
+
+- **Change their role or permissions.** VirtualPyTest owns those; an admin sets them in the Users
+  page. A provisioning call never changes them, on purpose.
+- **Remove them from a team.** `group` adds a team and makes it their primary one. Taking someone
+  out of a team is an admin action in the Users page, or `DELETE` the user entirely.
 
 ---
 
@@ -118,7 +212,12 @@ operation you can use it for both onboarding and reset and ignore `POST` entirel
   "action": "updated",
   "email": "marie.dupont@example.com",
   "user_id": "7fdb81c8-b5de-46fd-aaa4-cd9cbc5a5a8d",
-  "platform": { "role": "viewer", "team": "QA Team" },
+  "platform": {
+    "role": "viewer",
+    "team": "QA Team",
+    "full_name": "marie.dupont",
+    "provider_type": "dmacp"
+  },
   "grafana":  { "user_id": 3, "org_role": "Viewer" }
 }
 ```
@@ -126,7 +225,7 @@ operation you can use it for both onboarding and reset and ignore `POST` entirel
 | Field | Meaning |
 |-------|---------|
 | `action` | `created` for a new person, `updated` for an existing one. Useful for your own audit log. |
-| `platform` | Their role and team inside VirtualPyTest. |
+| `platform` | Their role, team, name and `provider_type` inside VirtualPyTest — the values as stored after the call, so you can confirm the defaults that were applied. |
 | `grafana` | Confirms the Grafana account was written. **If this key is absent, the Grafana half did not run** — check that you sent `?grafana=true`. |
 
 ---
@@ -203,8 +302,9 @@ All four take the same `X-API-Key` header and the same `?grafana=true` flag.
 
 | To do this | Call | Body |
 |------------|------|------|
-| Create a user | `POST /server/users` | `email`, `password`, `full_name`, `group` |
-| Reset a password | `PUT /server/users/{email}` | `password` |
+| Create a user | `POST /server/users` | `email`, `password`, `full_name`, `group`, `provider_type` |
+| Reset a password | `PUT /server/users/{email}` | `password`, `provider_type` |
+| Edit without touching the password | `PUT /server/users/{email}` | any of `full_name`, `provider_type`, `group` |
 | Check whether someone exists | `GET /server/users/{email}` | — |
 | Remove a user | `DELETE /server/users/{email}` | — |
 
@@ -331,9 +431,10 @@ what a person can do  =  ( role  +  group grants  +  individual grants )  −  a
 
 | Code | Meaning | What to do |
 |------|---------|------------|
-| `400` | Missing or invalid input — usually no email, or a password under 6 characters | Fix the payload; retrying as-is won't help |
+| `400` | Missing or invalid input — usually no email, a password under 6 characters, or a blank `provider_type` | Fix the payload; retrying as-is won't help |
 | `401` | API key missing or wrong | Check your configuration |
 | `403` | The key authenticated but isn't allowed here | Confirm you're sending `API_KEY`, not a user token |
+| `405` | A `GET` on `/server/users/{email}` carried a password or `?grafana=`, i.e. a write addressed to the read-only status check | Send the same call as a `PUT` — usually a missing `-X PUT` in curl |
 | `500` | Either `SUPABASE_SERVICE_ROLE_KEY` is not configured, or the `group` could not be created/joined | Read `detail`. For a config problem see [Prerequisites](#prerequisites); for a group problem **retry** — see the note below |
 | `502` | VirtualPyTest was updated, but Grafana could not be reached | **Retry the same call.** The password is already live on VirtualPyTest; the retry finishes the Grafana half |
 

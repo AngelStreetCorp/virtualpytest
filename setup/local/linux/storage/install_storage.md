@@ -48,7 +48,7 @@ The installer will:
 ### Redis Server (`redis-server.service`)
 - **Purpose**: Network-accessible caching and session storage
 - **Port**: 6379
-- **Password**: `admin1234`
+- **Password**: generated per install (`.env`)
 - **Data location**: `/data/redis`
 
 ### Redis Commander (`redis-commander.service`)
@@ -56,7 +56,7 @@ The installer will:
 - **Port**: 8081
 - **Local URL**: http://localhost:8081
 - **Proxied URL**: https://your-domain/redis/
-- **Web Login**: admin / admin1234
+- **Web Login**: admin / the password in `.env`
 - **Requires**: Node.js and npm (installed automatically)
 
 ### MinIO Server (`minio.service`)
@@ -66,7 +66,7 @@ The installer will:
 - **Data location**: `/data/minio`
 - **Credentials**: 
   - Access Key: `virtualpytest`
-  - Secret Key: `admin1234`
+  - Secret Key: `MINIO_SECRET_KEY` from `.env`
 - **Default Bucket**: `virtualpytest`
 
 ## Service Management
@@ -115,20 +115,20 @@ sudo systemctl restart redis-commander
 
 ```bash
 # Test connection
-redis-cli -a admin1234 ping
+redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping
 # Expected output: PONG
 
 # Test operations
-redis-cli -a admin1234 set test_key "test_value"
-redis-cli -a admin1234 get test_key
-redis-cli -a admin1234 del test_key
+redis-cli -a "$REDIS_PASSWORD" --no-auth-warning set test_key "test_value"
+redis-cli -a "$REDIS_PASSWORD" --no-auth-warning get test_key
+redis-cli -a "$REDIS_PASSWORD" --no-auth-warning del test_key
 ```
 
 ### Test MinIO
 
 ```bash
 # Configure MinIO client
-mc alias set local http://localhost:9000 admin admin1234
+mc alias set local http://localhost:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
 
 # List buckets
 mc ls local/
@@ -217,7 +217,7 @@ one local cleanup job that exists, covering `captures/verification_results/` onl
 
 ```bash
 MINIO_ROOT_USER=admin
-MINIO_ROOT_PASSWORD=admin1234
+MINIO_ROOT_PASSWORD=<MINIO_SECRET_KEY from .env>
 MINIO_OPTS="--address :9000 --console-address :9001"
 MINIO_DRIVES="/data/minio"
 ```
@@ -257,7 +257,7 @@ Key settings:
 dir /data/redis
 
 # Password
-requirepass admin1234
+requirepass <REDIS_PASSWORD from .env>
 
 # Persistence
 appendonly yes
@@ -271,7 +271,7 @@ Add these to your application's configuration:
 # MinIO S3-Compatible Storage
 MINIO_ENDPOINT=http://localhost:9000
 MINIO_ACCESS_KEY=admin
-MINIO_SECRET_KEY=admin1234
+MINIO_SECRET_KEY=<generated per install>
 MINIO_BUCKET=virtualpytest
 MINIO_CONSOLE_URL=http://localhost:9001
 # Proxied access through nginx:
@@ -280,7 +280,7 @@ MINIO_CONSOLE_URL=http://localhost:9001
 # Redis Caching
 REDIS_HOST=localhost
 REDIS_PORT=6379
-REDIS_PASSWORD=admin1234
+REDIS_PASSWORD=<generated per install>
 REDIS_DB=0
 
 # Redis Commander (Web GUI)
@@ -295,7 +295,7 @@ REDIS_COMMANDER_URL=http://localhost:8081
 - **Local URL**: http://localhost:9001
 - **Proxied URL**: https://your-domain/minio-console/
 - **Login**: virtualpytest
-- **Password**: admin1234
+- **Password**: generated per install (`.env`)
 
 ### MinIO API
 - **URL**: http://localhost:9000
@@ -303,12 +303,12 @@ REDIS_COMMANDER_URL=http://localhost:8081
 ### Redis Server
 - **Host**: localhost
 - **Port**: 6379
-- **Password**: admin1234
+- **Password**: generated per install (`.env`)
 
 ### Redis Commander (Web GUI)
 - **Local URL**: http://localhost:8081
 - **Proxied URL**: https://your-domain/redis/
-- **Web Login**: admin / admin1234
+- **Web Login**: admin / the password in `.env`
 - **Redis auto-connected**: 127.0.0.1:6379 with password
 
 ## Verification
@@ -377,7 +377,7 @@ ls -la /data/redis
 sudo systemctl status minio
 
 # Check if bucket exists
-mc alias set local http://localhost:9000 admin admin1234
+mc alias set local http://localhost:9000 "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY"
 mc ls local/
 
 # Create bucket manually if needed
@@ -388,7 +388,7 @@ mc mb local/virtualpytest
 
 ```bash
 # Test local connection
-redis-cli -a admin1234 ping
+redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping
 
 # Check Redis configuration
 grep -E "requirepass|bind" /etc/redis/redis.conf
@@ -413,7 +413,7 @@ sudo journalctl -u redis-commander -n 50
 ls -la /var/lib/redis-commander
 
 # Test manually as vpt_user
-sudo -u vpt_user redis-commander --redis-host 127.0.0.1 --redis-port 6379 --redis-password admin1234 --http-auth admin:admin1234
+sudo -u vpt_user redis-commander --redis-host 127.0.0.1 --redis-port 6379 --redis-password "$REDIS_PASSWORD" --http-auth admin:"$REDIS_PASSWORD"
 ```
 
 ### Permission Errors

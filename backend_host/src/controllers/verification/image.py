@@ -1238,9 +1238,11 @@ class ImageVerificationController:
                 # Fallback: automatically capture screenshot from AV controller
                 source_path = self.av_controller.take_screenshot()
                 if not source_path or not os.path.exists(source_path):
+                    reason = getattr(self.av_controller, 'last_screenshot_error', None)
                     return {
                         'success': False,
-                        'message': 'Failed to capture screenshot automatically for image verification',
+                        'message': 'Failed to capture screenshot automatically for image verification'
+                                   + (f': {reason}' if reason else ''),
                         'screenshot_path': None
                     }
                 # Persist the captured original path so downstream consumers (failure-report

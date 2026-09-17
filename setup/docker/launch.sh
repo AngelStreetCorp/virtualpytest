@@ -11,6 +11,9 @@
 # First run: copies .env.example -> .env, fills every CHANGE_ME with a generated
 # secret, derives the Supabase ANON/SERVICE_ROLE keys from JWT_SECRET, and sets
 # PUBLIC_HOST to this machine's LAN address. Nothing to edit before the first start.
+#
+# The backends build from this checkout by default. Set VPT_IMAGE_TAG in .env to a
+# release tag to pull them prebuilt from GHCR instead (~10 min saved on a first run).
 
 set -euo pipefail
 
@@ -27,8 +30,8 @@ for arg in "$@"; do
         --down)      ACTION=down ;;
         --reset)     ACTION=reset ;;
         --logs)      ACTION=logs ;;
-        -h|--help)   sed -n 2,14p "$0"; exit 0 ;;
-        *) echo "unknown option: $arg"; sed -n 2,14p "$0"; exit 1 ;;
+        -h|--help)   sed -n 2,17p "$0"; exit 0 ;;
+        *) echo "unknown option: $arg"; sed -n 2,17p "$0"; exit 1 ;;
     esac
 done
 
@@ -121,10 +124,26 @@ esac
 
 # ------------------------------------------------------------------------- up
 echo "🚀 VirtualPyTest ($MODE stack, $PLATFORM) — PUBLIC_HOST=$PUBLIC_HOST"
-if [ "$REBUILD" = true ]; then
-    "${COMPOSE[@]}" build --pull
+
+# Prebuilt images from GHCR unless VPT_IMAGE_TAG=local (the default) or --rebuild was
+# passed. All three are pullable: the frontend takes its VITE_* at runtime (its entrypoint
+# writes dist/config.js from the environment), so one image serves any PUBLIC_HOST.
+IMAGE_TAG="$(get_env VPT_IMAGE_TAG)"
+if [ "$REBUILD" = true ] || [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = local ]; then
+    [ "$REBUILD" = true ] && "${COMPOSE[@]}" build --pull
+    "${COMPOSE[@]}" up -d --build
+else
+    echo "📦 pulling backend images tagged '$IMAGE_TAG' (set VPT_IMAGE_TAG=local in .env to build instead)"
+    # docker-compose.host.yml defines backend_host only — asking for backend_server there
+    # is a hard error, not a no-op.
+    if [ "$MODE" = host ]; then PULL=(backend_host); else PULL=(backend_server backend_host frontend); fi
+    if ! "${COMPOSE[@]}" pull "${PULL[@]}"; then
+        echo "⚠️  pull failed for tag '$IMAGE_TAG' — falling back to building from this checkout"
+        "${COMPOSE[@]}" up -d --build
+    else
+        "${COMPOSE[@]}" up -d
+    fi
 fi
-"${COMPOSE[@]}" up -d --build
 
 # Wait for the API
 if [ "$MODE" = host ]; then

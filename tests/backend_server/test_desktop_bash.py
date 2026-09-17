@@ -13,7 +13,6 @@ a host_name in the JSON body or query params and returns 400 *before* any
 request reaches a host when it is missing.
 """
 
-import pytest
 import requests
 
 
@@ -45,15 +44,3 @@ def test_execute_command_unknown_host_returns_400(base_url, api_headers, verify_
     body = response.json()
     assert body.get("success") is False
 
-
-@pytest.mark.skip(
-    reason="A desktop-capable host IS online right now (sample-app-backend / "
-    "host-clone-1, desktop='bash' — see GET /server/system/getAllHosts), so "
-    "this isn't blocked by missing hardware. It's excluded from the every-push "
-    "regression suite because it executes a real shell command on a real "
-    "shared host; candidate for a separate, manually- or schedule-triggered "
-    "hardware suite instead of a permanent skip — see tests/docs/testing-strategy.md."
-)
-def test_execute_command_runs_on_real_device():
-    """Happy path: proxies a real bash command to a live desktop host and returns its output."""
-    pass

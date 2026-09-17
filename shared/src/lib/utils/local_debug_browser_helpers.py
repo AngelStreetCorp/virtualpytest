@@ -182,8 +182,10 @@ def launch_chrome_for_cdp(
     # LEFT BEHIND by a previous test that did not close cleanly (older).
     try:
         if platform.system() != "Windows":
+            # -sTCP:LISTEN: match the browser only, never the Playwright node drivers
+            # connected to it (killing one aborts that run mid-flight, BUG-0114).
             out = subprocess.run(
-                ["lsof", "-ti", f":{debug_port}"],
+                ["lsof", "-t", "-sTCP:LISTEN", "-i", f":{debug_port}"],
                 capture_output=True,
                 text=True,
                 timeout=5,

@@ -824,7 +824,7 @@ body {{
 
 .state-video-grid-container {{
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
     gap: 20px;
     margin-top: 15px;
     margin-bottom: 25px;

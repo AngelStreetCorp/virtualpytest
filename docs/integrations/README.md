@@ -45,7 +45,7 @@ Dedicated CI/CD feature: launch and track GitHub Actions runs (self-hosted or Gi
 runners) from inside VirtualPyTest, with results stored in their own database and surfaced on a
 Grafana dashboard.
 
-**Details:** [Technical Docs - CI/CD Feature](../technical/CICD_FEATURE.md)
+**Details:** [CI/CD Feature](../features/cicd.md)
 
 ---
 

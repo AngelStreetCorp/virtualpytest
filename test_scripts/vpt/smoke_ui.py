@@ -35,6 +35,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from shared.src.lib.executors.script_decorators import script, get_args, get_context
+from test_scripts.vpt.smoke_common import make_step
 
 # Every VPT page and its backing API endpoint
 VPT_PAGES = [
@@ -55,15 +56,7 @@ VPT_PAGES = [
 
 def test_endpoint(server_url: str, path: str, description: str, context) -> dict:
     url = f"{server_url}{path}"
-    step = {
-        "action": f"GET {path}",
-        "description": description,
-        "timestamp": time.time(),
-        "success": False,
-        "error": None,
-        "response_time_ms": 0,
-        "status_code": None,
-    }
+    t0 = time.time()
     try:
         headers = {"Content-Type": "application/json"}
         api_key = os.getenv("API_KEY", "")
@@ -77,24 +70,21 @@ def test_endpoint(server_url: str, path: str, description: str, context) -> dict
                                         "alerts", "script"]):
             params["team_id"] = context.team_id
 
-        t0 = time.time()
         resp = requests.get(url, params=params, headers=headers, timeout=10, verify=False)
-        step["response_time_ms"] = round((time.time() - t0) * 1000, 1)
-        step["status_code"] = resp.status_code
-
-        if resp.status_code == 200:
-            step["success"] = True
-            print(f"  ✅ {description}: {resp.status_code} ({step['response_time_ms']:.0f}ms)")
-        else:
-            step["error"] = f"HTTP {resp.status_code}"
-            print(f"  ❌ {description}: {resp.status_code}")
+        ms = round((time.time() - t0) * 1000, 1)
+        ok = resp.status_code == 200
+        return make_step(
+            f"GET {path}", description, ok,
+            error=None if ok else f"HTTP {resp.status_code}",
+            status_code=resp.status_code,
+            response_time_ms=ms,
+        )
     except requests.exceptions.Timeout:
-        step["error"] = "Timeout (10s)"
-        print(f"  ❌ {description}: Timeout")
+        return make_step(f"GET {path}", description, False,
+                          error="Timeout (10s)", response_time_ms=(time.time() - t0) * 1000)
     except Exception as e:
-        step["error"] = str(e)
-        print(f"  ❌ {description}: {e}")
-    return step
+        return make_step(f"GET {path}", description, False,
+                          error=str(e), response_time_ms=(time.time() - t0) * 1000)
 
 
 def capture_summary(context, server_url: str) -> str:
@@ -136,7 +126,7 @@ def main():
 
     for path, description in VPT_PAGES:
         step = test_endpoint(server_url, path, description, context)
-        context.step_results.append(step)
+        context.record_step_immediately(step)
 
     total = len(context.step_results)
     passed = sum(1 for s in context.step_results if s.get("success"))

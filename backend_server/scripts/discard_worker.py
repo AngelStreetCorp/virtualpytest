@@ -56,6 +56,16 @@ def main() -> int:
     print(f"[@discard_worker] OPENROUTER_API_KEY configured: {bool(openrouter_key)}")
 
     agent = QAManagerAgent(agent_id="analyzer", is_background=True)
+
+    # analyzer.yaml deliberately omits background_queues so the backend server
+    # (app.py:start_agent_background_workers) does NOT also consume the queue —
+    # this dedicated service owns it. But start_background() reads the same
+    # config, so without this the worker exits 1 at startup. Inject the queue
+    # here, local to this service, rather than re-adding it to the shared YAML.
+    if not agent.agent_config.get("background_queues"):
+        agent.agent_config["background_queues"] = ["p2_scripts"]
+        print("[@discard_worker] Injected background queue: p2_scripts")
+
     started = agent.start_background()
     if not started:
         print("[@discard_worker] ERROR: analyzer background failed to start")

@@ -1967,6 +1967,8 @@ class ScriptExecutor:
         lines.append('- Verification review markdown:')
         lines.append(f'  - URL: {(report_result or {}).get("verification_review_url") or "n/a"}')
         lines.append(f'  - R2 path: `{(report_result or {}).get("verification_review_path") or "n/a"}`')
+        lines.append('- UI dump traces (what a missed selector actually searched):')
+        lines.append(f'  - URL: {(report_result or {}).get("ui_dumps_url") or "n/a"}')
         lines.append('- Runtime progress log:')
         lines.append(f'  - local path: `{context.running_log_path or "n/a"}`')
         lines.append('- Captured artifacts:')

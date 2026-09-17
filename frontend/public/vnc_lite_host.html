@@ -42,6 +42,11 @@
       let rfb;
       let desktopName;
 
+      // The password comes from the URL the platform builds (?password=…), never from
+      // this file: it is served publicly, so a literal here is readable by anyone.
+      // Unset means noVNC prompts for it, which is the right behaviour.
+      const vncPassword = new URLSearchParams(window.location.search).get('password');
+
       function connectedToServer(e) {
         status('Connected to ' + desktopName);
       }
@@ -55,7 +60,7 @@
       }
 
       function credentialsAreRequired(e) {
-        const password = 'admin1234';
+        const password = vncPassword ?? window.prompt('VNC password');
         rfb.sendCredentials({ password: password });
       }
 
@@ -91,12 +96,11 @@
 
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
       const url = `${protocol}://${host}:${port}/${path}`;
-      const password = 'admin1234';
 
       status('Connecting');
 
       rfb = new RFB(document.getElementById('screen'), url, {
-        credentials: { password: password },
+        credentials: vncPassword ? { password: vncPassword } : {},
       });
       rfb.addEventListener('connect', connectedToServer);
       rfb.addEventListener('disconnect', disconnectedFromServer);

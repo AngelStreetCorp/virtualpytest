@@ -215,20 +215,30 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 
 ### CORS Configuration
 
-**`backend_server/src/app.py` does not currently call `CORS(app, ...)` anywhere** — there's no
-origin allowlist to restrict yet, and `CORS_ORIGINS` isn't a variable the code reads. `Flask-CORS`
-is already a listed dependency (`backend_server/requirements.txt`), just unused. If your frontend
-calls the backend cross-origin (see [Cloud Setup, Step 4.1](cloud-setup.md#41-cors-only-needed-if-the-frontend-calls-render-directly)
-for when that applies), add it yourself:
+`shared/src/lib/utils/app_utils.py` calls `CORS(app, origins=..., supports_credentials=True)` for
+both `backend_server` and `backend_host` — it is wired up, and it is the **only** origin-based
+access control in front of `/server/*` and `/host/*`. nginx does not restrict either location by
+IP (verified against every shipped template) — CORS is it. Since 2026-09-15 (BUG-0092) the
+allowed origins come from `CORS_ALLOWED_ORIGINS` (comma-separated; unset = the vendor's own
+known frontend domains, see `.env.example`) — there is **no `*` fallback**.
 
-```python
-from flask_cors import CORS
+> **If you deployed before 2026-09-15**, your server was almost certainly running
+> `origins="*", supports_credentials=True`, which Flask-CORS turns into "reflect whichever
+> `Origin` header the caller sends, and allow credentials for it" — any web page, anywhere,
+> could make a fully-credentialed cross-origin call to your API and read the response. Redeploy
+> the current code to pick up the fix; see the [production checklist](production-checklist.md).
 
-# Restrictive CORS (Production)
-CORS(app, origins=[
-    'https://virtualpytest.vercel.app',
-    'https://yourdomain.com'
-])
+Set it only if your frontend is served from a **different origin** than this server — e.g. a
+Vercel-hosted frontend calling a Render-hosted server (see
+[Cloud Setup, Step 4.1](cloud-setup.md#41-cors-only-needed-if-the-frontend-calls-render-directly)),
+or one frontend switching between several backend servers. A same-origin deployment (frontend
+and `/server/` behind the same nginx host — the default in the Proxmox and Docker install paths)
+needs no CORS configuration at all: same-origin requests never trigger the browser's CORS checks
+in the first place.
+
+```bash
+# .env
+CORS_ALLOWED_ORIGINS=https://virtualpytest.vercel.app,https://yourdomain.com
 ```
 
 ---
@@ -236,6 +246,13 @@ CORS(app, origins=[
 ## Part C: Network Security
 
 ### Firewall Rules (UFW)
+
+> Port 6109 (the host API) is now restricted to the LAN automatically by
+> `setup/local/linux/backend_host/install_host.sh` (STEP 11) — it auto-detects the host's own
+> subnet, without touching any other port or UFW's own default policy. Set `VPT_HOST_LAN_CIDR`
+> before running the installer if your server/proxy sit on a different subnet than the host.
+> The manual commands below are for everything the installer doesn't cover, or for adjusting
+> port 6109's rule by hand.
 
 **Standalone Setup:**
 ```bash

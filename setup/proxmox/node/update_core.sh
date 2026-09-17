@@ -2,14 +2,23 @@
 set -euo pipefail
 
 # ---- VM targets (IPs or SSH aliases) ----
-SERVER_IP="192.168.0.103,host1"
+#
+# Per-node lists. This script is copied to each Proxmox node and its copy keeps
+# that node's own targets, so these are defaults for a fresh node, not the live
+# values — check the copy on the node before assuming what it reaches.
+#
+# `host1` used to appear here and resolves nowhere: an alias that does not exist
+# in the node's ~/.ssh/config is skipped silently, so a target can look
+# configured while never being deployed to. Use an IP, or an alias you have
+# verified with `ssh -G <alias>`.
+SERVER_IP="192.168.0.103"
 FRONTEND_IP="192.168.0.105"
-HOST_IPS="192.168.0.109,192.168.0.110,host1"
-RUNNER_IPS="192.168.0.163"
+HOST_IPS="192.168.0.109,192.168.0.110"
+RUNNER_IPS=""
 HOST_WINDOWS_IPS=""  # e.g. "192.168.0.150,192.168.0.151"
 
 # ---- Internal config (rarely need to change) ----
-SSH_USER="jndoye"
+SSH_USER="${SSH_USER:-$(id -un)}"   # the invoking account; override with SSH_USER=
 SSH_KEY="${SSH_KEY:-${HOME}/.ssh/id_ed25519}"
 SSH_OPTS="-i ${SSH_KEY} -o StrictHostKeyChecking=accept-new"
 SYNC_USER="vpt_user"
@@ -276,7 +285,16 @@ rsync_push() {
   local ssh_target
   ssh_target="$(build_ssh_target "${target_host}")"
   echo -e "\n==> [proxmox -> ${target_host}] rsync push"
+  # --chown: land the tree owned by ${SYNC_USER} instead of breaking it and
+  # repairing it afterwards. `-a` implies -o/-g, and the remote rsync runs as
+  # root (--rsync-path="sudo rsync"), so without this every push stamps the
+  # whole target tree with the SOURCE's numeric uid/gid — the deploying user's
+  # — and -p re-applies the source's mode. That is what un-owned test_scripts/
+  # after each deploy, and what wiped the `chmod 777` workaround (BUG-0089).
+  # --chown resolves the name on the receiver, so it is correct even though
+  # vpt_user's uid differs per host (995 on a Pi, 999 on the VMs).
   if ! rsync -az -q --delete "${PUSH_FILTERS[@]}" \
+    --chown="${SYNC_USER}:${SYNC_USER}" \
     --rsync-path="sudo rsync" \
     -e "ssh ${SSH_OPTS}" \
     "${REPO_DIR}/" \
@@ -284,21 +302,46 @@ rsync_push() {
     echo "==> [${target_host}] rsync FAILED"
     return 1
   fi
-  # Fix ownership. This MUST NOT fail silently: a host where jndoye has no
-  # passwordless sudo (labox-web) keeps the whole tree owned by the deploying
-  # user, and vpt_user can then no longer write test_scripts/ — which is exactly
-  # where a virtual script materializes its .vs_<uuid>.py. The run then dies
-  # before recording anything and the server marks it SUCCESSFUL, because the
-  # host's completion callback carries neither a result nor an error (BUG-0089).
-  # `2>/dev/null || true` hid that for months; warn loudly instead.
-  if ! run_ssh "${target_host}" "sudo -n find ${TARGET_DIR} \
+  # Secondary net for files rsync does not manage (runtime output a wrongly-owned
+  # process created). --chown above already lands the pushed tree correct; this
+  # step can no longer be the only thing standing between a deploy and a broken
+  # test_scripts/, which is where a virtual script materializes its .vs_<uuid>.py
+  # — and where a failure is invisible, because the host's completion callback
+  # then carries neither a result nor an error and the server reads that as a
+  # pass (BUG-0089).
+  #
+  # It is also the step a whitelist-sudo host cannot run at all: labox-web grants
+  # NOPASSWD for rsync/git/bash/systemctl only, so `sudo -n find` is refused there
+  # while the push itself succeeds. Hence the push, not the repair, must be what
+  # gets ownership right.
+  #
+  # `chown -h` (do not dereference): the browser profile directories a host
+  # leaves behind under backend_host/config/{user_data,webkit_user_data} hold
+  # dangling Singleton{Lock,Cookie,Socket} symlinks. Plain chown follows them,
+  # prints "cannot dereference", and `find -exec … +` then exits 1 even though
+  # every real file was chowned — which flagged vpt-pi1 and host-clone-1 as
+  # OWNERSHIP NOT FIXED when their ownership was in fact fine. -h chowns the
+  # link itself, which is also what we want for every symlink in a deploy tree.
+  local chown_rc=0
+  run_ssh "${target_host}" "sudo -n find ${TARGET_DIR} \
     -path ${TARGET_DIR}/frontend/public/docs -prune -o \
     -path ${TARGET_DIR}/frontend/public/brand -prune -o \
     -not -path '*/.env' -not -path '*/venv/*' \
-    -exec chown ${SYNC_USER}:${SYNC_USER} {} +"; then
-    echo "==> [${target_host}] ⚠️  chown to ${SYNC_USER} FAILED (no passwordless sudo?)."
-    echo "==> [${target_host}]    ${SYNC_USER} may be unable to write ${TARGET_DIR}/test_scripts,"
-    echo "==> [${target_host}]    which breaks virtual-script materialization *silently*."
+    -exec chown -h ${SYNC_USER}:${SYNC_USER} {} +" || chown_rc=$?
+
+  # A non-zero chown is a symptom, not the fault itself. Warn only when the
+  # invariant BUG-0089 depends on is actually broken: ${SYNC_USER} must be able
+  # to write test_scripts/ (owner, or group+group-write, or other-write).
+  if (( chown_rc != 0 )) && ! run_ssh "${target_host}" "d=${TARGET_DIR}/test_scripts; \
+      [ -d \"\$d\" ] || exit 0; \
+      o=\$(stat -c %U \"\$d\"); g=\$(stat -c %G \"\$d\"); m=\$(stat -c %a \"\$d\" | tail -c 4); \
+      [ \"\$o\" = '${SYNC_USER}' ] && exit 0; \
+      case \"\$m\" in *[2367]) exit 0 ;; esac; \
+      [ \"\$g\" = '${SYNC_USER}' ] && case \"\$m\" in ?[2367]?) exit 0 ;; esac; \
+      exit 1"; then
+    echo "==> [${target_host}] ⚠️  ${TARGET_DIR}/test_scripts is not writable by ${SYNC_USER}"
+    echo "==> [${target_host}]    (chown exited ${chown_rc} — no passwordless sudo?)."
+    echo "==> [${target_host}]    That breaks virtual-script materialization *silently* (BUG-0089)."
     echo "==> [${target_host}]    Workaround: chmod 777 ${TARGET_DIR}/test_scripts"
     OWNERSHIP_WARNINGS="${OWNERSHIP_WARNINGS} ${target_host}"
   fi
@@ -356,6 +399,9 @@ DEPLOY_OK=()
 DEPLOY_FAIL=()
 # Hosts whose chown to vpt_user failed (no passwordless sudo) — see BUG-0089.
 OWNERSHIP_WARNINGS=""
+# Hosts whose live systemd unit differs from the one this tree ships — see
+# check_frontend_unit_drift.
+UNIT_DRIFT_WARNINGS=""
 
 # Sync + restart (critical — fails immediately)
 critical_deploy() {
@@ -380,6 +426,62 @@ try_deploy() {
   else
     echo "==> [${host}] SKIPPED (unreachable or sync failed)"
     DEPLOY_FAIL+=("${host}")
+    return 1
+  fi
+}
+
+# Frontend sync + build + restart (critical).
+#
+# The build MUST run before the restart, not inside the unit. `systemctl restart`
+# stops `serve` first, so a build in ExecStartPre happens with the site already
+# down — 4+ minutes of it on every deploy (BUG-0103). scripts/ensure_dist.sh
+# builds into frontend/dist.new while the OLD bundle keeps being served, swaps it
+# in at the end, and stamps it; the restart that follows finds the stamp current
+# and comes back in about a second.
+#
+# A failed build is not a failed site: dist/ still holds the previous bundle, so
+# we skip the restart, keep serving it, and report the host as failed.
+build_frontend_bundle() {
+  local host="$1"
+  echo -e "\n==> [${host}] Building frontend bundle (previous bundle stays served)"
+  # -H: npm's cache must land in ${SYNC_USER}'s home, not the deploying user's.
+  if ! run_ssh "${host}" "sudo -n -H -u ${SYNC_USER} bash ${TARGET_DIR}/frontend/scripts/ensure_dist.sh"; then
+    echo "==> [${host}] frontend build FAILED — not restarting (live bundle left untouched)"
+    return 1
+  fi
+}
+
+# The frontend's systemd unit is hand-installed at /etc/systemd/system and is NOT
+# what the rsync ships: core units are deliberately never reconciled (the host
+# VMs' reconcile_feature_units.sh says so in as many words). That is a silent
+# trap — the BUG-0103 ExecStartPre change rode along in the tree through a whole
+# deploy while the old unit kept running, and the deploy reported success. Warn
+# when the two drift rather than letting it pass unnoticed.
+check_frontend_unit_drift() {
+  local host="$1"
+  local repo_unit="${TARGET_DIR}/frontend/config/services/linux/frontend_prod.service"
+  local live_unit="/etc/systemd/system/${FRONTEND_SERVICE}"
+  if run_ssh "${host}" "sudo -n diff -q '${repo_unit}' '${live_unit}' >/dev/null 2>&1"; then
+    return 0
+  fi
+  echo "==> [${host}] ⚠️  ${FRONTEND_SERVICE} on disk differs from the unit this tree ships"
+  echo "==> [${host}]     live: ${live_unit}"
+  echo "==> [${host}]     tree: ${repo_unit}"
+  echo "==> [${host}]     Core units are hand-installed on purpose, so this deploy did NOT touch it."
+  echo "==> [${host}]     To adopt the tree's version:"
+  echo "==> [${host}]       sudo cp ${repo_unit} ${live_unit} && sudo systemctl daemon-reload"
+  UNIT_DRIFT_WARNINGS="${UNIT_DRIFT_WARNINGS} ${host}"
+}
+
+frontend_deploy() {
+  local host="$1"
+  if rsync_push "${host}" && check_frontend_unit_drift "${host}" \
+     && build_frontend_bundle "${host}" \
+     && restart_and_status "${host}" "${FRONTEND_SERVICE}"; then
+    DEPLOY_OK+=("${host}")
+  else
+    DEPLOY_FAIL+=("${host}")
+    echo "==> [${host}] CRITICAL deploy failed"
     return 1
   fi
 }
@@ -582,7 +684,7 @@ if ${DEPLOY_FRONTEND}; then
   for host in "${hosts[@]}"; do
     host="$(trim_host "${host}")"
     [[ -z "${host}" ]] && continue
-    critical_deploy "${host}" "${FRONTEND_SERVICE}"
+    frontend_deploy "${host}"
   done
 fi
 
@@ -635,6 +737,9 @@ if [[ ${#DEPLOY_OK[@]} -gt 0 ]]; then
 fi
 if [[ ${#DEPLOY_FAIL[@]} -gt 0 ]]; then
   echo -e "  FAILED (${#DEPLOY_FAIL[@]}): ${DEPLOY_FAIL[*]}"
+fi
+if [[ -n "${UNIT_DRIFT_WARNINGS// /}" ]]; then
+  echo -e "  ⚠️  SYSTEMD UNIT DRIFT (live unit is not the one this tree ships):${UNIT_DRIFT_WARNINGS}"
 fi
 if [[ -n "${OWNERSHIP_WARNINGS// /}" ]]; then
   echo -e "  ⚠️  OWNERSHIP NOT FIXED:${OWNERSHIP_WARNINGS}"

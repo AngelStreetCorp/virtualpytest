@@ -5,7 +5,7 @@ import { useLocation } from 'react-router-dom';
 import { useUserSession } from '../hooks/useUserSession';
 import { useServerManager } from '../hooks/useServerManager';
 import { Host, Device } from '../types/common/Host_Types';
-import { buildServerUrl } from '../utils/buildUrlUtils';
+import { buildServerUrl, getServerBaseUrl } from '../utils/buildUrlUtils';
 import { clearUserInterfaceCaches } from '../hooks/pages/useUserInterface';
 import { hasCompatibleDevice } from '../utils/userinterface/deviceCompatibilityUtils';
 import { useToast } from '../hooks/useToast';
@@ -982,7 +982,10 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
       return;
     }
 
-    const socket = io(`${window.location.origin}/system`, {
+    const socket = // The server, not the page. These are the same host on the web, but the mobile app serves
+    // the bundle from its own https://localhost, where a socket aimed at the page origin is
+    // refused forever (net::ERR_CONNECTION_REFUSED) and the app never learns any device state.
+    io(`${getServerBaseUrl()}/system`, {
       transports: ['websocket'],
       path: '/socket.io',
       reconnection: true,

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | release / customer packaging                                 |
-| Fixed in  | —                                                            |
+| Fixed in  | build 8887                                                   |
 | Commit    | TBD                                                          |
 
 ---

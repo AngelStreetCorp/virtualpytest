@@ -34,7 +34,7 @@ this order of precedence:
 
 | Posture | `.env` | Effect |
 |---|---|---|
-| **Open mode** (fresh-install default) | `SERVER_OPEN_MODE=true` | no login, every call accepted. Trusted network only. The installers print a warning while this is on. |
+| **Open mode** (fresh-install default) | `SERVER_OPEN_MODE=true` | no login: the UI works with no account. A direct call (`curl`, a script) still needs `X-API-Key` when `API_KEY` is set, but that only stops casual scanning — trusted network only. The installers print a warning while this is on. |
 | **Login enforced** | `SERVER_OPEN_MODE=false` + `SUPABASE_JWT_SECRET=<secret>` | browser users sign in with a Supabase account (JWT); hosts and scripts use `API_KEY`. |
 | **Public key** (no Supabase login) | `SERVER_PUBLIC_KEY=<weak key>` | the SPA sends the key as `X-Server-Key`. A bot speed bump, not authentication. |
 | Closed | none of the above | every anonymous call gets 401. |

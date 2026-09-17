@@ -135,6 +135,21 @@ def _lookup_by_basename(script_map: Dict[str, Dict[str, Any]],
     return matches[0] if len(matches) == 1 else {}
 
 
+def lookup_identity_entry(script_map: Dict[str, Dict[str, Any]],
+                          script_ref_or_name: Optional[str]) -> Dict[str, Any]:
+    """Exact script_ref match, then unambiguous basename match, else {}.
+
+    The lookup half of resolve_script_identity(), split out so a caller holding
+    an already-loaded map (a list endpoint) resolves many scripts against it
+    without a per-script map load.
+    """
+    script_ref = normalize_script_ref(script_ref_or_name)
+    if not script_ref:
+        return {}
+    entry = script_map.get(script_ref) or _lookup_by_basename(script_map, script_ref)
+    return entry if isinstance(entry, dict) else {}
+
+
 def load_effective_identity_map(team_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
     """Legacy JSON map with the DB rows overlaid on top (DB wins per key).
 
@@ -202,12 +217,10 @@ def resolve_script_identity(script_ref_or_name: Optional[str],
     entry: Dict[str, Any] = {}
 
     if use_db:
-        db_map = _load_db_identity_map(team_id)
-        entry = db_map.get(script_ref) or _lookup_by_basename(db_map, script_ref)
+        entry = lookup_identity_entry(_load_db_identity_map(team_id), script_ref)
 
     if not entry:
-        script_map = load_script_identity_map()
-        entry = script_map.get(script_ref) or _lookup_by_basename(script_map, script_ref)
+        entry = lookup_identity_entry(load_script_identity_map(), script_ref)
 
     prefix = entry.get('prefix') if isinstance(entry, dict) else None
     display_name = entry.get('display_name') if isinstance(entry, dict) else None
@@ -217,6 +230,37 @@ def resolve_script_identity(script_ref_or_name: Optional[str],
         'prefix': prefix,
         'display_name': display_name,
     }
+
+
+def format_script_label(script_ref_or_name: Optional[str],
+                        prefix: Optional[str] = None,
+                        display_name: Optional[str] = None) -> str:
+    """Render the one human label for a script: "[TC015] Windows Network Assessment".
+
+    THE definition of that string. Four other places used to each re-implement
+    this fallback chain — the frontend (formatScriptLabel in executionUtils.tsx),
+    the Grafana SQL in script-results / home-dashboard, report naming, and every
+    external API consumer that had to merge the identity map itself — which is
+    how one script ended up with a different name on every screen.
+
+    Fallback chain (identical to the TS and the dashboard SQL):
+      [prefix] display_name  ->  display_name  ->  [prefix] name  ->  name
+
+    Takes the prefix/display_name as arguments rather than resolving them, so a
+    caller that already holds the identity map (e.g. /server/script/list, which
+    loads it once for the whole list) does no per-script lookup.
+    """
+    name = normalize_script_ref(script_ref_or_name) or (script_ref_or_name or '')
+    clean_prefix = (prefix or '').strip()
+    clean_display = (display_name or '').strip()
+
+    if clean_prefix and clean_display:
+        return f'[{clean_prefix}] {clean_display}'
+    if clean_display:
+        return clean_display
+    if clean_prefix:
+        return f'[{clean_prefix}] {name}'
+    return name
 
 
 def _normalize_repo_http_url(repo_url: Optional[str]) -> str:

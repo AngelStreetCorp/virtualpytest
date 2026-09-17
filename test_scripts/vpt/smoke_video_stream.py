@@ -28,32 +28,13 @@ if project_root not in sys.path:
 
 from shared.src.lib.executors.script_decorators import script, get_args, get_context
 from shared.src.lib.utils.build_url_utils import get_host_api_origin
-
-
-def _headers() -> dict:
-    h = {"Content-Type": "application/json"}
-    api_key = os.getenv("API_KEY", "")
-    if api_key:
-        h["X-API-Key"] = api_key
-        h["Authorization"] = f"Bearer {api_key}"
-    return h
+from test_scripts.vpt.smoke_common import headers as _headers, make_step as _step_base
 
 
 def _step(action: str, description: str, success: bool, error: str = None,
           status_code: int = None, ms: float = 0, detail: str = None) -> dict:
-    icon = "✅" if success else "❌"
-    detail_str = f" — {detail}" if detail else ""
-    err_str = f": {error}" if error else f": HTTP {status_code} ({ms:.0f}ms)" if status_code else ""
-    print(f"  {icon} {description}{err_str}{detail_str}")
-    return {
-        "action": action,
-        "description": description,
-        "timestamp": time.time(),
-        "success": success,
-        "error": error,
-        "status_code": status_code,
-        "response_time_ms": ms,
-    }
+    return _step_base(action, description, success, error=error,
+                       status_code=status_code, response_time_ms=ms, detail=detail)
 
 
 def capture_summary(context, server_url: str, stream_url: str = None) -> str:
@@ -92,6 +73,7 @@ def main():
     host_info = None
     device_id = None
     host_url = None
+    candidates = []
     try:
         t0 = time.time()
         resp = requests.get(
@@ -103,7 +85,7 @@ def main():
         data = resp.json() if resp.status_code == 200 else {}
         hosts = [h for h in data.get("hosts", []) if h.get("status") == "online"]
         ok = len(hosts) > 0
-        context.step_results.append(_step(
+        context.record_step_immediately(_step(
             "GET /server/system/getAllHosts",
             f"Online host found ({len(hosts)} online)",
             ok,
@@ -111,61 +93,76 @@ def main():
             status_code=resp.status_code if not ok else None,
             ms=ms,
         ))
-        if ok:
-            host_info = hosts[0]
-            # `host_url` is browser-relative (/host/<name>) — a reverse-proxy route.
-            # Prefixing it with the backend server's origin 404s, because :5109 does
-            # not serve that path. Use the direct origin the server itself calls
-            # hosts on (BUG-0091).
-            host_url = get_host_api_origin(host_info)
-            devices = host_info.get("devices", [])
-            device_id = devices[0].get("device_id", "device1") if devices else "device1"
+        # Deliberately do NOT just take hosts[0]/devices[0]: not every device
+        # streams HLS. A host_vnc device answers getStreamUrl with a noVNC page
+        # (/vnc_lite.html?...), so an HLS check against it fetches a .m3u8 that
+        # was never going to exist. Find a device that actually serves a playlist.
+        candidates = hosts
     except Exception as e:
-        context.step_results.append(_step("GET /server/system/getAllHosts", "Online host found", False, error=str(e)))
+        context.record_step_immediately(_step("GET /server/system/getAllHosts", "Online host found", False, error=str(e)))
 
-    if not host_info or not host_url:
+    if not candidates:
         context.overall_success = False
         context.execution_summary = capture_summary(context, server_url)
         return False
 
-    # ── Step 2: Get stream URL from host API ───────────────────────────────────
-    try:
-        t0 = time.time()
-        # /host/av/getStreamUrl is a GET taking device_id as a query arg
-        # (host_av_routes.py) — a POST here returns 405, never a stream URL.
-        resp = requests.get(
-            f"{host_url}/host/av/getStreamUrl",
-            params={"device_id": device_id},
-            headers=_headers(), timeout=8, verify=False,
-        )
-        ms = round((time.time() - t0) * 1000, 1)
-        data = resp.json() if resp.status_code == 200 else {}
-        stream_url = data.get("stream_url") or data.get("url")
-        ok = resp.status_code == 200 and bool(stream_url)
-        context.step_results.append(_step(
-            f"GET {host_url}/host/av/getStreamUrl",
-            f"Stream URL resolved for device '{device_id}'",
-            ok,
-            error=None if ok else f"No stream_url in response" if resp.status_code == 200 else f"HTTP {resp.status_code}",
-            status_code=resp.status_code,
-            ms=ms,
-            detail=stream_url if ok else None,
-        ))
-    except Exception as e:
-        context.step_results.append(_step(
-            f"GET {host_url}/host/av/getStreamUrl",
-            f"Stream URL resolved for device '{device_id}'",
-            False, error=str(e),
-        ))
+    # ── Step 2: Find a device that serves an HLS stream ────────────────────────
+    stream_url = None
+    probed = []
+    t0 = time.time()
+    for candidate in candidates:
+        # `host_url` is browser-relative (/host/<name>) — a reverse-proxy route.
+        # Prefixing it with the backend server's origin 404s, because :5109 does
+        # not serve that path. Use the direct origin the server calls hosts on.
+        base = get_host_api_origin(candidate)
+        if not base:
+            continue
+        for dev in (candidate.get("devices") or [{"device_id": "device1"}]):
+            dev_id = dev.get("device_id", "device1")
+            try:
+                r = requests.get(
+                    f"{base}/host/av/getStreamUrl",
+                    params={"device_id": dev_id},
+                    headers=_headers(), timeout=8, verify=False,
+                )
+                url = (r.json() or {}).get("stream_url") if r.status_code == 200 else None
+            except Exception:
+                url = None
+            probed.append(f"{candidate.get('host_name')}/{dev_id}={url or 'n/a'}")
+            if url and ".m3u8" in url:
+                host_info, host_url, device_id, stream_url = candidate, base, dev_id, url
+                break
+        if stream_url:
+            break
+
+    ms = round((time.time() - t0) * 1000, 1)
+    ok = bool(stream_url)
+    context.record_step_immediately(_step(
+        "GET /host/av/getStreamUrl",
+        (f"HLS stream URL resolved on '{host_info.get('host_name')}' device '{device_id}'"
+         if ok else "HLS stream URL resolved"),
+        ok,
+        error=None if ok else
+        f"No device serves an HLS playlist. Probed: {', '.join(probed) or 'none'}",
+        ms=ms,
+        detail=stream_url if ok else None,
+    ))
 
     if not stream_url:
         context.overall_success = False
         context.execution_summary = capture_summary(context, server_url)
         return False
 
-    # Resolve a relative stream URL against the host origin. host_url is now always
-    # a bare origin (scheme://ip:port), so it is the base as-is.
-    if stream_url.startswith("/"):
+    # Resolve the stream URL against the host's own origin. getStreamUrl returns
+    # the PROXY form, "/host/<host_name>/stream/...", where "/host/<host_name>" is
+    # the prefix nginx maps onto the host. The host itself serves the remainder at
+    # its root, so that prefix has to come off — verified on labox-dongle:
+    #   /host/labox-dongle/stream/capture1/segments/output.m3u8 -> 404
+    #   /stream/capture1/segments/output.m3u8                   -> 200
+    proxy_prefix = f"/host/{host_info.get('host_name', '')}"
+    if stream_url.startswith(f"{proxy_prefix}/"):
+        stream_url = host_url + stream_url[len(proxy_prefix):]
+    elif stream_url.startswith("/"):
         stream_url = host_url + stream_url
 
     # ── Step 3: Fetch HLS playlist ─────────────────────────────────────────────
@@ -189,7 +186,7 @@ def main():
                     seg_url = line if line.startswith("http") else base_url + line
                     segment_urls.append(seg_url)
 
-        context.step_results.append(_step(
+        context.record_step_immediately(_step(
             f"GET {stream_url}",
             f"HLS playlist accessible (m3u8)",
             ok,
@@ -199,7 +196,7 @@ def main():
             detail=f"{len(segment_urls)} segments found" if ok and segment_urls else None,
         ))
     except Exception as e:
-        context.step_results.append(_step(f"GET {stream_url}", "HLS playlist accessible", False, error=str(e)))
+        context.record_step_immediately(_step(f"GET {stream_url}", "HLS playlist accessible", False, error=str(e)))
 
     # ── Step 4: Fetch first video segment ─────────────────────────────────────
     if segment_urls:
@@ -209,7 +206,7 @@ def main():
             resp = requests.get(seg_url, timeout=10, verify=False)
             ms = round((time.time() - t0) * 1000, 1)
             ok = resp.status_code == 200 and len(resp.content) > 0
-            context.step_results.append(_step(
+            context.record_step_immediately(_step(
                 f"GET segment",
                 f"Video segment downloadable",
                 ok,
@@ -219,9 +216,9 @@ def main():
                 detail=f"{len(resp.content) // 1024}KB" if ok else None,
             ))
         except Exception as e:
-            context.step_results.append(_step("GET segment", "Video segment downloadable", False, error=str(e)))
+            context.record_step_immediately(_step("GET segment", "Video segment downloadable", False, error=str(e)))
     else:
-        context.step_results.append(_step(
+        context.record_step_immediately(_step(
             "GET segment", "Video segment downloadable", False,
             error="No segments in playlist to verify",
         ))

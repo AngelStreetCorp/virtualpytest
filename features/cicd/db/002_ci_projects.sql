@@ -81,7 +81,7 @@ GROUP BY r.project, r.run, r.run_number, r.branch, r.sha, r.runner, r.started_at
 INSERT INTO ci_projects (project, repo, workflow_file, default_branch, report_prefix,
                          suites, runner_labels, cloud_suites)
 VALUES
-  ('virtualpytest', 'AngelStreetCorp/virtualpytest', 'regression.yml', 'main', '',
+  ('virtualpytest', 'AngelStreetCorp/virtualpytest-internal', 'regression.yml', 'main', '',
    '{"white": ["lint", "frontend-component-tests"],
      "grey":  ["backend-server-tests", "api-routes", "e2e-smoke", "e2e-pages", "e2e-viewport",
                "web-script-local-debug"]}'::jsonb,

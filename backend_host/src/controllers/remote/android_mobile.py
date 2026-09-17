@@ -499,10 +499,30 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
             return False
             
     def get_device_resolution(self) -> Optional[Dict[str, int]]:
-        """Get the device screen resolution."""
+        """Get the device screen resolution (cached from connect time)."""
         if self.device_resolution:
             return self.device_resolution
         return None
+
+    def get_orientation(self) -> Optional[Dict[str, Any]]:
+        """
+        Get the device's current orientation by querying live display state.
+        Unlike get_device_resolution(), this re-reads dumpsys on every call so it
+        reflects rotation that happened after connect() (manual UI rotate flips
+        mDisplayWidth/mDisplayHeight in the same dumpsys output).
+        """
+        try:
+            resolution = self.adb_utils.get_device_resolution(self.android_device_id)
+            if not resolution:
+                return None
+            return {
+                'width': resolution['width'],
+                'height': resolution['height'],
+                'is_landscape': resolution['width'] > resolution['height'],
+            }
+        except Exception as e:
+            print(f"Remote[{self.device_type.upper()}]: Get orientation error: {e}")
+            return None
 
     def get_device_info(self) -> Dict[str, Any]:
         """Get comprehensive device information."""

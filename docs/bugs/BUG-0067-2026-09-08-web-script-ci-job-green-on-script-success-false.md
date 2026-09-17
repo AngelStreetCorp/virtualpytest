@@ -9,7 +9,7 @@
 | Status    | Fixed                                                                       |
 | Severity  | Medium — a CI job that cannot fail hides real regressions                   |
 | Area      | tests/test_scripts/run_web_local_debug.sh (CI job web-script-local-debug)   |
-| Fixed in  | build 8713                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

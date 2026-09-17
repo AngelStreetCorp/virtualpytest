@@ -22,7 +22,6 @@ execution and is skipped.
 checkDependenciesBatch and health never reach a host and are always safe.
 """
 
-import pytest
 import requests
 
 
@@ -164,15 +163,3 @@ def test_get_execution_status_requires_host_name(base_url, api_headers, verify_s
     assert body.get("success") is False
     assert body.get("error") == "host_name query parameter is required"
 
-
-@pytest.mark.skip(
-    reason="Hosts/devices ARE online right now (see GET /server/system/getAllHosts), "
-    "so this isn't blocked by missing hardware. It's excluded from the every-push "
-    "regression suite because it executes a real action against a real, "
-    "possibly-shared device; candidate for a separate, manually- or "
-    "schedule-triggered hardware suite instead of a permanent skip — see "
-    "tests/docs/testing-strategy.md."
-)
-def test_execute_batch_runs_on_real_device():
-    """Happy path: proxies a real action batch to a live host's NavigationExecutor."""
-    pass

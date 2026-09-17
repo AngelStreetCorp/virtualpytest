@@ -120,11 +120,6 @@ def test_serve_report_unknown_run_returns_404(get, api_headers):
     assert "not found" in body.get("error", "").lower()
 
 
-@pytest.mark.skip(reason="fires a real GitHub Actions workflow_dispatch and writes a ci_dispatches row")
-def test_dispatch_not_exercised():
-    pass
-
-
 def test_ingest_rejects_missing_and_wrong_token(base_url, verify_ssl, request_timeout):
     """/cicd/ingest is bearer-auth'd with CICD_INGEST_TOKEN, not the suite's API key."""
     for headers in ({"Content-Type": "application/json"},
@@ -179,7 +174,3 @@ def test_update_project_requires_admin(base_url, verify_ssl, request_timeout, ad
     )
     assert tester.status_code == 403, tester.text
 
-
-@pytest.mark.skip(reason="SSHes into a real runner VM and restarts its systemd service — destructive, not safe to run every CI cycle")
-def test_restart_runner_not_exercised():
-    pass

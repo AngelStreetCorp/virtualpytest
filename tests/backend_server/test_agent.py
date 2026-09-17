@@ -10,7 +10,6 @@ connection and would trigger real provider calls with no dry-run mode.
 
 import uuid
 
-import pytest
 import requests
 
 
@@ -62,15 +61,6 @@ def test_save_api_key_requires_api_key(base_url, request_timeout, verify_ssl, ap
     body = response.json()
     assert body.get("success") is False
     assert "API key required" in body.get("error", "")
-
-
-@pytest.mark.skip(
-    reason="Validating and saving a real provider API key would call the "
-    "live provider's credential-validation endpoint and persist provider "
-    "config into the server's .env file - no dry-run mode available"
-)
-def test_save_api_key_happy_path():
-    pass
 
 
 class TestSessionLifecycle:
@@ -190,12 +180,3 @@ class TestSessionLifecycle:
                 verify=verify_ssl,
             )
 
-
-@pytest.mark.skip(
-    reason="Driving a real chat turn requires a live SocketIO connection to "
-    "the /agent namespace and triggers a real LLM call via QAManagerAgent - "
-    "no dry-run mode, would spend API credits and cannot be asserted over "
-    "plain HTTP"
-)
-def test_send_message_socketio_happy_path():
-    pass

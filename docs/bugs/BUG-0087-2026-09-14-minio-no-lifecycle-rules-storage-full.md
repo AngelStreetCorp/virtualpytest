@@ -9,7 +9,7 @@
 | Status    | Fixed (live fix applied on Awesomation; installer + docs updated)            |
 | Severity  | High (every script run recorded `success=false`; no reports, logs or screenshots stored) |
 | Area      | storage VM `/data` · MinIO ILM · `setup/local/linux/storage/install_minio.sh` |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 
 ---
 

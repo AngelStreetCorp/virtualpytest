@@ -1,4 +1,4 @@
-import { Terminal as ScriptIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, DeleteOutline as DeleteOutlineIcon, ChevronRight as ChevronRightIcon, Lock as LockIcon, ContentCopy as ContentCopyIcon } from '@mui/icons-material';
+import { Terminal as ScriptIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, DeleteOutline as DeleteOutlineIcon, Lock as LockIcon, ContentCopy as ContentCopyIcon } from '@mui/icons-material';
 import {
   Box,
   Typography,
@@ -20,6 +20,8 @@ import {
   AccordionDetails,
   Popover,
   Tooltip,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
@@ -30,6 +32,7 @@ import { ExecutableTypeToggle } from '../components/common/ExecutableTypeToggle'
 import { CompactVersionSelector, CompactVersionOption } from '../components/common/CompactVersionSelector';
 import { TargetPanel } from '../components/common/TargetPanel';
 import { useTargetSelection } from '../hooks/useTargetSelection';
+import { featureTargetReadiness } from '../config/features';
 import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 
 import { useScript } from '../hooks/script/useScript';
@@ -40,6 +43,7 @@ import { useRunExecutions } from '../contexts/RunExecutionsContext';
 import { isDeploymentsEnabled, isRunVersionSelectorEnabled } from '../config/featureFlags';
 import { useResizableColumns } from '../hooks/useResizableColumns';
 import { getScriptDisplayName, getLogsUrl, ensureScriptIdentityMap } from '../utils/executionUtils';
+import { getCachedScriptList, loadScriptList, subscribeScriptList } from '../utils/scriptListCache';
 import { useTestCaseExecution } from '../hooks/testcase/useTestCaseExecution';
 import { useTestCaseSave } from '../hooks/testcase/useTestCaseSave';
 import { useCampaign } from '../hooks/pages/useCampaign';
@@ -52,8 +56,9 @@ import { ScriptParameterRow } from '../components/common/ParameterInput/ScriptPa
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { getCampaignBadge } from '../config/constants';
-import { getCachedCampaignExecutableList, getCachedExecutableList } from '../utils/executionListCache';
+import { getCachedCampaignExecutableList, peekCachedCampaignExecutableList, getCachedExecutableList } from '../utils/executionListCache';
 import { openR2Url } from '../utils/infrastructure/cloudflareUtils';
+import { buildScriptArgs } from '../utils/scriptArgsUtils';
 import {
   isTargetKeyCompatibleWithRules,
   isHostCompatibleWithRules,
@@ -307,6 +312,20 @@ const RunTests: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { isMobile, isTablet } = useResponsiveMode();
   const isCompact = isMobile || isTablet;
+  /**
+   * The per-device target chip in a parameter row.
+   *
+   * On a wide screen it is pinned to the left of its horizontally-scrolling row, so you can
+   * still see which target a field belongs to after scrolling the parameters out of view.
+   *
+   * On a narrow one that backfires: the row is barely wider than the chip, so the pinned chip
+   * spends most of the scroll sitting on top of the fields instead of beside them. There it
+   * scrolls away with the rest of the row — the target is already named on the accordion
+   * above, so nothing is lost.
+   */
+  const stickyTargetLabelSx = isCompact
+    ? {}
+    : { position: 'sticky' as const, left: 0, zIndex: 1, bgcolor: 'background.paper' };
   const execColumns = useResizableColumns([
     { key: 'target', initialWidth: 160, minWidth: 80 },
     { key: 'script', initialWidth: 240, minWidth: 100 },
@@ -363,7 +382,13 @@ const RunTests: React.FC = () => {
   const [deviceInfoByDevice, setDeviceInfoByDevice] = useState<DeviceInfoMap>({});
   const [deviceInfoModalOpen, setDeviceInfoModalOpen] = useState(false);
   const [selectedExecutableItems, setSelectedExecutableItems] = useState<SelectedExecutableInstance[]>([]);
-  const [selectorTypeFilter, setSelectorTypeFilter] = useState<string | null>(isCompact ? null : 'script');
+  // Result filter for Last Executions. A long history is mostly passes, and the row someone
+  // is looking for is nearly always the one that failed.
+  const [historyResultFilter, setHistoryResultFilter] = useState<'all' | 'success' | 'failure'>('all');
+
+  // Scripts by default at every width: the list is mostly disk scripts, and on a phone an
+  // unfiltered list is a long scroll before anything recognisable appears.
+  const [selectorTypeFilter, setSelectorTypeFilter] = useState<string | null>('script');
   const [campaignExecutables, setCampaignExecutables] = useState<CampaignExecutableItem[]>([]);
   const [loadingCampaignExecutables, setLoadingCampaignExecutables] = useState(false);
   const [campaignLoadError, setCampaignLoadError] = useState<string | null>(null);
@@ -393,6 +418,66 @@ const RunTests: React.FC = () => {
   } = useTargetSelection();
   const previouslyRunningTargetsRef = useRef<Set<string>>(new Set());
   const { isDeviceAllowed, isScriptAllowed } = useWorkspaceContext();
+
+  /**
+   * Optional features get to say whether a device of their model can actually run something.
+   *
+   * Core offers every registered device, and for some models "registered" says nothing about
+   * whether the thing is there: a `phone_agent` slot is a line in a host's `.env`, so it is
+   * offered whether or not a phone is paired to it, awake, or streaming. Picking one that is
+   * not fails on the run's first action.
+   *
+   * The provider list is generated at build time, so its length and order never change during
+   * a session — calling one hook per provider here is stable. With no feature registered (or
+   * the feature disabled) the array is empty and nothing below changes behaviour.
+   */
+  const readinessProviders = featureTargetReadiness();
+  const targetReadiness = readinessProviders.map((provider) => ({
+    deviceModel: provider.deviceModel,
+    check: provider.useReadiness(),
+  }));
+  const targetReadinessFor = useCallback(
+    (key: string) => {
+      const [hostName, deviceId] = key.split(':');
+      if (!deviceId) return undefined;
+      const deviceModel = getDevicesFromHost(hostName)?.find(
+        (d: any) => d.device_id === deviceId,
+      )?.device_model;
+      if (!deviceModel) return undefined;
+      const provider = targetReadiness.find((entry) => entry.deviceModel === deviceModel);
+      // No provider, or a provider with no opinion (it could not reach its own data), leaves
+      // the target exactly as core would have shown it.
+      return provider?.check(hostName, deviceId);
+    },
+    [targetReadiness, getDevicesFromHost],
+  );
+
+  /**
+   * Why this target cannot be picked, or undefined when it can.
+   *
+   * Disabled rather than hidden, to match how a target already running something behaves: a
+   * phone that vanishes from the list looks like a configuration problem, while a greyed-out
+   * one with "connected but not streaming" tells its owner what to go and fix.
+   */
+  const targetUnavailableReason = useCallback(
+    (key: string) => {
+      const readiness = targetReadinessFor(key);
+      return readiness && !readiness.ready ? readiness.reason || 'Not available' : undefined;
+    },
+    [targetReadinessFor],
+  );
+  /**
+   * Drop a target that stops being ready while it is selected.
+   *
+   * Disabling its checkbox is not enough on its own: that only stops a NEW selection, while a
+   * phone selected while it was awake stays selected after it sleeps and Run would dispatch to
+   * it — which is the failure this is all here to prevent. Dropping it is safe in the other
+   * direction too, because a provider with no opinion reports no reason.
+   */
+  useEffect(() => {
+    filterTargetKeys((key) => !targetUnavailableReason(key));
+  }, [filterTargetKeys, targetUnavailableReason]);
+
   
   // Cache for loaded test case graphs (testcase_id -> graph)
   const [testCaseGraphCache, setTestCaseGraphCache] = useState<Record<string, any>>({});
@@ -407,7 +492,6 @@ const RunTests: React.FC = () => {
   // between and never reads this). Unset = derived default in
   // getItemEnvironment (prefers 'prod', else whichever row actually exists).
   const [itemEnvironment, setItemEnvironment] = useState<Record<string, 'dev' | 'test' | 'prod'>>({});
-  const [showAdvancedConfig, setShowAdvancedConfig] = useState(false);
   const [startDateOption, setStartDateOption] = useState<'now' | '1hour' | '6hours' | 'tomorrow' | 'nextMonday' | 'custom'>('now');
   const [startDateCustom, setStartDateCustom] = useState<string>('');
   const [scheduleRepeatMode, setScheduleRepeatMode] = useState<'none' | 'periodic'>('none');
@@ -489,12 +573,8 @@ const RunTests: React.FC = () => {
   }, [searchParams]);
 
   useEffect(() => {
-    if (isCompact) {
-      setSelectorTypeFilter(null);
-      return;
-    }
     setSelectorTypeFilter(browserTab === 'campaigns' ? null : 'script');
-  }, [browserTab, isCompact]);
+  }, [browserTab]);
 
   function getExecutionDeviceId(deviceId?: string) {
     if (deviceId && deviceId.trim()) {
@@ -645,20 +725,32 @@ const RunTests: React.FC = () => {
   }, [endDateCustom, endDateOption]);
 
   // Ref to prevent duplicate API calls in React Strict Mode
-  const isLoadingScriptsRef = useRef<boolean>(false);
 
   const loadCampaignExecutables = useCallback(async () => {
-    setLoadingCampaignExecutables(true);
+    const url = buildServerUrl('/server/campaigns/listExecutables');
+
+    // Seed from the cache before anything is awaited. The list already survived a remount —
+    // the cache is module-level — but flipping the loading flag first made the page render its
+    // loading state for a frame anyway, so coming back to Campaigns looked like a reload every
+    // time. With something to show there is nothing to wait for.
+    const cached = peekCachedCampaignExecutableList(url);
+    if (cached?.success) {
+      setCampaignExecutables(cached.executables || []);
+      setCampaignLoadError(null);
+    }
+
+    setLoadingCampaignExecutables(!cached);
     setCampaignLoadError(null);
     try {
-      const payload = await getCachedCampaignExecutableList(buildServerUrl('/server/campaigns/listExecutables'));
+      const payload = await getCachedCampaignExecutableList(url);
       if (!payload?.success) {
         throw new Error(payload?.error || 'Failed to load campaigns');
       }
       setCampaignExecutables(payload.executables || []);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to load campaigns';
-      setCampaignLoadError(message);
+      // A refresh that fails must not blank a list that is already on screen.
+      if (!cached) setCampaignLoadError(message);
     } finally {
       setLoadingCampaignExecutables(false);
     }
@@ -1825,55 +1917,54 @@ const RunTests: React.FC = () => {
     }
   };
 
-  // Load available scripts from virtualpytest/scripts folder
+  /**
+   * Available scripts, from the session cache.
+   *
+   * React Router unmounts this page on navigation, so every return used to re-fetch
+   * /server/script/list from scratch and the list visibly emptied and repopulated. The old
+   * guard against duplicate calls was a ref, which dies with the component — it deduped
+   * React's StrictMode double-effect and nothing across mounts.
+   *
+   * scriptListCache serves what it already has straight away and refreshes in the background
+   * when that copy is stale, so a script added from Virtual Scripts still turns up without the
+   * page flickering on every visit.
+   */
   useEffect(() => {
-    const loadScripts = async () => {
-      // Prevent duplicate calls in React Strict Mode
-      if (isLoadingScriptsRef.current) {
-        console.log('[@RunTests] Script loading already in progress, skipping duplicate call');
-        return;
-      }
-      
-      isLoadingScriptsRef.current = true;
-      setLoadingScripts(true);
-      
-      try {
-        // Pre-load the identity map so getScriptDisplayName can resolve prefix + display names
-        ensureScriptIdentityMap();
+    let cancelled = false;
 
-        console.log('[@RunTests] Loading scripts from API...');
-        const response = await fetch(buildServerUrl('/server/script/list'));
-        
-        if (!response.ok) {
-          throw new Error(`API returned ${response.status}`);
-        }
-        
-        const data = await response.json();
-
-        if (data.success) {
-          setAvailableScripts(data.scripts || []);
-          
-          // Store AI test case metadata for display
-          if (data.ai_test_cases_info) {
-            setAiTestCasesInfo(data.ai_test_cases_info);
-          }
-
-          console.log('[@RunTests] Scripts loaded successfully:', (data.scripts || []).length);
-        } else {
-          // API returned success: false - this is an actual error
-          throw new Error(data.error || 'API returned success: false');
-        }
-      } catch (error) {
-        showError('Failed to load available scripts');
-        console.error('Error loading scripts:', error);
-      } finally {
-        setLoadingScripts(false);
-        isLoadingScriptsRef.current = false;
-      }
+    const apply = () => {
+      const cached = getCachedScriptList();
+      if (!cached || cancelled) return;
+      setAvailableScripts(cached.scripts);
+      setAiTestCasesInfo(cached.aiTestCasesInfo);
     };
 
-    loadScripts();
-  }, [showError]); // Remove selectedScript dependency - no need to reload scripts when selection changes
+    // Whatever is already cached, before anything is awaited — this is what removes the flicker.
+    apply();
+    const unsubscribe = subscribeScriptList(apply);
+
+    // The identity map resolves prefix + display names; it has its own session cache.
+    ensureScriptIdentityMap();
+
+    setLoadingScripts(!getCachedScriptList());
+    loadScriptList()
+      .then(() => {
+        if (!cancelled) apply();
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        showError('Failed to load available scripts');
+        console.error('Error loading scripts:', error);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingScripts(false);
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [showError]);
 
   useEffect(() => {
     loadCampaignExecutables();
@@ -1936,16 +2027,6 @@ const RunTests: React.FC = () => {
 
 
   // Helper function to quote parameter values that need it (contain spaces or special chars)
-  const quoteIfNeeded = (value: string): string => {
-    // If value contains spaces, quotes, or special shell characters, wrap it in double quotes
-    if (/[\s"'`$\\()&|;<>]/.test(value)) {
-      // Escape any existing double quotes and backslashes
-      const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-      return `"${escaped}"`;
-    }
-    return value;
-  };
-
   // Open R2 URL with automatic signed URL generation (handles both public and private modes)
   const handleOpenR2Url = async (url: string) => {
     try {
@@ -1960,50 +2041,20 @@ const RunTests: React.FC = () => {
     (parameterValues.userinterface || parameterValues.userinterface_name || '').trim();
 
   const buildParameterString = (scriptId: string, deviceHost?: string, deviceId?: string, deviceKey?: string) => {
-    const paramStrings: string[] = [];
-
     // Use provided device info or fall back to first selected device
     const targetHost = deviceHost || firstSelectedDevice.hostName;
     const targetDevice = deviceId || firstSelectedDevice.deviceId;
     const resolvedDeviceKey = resolveSelectedTargetKey(targetHost, targetDevice || undefined);
     const targetAnalysis = getScriptAnalysisFor(scriptId);
+    const valueOf = (name: string) =>
+      getEffectiveParamValue(scriptId, resolvedDeviceKey || deviceKey, name);
 
-    // Add parameters from script analysis
-    // ✅ SKIP framework params: host, device (added at the end)
-    if (targetAnalysis) {
-      targetAnalysis.parameters.forEach((param) => {
-        const value = getEffectiveParamValue(scriptId, resolvedDeviceKey || deviceKey, param.name).trim();
-
-        // Skip framework parameters - they're added at the end
-        if (param.name === 'host' || param.name === 'device') {
-          return;
-        }
-        
-        if (value) {
-          if (param.type === 'positional') {
-            paramStrings.push(quoteIfNeeded(value));
-          } else {
-            paramStrings.push(`--${param.name} ${quoteIfNeeded(value)}`);
-          }
-        }
-      });
-    }
-
-    // ✅ Always add framework parameters at the end: --host, --device
-    if (targetHost) {
-      paramStrings.push(`--host ${quoteIfNeeded(targetHost)}`);
-    }
-    if (targetDevice) {
-      paramStrings.push(`--device ${quoteIfNeeded(targetDevice)}`);
-    }
-    // Dev/prod userinterface targeting (framework arg, not a script param —
-    // like --host/--device). Only emitted when a prod entry was picked.
-    const uiModeValue = getEffectiveParamValue(scriptId, resolvedDeviceKey || deviceKey, 'ui_mode').trim();
-    if (uiModeValue === 'prod') {
-      paramStrings.push('--ui-mode prod');
-    }
-
-    return paramStrings.join(' ');
+    // Shared with the mobile Run Tests page so both build the same command line.
+    return buildScriptArgs(targetAnalysis?.parameters, valueOf, {
+      hostName: targetHost,
+      deviceId: targetDevice || undefined,
+      uiMode: valueOf('ui_mode'),
+    });
   };
 
 
@@ -2742,6 +2793,8 @@ const RunTests: React.FC = () => {
             parameters: override.parameters,
             callbackUrl: scriptCallbackUrl.trim() || undefined,
             forceUnlock: false,
+            // Rerun is run-now only: ask the server for the 423 rather than a queue.
+            queueIfLocked: !options?.disableQueueFallback,
             // Rerun replays an already-resolved row id, so there's no "item" to
             // read a per-script env from — 'prod' here is just the capacity tag.
             environment: 'prod' as const,
@@ -2765,6 +2818,8 @@ const RunTests: React.FC = () => {
             ),
             callbackUrl: scriptCallbackUrl.trim() || undefined,
             forceUnlock: false,
+            // Rerun is run-now only: ask the server for the 423 rather than a queue.
+            queueIfLocked: !options?.disableQueueFallback,
             environment: itemEnv,
             virtualScriptId: resolveVirtualScriptId(selectedExecutable, itemEnv),
           };
@@ -2840,6 +2895,15 @@ const RunTests: React.FC = () => {
         console.log(`[@RunTests] FULL RESULT OBJECT:`, result);
 
         const batchExecution = executions.find((exec) => exec.id === executionId);
+        if (result?.queued && batchExecution) {
+          // The server queued it as a one-shot deployment (device was locked); the
+          // deployment executions feed carries the row from here, so drop ours.
+          setExecutions((prev) => prev.filter((item) => item.id !== executionId));
+          void refreshExecutions();
+          const targetLabel = formatTargetLabel(batchExecution.hostName, batchExecution.deviceId);
+          showInfo(`${targetLabel} : device busy, queued to run when free`);
+          return;
+        }
         if (result?.errorType === 'device_locked' && batchExecution) {
           if (options?.disableQueueFallback) {
             // Rerun path: never queue silently. Mark the row as failed and
@@ -2945,6 +3009,9 @@ const RunTests: React.FC = () => {
             return exec;
           }
 
+          if (result?.queued) {
+            return exec; // already handed to the deployment feed above
+          }
           if (isDeviceLockedConflict(result)) {
             return exec.status === 'running'
               ? {
@@ -3592,6 +3659,23 @@ const RunTests: React.FC = () => {
   // `campaign:<id>:<scriptName>` for campaign rows. The script's actual name
   // (used to gate kpi_measurement/--edge and goto/--node) comes from the
   // analysis, since instanceId UUIDs would never match.
+  const executableTypeToggle = (
+    <ExecutableTypeToggle
+      value={selectorTypeFilter}
+      onChange={setSelectorTypeFilter}
+      options={browserTab === 'campaigns'
+        ? [
+          { id: 'campaign-script', label: 'S', color: 'primary' },
+          { id: 'tp', label: 'TP', color: 'secondary' },
+        ]
+        : [
+          { id: 'vs', label: 'VS', color: 'success' },
+          { id: 'script', label: 'S', color: 'primary' },
+          { id: 'testcase', label: 'TC', color: 'secondary' },
+        ]}
+    />
+  );
+
   const renderParamControl = (scriptKey: string, deviceKey: string, param: { name: string; dataType?: string; default?: string; choices?: string[]; required?: boolean }) => {
     const val = getEffectiveParamValue(scriptKey, deviceKey, param.name);
     const [hostName, deviceId] = deviceKey.split(':');
@@ -3693,6 +3777,12 @@ const RunTests: React.FC = () => {
     return { label: 'S', color: 'primary' as const };
   }, []);
 
+  /** Hosts the selected server actually knows about — see the filter in visibleExecutions. */
+  const knownHostNames = useMemo(
+    () => new Set(allHosts.map((host) => host.host_name)),
+    [allHosts],
+  );
+
   const visibleExecutions = useMemo(
     () => {
       // Drop local entries that have a matching DB entry on the same
@@ -3702,18 +3792,36 @@ const RunTests: React.FC = () => {
       // DB row is still 'running' — the DB-side reconciliation may not have
       // run yet (host post-processing can die silently and leave the row stale).
       const TERMINAL_STATUSES = new Set(['completed', 'failed', 'aborted', 'skipped']);
+      // A deployment_execution row is created when the run is dispatched and its script_result
+      // only later, so the two clocks can be well over a minute apart on a slow start. At 60s
+      // the pair stopped matching and BOTH were listed — two rows for one run, the local one
+      // reading FAILURE while the real one was still going.
+      const SAME_RUN_WINDOW_MS = 5 * 60_000;
+      // Past this, a 'running' DB row is not a run in flight, it is a row nothing ever closed
+      // (host post-processing can die silently). Only then is a terminal local row the better
+      // truth; below it the DB row is the run, and it is the one that says "running".
+      const STALE_RUNNING_MS = 15 * 60_000;
       const droppedDbIds = new Set<string>();
+      const now = Date.now();
       const dedupedLocal = activeExecutions.filter((local) => {
         const localStart = local.startedAtRaw ? new Date(local.startedAtRaw).getTime() : 0;
         const dbMatch = historyExecutions.find((h) =>
           h.hostName === local.hostName && h.deviceId === local.deviceId
           && h.executionType === local.executionType
-          && Math.abs((h.startedAtRaw ? new Date(h.startedAtRaw).getTime() : 0) - localStart) < 60_000
+          && Math.abs((h.startedAtRaw ? new Date(h.startedAtRaw).getTime() : 0) - localStart) < SAME_RUN_WINDOW_MS
         );
         if (!dbMatch) return true;
         if (TERMINAL_STATUSES.has(local.status) && dbMatch.status === 'running') {
-          droppedDbIds.add(dbMatch.id);
-          return true;
+          const dbStart = dbMatch.startedAtRaw ? new Date(dbMatch.startedAtRaw).getTime() : 0;
+          // Genuinely stale: keep the local row, which at least has an outcome.
+          if (dbStart && now - dbStart > STALE_RUNNING_MS) {
+            droppedDbIds.add(dbMatch.id);
+            return true;
+          }
+          // Still in flight. The local row went terminal because this browser stopped
+          // following it, not because the run ended — dropping it leaves one row, correctly
+          // showing "running" until the host reports back.
+          return false;
         }
         return false;
       });
@@ -3732,6 +3840,15 @@ const RunTests: React.FC = () => {
         // script-type rows whose script isn't in script_filter. Campaigns and
         // testcases aren't filtered by script_filter (a campaign contains many
         // scripts; filtering by its display name would be arbitrary).
+        // Executions live in one database that several servers share, while the host
+        // registry is per-server — so without this every server listed every server's runs,
+        // and a row whose host this server does not know could not resolve its device name
+        // either (a paired phone showed as "device2:host-clone" instead of "samsung
+        // SM-G998B"). Skipped while the registry is still loading, so rows are not hidden
+        // on first paint.
+        .filter((execution) => (
+          knownHostNames.size === 0 || !execution.hostName || knownHostNames.has(execution.hostName)
+        ))
         .filter((execution) => {
           if (execution.deviceId && !isDeviceAllowed(execution.hostName, execution.deviceId)) {
             return false;
@@ -3743,7 +3860,7 @@ const RunTests: React.FC = () => {
         })
         .slice(0, RUN_TESTS_HISTORY_LIMIT);
     },
-    [activeExecutions, browserTab, historyExecutions, isDeviceAllowed, isScriptAllowed],
+    [activeExecutions, browserTab, historyExecutions, isDeviceAllowed, isScriptAllowed, knownHostNames],
   );
 
   const executionHistoryRows = useMemo<ExecutionHistoryRow[]>(
@@ -3788,6 +3905,29 @@ const RunTests: React.FC = () => {
       };
     }),
     [aiTestCasesInfo, getDevicesFromHost, visibleExecutions],
+  );
+
+  const filteredExecutionHistoryRows = useMemo(
+    () => (historyResultFilter === 'all'
+      ? executionHistoryRows
+      // `resultSuccess` is null while a run is queued or still going; such a row belongs to
+      // neither bucket, so a filtered view drops it rather than guessing which it will become.
+      : executionHistoryRows.filter((row) => row.resultSuccess === (historyResultFilter === 'success'))),
+    [executionHistoryRows, historyResultFilter],
+  );
+
+  const historyResultFilterControl = (
+    <ToggleButtonGroup
+      exclusive
+      size="small"
+      value={historyResultFilter}
+      onChange={(_e, v) => v !== null && setHistoryResultFilter(v)}
+      sx={{ '& .MuiToggleButton-root': { py: 0.25, px: 1, fontSize: '0.72rem', textTransform: 'none' } }}
+    >
+      <ToggleButton value="all">All</ToggleButton>
+      <ToggleButton value="success">Success</ToggleButton>
+      <ToggleButton value="failure">Failure</ToggleButton>
+    </ToggleButtonGroup>
   );
 
   return (
@@ -3846,7 +3986,8 @@ const RunTests: React.FC = () => {
                     onUpdateUserinterface={updateDeviceUserinterface}
                     allHosts={allHosts}
                     getDevicesFromHost={getDevicesFromHost}
-                    isTargetDisabled={(key) => runningTargetKeys.has(key)}
+                    isTargetDisabled={(key) => runningTargetKeys.has(key) || !!targetUnavailableReason(key)}
+                    getDisabledReason={targetUnavailableReason}
                     isTargetForceChecked={(key) => runningTargetKeys.has(key)}
                     isTargetLocked={isTargetLocked}
                     getLockTooltip={(key) => lockTooltips[key] || 'Locked'}
@@ -3946,22 +4087,12 @@ const RunTests: React.FC = () => {
                         : undefined}
                     placeholder="Search by name..."
                     filters={{ folders: true, tags: true, search: true }}
-                    collapseIcon={!isCompact ? (
-                      <ExecutableTypeToggle
-                        value={selectorTypeFilter}
-                        onChange={setSelectorTypeFilter}
-                        options={browserTab === 'campaigns'
-                          ? [
-                            { id: 'campaign-script', label: 'S', color: 'primary' },
-                            { id: 'tp', label: 'TP', color: 'secondary' },
-                          ]
-                          : [
-                            { id: 'vs', label: 'VS', color: 'success' },
-                            { id: 'script', label: 'S', color: 'primary' },
-                            { id: 'testcase', label: 'TC', color: 'secondary' },
-                          ]}
-                      />
-                    ) : undefined}
+                    // Same toggle either way, moved rather than dropped: beside the
+                    // search/folder/tags fields when there is room, on its own line above them
+                    // when there is not. It used to vanish below tablet width, which is exactly
+                    // where an unfiltered list hurts most.
+                    collapseIcon={!isCompact ? executableTypeToggle : undefined}
+                    topContent={isCompact ? executableTypeToggle : undefined}
                     utilityLabel={
                       browserTab === 'tests'
                         ? `${selectedExecutableItems.length} item${selectedExecutableItems.length !== 1 ? 's' : ''} selected`
@@ -4025,15 +4156,24 @@ const RunTests: React.FC = () => {
                 >
                   Run
                 </Button>
-                <Button
-                  variant="outlined"
-                  onClick={handleAbortRunningTargets}
-                  disabled={browserTab === 'campaigns' || runningTargetKeys.size === 0}
-                >
-                  Abort
-                </Button>
+                {/* Abort is desktop-only, for the same reason as the scheduling controls below:
+                    a phone is used to start something and watch it. A run started here is
+                    abortable from its row in Last Executions, and from any desktop. */}
+                {!isCompact && (
+                  <Button
+                    variant="outlined"
+                    onClick={handleAbortRunningTargets}
+                    disabled={browserTab === 'campaigns' || runningTargetKeys.size === 0}
+                  >
+                    Abort
+                  </Button>
+                )}
 
-                {/* Start */}
+                {/* Scheduling is desktop-only. On a phone the page is used to run something
+                    now and watch it; Start/Repeat/End are four cramped selects for a job
+                    nobody sets up one-handed, and they crowded Run itself off the row.
+                    `startDateOption` defaults to 'now', so hiding them is exactly "run now". */}
+                {!isCompact && (<>
                 <FormControl size="small" sx={{ minWidth: 120 }}>
                   <InputLabel>Start</InputLabel>
                   <Select
@@ -4148,49 +4288,15 @@ const RunTests: React.FC = () => {
                     />
                   </Box>
                 </Popover>
+                </>)}
 
-                {/* Max Iterations + Callback — inline on desktop, collapsed on mobile */}
-                {isCompact ? (
-                  <>
-                    <Box
-                      component="span"
-                      onClick={() => setShowAdvancedConfig(!showAdvancedConfig)}
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 0.5,
-                        cursor: 'pointer',
-                        color: 'text.secondary',
-                        typography: 'caption',
-                        userSelect: 'none',
-                        '&:hover': { color: 'text.primary' }
-                      }}
-                    >
-                      {showAdvancedConfig ? <ExpandMoreIcon sx={{ fontSize: 14 }} /> : <ChevronRightIcon sx={{ fontSize: 14 }} />}
-                      More
-                    </Box>
-                    <Collapse in={showAdvancedConfig} sx={{ width: '100%' }}>
-                      <Box sx={{ display: 'flex', gap: 1.5, flexDirection: 'column', width: '100%' }}>
-                        <TextField
-                          size="small"
-                          label="Max Iterations"
-                          value={scheduleMaxIterations}
-                          onChange={(e) => setScheduleMaxIterations(e.target.value)}
-                          placeholder="None"
-                          sx={{ width: '100%' }}
-                        />
-                        <TextField
-                          label="Callback URL"
-                          value={scriptCallbackUrl}
-                          onChange={(e) => setScriptCallbackUrl(e.target.value)}
-                          placeholder="/hooks/script-complete"
-                          size="small"
-                          sx={{ width: '100%' }}
-                        />
-                      </Box>
-                    </Collapse>
-                  </>
-                ) : (
+                {/* Max Iterations + Callback are desktop-only. Both configure a run you set up
+                    and walk away from — a repeat count and a webhook for something else to be
+                    told when it finishes — which is not what the page is for on a phone. They
+                    were behind a "More" disclosure there, which is two taps to reach two fields
+                    nobody fills in one-handed. Their state still defaults to empty, so a run
+                    started from a phone behaves exactly as it did with the fields untouched. */}
+                {!isCompact && (
                   <>
                     <TextField
                       size="small"
@@ -4351,8 +4457,8 @@ const RunTests: React.FC = () => {
                             const locked = isTargetLocked(deviceKey);
                             return (
                               <Box key={deviceKey} sx={{ display: 'flex', alignItems: 'center', gap: 0, minHeight: 36, width: 'max-content', minWidth: '100%' }}>
-                                {/* Device label — sticky so it stays visible while the row scrolls */}
-                                <Box sx={{ width: 140, flexShrink: 0, pr: 1, position: 'sticky', left: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+                                {/* Device label — see stickyTargetLabelSx */}
+                                <Box sx={{ width: 140, flexShrink: 0, pr: 1, ...stickyTargetLabelSx }}>
                                   <Chip
                                     size="small"
                                     label={label}
@@ -4376,11 +4482,22 @@ const RunTests: React.FC = () => {
                                     </Tooltip>
                                   </Box>
                                 )}
-                                {/* Params — one line, no wrap; scrolls with the shared Stack scrollbar */}
+                                {/* Params. One line on a desktop, where they scroll with the shared
+                                    Stack scrollbar; wrapped below md, where a row of fixed-`ch`
+                                    controls is wider than the viewport and used to overlap the
+                                    target chip instead of moving out of its way. */}
                                 {item.type === 'script' && !itemAnalysis ? (
                                   <Typography variant="caption" color="text.secondary">Loading parameters...</Typography>
                                 ) : itemDisplayParameters.length > 0 ? (
-                                  <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', pt: 1, pb: 0.25 }}>
+                                  <Box sx={{
+                                    display: 'flex',
+                                    flexWrap: { xs: 'wrap', md: 'nowrap' },
+                                    rowGap: 1,
+                                    gap: 0.75,
+                                    alignItems: 'center',
+                                    pt: 1,
+                                    pb: 0.25,
+                                  }}>
                                     {itemDisplayParameters.map((param) => renderParamControl(item.instanceId, deviceKey, param))}
                                   </Box>
                                 ) : (
@@ -4483,7 +4600,7 @@ const RunTests: React.FC = () => {
                                     const locked = isTargetLocked(deviceKey);
                                     return (
                                       <Box key={deviceKey} sx={{ display: 'flex', alignItems: 'center', gap: 0, minHeight: 36, width: 'max-content', minWidth: '100%' }}>
-                                        <Box sx={{ width: 140, flexShrink: 0, pr: 1, position: 'sticky', left: 0, zIndex: 1, bgcolor: 'background.paper' }}>
+                                        <Box sx={{ width: 140, flexShrink: 0, pr: 1, ...stickyTargetLabelSx }}>
                                           <Chip
                                             size="small"
                                             label={label}
@@ -4510,7 +4627,15 @@ const RunTests: React.FC = () => {
                                         {!scriptAnalysis ? (
                                           <Typography variant="caption" color="text.secondary">Loading parameters...</Typography>
                                         ) : displayParams.length > 0 ? (
-                                          <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', pt: 1, pb: 0.25 }}>
+                                          <Box sx={{
+                                            display: 'flex',
+                                            flexWrap: { xs: 'wrap', md: 'nowrap' },
+                                            rowGap: 1,
+                                            gap: 0.75,
+                                            alignItems: 'center',
+                                            pt: 1,
+                                            pb: 0.25,
+                                          }}>
                                             {displayParams.map((param) => renderParamControl(campaignScriptKey, deviceKey, param))}
                                           </Box>
                                         ) : (
@@ -4576,7 +4701,8 @@ const RunTests: React.FC = () => {
         <Grid item xs={12}>
           <ExecutionHistorySection
             title="Last Executions"
-            rows={executionHistoryRows}
+            titleExtra={historyResultFilterControl}
+            rows={filteredExecutionHistoryRows}
             scriptColumnLabel={browserTab === 'campaigns' ? 'Campaign' : 'Test'}
             emptyMessage={browserTab === 'campaigns' ? 'No campaign executions yet' : 'No test executions yet'}
             onOpenUrl={handleOpenR2Url}

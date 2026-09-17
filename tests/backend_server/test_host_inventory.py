@@ -25,9 +25,6 @@ EXPECTED_HOSTS = [
     ("host-clone-1", "192.168.0.109", "host_vnc"),
 ]
 
-# Subset: only android-related hosts (for quick smoke test)
-EXPECTED_ANDROID_HOSTS = [h for h in EXPECTED_HOSTS if "android" in h[0]]
-
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -74,8 +71,13 @@ class TestHostInventory:
     )
     def test_host_registered(self, host_name, expected_ip, expected_type):
         """Each expected host must be present in getAllHosts."""
-        if host_name not in self.hosts:
-            pytest.skip(f"{host_name} not registered — check host provisioning")
+        # Assert, don't skip. Skipping on absence made the one test whose entire purpose is
+        # "this host is registered" incapable of ever failing: an unregistered host reported
+        # green. A name is in EXPECTED_HOSTS because it is meant to be there — if it is not,
+        # that is the regression.
+        assert host_name in self.hosts, (
+            f"{host_name} not registered — registered hosts: {sorted(self.hosts)}"
+        )
 
     @pytest.mark.parametrize(
         "host_name,expected_ip,expected_type",
@@ -84,8 +86,7 @@ class TestHostInventory:
     )
     def test_host_online(self, host_name, expected_ip, expected_type):
         """Each expected host must report online status."""
-        if host_name not in self.hosts:
-            pytest.skip(f"{host_name} not registered")
+        assert host_name in self.hosts, f"{host_name} not registered"
         host = self.hosts[host_name]
         status = host.get("status", "unknown")
         assert status == "online", f"{host_name} is '{status}', expected 'online'"
@@ -97,8 +98,7 @@ class TestHostInventory:
     )
     def test_host_ip(self, host_name, expected_ip, expected_type):
         """Each host must have the expected IP (extracted from host_api_url)."""
-        if host_name not in self.hosts:
-            pytest.skip(f"{host_name} not registered")
+        assert host_name in self.hosts, f"{host_name} not registered"
         host = self.hosts[host_name]
         # IP is embedded in host_api_url: "http://192.168.0.X:6109"
         api_url = host.get("host_api_url", "")
@@ -114,8 +114,7 @@ class TestHostInventory:
     )
     def test_host_type(self, host_name, expected_ip, expected_type):
         """Each host must have the expected host_type."""
-        if host_name not in self.hosts:
-            pytest.skip(f"{host_name} not registered")
+        assert host_name in self.hosts, f"{host_name} not registered"
         host = self.hosts[host_name]
         actual_type = host.get("host_type", "")
         assert actual_type == expected_type, (
@@ -123,28 +122,13 @@ class TestHostInventory:
         )
 
     def test_no_unexpected_offline(self):
-        """No registered host should be offline (warning, not failure)."""
-        offline = [
+        """No registered host should be offline."""
+        # This used to call pytest.warns(...) as a bare statement, which builds a context
+        # manager and discards it — the test passed whatever the fleet looked like. A host
+        # the server still lists but cannot reach is exactly the regression this file is for,
+        # so it fails now. Unlike EXPECTED_HOSTS this covers every host actually registered.
+        offline = sorted(
             name for name, h in self.hosts.items()
             if h.get("status") == "offline"
-        ]
-        if offline:
-            pytest.warns(UserWarning, match=f"Offline hosts: {offline}")
-
-
-@pytest.mark.skip(reason="android hosts not yet provisioned on staging - skipping until provisioned")
-class TestAndroidHostsSmoke:
-    """Quick smoke test: just android hosts registered and online."""
-
-    @pytest.fixture(autouse=True)
-    def _hosts(self, get, api_headers):
-        self.hosts = _fetch_all_hosts(get, api_headers)
-
-    @pytest.mark.parametrize(
-        "host_name,expected_ip,expected_type",
-        EXPECTED_ANDROID_HOSTS,
-        ids=[h[0] for h in EXPECTED_ANDROID_HOSTS],
-    )
-    def test_android_host_online(self, host_name, expected_ip, expected_type):
-        assert host_name in self.hosts, f"{host_name} not registered"
-        assert self.hosts[host_name].get("status") == "online", f"{host_name} not online"
+        )
+        assert not offline, f"registered but offline: {offline}"

@@ -32,6 +32,7 @@ import { RecStreamContainer } from './RecStreamContainer';
 import { RecPanelManager } from './RecPanelManager';
 import { ScriptRunningOverlay } from './ScriptRunningOverlay';
 import { RunningScriptNameBadge } from './RunningScriptNameBadge';
+import { useBackToClose } from '../../hooks/useBackToClose';
 
 interface RecHostStreamModalProps {
   host: Host;
@@ -40,6 +41,10 @@ interface RecHostStreamModalProps {
   onClose: () => void;
   showRemoteByDefault?: boolean;
   initialPoster?: string | null;
+  // Forwarded to RecStreamModalHeader — hides power-user controls for the
+  // mobile device-control page. Defaults to false, so all other callers of
+  // this modal are unaffected.
+  minimalControls?: boolean;
 }
 
 export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
@@ -49,7 +54,12 @@ export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
   onClose,
   showRemoteByDefault = false,
   initialPoster = null,
+  minimalControls = false,
 }) => {
+  // Before the early return: hooks cannot be called conditionally. Lets the system Back
+  // button close this modal rather than navigating the page underneath it.
+  useBackToClose(isOpen && Boolean(host), onClose);
+
   if (!isOpen || !host) return null;
 
   return (
@@ -60,6 +70,7 @@ export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
         onClose={onClose}
         showRemoteByDefault={showRemoteByDefault}
         initialPoster={initialPoster}
+        minimalControls={minimalControls}
       />
     </VNCStateProvider>
   );
@@ -71,7 +82,8 @@ const RecHostStreamModalContent: React.FC<{
   onClose: () => void;
   showRemoteByDefault: boolean;
   initialPoster: string | null;
-}> = ({ host, device, onClose, showRemoteByDefault, initialPoster }) => {
+  minimalControls: boolean;
+}> = ({ host, device, onClose, showRemoteByDefault, initialPoster, minimalControls }) => {
   const deviceId = device?.device_id || 'device1';
   const { showError } = useToast();
 
@@ -119,6 +131,32 @@ const RecHostStreamModalContent: React.FC<{
     modes.showWeb,
     isDesktopDevice,
     isControlActive
+  );
+
+  // The real rendered stream box, measured by RecStreamContainer. layout.finalStreamContainerDimensions
+  // is a pre-render estimate that assumes a fixed 16:9 aspect and is wrong for portrait/landscape
+  // mobile video (see comment in RecStreamContainer) — panels positioned on top of the video, like the
+  // Android mobile tap/element overlay, need the measured box or they misalign in landscape.
+  const [measuredStreamRect, setMeasuredStreamRect] = useState<{
+    width: number;
+    height: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const overlayStreamContainerDimensions = measuredStreamRect ?? layout.finalStreamContainerDimensions;
+  const handleMeasuredAreaChange = useCallback(
+    (rect: { width: number; height: number; x: number; y: number }) => {
+      setMeasuredStreamRect((prev) =>
+        prev &&
+        prev.width === rect.width &&
+        prev.height === rect.height &&
+        prev.x === rect.x &&
+        prev.y === rect.y
+          ? prev
+          : rect,
+      );
+    },
+    [],
   );
 
   const handleClose = useCallback(() => {
@@ -316,6 +354,7 @@ const RecHostStreamModalContent: React.FC<{
           showRemote={modes.showRemote}
           isDesktopDevice={isDesktopDevice}
           hasPowerControl={!!hasPowerControl}
+          minimalControls={minimalControls}
           onScreenshot={capture.handleScreenshot}
           onOpenFullscreen={handleOpenFullscreen}
           onAIImageQuery={capture.handleAIImageQuery}
@@ -387,6 +426,7 @@ const RecHostStreamModalContent: React.FC<{
             errorTrendData={monitoringData.errorTrendData || undefined}
             analysisTimestamp={monitoringData.analysisTimestamp || undefined}
             isAIAnalyzing={monitoringData.isAIAnalyzing}
+            onMeasuredAreaChange={handleMeasuredAreaChange}
           />
 
           <RecPanelManager
@@ -396,7 +436,7 @@ const RecHostStreamModalContent: React.FC<{
             showWeb={modes.showWeb}
             isControlActive={isControlActive}
             isDesktopDevice={isDesktopDevice}
-            finalStreamContainerDimensions={layout.finalStreamContainerDimensions}
+            finalStreamContainerDimensions={overlayStreamContainerDimensions}
             onReleaseControl={handleReleaseControl}
           />
 

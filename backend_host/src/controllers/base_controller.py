@@ -364,7 +364,11 @@ class FFmpegCaptureController(AVControllerInterface):
         """
         Take screenshot using mtime-based lookup for sequential files.
         Auto-copies to cold storage and returns cold path.
+
+        On failure `last_screenshot_error` says why, so a verification can report the cause
+        instead of a bare "failed to capture screenshot".
         """
+        self.last_screenshot_error: Optional[str] = None
         try:
             import time
             import os
@@ -429,6 +433,13 @@ class FFmpegCaptureController(AVControllerInterface):
                 if all_entries:
                     newest_mtime, newest_name = all_entries[0]
                     newest_age = now - newest_mtime
+                    # Recorded so the caller can say WHY rather than just "screenshot failed":
+                    # a stale capture folder means the device stopped feeding the stream, which
+                    # is the one thing an operator can act on.
+                    self.last_screenshot_error = (
+                        f'the newest capture is {newest_age:.0f}s old (needs one under '
+                        f'{recent_cutoff_seconds}s) - the device is not streaming'
+                    )
                     print(f"[{self.capture_source}]: WARNING - No recent files within {recent_cutoff_seconds}s. Newest file age: {newest_age:.2f}s ({newest_name})")
                     # Windows fallback: allow older captures if FFmpeg is slower
                     if is_windows and newest_age <= 60:
@@ -441,6 +452,9 @@ class FFmpegCaptureController(AVControllerInterface):
                         print(f"[{self.capture_source}]: ERROR - No recent files found (within {recent_cutoff_seconds}s)")
                         return None
                 else:
+                    self.last_screenshot_error = (
+                        'the device capture folder is empty - nothing has ever been streamed'
+                    )
                     print(f"[{self.capture_source}]: ERROR - No recent files found (within {recent_cutoff_seconds}s)")
                     return None
             
@@ -450,6 +464,10 @@ class FFmpegCaptureController(AVControllerInterface):
                 closest_age, closest_path = recent_files[0]
             
             if closest_age > max_age_seconds:
+                self.last_screenshot_error = (
+                    f'the newest capture is {closest_age:.1f}s old (needs one under '
+                    f'{max_age_seconds}s) - the device is not streaming'
+                )
                 print(f"[{self.capture_source}]: ERROR - Newest file too old: {closest_age:.2f}s")
                 return None
             

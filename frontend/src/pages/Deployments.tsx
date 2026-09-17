@@ -17,19 +17,20 @@ import { useHostData } from '../hooks/useHostManager';
 import { useToast } from '../hooks/useToast';
 import { useDeployment, Deployment } from '../hooks/useDeployment';
 import { useRun } from '../hooks/useRun';
-import { buildServerUrl } from '../utils/buildUrlUtils';
+import { buildServerUrl, getServerBaseUrl } from '../utils/buildUrlUtils';
 import { getLogsUrl } from '../utils/executionUtils';
 import { openR2Url } from '../utils/infrastructure/cloudflareUtils';
 import { getUserTimezone, formatToLocalTime } from '../utils/dateUtils';
 import { validateCronExpression, cronToHuman } from '../utils/cronUtils';
 import { Host, Device } from '../types/common/Host_Types';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
+import { getEnv } from '../config/constants';
 
 const Deployments: React.FC = () => {
   const { isMobile, isTablet } = useResponsiveMode();
   const isCompact = isMobile || isTablet;
   // Get Grafana URL from environment variable
-  const grafanaUrl = (import.meta as any).env?.VITE_GRAFANA_URL || 'http://localhost/grafana';
+  const grafanaUrl = getEnv('VITE_GRAFANA_URL') || 'http://localhost/grafana';
   
   const {
     createDeployment,
@@ -203,7 +204,10 @@ const Deployments: React.FC = () => {
     loadDeployments();
     loadExecutions();
 
-    const socket: Socket = io(`${window.location.origin}/system`, {
+    const socket: Socket = // The server, not the page. These are the same host on the web, but the mobile app serves
+    // the bundle from its own https://localhost, where a socket aimed at the page origin is
+    // refused forever (net::ERR_CONNECTION_REFUSED) and the app never learns any device state.
+    io(`${getServerBaseUrl()}/system`, {
       transports: ['websocket'],
       reconnection: true,
     });

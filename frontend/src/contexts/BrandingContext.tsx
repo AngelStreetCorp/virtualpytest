@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { getEnv } from '../config/constants';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 
 export type Branding = {
@@ -21,15 +22,17 @@ type BrandingContextValue = {
 
 // Build-time defaults from Vite env vars
 const buildDefaults = (): Branding => {
-  const name = import.meta.env.VITE_PROJECT_NAME || 'VirtualPyTest';
-  const logoUrl = import.meta.env.VITE_PROJECT_LOGO_URL || '/logo.png';
-  const faviconUrl = import.meta.env.VITE_PROJECT_FAVICON_URL || '/favicon.ico';
-  const tagline = import.meta.env.VITE_PROJECT_TAGLINE || 'Automated Testing Platform';
-  const showFooter = import.meta.env.VITE_SHOW_FOOTER !== 'false';
+  // Whitespace-only (e.g. VITE_PROJECT_NAME=" ", seen live on the demo server) is not an
+  // empty string, so getEnv's own "empty means unset" rule doesn't catch it — trim first.
+  const name = getEnv('VITE_PROJECT_NAME', 'VirtualPyTest').trim() || 'VirtualPyTest';
+  const logoUrl = getEnv('VITE_PROJECT_LOGO_URL', '/logo.png');
+  const faviconUrl = getEnv('VITE_PROJECT_FAVICON_URL', '/favicon.ico');
+  const tagline = getEnv('VITE_PROJECT_TAGLINE', 'Automated Testing Platform');
+  const showFooter = getEnv('VITE_SHOW_FOOTER') !== 'false';
   // A wordmark logo already spells the name out; set VITE_SHOW_PROJECT_NAME=false so the
   // header/footer/mobile bar show the logo alone instead of printing the name twice.
-  const showProjectName = import.meta.env.VITE_SHOW_PROJECT_NAME !== 'false';
-  const title = import.meta.env.VITE_PROJECT_TITLE || `${name} Web Interface`;
+  const showProjectName = getEnv('VITE_SHOW_PROJECT_NAME') !== 'false';
+  const title = getEnv('VITE_PROJECT_TITLE') || `${name} Web Interface`;
   return { name, logoUrl, faviconUrl, tagline, showFooter, showProjectName, title };
 };
 

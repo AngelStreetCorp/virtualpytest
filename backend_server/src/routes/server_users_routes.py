@@ -33,6 +33,13 @@ def _grafana_requested() -> bool:
     return bool(data.get('grafana'))
 
 
+def _password_supplied() -> bool:
+    if request.args.get('password'):
+        return True
+    data = request.get_json(silent=True) or {}
+    return bool(data.get('password'))
+
+
 def _mirror_grafana_upsert(email, password, full_name, role):
     from shared.src.lib.utils.grafana_admin import grafana_upsert_user
     return grafana_upsert_user(
@@ -55,6 +62,7 @@ def _provision_upsert(email, data):
             full_name=data.get('full_name'),
             group=data.get('group'),
             default_role=_default_role(),
+            provider_type=data.get('provider_type'),
         )
     except ValueError as e:
         return {"status": "error", "error": "invalid_payload", "detail": str(e)}, 400
@@ -66,12 +74,14 @@ def _provision_upsert(email, data):
         "action": result["action"],
         "user_id": result["user_id"],
         "email": result["email"],
-        "platform": {"role": result["role"], "team": result["team"]},
+        "platform": {"role": result["role"], "team": result["team"],
+                     "full_name": result["full_name"],
+                     "provider_type": result["provider_type"]},
     }
     if _grafana_requested():
         try:
             resp["grafana"] = _mirror_grafana_upsert(
-                email, data.get('password'), data.get('full_name'), result["role"]
+                email, data.get('password'), result["full_name"], result["role"]
             )
         except Exception as e:  # Supabase already written; do not roll back (§7)
             logger.error(f"[provision_upsert] Grafana mirror failed for {email}: {e}")
@@ -114,12 +124,31 @@ def get_user(user_id: str):
     Email -> read-only VirtualPyTest-only status (§3.4): exists:false + 200 when absent.
     """
     if _is_email(user_id):
+        # A GET on this address only READS status — it never writes a password. Callers land
+        # here by mistake: they copy the password-reset curl from the provisioning doc and
+        # drop `-X PUT` (and the `-d`, or curl would send POST), so the reset never runs while
+        # the read answers `200 {"exists": true}` — which reads exactly like success. Anything
+        # carrying write intent (`?grafana=`, the mirror flag, or a password) is that mistake,
+        # not a status check, so name the right call instead of answering 200.
+        if _grafana_requested() or _password_supplied():
+            return jsonify({
+                "status": "error",
+                "error": "method_not_allowed",
+                "detail": (
+                    "GET only reads this user's status and never changes a password. "
+                    f"To set the password, use: PUT /server/users/{user_id}?grafana=true "
+                    'with body {"password": "..."}.'
+                ),
+            }), 405, {"Allow": "GET, PUT, DELETE"}
+
         u = users_db.get_user_by_email(user_id)
         if not u:
             return jsonify({"status": "ok", "exists": False, "email": user_id}), 200
         return jsonify({
             "status": "ok", "exists": True, "email": u["email"],
-            "platform": {"user_id": u["id"], "role": u["role"], "team": u["team"]},
+            "platform": {"user_id": u["id"], "role": u["role"], "team": u["team"],
+                         "full_name": u["full_name"],
+                         "provider_type": u["provider_type"]},
         }), 200
 
     user = users_db.get_user(user_id)
@@ -136,15 +165,23 @@ def update_user(user_id: str):
     """
     Update a user profile
     """
-    data = request.get_json()
-
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
+    data = request.get_json(silent=True)
 
     if _is_email(user_id):
         # Provisioning edit = upsert (self-heals if absent); role/permissions untouched.
+        # `password` is optional here: with one the call resets it, without one it edits
+        # full_name / provider_type / group and leaves the password untouched. It is only
+        # required when the user does not exist yet and the upsert has to create them.
+        # Errors keep the provisioning shape (status/error/detail) external callers parse,
+        # not the UI shape below.
+        if not data:
+            return jsonify({"status": "error", "error": "invalid_payload",
+                            "detail": "a body with at least one field to change is required"}), 400
         body, status = _provision_upsert(user_id, data)
         return jsonify(body), status
+
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
 
     user = users_db.update_user(user_id, data)
 

@@ -6,6 +6,26 @@
 set -e
 
 echo "💾 VirtualPyTest - Installing MinIO Server (S3-compatible)"
+
+# Credentials come from the project .env, which shared/write_env.sh generates before this
+# script runs (install_all.sh order). They used to be a fixed pair written here — the
+# same credential on every install of a public repo. Nothing is defaulted: a missing value
+# means write_env.sh has not run, and guessing would silently recreate the old behaviour.
+MINIO_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$MINIO_SCRIPT_DIR/../../../.." && pwd)"
+ROOT_ENV="$PROJECT_ROOT/.env"
+env_value() { grep -E "^$1=" "$ROOT_ENV" 2>/dev/null | head -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*$//' | xargs; }
+MINIO_USER="$(env_value MINIO_ACCESS_KEY)"
+MINIO_PASS="$(env_value MINIO_SECRET_KEY)"
+if [ -z "$MINIO_USER" ] || [ -z "$MINIO_PASS" ] || [ "$MINIO_PASS" = CHANGE_ME ]; then
+    echo "❌ MINIO_ACCESS_KEY / MINIO_SECRET_KEY are not set in $ROOT_ENV"
+    echo "   Run setup/local/linux/shared/write_env.sh --with-storage first (install_all.sh does)."
+    exit 1
+fi
+if [ "${#MINIO_PASS}" -lt 8 ]; then
+    echo "❌ MINIO_SECRET_KEY must be at least 8 characters (MinIO refuses shorter)"; exit 1
+fi
+echo "   using MinIO credentials from $ROOT_ENV (user '$MINIO_USER')"
 echo "📦 Installing MinIO Server (S3-compatible)..."
 
 # dl.min.io stopped serving the binaries (HTTP 410 Gone, 2025), the GitHub releases carry no
@@ -69,15 +89,17 @@ sudo chown -R minio-user:minio-user /data/minio  # Update ownership for data dis
 
 # Create MinIO configuration
 echo "⚙️ Creating MinIO configuration..."
-sudo tee /etc/default/minio > /dev/null << 'EOF'
-# MinIO configuration file
-MINIO_ROOT_USER=admin
-MINIO_ROOT_PASSWORD=admin1234
+sudo tee /etc/default/minio > /dev/null << EOF
+# MinIO configuration file — credentials mirror MINIO_ACCESS_KEY / MINIO_SECRET_KEY in
+# the project .env. Change them there and re-run this script, not here.
+MINIO_ROOT_USER=$MINIO_USER
+MINIO_ROOT_PASSWORD=$MINIO_PASS
 MINIO_OPTS="--address :9000 --console-address :9001"
 MINIO_CONFIG_DIR=/etc/minio
 MINIO_CACHE_DRIVES=""
 MINIO_DRIVES="/data/minio"
 EOF
+sudo chmod 600 /etc/default/minio
 
 # Get the script's directory to locate config files
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -147,7 +169,7 @@ MAX_RETRIES=10
 
 echo "   Configuring MinIO client alias..."
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    MC_OUTPUT=$(mc alias set local http://localhost:9000 admin admin1234 2>&1)
+    MC_OUTPUT=$(mc alias set local http://localhost:9000 "$MINIO_USER" "$MINIO_PASS" 2>&1)
     MC_EXIT=$?
     
     if [ $MC_EXIT -eq 0 ]; then
@@ -167,7 +189,7 @@ while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
         sudo journalctl -u minio.service -n 20 --no-pager
         echo ""
         echo "   You can configure it manually later with:"
-        echo "   mc alias set local http://localhost:9000 admin admin1234"
+        echo "   mc alias set local http://localhost:9000 \"\$MINIO_ACCESS_KEY\" \"\$MINIO_SECRET_KEY\"   # from .env"
         echo "   mc mb local/virtualpytest"
         exit 1
     fi
@@ -220,7 +242,7 @@ else
     mc ls local/ 2>&1 || echo "   Failed to list buckets"
     echo ""
     echo "   You may need to create the bucket manually with:"
-    echo "   mc alias set local http://localhost:9000 admin admin1234"
+    echo "   mc alias set local http://localhost:9000 \"\$MINIO_ACCESS_KEY\" \"\$MINIO_SECRET_KEY\"   # from .env"
     echo "   mc mb local/virtualpytest"
     exit 1
 fi
@@ -277,13 +299,14 @@ sudo apt install -y rclone
 # Configure rclone for local MinIO (S3-compatible)
 echo "⚙️ Configuring rclone for local MinIO..."
 mkdir -p ~/.config/rclone
-cat > ~/.config/rclone/rclone.conf << 'EOF'
+chmod 700 ~/.config/rclone
+cat > ~/.config/rclone/rclone.conf << EOF
 [virtualpytest-local]
 type = s3
 provider = MinIO
 env_auth = false
-access_key_id = virtualpytest
-secret_access_key = admin1234
+access_key_id = $MINIO_USER
+secret_access_key = $MINIO_PASS
 endpoint = http://localhost:9000
 acl = private
 server_side_encryption =
@@ -316,7 +339,7 @@ ps aux | grep -v grep | grep minio || echo "   ⚠️  MinIO process not found"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🌐 MinIO Console (S3 Interface): http://localhost:9001"
-echo "🔑 Login: virtualpytest / admin1234"
+echo "🔑 Login: $MINIO_USER / MINIO_SECRET_KEY in $ROOT_ENV"
 echo "📊 MinIO API: http://localhost:9000"
 echo "🪣 Bucket: virtualpytest"
 echo ""

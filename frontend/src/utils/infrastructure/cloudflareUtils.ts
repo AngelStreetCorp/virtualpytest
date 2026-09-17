@@ -7,14 +7,15 @@
 
 import { api } from '../apiClient';
 import { buildServerUrl } from '../buildUrlUtils';
+import { getEnv } from '../../config/constants';
 
 /**
  * Get the public URL base from environment variable
  * Returns empty string if not configured (triggers private/signed URL mode)
  */
 const getPublicUrlBase = (): string => {
-  const envUrl = (import.meta as any).env?.VITE_CLOUDFLARE_R2_PUBLIC_URL ||
-                 (import.meta as any).env?.VITE_MINIO_PUBLIC_URL;
+  const envUrl = getEnv('VITE_CLOUDFLARE_R2_PUBLIC_URL') ||
+                 getEnv('VITE_MINIO_PUBLIC_URL');
   return envUrl && envUrl.trim() !== '' ? envUrl.trim().replace(/\/$/, '') : '';
 };
 
@@ -140,10 +141,12 @@ export const isCloudflareR2Url = (url: string | undefined): boolean => {
 export const isMinioUrl = (url: string | undefined): boolean => {
   if (!url) return false;
   // Check for MinIO patterns: /minio/ path or configured MinIO public URL
-  const minioPublicUrl = (import.meta as any).env?.VITE_MINIO_PUBLIC_URL || '';
+  const minioPublicUrl = getEnv('VITE_MINIO_PUBLIC_URL');
+  // `!!` so the function returns a boolean: the old `(minioPublicUrl && ...)` leaked a
+  // `string | boolean`, hidden only because the env read was typed `any`.
   return url.includes('/minio/') ||
          url.includes(':9000/') ||
-         (minioPublicUrl && url.startsWith(minioPublicUrl));
+         (!!minioPublicUrl && url.startsWith(minioPublicUrl));
 };
 
 /**

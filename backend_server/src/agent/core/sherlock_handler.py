@@ -221,9 +221,12 @@ Execution:
 Verification review markdown:
 {(review_markdown or "No markdown available")[:16000]}
 """
+        # 300 was enough for a non-reasoning model. Reasoning models (MiniMax-M2.7,
+        # Claude with extended thinking) spend the budget on thinking blocks first and
+        # return zero text blocks at 300 — the call then fails as "empty content".
         ai_result = call_text_ai(
             prompt=prompt,
-            max_tokens=300,
+            max_tokens=int(os.getenv("ANALYZER_MAX_TOKENS", "1500")),
             temperature=0.0,
             model=self.model,
         )

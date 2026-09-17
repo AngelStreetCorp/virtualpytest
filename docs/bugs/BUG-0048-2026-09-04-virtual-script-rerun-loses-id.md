@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | frontend                                                     |
-| Fixed in  | —                                                            |
+| Fixed in  | build 8713                                                   |
 | Commit    | `3cb7388ad`                                                          |
 
 ---

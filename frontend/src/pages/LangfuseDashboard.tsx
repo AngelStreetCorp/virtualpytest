@@ -1,11 +1,12 @@
 import { Box, IconButton, Tooltip, Typography, Alert, Button, useTheme } from '@mui/material';
 import { OpenInNew, Insights as LangfuseIcon } from '@mui/icons-material';
 import React from 'react';
+import { getEnv } from '../config/constants';
 
 const LangfuseDashboard: React.FC = () => {
   const theme = useTheme();
   // Get Langfuse URL from environment variable - if set, Langfuse is enabled
-  const langfuseUrl = (import.meta as any).env?.VITE_LANGFUSE_URL;
+  const langfuseUrl = getEnv('VITE_LANGFUSE_URL');
   const langfuseEnabled = !!langfuseUrl;
 
   const codeBlockStyle = {

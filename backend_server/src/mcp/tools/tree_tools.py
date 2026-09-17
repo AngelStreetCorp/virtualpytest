@@ -12,6 +12,7 @@ These are atomic primitives that can be composed for any workflow:
 from typing import Dict, Any, List
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter, ErrorCategory
+from ..utils.mcp_logger import get_mcp_logger
 from ..utils.verification_validator import VerificationValidator
 from backend_server.src.lib.utils.action_validator import ActionValidator
 

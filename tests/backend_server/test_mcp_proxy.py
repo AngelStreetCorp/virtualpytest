@@ -10,7 +10,6 @@ Tests for server_mcp_proxy_routes.py (/server/mcp-proxy/*)
 - GET /server/mcp-proxy/list-tools — pure read of the already-registered MCP
   tool catalog, no external calls, safe to exercise fully.
 """
-import pytest
 import requests
 
 
@@ -26,11 +25,6 @@ def test_execute_prompt_requires_prompt(base_url, verify_ssl, request_timeout, a
     body = response.json()
     assert body.get("success") is False
     assert body.get("error") == "Prompt required"
-
-
-@pytest.mark.skip(reason="calls a real OpenRouter LLM and can execute a real device/host action — unsafe to run in every CI cycle")
-def test_execute_prompt_runs_a_device_action():
-    """POST /server/mcp-proxy/execute-prompt with a real prompt — drives a live device."""
 
 
 def test_list_tools_returns_catalog(get, api_headers):

@@ -14,6 +14,8 @@ import {
   Tune as FeaturesIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
+  AccountCircle as ProfileIcon,
+  Logout as LogoutIcon,
 } from '@mui/icons-material';
 import {
   Box,
@@ -45,11 +47,14 @@ import {
   Snackbar,
 } from '@mui/material';
 import React, { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useSettings, FrontendConfig } from '../hooks/pages';
 import type { ServerConfig } from '../hooks/pages/useSettings';
+import { useAuth } from '../hooks/auth/useAuth';
+import { isAuthEnabled } from '../lib/supabase';
 import { useBranding } from '../contexts/BrandingContext';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { ALL_NAV_ITEMS } from '../config/navItems';
 import { TOAST_POSITION, TOAST_AUTO_HIDE_DURATION } from '../constants/toastConfig';
 import { buildServerUrl } from '../utils/buildUrlUtils';
@@ -659,6 +664,19 @@ const Settings: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'ai' ? 1 : 0;
   const [activeTab, setActiveTab] = useState(initialTab);
+  const navigate = useNavigate();
+  const { isMobile } = useResponsiveMode();
+  const { user, signOut } = useAuth();
+  const [signingOut, setSigningOut] = useState(false);
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      await signOut();
+      navigate('/login');
+    } finally {
+      setSigningOut(false);
+    }
+  };
 
   const {
     config,
@@ -743,6 +761,9 @@ const Settings: React.FC = () => {
           setActiveTab(newValue);
           setSearchParams(newValue === 1 ? { tab: 'ai' } : {});
         }}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
         sx={{ mb: 1 }}
       >
         <Tab icon={<ServerIcon />} label="Backend Server" iconPosition="start" />
@@ -751,6 +772,9 @@ const Settings: React.FC = () => {
         <Tab icon={<HostIcon />} label="Host & Devices" iconPosition="start" />
         <Tab icon={<BrandingIcon />} label="Branding" iconPosition="start" />
         <Tab icon={<FeaturesIcon />} label="Features" iconPosition="start" />
+        {isAuthEnabled && user && (
+          <Tab icon={<ProfileIcon />} label="Profile" iconPosition="start" />
+        )}
       </Tabs>
 
       {/* Tab 1: Backend Server */}
@@ -1273,6 +1297,31 @@ const Settings: React.FC = () => {
           </Card>
         </Box>
       </SettingsTabPanel>
+
+      {isAuthEnabled && user && (
+        <SettingsTabPanel active={activeTab === 6}>
+          <Card>
+            <CardContent>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: isMobile ? 'stretch' : 'flex-start' }}>
+                <Typography variant="h6">Profile</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Signed in as <strong>{user.email}</strong>
+                </Typography>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<LogoutIcon />}
+                  onClick={handleSignOut}
+                  disabled={signingOut}
+                  fullWidth={isMobile}
+                >
+                  {signingOut ? 'Signing out...' : 'Log out'}
+                </Button>
+              </Box>
+            </CardContent>
+          </Card>
+        </SettingsTabPanel>
+      )}
     </Box>
   );
 };

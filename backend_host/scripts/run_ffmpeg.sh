@@ -388,6 +388,12 @@ MAX_RESTART_ATTEMPTS=10
 # filling the SD rootfs (full-disk outage of every service). Healthy logs are a
 # few MB over hours, so anything this large means the input is broken.
 LOG_RUNAWAY_MB=100
+# Output-stall guard: how long a RUNNING grabber may go without writing a segment
+# before we treat it as down. Segments are sub-second, so anything beyond a few
+# tens of seconds means the input stopped delivering frames. Kept above STALE_SEC
+# so a grabber that is merely slow to produce its first segment after a restart
+# is never caught by it.
+OUTPUT_STALL_SEC=60
 # Flap back-off. An MS2109 grabber on a marginal USB link (long/extension cable,
 # over-subscribed controller) streams fine for a few seconds, then browns out
 # under capture load and drops off the bus — the kernel re-enumerates it and the
@@ -451,6 +457,37 @@ maybe_backoff() {
   return 0
 }
 
+# One guarded restart of a grabber the watchdog has judged unhealthy, whatever the
+# symptom was: rate limit, dormant cap and flap back-off are applied here so every
+# detector shares exactly the same policy. $reason is echoed in the messages.
+# Returns 0 when it restarted, 1 when it declined (rate-limited, dormant or backed off).
+restart_unhealthy_grabber() {
+  local index="$1" source="$2" audio_device="$3" capture_dir="$4" fps="$5" now="$6" reason="$7"
+  local fails=${FAIL_COUNT[$index]:-0}
+  local since_last=$(( now - ${LAST_RESTART_TS[$index]:-0} ))
+
+  # Rate limit: don't restart more than once every RESTART_SPACING_SEC.
+  [ "$since_last" -lt "$RESTART_SPACING_SEC" ] && return 1
+
+  # Cap: after MAX_RESTART_ATTEMPTS failures, go dormant.
+  if [ "$fails" -ge "$MAX_RESTART_ATTEMPTS" ]; then
+    echo "🛑 $index: $reason but exhausted $MAX_RESTART_ATTEMPTS restarts — entering dormant; will auto-resume when $source reappears. Manual fix: check the $source capture dongle, then systemctl restart vpt-stream"
+    DORMANT[$index]=1
+    return 1
+  fi
+
+  # Flap guard: convert the Nth rapid restart into an idle back-off instead.
+  maybe_backoff "$index" "$capture_dir" "$now" && return 1
+
+  local quality=$(get_device_quality "$capture_dir")
+  echo "⚠️  $index: $reason — restarting attempt=$((fails + 1))/$MAX_RESTART_ATTEMPTS (quality=$quality)"
+  kill_all_ffmpeg_for_device "$capture_dir" "$index"
+  start_grabber "$source" "$audio_device" "$capture_dir" "$index" "$fps" "$quality"
+  FAIL_COUNT[$index]=$((fails + 1))
+  LAST_RESTART_TS[$index]=$now
+  return 0
+}
+
 check_grabber_health() {
   local now=$(date +%s)
   for index in "${!GRABBERS[@]}"; do
@@ -497,23 +534,31 @@ check_grabber_health() {
     local size_mb=0
     [ -f "$log" ] && size_mb=$(du -m "$log" 2>/dev/null | cut -f1)
     if [ "${size_mb:-0}" -ge "$LOG_RUNAWAY_MB" ]; then
-      local since_last=$(( now - ${LAST_RESTART_TS[$index]:-0} ))
-      if [ "$since_last" -ge "$RESTART_SPACING_SEC" ]; then
-        if [ "$fails" -ge "$MAX_RESTART_ATTEMPTS" ]; then
-          echo "🛑 $index: log runaway (${size_mb}MB) but exhausted $MAX_RESTART_ATTEMPTS restarts — entering dormant; manual fix: check $source capture dongle, then systemctl restart vpt-stream"
-          DORMANT[$index]=1
-        elif maybe_backoff "$index" "$capture_dir" "$now"; then
-          :  # flapping — backed off; skip restart this tick
-        else
-          local quality=$(get_device_quality "$capture_dir")
-          echo "🚨 $index: ffmpeg log runaway ${size_mb}MB ≥ ${LOG_RUNAWAY_MB}MB (corrupt input?) — restarting grabber attempt=$((fails + 1))/$MAX_RESTART_ATTEMPTS (quality=$quality)"
-          kill_all_ffmpeg_for_device "$capture_dir" "$index"
-          start_grabber "$source" "$audio_device" "$capture_dir" "$index" "$fps" "$quality"
-          FAIL_COUNT[$index]=$((fails + 1))
-          LAST_RESTART_TS[$index]=$now
-        fi
-      fi
+      restart_unhealthy_grabber "$index" "$source" "$audio_device" "$capture_dir" "$fps" "$now" \
+        "ffmpeg log runaway ${size_mb}MB ≥ ${LOG_RUNAWAY_MB}MB (corrupt input?)"
       continue
+    fi
+
+    # Output-stall guard, and the mirror image of the runaway case above. An ffmpeg
+    # whose INPUT stalls keeps printing its progress line every second — same frame
+    # number, forever — so the log mtime stays fresh, the log never grows enough to
+    # be a runaway, and the staleness path below never fires. Meanwhile not one
+    # segment is written. That is how vpt-pi1/S21x stayed dead for ~67h with a
+    # perfectly healthy-looking grabber (frame=2441384 frozen, no manifest) until a
+    # human restarted the service. A capture that produces nothing IS down, however
+    # healthy the process looks, so measure the OUTPUT and not the process.
+    local seg_dir="$capture_dir/hot/segments"
+    [ -d "$seg_dir" ] || seg_dir="$capture_dir/segments"
+    local newest_seg
+    newest_seg=$(ls -t "$seg_dir"/*.ts 2>/dev/null | head -1)
+    if [ -n "$newest_seg" ]; then
+      local seg_mtime=$(stat -c %Y "$newest_seg" 2>/dev/null || echo "$now")
+      local seg_age=$(( now - seg_mtime ))
+      if [ "$seg_age" -gt "$OUTPUT_STALL_SEC" ]; then
+        restart_unhealthy_grabber "$index" "$source" "$audio_device" "$capture_dir" "$fps" "$now" \
+          "no segment written for ${seg_age}s (input stalled; log looks alive)"
+        continue
+      fi
     fi
 
     # Healthy again: reset counter if we had failures and the log is now fresh.
@@ -523,33 +568,10 @@ check_grabber_health() {
       continue
     fi
 
-    # Stale — consider restarting.
+    # Stale — the log itself stopped moving.
     if [ "$age" -gt "$STALE_SEC" ]; then
-      local since_last=$(( now - ${LAST_RESTART_TS[$index]:-0} ))
-
-      # Rate limit: don't restart more than once every RESTART_SPACING_SEC.
-      if [ "$since_last" -lt "$RESTART_SPACING_SEC" ]; then
-        continue
-      fi
-
-      # Cap: after MAX_RESTART_ATTEMPTS failures, go dormant.
-      if [ "$fails" -ge "$MAX_RESTART_ATTEMPTS" ]; then
-        echo "🛑 $index: exhausted $MAX_RESTART_ATTEMPTS restart attempts — entering dormant state; will auto-resume when $source reappears"
-        DORMANT[$index]=1
-        continue
-      fi
-
-      # Flap guard: convert the Nth rapid restart into an idle back-off instead.
-      if maybe_backoff "$index" "$capture_dir" "$now"; then
-        continue
-      fi
-
-      local quality=$(get_device_quality "$capture_dir")
-      echo "⚠️  Stale ffmpeg: $index log_age=${age}s attempt=$((fails + 1))/$MAX_RESTART_ATTEMPTS — restarting (quality=$quality)"
-      kill_all_ffmpeg_for_device "$capture_dir" "$index"
-      start_grabber "$source" "$audio_device" "$capture_dir" "$index" "$fps" "$quality"
-      FAIL_COUNT[$index]=$((fails + 1))
-      LAST_RESTART_TS[$index]=$now
+      restart_unhealthy_grabber "$index" "$source" "$audio_device" "$capture_dir" "$fps" "$now" \
+        "stale ffmpeg log_age=${age}s"
     fi
   done
 }
@@ -594,6 +616,57 @@ check_quality_changes() {
       start_grabber "$source" "$audio_device" "$capture_dir" "$device_id" "$input_fps" "$config_quality"
     fi
   done < "$conf_file"
+}
+
+# Point this process at the user's PulseAudio daemon, starting it if needed.
+# By design pulse is started by the VNC session's xstartup (install_host.sh), NOT by
+# vpt-stream — so on a fresh VM boot, if the session came up without it (or pulse died),
+# the grabber fails with "Error opening input file default". `pulseaudio --start` is
+# idempotent: a no-op when a daemon for this user already runs, so this strictly
+# self-heals the missing case. Used by both the VNC (x11grab) and emulator (imagefile)
+# grabbers; ALSA/null sources skip it.
+ensure_pulse_server() {
+  local audio_device="$1"
+  [ "$audio_device" = "default" ] || [ "$audio_device" = "pulse" ] || return 0
+
+  # Fixed endpoints first. unix:/run/vpt-pulse/native is the emulator host's own daemon
+  # (vpt-pulse.service, setup/proxmox/vm/runner/enable_emulator_audio.sh) — the one the
+  # emulator plays into. tcp:127.0.0.1:4713 is the module install_host.sh adds to default.pa
+  # and the VNC xstartup uses. Resolving through $HOME comes last: vpt-vnc runs with
+  # HOME=/var/lib/vpt_user, vpt-stream with /home/vpt_user, each HOME grows its own daemon,
+  # and recording from the wrong one is silence from an empty null sink.
+  local candidate
+  for candidate in unix:/run/vpt-pulse/native tcp:127.0.0.1:4713; do
+    if pactl -s "$candidate" info >/dev/null 2>&1; then
+      export PULSE_SERVER="$candidate"
+      return 0
+    fi
+  done
+
+  if ! pactl info >/dev/null 2>&1; then
+    echo "⚠️  PulseAudio not reachable — starting user daemon" >&2
+    pulseaudio --start --exit-idle-time=-1 >/dev/null 2>&1 || true
+    for _ in 1 2 3 4 5; do pactl info >/dev/null 2>&1 && break; sleep 0.3; done
+  fi
+
+  # Find PulseAudio socket for this user session.
+  # Prefer the active server from pactl (most reliable when multiple pulse daemons exist)
+  local pulse_socket=""
+  local pactl_server=$(pactl info 2>/dev/null | awk -F': ' '/Server String/ {print $2}' | head -1)
+  if [ -n "$pactl_server" ]; then
+    if [[ "$pactl_server" == unix:* ]]; then
+      pulse_socket="${pactl_server#unix:}"
+    elif [[ "$pactl_server" == /* ]]; then
+      pulse_socket="$pactl_server"
+    fi
+  fi
+  # Fallback: choose only user-owned socket to avoid selecting root's pulse socket
+  if [ -z "$pulse_socket" ]; then
+    pulse_socket=$(find /tmp/pulse-* -name "native" -user "$(id -u)" 2>/dev/null | head -1)
+  fi
+  if [ -n "$pulse_socket" ]; then
+    export PULSE_SERVER="unix:${pulse_socket}"
+  fi
 }
 
 start_grabber() {
@@ -857,6 +930,16 @@ start_grabber() {
       -map \"[thumbout]\" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
       -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg"
 
+  # NOTE: hls_list_size on the imagefile branch below is 150, matching every other source
+  # type. It was 30, which kept only 30s of 1s segments — and the archiver needs
+  # round(60 / segment_duration) = 60 of them to build its 1-minute MP4. It never built one,
+  # so it never appended a 10-minute chunk and COLD stayed permanently empty for every
+  # imagefile device (emulators and paired phones), capping their report videos at the live
+  # window. 150 x 1s segments is ~300KB of the hot tmpfs.
+  #
+  # Comments MUST stay out of the ffmpeg invocations themselves: a `#` line between two
+  # backslash-continued lines ends the command early, and the truncated filter graph fails
+  # with "Filter scale:default has an unconnected output" — which `bash -n` does not catch.
   elif [ "$source_type" = "imagefile" ]; then
     # Image file source (e.g., Android emulator PNG frames updated by vpt-emulator-fifo)
     # IMPORTANT: Do NOT use -stream_loop — ffmpeg caches the file and never re-reads.
@@ -910,19 +993,52 @@ start_grabber() {
 
     echo "Starting ffmpeg: quality=$quality orient=$orientation scale=$stream_scale thumb=$thumb_scale bitrate=$stream_bitrate"
 
+    # Audio for a screenshot-fed device (Android emulator): the frames carry none, so
+    # audio comes from the emulator's own output routed into this user's PulseAudio
+    # (`-audio pa` on the AVD). Without it the device reports audio N/A, which is
+    # truthful but means the heatmap can never show an audio loss for it.
+    # `aresample=async=1` keeps the wall-clock audio aligned with the synthetic
+    # constant-rate video timeline, which otherwise drifts apart over a long run.
+    ensure_pulse_server "$audio_device"
+    local audio_input=""
+    local audio_codec=""
+    local audio_map=""
+    if [ "$audio_device" != "null" ] && [ -n "$audio_device" ]; then
+      if [ "$audio_device" = "default" ] || [ "$audio_device" = "pulse" ]; then
+        audio_input="-f pulse -thread_queue_size 2048 -i default"
+      else
+        audio_input="-f alsa -thread_queue_size 2048 -i \"$audio_device\""
+      fi
+      audio_codec="-c:a aac -b:a 64k -ar 44100 -ac 2 -af aresample=async=1"
+      audio_map="-map 1:a?"
+      echo "🔊 Audio enabled for emulator capture via: $audio_device"
+    fi
+
+    # The frames carry a synthetic clock (frame N is at N/$input_fps) but the cat loop below
+    # delivers a little under $input_fps (cat + sleep overhead: ~4.2 fps measured for 5), so
+    # that timeline runs ~15% slower than the wall clock the pulse packets are stamped with.
+    # Interleaving by timestamp then pairs each second of video with audio recorded earlier
+    # and earlier (28 s behind after 2 min on labox-mobile, unbounded), while ffmpeg holds the
+    # surplus audio in RAM. With audio on, stamp the frames with the wall clock instead so
+    # both inputs share one clock; the HLS muxer is VFR, so the ~4 fps real cadence is kept.
+    local video_clock=""
+    [ -n "$audio_input" ] && video_clock="settb=AVTB,setpts=RTCTIME-RTCSTART,"
+
     # Use piped cat loop — re-reads source file each frame
     # The outer while-true loop in run_one_grabber will restart on quality change
     FFMPEG_CMD="(while true; do cat \"$source\" 2>/dev/null || break; sleep 0.2; done) | \
       /usr/bin/ffmpeg -loglevel error -stats -f image2pipe -framerate $input_fps -i - \
-      -filter_complex \"[0:v]split=3[str][cap][thm]; \
+      $audio_input \
+      -filter_complex \"[0:v]${video_clock}split=3[str][cap][thm]; \
         [str]scale=${stream_scale}[streamout]; \
         [cap]setpts=PTS-STARTPTS[captureout]; \
         [thm]scale=${thumb_scale}[thumbout]\" \
-      -map \"[streamout]\" -c:v libx264 -preset ultrafast -tune zerolatency \
+      -map \"[streamout]\" $audio_map -c:v libx264 -preset ultrafast -tune zerolatency \
         -g $input_fps -keyint_min $input_fps \
         -b:v ${stream_bitrate} -maxrate ${stream_bitrate} -bufsize $((${stream_bitrate%k} * 2))k \
         -pix_fmt yuv420p \
-        -f hls -hls_time 1 -hls_list_size 30 -hls_flags delete_segments \
+        $audio_codec \
+        -f hls -hls_time 1 -hls_list_size 150 -hls_flags delete_segments \
         -start_number $seg_start \
         -hls_segment_filename $output_segments/segment_%09d.ts \
         $output_segments/output.m3u8 \
@@ -960,40 +1076,8 @@ start_grabber() {
     # X11 access is configured by vncserver.service ExecStartPost
     export DISPLAY="$source"
 
-    # Self-heal PulseAudio (x11grab/VNC desktop only). By design pulse is started
-    # by the VNC session's xstartup (install_host.sh), NOT by vpt-stream — so on a
-    # fresh VM boot, if the VNC session came up without it (or pulse died), the
-    # grabber fails with "Error opening input file default". Only relevant when
-    # audio is routed through pulse (default/pulse); ALSA/null sources skip this.
-    # `pulseaudio --start` is idempotent: a no-op if a daemon for this user already
-    # runs, so this strictly self-heals the missing case (it does NOT replace the
-    # VNC-coupled daemon when one is present).
-    if { [ "$audio_device" = "default" ] || [ "$audio_device" = "pulse" ]; } \
-         && ! pactl info >/dev/null 2>&1; then
-      echo "⚠️  PulseAudio not reachable — starting user daemon" >&2
-      pulseaudio --start --exit-idle-time=-1 >/dev/null 2>&1 || true
-      for _ in 1 2 3 4 5; do pactl info >/dev/null 2>&1 && break; sleep 0.3; done
-    fi
+    ensure_pulse_server "$audio_device"
 
-    # Find PulseAudio socket for this user session
-    local pulse_socket=""
-    # Prefer the active server from pactl (most reliable when multiple pulse daemons exist)
-    local pactl_server=$(pactl info 2>/dev/null | awk -F': ' '/Server String/ {print $2}' | head -1)
-    if [ -n "$pactl_server" ]; then
-      if [[ "$pactl_server" == unix:* ]]; then
-        pulse_socket="${pactl_server#unix:}"
-      elif [[ "$pactl_server" == /* ]]; then
-        pulse_socket="$pactl_server"
-      fi
-    fi
-    # Fallback: choose only user-owned socket to avoid selecting root's pulse socket
-    if [ -z "$pulse_socket" ]; then
-      pulse_socket=$(find /tmp/pulse-* -name "native" -user "$(id -u)" 2>/dev/null | head -1)
-    fi
-    if [ -n "$pulse_socket" ]; then
-      export PULSE_SERVER="unix:${pulse_socket}"
-    fi
-    
     local resolution=$(get_vnc_resolution "$source")
 
     # Pi5-optimized X11grab configuration (real-time streaming priority)

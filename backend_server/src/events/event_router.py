@@ -46,10 +46,10 @@ class EventRouter:
             True if routed to at least one agent, False if unhandled
         """
         # Get agents that should handle this event (sync call)
-        agents = self.registry.get_agents_for_event(
-            event.type,
-            event.team_id
-        )
+        # The registry holds system agents, which are not team-scoped: passing
+        # event.team_id here made every /api/events/* route 500 on
+        # "get_agents_for_event() takes 2 positional arguments but 3 were given".
+        agents = self.registry.get_agents_for_event(event.type)
         
         if not agents:
             # No agents registered for this event

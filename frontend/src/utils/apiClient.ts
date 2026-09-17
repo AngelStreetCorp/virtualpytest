@@ -7,6 +7,10 @@
  * Wraps fetch() to automatically include Supabase JWT token in Authorization header.
  * Use this for all API calls to backend_server that require user authentication.
  *
+ * The token is the one for the TARGET server's Supabase identity (TASK-18,
+ * `lib/serverIdentity`) — servers in the picker may authenticate against different
+ * Supabase instances.
+ *
  * Usage:
  *   import { apiClient, api } from '@/utils/apiClient';
  *   import { buildServerUrl } from '@/utils/buildUrlUtils';
@@ -21,8 +25,9 @@
  *   const data = await api.get(buildServerUrl('/server/devices'));
  */
 
-import { supabase, isAuthEnabled } from '../lib/supabase';
+import { isAuthEnabled } from '../lib/supabase';
 import { getAutoSignHeaderToken } from '../lib/autoSign';
+import { getClientForRequest } from '../lib/serverIdentity';
 
 export interface ApiClientOptions extends Omit<RequestInit, 'headers'> {
   headers?: Record<string, string>;
@@ -69,8 +74,14 @@ export async function apiClient(
 
   if (!skipAuth && isAuthEnabled) {
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      
+      // TASK-18: pick the session by the request's target server. apiClient sets the
+      // header itself, and installFetchAuth never overwrites an Authorization that is
+      // already present — so getting this wrong here could not be corrected downstream.
+      const client = getClientForRequest(url);
+      const { data: { session } } = client
+        ? await client.auth.getSession()
+        : { data: { session: null } };
+
       if (session?.access_token) {
         requestHeaders['Authorization'] = `Bearer ${session.access_token}`;
         if (!hasLoggedJwtAttached) {

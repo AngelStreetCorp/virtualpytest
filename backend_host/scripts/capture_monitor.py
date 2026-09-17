@@ -144,6 +144,19 @@ def log_memory_usage():
     except Exception as e:
         logger.warning(f"Failed to log memory usage: {e}")
 
+def _format_volume_db(volume) -> str:
+    """Render a mean volume for logs. None means the device captures no audio at all;
+    formatting it with `:.1f` raises TypeError, and an f-string in a logger call is
+    evaluated whatever the log level - inside the frame-save path that exception cost
+    the frame its entire analysis JSON."""
+    if volume is None:
+        return 'N/A'
+    try:
+        return f"{volume:.1f}dB"
+    except (TypeError, ValueError):
+        return str(volume)
+
+
 class FrameMonitor:
     """Event-driven frame monitor with per-device queue processing
     
@@ -717,8 +730,11 @@ class FrameMonitor:
         for event_type in ['blackscreen', 'freeze', 'audio', 'macroblocks']:
             # For audio: True=good, False=problem (inverse of other events)
             if event_type == 'audio':
-                # Track audio_loss (absence of audio)
-                event_active = not detection_result.get(event_type, True)  # No audio = problem
+                # Track audio_loss (absence of audio). None is not a loss: it means the
+                # device captures no audio at all (emulator/VNC screenshot pipelines), so
+                # `not None` would open a permanent audio incident on every such device.
+                audio_state = detection_result.get(event_type, True)
+                event_active = audio_state is not None and not audio_state
             else:
                 event_active = detection_result.get(event_type, False)
             
@@ -924,7 +940,7 @@ class FrameMonitor:
                     # Log event start
                     if event_type == 'audio':
                         volume = detection_result.get('mean_volume_db', -100)
-                        logger.info(f"[{capture_folder}] 🔇 AUDIO LOSS started (volume={volume:.1f}dB)")
+                        logger.info(f"[{capture_folder}] 🔇 AUDIO LOSS started (volume={_format_volume_db(volume)})")
                     elif event_type == 'freeze':
                         freeze_diffs = detection_result.get('freeze_diffs', [])
                         diffs_str = f"diffs={freeze_diffs}" if freeze_diffs else "diffs=[]"
@@ -942,7 +958,7 @@ class FrameMonitor:
                     if duration_ms % 10000 < 200:  # Log approximately every 10s
                         if event_type == 'audio':
                             volume = detection_result.get('mean_volume_db', -100)
-                            logger.info(f"[{capture_folder}] 🔇 AUDIO LOSS ongoing: {duration_ms/1000:.1f}s (volume={volume:.1f}dB)")
+                            logger.info(f"[{capture_folder}] 🔇 AUDIO LOSS ongoing: {duration_ms/1000:.1f}s (volume={_format_volume_db(volume)})")
                         else:
                             logger.info(f"[{capture_folder}] ⚠️  {event_type.upper()} ongoing: {duration_ms/1000:.1f}s")
             elif device_state.get(event_start_key):
@@ -1121,7 +1137,7 @@ class FrameMonitor:
                 # Log event end
                 if event_type == 'audio':
                     volume = detection_result.get('mean_volume_db', -100)
-                    logger.info(f"[{capture_folder}] 🔊 AUDIO RESTORED after {total_duration_ms/1000:.1f}s (volume={volume:.1f}dB)")
+                    logger.info(f"[{capture_folder}] 🔊 AUDIO RESTORED after {total_duration_ms/1000:.1f}s (volume={_format_volume_db(volume)})")
                 elif event_type == 'freeze':
                     freeze_comparisons = detection_result.get('freeze_comparisons', [])
                     freeze_diffs = [c.get('difference_percentage', 0) for c in freeze_comparisons]
@@ -2342,12 +2358,12 @@ class FrameMonitor:
                     # Update cache if changed
                     if capture_folder not in self.audio_cache:
                         self.audio_cache[capture_folder] = {'audio': new_audio, 'mean_volume_db': new_volume}
-                        audio_val = "✅ YES" if new_audio else "❌ NO"
-                        logger.info(f"[{capture_folder}] 🔍 Audio from status file: audio={audio_val}, volume={new_volume:.1f}dB")
+                        audio_val = "N/A" if new_audio is None else ("✅ YES" if new_audio else "❌ NO")
+                        logger.info(f"[{capture_folder}] 🔍 Audio from status file: audio={audio_val}, volume={_format_volume_db(new_volume)}")
                     elif self.audio_cache[capture_folder].get('audio') != new_audio:
                         self.audio_cache[capture_folder] = {'audio': new_audio, 'mean_volume_db': new_volume}
-                        audio_val = "✅ YES" if new_audio else "❌ NO"
-                        logger.info(f"[{capture_folder}] 🔄 Audio changed: audio={audio_val}, volume={new_volume:.1f}dB")
+                        audio_val = "N/A" if new_audio is None else ("✅ YES" if new_audio else "❌ NO")
+                        logger.info(f"[{capture_folder}] 🔄 Audio changed: audio={audio_val}, volume={_format_volume_db(new_volume)}")
                     else:
                         self.audio_cache[capture_folder] = {'audio': new_audio, 'mean_volume_db': new_volume}
                 except:
@@ -2369,9 +2385,9 @@ class FrameMonitor:
                         # CRITICAL FIX: Immediately update cache when reading JSON with audio data
                         # This ensures transcript_accumulator's fresh audio data propagates to subsequent frames
                         self.audio_cache[capture_folder] = existing_audio_data
-                        audio_val = "✅ YES" if existing_audio_data['audio'] else "❌ NO"
+                        audio_val = "N/A" if existing_audio_data['audio'] is None else ("✅ YES" if existing_audio_data['audio'] else "❌ NO")
                         volume = existing_audio_data.get('mean_volume_db', -100)
-                        logger.debug(f"[{capture_folder}] 🔄 Cache updated from existing JSON: audio={audio_val}, volume={volume:.1f}dB")
+                        logger.debug(f"[{capture_folder}] 🔄 Cache updated from existing JSON: audio={audio_val}, volume={_format_volume_db(volume)}")
                 except:
                     pass
             
@@ -2527,20 +2543,20 @@ class FrameMonitor:
                 if existing_audio_data and 'audio' in existing_audio_data:
                     # Already extracted audio earlier - update cache
                     self.audio_cache[capture_folder] = existing_audio_data
-                    audio_val = "✅ YES" if existing_audio_data['audio'] else "❌ NO"
+                    audio_val = "N/A" if existing_audio_data['audio'] is None else ("✅ YES" if existing_audio_data['audio'] else "❌ NO")
                     volume = existing_audio_data.get('mean_volume_db', -100)
                     # Per-frame (~10fps × N devices) — DEBUG only, otherwise it floods the
                     # journal and buries real events (zapping, freeze, errors). Enable with
                     # CAPTURE_MONITOR_LOG_LEVEL=DEBUG when debugging audio detection.
-                    logger.debug(f"[{capture_folder}] 🔄 Updated audio cache from {json_file}: audio={audio_val}, volume={volume:.1f}dB")
+                    logger.debug(f"[{capture_folder}] 🔄 Updated audio cache from {json_file}: audio={audio_val}, volume={_format_volume_db(volume)}")
                     # Make sure existing_data has audio
                     existing_data.update(existing_audio_data)
                 elif capture_folder in self.audio_cache:
                     # No audio in JSON but we have cached value - use it
                     existing_data.update(self.audio_cache[capture_folder])
-                    audio_val = "✅ YES" if self.audio_cache[capture_folder]['audio'] else "❌ NO"
+                    audio_val = "N/A" if self.audio_cache[capture_folder]['audio'] is None else ("✅ YES" if self.audio_cache[capture_folder]['audio'] else "❌ NO")
                     volume = self.audio_cache[capture_folder].get('mean_volume_db', -100)
-                    logger.debug(f"[{capture_folder}] 📋 Using cached audio for {json_file}: audio={audio_val}, volume={volume:.1f}dB")
+                    logger.debug(f"[{capture_folder}] 📋 Using cached audio for {json_file}: audio={audio_val}, volume={_format_volume_db(volume)}")
                 
                 # ✅ CHECK FOR ZAPPING CACHE: Add to next N frames after detection
                 zap_cache_data = None

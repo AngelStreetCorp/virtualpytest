@@ -145,17 +145,12 @@ def test_endpoint(endpoint: dict, server_url: str, context: SimpleContext) -> di
         'description': description or f'Test {method} {path}',
         'timestamp': time.time(),
         'success': False,
-        'skipped': False,
+        'probe': bool(endpoint.get('probe')),
+        'note': endpoint.get('note'),
         'error': None,
         'response_time_ms': 0,
         'status_code': None,
     }
-
-    if endpoint.get('skip_reason'):
-        step_data['skipped'] = True
-        step_data['error'] = endpoint['skip_reason']
-        print(f'  SKIP  {method} {path}  —  {endpoint["skip_reason"]}')
-        return step_data
 
     try:
         # Add team_id query param where needed (always for discovered routes: most
@@ -200,7 +195,8 @@ def test_endpoint(endpoint: dict, server_url: str, context: SimpleContext) -> di
         step_data['success'] = ok
         step_data['error'] = error
         if ok:
-            print(f'  PASS  {method} {path}  →  {response.status_code}  ({elapsed:.0f}ms)')
+            label = 'PROBE' if step_data['probe'] else 'PASS '
+            print(f'  {label} {method} {path}  →  {response.status_code}  ({elapsed:.0f}ms)')
         else:
             print(f'  FAIL  {method} {path}  →  {response.status_code}  ({error})')
 
@@ -226,25 +222,30 @@ def test_endpoint(endpoint: dict, server_url: str, context: SimpleContext) -> di
 # parametrized rules with their placeholder names. We hit every GET rule once:
 #   - static rules as-is
 #   - parametrized rules with ids resolved from the matching list endpoint
-#     (RESOLVERS); a rule whose id cannot be resolved is reported as SKIP.
+#     (RESOLVERS); a placeholder no resolver can fill falls back to a synthetic id
+#     and the rule is PROBED, not skipped — the route is still called, so a 500 or a
+#     timeout behind it is still caught.
+# Every rule the sweep reports is therefore a rule it CALLED. The handful a GET sweep can
+# never call (EXCLUDED_ROUTES) are left out of the run entirely rather than carried as
+# permanently-skipped rows: a row that can only ever say "–" tells a reader nothing, and 14
+# of them buried the one line that mattered. They are listed once, with their reason, under
+# the report's table and at the end of the console output.
 # Pass/fail for discovered routes is a liveness contract, not an exact-status one
 # (that lives in tests/backend_server): 2xx passes, 401/403 pass (the API key is
 # not an admin JWT), 404 fails unless the route is in ALLOW_404, 5xx/timeout fail.
+# A probe relaxes only the 4xx half of that contract — a made-up id rightly answers
+# 400 or 404 — so anything under 500 passes and 5xx/timeout still fails.
 
-#: Rules that cannot be exercised with a plain GET. Reason shown in the report.
-SKIP_ROUTES = {
+#: Rules a GET sweep cannot call at all. NOT a suppression list for inconvenient routes —
+#: each entry says why the route is out of reach here, and where its real coverage lives.
+#: Anything that CAN be called belongs in the run, with a synthetic id if that is all there is.
+EXCLUDED_ROUTES = {
     '/server/<path:endpoint>': 'auto_proxy catch-all — forwards to a host, needs host_name',
     '/server/monitoring/proxyImage/<filename>': 'binary proxy to a host capture file',
     '/server/cicd/report/<run>/<path:filename>': 'static file serving of an uploaded report',
     '/server/api-testing/config': 'the discovery endpoint itself (fetched to build this list)',
-    # These GETs forward to a host: they measure host availability, not server health.
-    '/server/system/diskUsage': 'proxies to a host (host_name) — host availability, not server health',
-    '/server/system/getDeviceActions': 'proxies to a host (host_name) — host availability, not server health',
-    '/server/system/getStreamQuality': 'proxies to a host (host_name) — host availability, not server health',
+    '/server/host-session/authorize': "nginx auth_request target, declared `internal;` in the proxy config — an external GET gets nginx's own 404, never the route",
     '/server/postman/environments': 'needs a Postman workspaceId from a user-linked Postman account',
-    '/server/validation/preview/<tree_id>': 'proxies to a host (host_name) — host availability, not server health',
-    '/server/testcase/<testcase_id>/history': 'proxies to a host (host_name) — host availability, not server health',
-    '/server/navigation/preview/<tree_id>/<node_id>': 'proxies to a host (host_name) — host availability, not server health',
     '/server/postman/workspaces/<workspace_id>/collections': 'workspace_id here is a Postman workspace (user-linked account), not a VPT one',
     '/server/postman/workspaces/<workspace_id>/environments': 'workspace_id here is a Postman workspace (user-linked account), not a VPT one',
 }
@@ -252,6 +253,14 @@ SKIP_ROUTES = {
 #: Query params a route requires beyond team_id. ``{name}`` tokens go through RESOLVERS.
 EXTRA_PARAMS = {
     '/server/benchmarks/compare': {'agents': '{agent_id}'},
+    # Without an explicit device_id this one defaults to 'device1', which a host whose
+    # device is named 'host' does not have -> 404 on a route that is perfectly healthy.
+    '/server/navigation/preview/<tree_id>/<node_id>': {'host_name': '{host_name}', 'device_id': '{device_id}'},
+    '/server/system/diskUsage': {'host_name': '{host_name}'},
+    '/server/system/getDeviceActions': {'host_name': '{host_name}', 'device_id': '{device_id}'},
+    '/server/system/getStreamQuality': {'host_name': '{host_name}', 'device_id': '{device_id}'},
+    '/server/testcase/<testcase_id>/history': {'host_name': '{host_name}'},
+    '/server/validation/preview/<tree_id>': {'host_name': '{host_name}'},
     '/server/cicd/branches': {'project': '{project}'},
     '/server/monitoring/avq': {'device_id': '{device_id}'},
     '/server/monitoring/zaps': {'device_name': '{device_name}'},
@@ -270,6 +279,26 @@ ALLOW_404 = {
     '/server/agents/<agent_id>/export': 'agent registry may hold no exportable agent',
     '/server/pathfinding/stats/<tree_id>': 'unified graph is built on first navigation; 404 until a host loads the tree',
 }
+
+#: The GETs that forward to a host need a `host_name` (and sometimes a `device_id`) that
+#: belong to the SAME registered host — the device table lists devices of hosts that are not
+#: currently registered, so a pair taken from there answers "Host … not found". `$HOST` /
+#: `$HOST_DEVICE` read one online host out of the registry instead. Which host is not
+#: "whichever is first": the `labox-*` fleet is the labox product's, off-limits to
+#: VirtualPyTest's own CI, so a non-labox host wins; `DEVICE_HOST` overrides the pick, as it
+#: does for the device-tier pytest tests.
+LABOX_HOST_PREFIX = 'labox-'
+
+#: Value handed to a placeholder no RESOLVER could fill: a well-formed UUID for an
+#: <*_id>, a harmless slug for a name-ish param. "Not found" is a fine answer from a
+#: probed route — only a 5xx or a timeout means the route itself is broken.
+PROBE_UUID = '00000000-0000-4000-8000-000000000000'
+PROBE_SLUG = 'vpt-probe'
+
+
+def _synthetic(param: str) -> str:
+    return PROBE_UUID if param == 'id' or param.endswith('_id') else PROBE_SLUG
+
 
 #: Some list rows are unusable as ids for a given placeholder; the first row passing wins.
 PICK_FILTERS = {
@@ -292,7 +321,9 @@ RESOLVERS = [
     ('device_id',        None,             '/server/devices/getAllDevices',                ('device_id', 'id')),
     ('device_name',      None,             '/server/devices/getAllDevices',                ('device_name', 'name')),
     ('device_model',     None,             '/server/devicemodel/getAllModels',             ('name', 'model_name')),
-    ('host_name',        None,             '/server/system/getAllHosts',                   ('host_name', 'name')),
+    ('host_name',        None,             '$HOST',                                        ()),
+    ('device_id',        '/system/',       '$HOST_DEVICE',                                 ()),
+    ('device_id',        '/navigation/preview/', '$HOST_DEVICE',                           ()),
     ('model_id',         None,             '/server/devicemodel/getAllModels',             ('id', 'model_id')),
     ('user_id',          None,             '/server/users',                                ('id', 'user_id')),
     ('workspace_id',     None,             '/server/workspaces/user/{user_id}',            ('id', 'workspace_id')),
@@ -360,6 +391,45 @@ class ParamResolver:
         self.team_id = team_id
         self.cache: dict = {}
 
+    def _registered_host(self):
+        """(host_name, device_id, why) of the one host the host-proxied GETs are driven against.
+
+        An offline (or absent) host is a `why`, not a failure: the sweep grades the server, and
+        a lab host being down is not the server's health.
+        """
+        if '$HOST' in self.cache:
+            return self.cache['$HOST']
+        try:
+            resp = requests.get(
+                f'{self.server_url}/server/system/getAllHosts', headers=self.headers,
+                params={'team_id': self.team_id} if self.team_id else {},
+                timeout=15, verify=False,
+            )
+            rows = _rows_of(resp.json()) if resp.status_code == 200 else []
+        except Exception as exc:                    # noqa: BLE001 - reported, not raised
+            rows, exc_why = [], f'getAllHosts failed: {exc}'
+        else:
+            exc_why = None
+        online = [r for r in rows if isinstance(r, dict) and r.get('status') == 'online']
+        wanted = os.getenv('DEVICE_HOST', '').strip()
+        chosen = next((r for r in online if r.get('host_name') == wanted), None) if wanted else None
+        if chosen is None:
+            chosen = next((r for r in online
+                           if not str(r.get('host_name', '')).startswith(LABOX_HOST_PREFIX)), None)
+        if chosen is None:
+            chosen = online[0] if online else None
+        if chosen is None:
+            why = exc_why or ('no host is registered and online' if rows or not exc_why
+                              else 'getAllHosts returned no host')
+            result = (None, None, why)
+        else:
+            devices = [d for d in (chosen.get('devices') or []) if isinstance(d, dict)]
+            result = (chosen.get('host_name'),
+                      devices[0].get('device_id') if devices else None,
+                      None)
+        self.cache['$HOST'] = result
+        return result
+
     def _rule_for(self, param: str, route: str):
         for name, path_filter, list_path, id_keys in RESOLVERS:
             if name == param and (path_filter is None or path_filter in route):
@@ -375,6 +445,13 @@ class ParamResolver:
             return (self.team_id, None) if self.team_id else (None, 'TEAM_ID not set')
         if list_path.startswith('$CONST:'):
             return list_path.split(':', 1)[1], None
+        if list_path in ('$HOST', '$HOST_DEVICE'):
+            host_name, device_id, why = self._registered_host()
+            if why:
+                return None, why
+            if list_path == '$HOST':
+                return host_name, None
+            return (device_id, None) if device_id else (None, f'host {host_name} registers no device')
         # A list path may depend on another placeholder ({tree_id}, {user_id}); resolve it
         # first, whatever order the placeholders appear in the rule.
         while True:
@@ -442,45 +519,57 @@ def load_discovered_endpoints(server_url: str, headers: dict, team_id: str) -> d
 
     resolver = ParamResolver(server_url, headers, team_id)
     endpoints = []
+    excluded = []
     for rule in sorted(rules):
         path_params = rules[rule]
         endpoint = {'path': rule, 'rule': rule, 'method': 'GET', 'policy': 'discover',
                     'description': f'discovered: {rule}'}
-        if rule in SKIP_ROUTES:
-            endpoint['skip_reason'] = SKIP_ROUTES[rule]
-            endpoints.append(endpoint)
+        if rule in EXCLUDED_ROUTES:
+            excluded.append((rule, EXCLUDED_ROUTES[rule]))
             continue
         extra = EXTRA_PARAMS.get(rule, {})
         wanted = list(path_params) + [v.strip('{}') for v in extra.values() if v.startswith('{')]
         resolved = {}
+        probed = []
         for param in wanted:
             if param in resolved:
                 continue
             value, why = resolver.resolve(param, rule, resolved)
             if value is None:
-                endpoint['skip_reason'] = f'<{param}> unresolved: {why}'
-                break
+                # No real id to be had — probe with a synthetic one instead of never
+                # calling the route: a silent SKIP hides a 500 sitting behind that rule.
+                value = _synthetic(param)
+                probed.append(f'<{param}> {why}')
             resolved[param] = value
-        if not endpoint.get('skip_reason'):
-            path = rule
-            for param in path_params:
-                path = re.sub(rf'<(?:[a-z]+:)?{param}>', resolved[param], path)
-            endpoint['path'] = path
-            endpoint['params'] = {k: (resolved[v.strip('{}')] if v.startswith('{') else v)
-                                  for k, v in extra.items()}
+        if probed:
+            endpoint['probe'] = True
+            endpoint['note'] = 'probed with a synthetic id — ' + '; '.join(probed)
+        path = rule
+        for param in path_params:
+            path = re.sub(rf'<(?:[a-z]+:)?{param}>', resolved[param], path)
+        endpoint['path'] = path
+        endpoint['params'] = {k: (resolved[v.strip('{}')] if v.startswith('{') else v)
+                              for k, v in extra.items()}
         endpoints.append(endpoint)
 
-    unresolved = sum(1 for e in endpoints if e.get('skip_reason'))
+    probes = sum(1 for e in endpoints if e.get('probe'))
     return {
         'name': 'Discovered GET routes',
-        'description': f'{len(endpoints)} GET rules from {server_url} url_map ({unresolved} skipped)',
+        'description': f'{len(endpoints)} callable GET rules from {server_url} url_map '
+                       f'({probes} probed with a synthetic id, {len(excluded)} excluded)',
         'endpoints': endpoints,
+        'excluded': sorted(excluded),
     }
 
 
 def discover_verdict(endpoint: dict, status_code: int):
     """(success, error) for a discovered route — liveness contract, see block comment above."""
     if 200 <= status_code < 300 or status_code in (401, 403):
+        return True, None
+    if endpoint.get('probe'):
+        # A made-up id rightly answers 400/404 — only a server error is a real failure.
+        if status_code >= 500:
+            return False, f'{status_code} — server error'
         return True, None
     if status_code == 404 and endpoint.get('rule') in ALLOW_404:
         return True, None
@@ -547,24 +636,30 @@ def main() -> int:
 
     # Summary
     total = len(context.step_results)
-    skipped = sum(1 for s in context.step_results if s.get('skipped'))
     passed = sum(1 for s in context.step_results if s['success'])
-    failed = total - passed - skipped
+    probed = sum(1 for s in context.step_results if s.get('probe') and s['success'])
+    failed = total - passed
+    excluded = test_config.get('excluded') or []
     elapsed = time.time() - context.start_time
 
     print()
     print('-' * 50)
-    print(f'Results  : {passed} passed, {failed} failed, {skipped} skipped of {total}  ({elapsed:.1f}s)')
+    print(f'Results  : {passed} passed ({probed} of them synthetic-id probes), '
+          f'{failed} failed of {total} called  ({elapsed:.1f}s)')
     if failed:
         print('Failed endpoints:')
         for s in context.step_results:
-            if not s['success'] and not s.get('skipped'):
+            if not s['success']:
                 print(f'  • {s["action"]}  —  {s["error"]}  (status: {s["status_code"]})')
-    if skipped:
-        print('Skipped endpoints:')
+    if probed:
+        print('Probed endpoints (called with a synthetic id — 5xx/timeout would still fail):')
         for s in context.step_results:
-            if s.get('skipped'):
-                print(f'  • {s["action"]}  —  {s["error"]}')
+            if s.get('probe') and s['success']:
+                print(f'  • {s["action"]}  →  {s["status_code"]}  —  {s["note"]}')
+    if excluded:
+        print(f'Excluded ({len(excluded)} rules a GET sweep cannot call — not part of the run):')
+        for rule, why in excluded:
+            print(f'  • GET {rule}  —  {why}')
     print('-' * 50)
 
     profile_name = 'discover' if args.discover else (args.profile or args.spec or 'custom')
@@ -573,18 +668,20 @@ def main() -> int:
         profile_name,
         server_url,
         Path('api-report/index.html'),
+        excluded=excluded,
     )
     print('HTML report written to api-report/index.html')
 
     return 0 if failed == 0 else 1
 
 
-def write_html_report(results: list, profile_name: str, server_url: str, output_path: Path) -> None:
+def write_html_report(results: list, profile_name: str, server_url: str, output_path: Path,
+                      excluded=()) -> None:
     """Write a self-contained HTML report of API test results."""
     total = len(results)
-    skipped = sum(1 for r in results if r.get('skipped'))
     passed = sum(1 for r in results if r['success'])
-    failed = total - passed - skipped
+    probed = sum(1 for r in results if r.get('probe') and r['success'])
+    failed = total - passed
     elapsed = sum(r.get('response_time_ms', 0) for r in results)
     ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
     overall_color = '#2e7d32' if failed == 0 else '#c62828'
@@ -595,12 +692,14 @@ def write_html_report(results: list, profile_name: str, server_url: str, output_
         status = r.get('status_code', '—')
         rt = r.get('response_time_ms', 0)
         ok = r['success']
-        skip = r.get('skipped', False)
-        row_color = '#f5f5f5' if skip else ('#e8f5e9' if ok else '#ffebee')
-        detail_color = '#eeeeee' if skip else ('#f1f8e9' if ok else '#fff3e0')
-        icon = '–' if skip else ('✔' if ok else '✘')
-        icon_color = '#9e9e9e' if skip else ('#2e7d32' if ok else '#c62828')
-        err = html_module.escape(r.get('error') or '')
+        probe = bool(r.get('probe')) and ok
+        row_color = '#e3f2fd' if probe else ('#e8f5e9' if ok else '#ffebee')
+        detail_color = '#f1f8e9' if ok else '#fff3e0'
+        icon = '◦' if probe else ('✔' if ok else '✘')
+        icon_color = '#1565c0' if probe else ('#2e7d32' if ok else '#c62828')
+        # A passing probe carries its note in the same column a failure uses its error:
+        # the point of probing is that it stays visible, not that it disappears into green.
+        err = html_module.escape(r.get('error') or (r.get('note') if probe else '') or '')
         action = html_module.escape(r.get('action', ''))
         desc = html_module.escape(r.get('description', ''))
         req_params = html_module.escape(str(r.get('request_params') or {}))
@@ -614,7 +713,7 @@ def write_html_report(results: list, profile_name: str, server_url: str, output_
           <td>{desc}</td>
           <td style="text-align:center">{status}</td>
           <td style="text-align:right">{rt:.0f}ms</td>
-          <td style="color:{'#757575' if skip else '#c62828'};font-size:.85em">{err}</td>
+          <td style="color:{'#1565c0' if probe else '#c62828'};font-size:.85em">{err}</td>
         </tr>
         <tr id="{detail_id}" style="display:none;background:{detail_color}">
           <td></td>
@@ -634,6 +733,19 @@ Headers: {req_headers}</pre>
         </tr>''')
 
     rows_html = '\n'.join(rows)
+    # Rules a GET sweep cannot call are named once, under the table — not carried as rows
+    # that could only ever say "skipped".
+    excluded_html = ''
+    if excluded:
+        items = '\n'.join(
+            f'<li><code>GET {html_module.escape(rule)}</code> — {html_module.escape(why)}</li>'
+            for rule, why in excluded
+        )
+        excluded_html = (
+            '<div class="excluded"><strong>Not callable by this sweep '
+            f'({len(excluded)})</strong> — every rule above was called; these were left out:'
+            f'<ul>{items}</ul></div>'
+        )
     html = f'''<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>API Smoke Report</title>
@@ -650,6 +762,9 @@ Headers: {req_headers}</pre>
   td {{ padding: 8px 12px; font-size: .88rem; border-bottom: 1px solid #f0f0f0; }}
   tr:last-child td {{ border-bottom: none; }}
   tr[id^="detail-"] td {{ border-bottom: 1px solid #e0e0e0; }}
+  .excluded {{ margin-top: 20px; color: #666; font-size: .82rem; }}
+  .excluded ul {{ margin: 6px 0 0; padding-left: 18px; }}
+  .excluded code {{ color: #37474f; }}
 </style>
 <script>function toggleDetail(id){{var el=document.getElementById(id);el.style.display=el.style.display==='none'?'table-row':'none';}}</script>
 </head>
@@ -660,14 +775,15 @@ Headers: {req_headers}</pre>
   <div class="kpi"><div class="kpi-label">Overall</div><div class="kpi-value" style="color:{overall_color}">{overall_label}</div></div>
   <div class="kpi"><div class="kpi-label">Passed</div><div class="kpi-value" style="color:#2e7d32">{passed}</div></div>
   <div class="kpi"><div class="kpi-label">Failed</div><div class="kpi-value" style="color:#c62828">{failed}</div></div>
-  <div class="kpi"><div class="kpi-label">Skipped</div><div class="kpi-value" style="color:#9e9e9e">{skipped}</div></div>
-  <div class="kpi"><div class="kpi-label">Total</div><div class="kpi-value">{total}</div></div>
+  <div class="kpi"><div class="kpi-label">Probed</div><div class="kpi-value" style="color:#1565c0">{probed}</div></div>
+  <div class="kpi"><div class="kpi-label">Called</div><div class="kpi-value">{total}</div></div>
   <div class="kpi"><div class="kpi-label">Duration</div><div class="kpi-value" style="font-size:1.2rem">{elapsed/1000:.1f}s</div></div>
 </div>
 <table>
   <thead><tr><th></th><th>Endpoint</th><th>Description</th><th>Status</th><th>Time</th><th>Error</th></tr></thead>
   <tbody>{rows_html}</tbody>
 </table>
+{excluded_html}
 </body></html>'''
 
     output_path.parent.mkdir(parents=True, exist_ok=True)

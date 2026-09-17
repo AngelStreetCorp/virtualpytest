@@ -22,6 +22,7 @@ import {
   CheckCircle, 
   Cancel as XCircle
 } from '@mui/icons-material';
+import { getServerBaseUrl } from '../../utils/buildUrlUtils';
 
 interface AgentStatusProps {
   instanceId: string | null;
@@ -89,7 +90,10 @@ export const AgentStatus: React.FC<AgentStatusProps> = ({ instanceId }) => {
 
     fetchStatus(instanceId);
 
-    const socket: Socket = io(`${window.location.origin}/system`, {
+    const socket: Socket = // The server, not the page. These are the same host on the web, but the mobile app serves
+    // the bundle from its own https://localhost, where a socket aimed at the page origin is
+    // refused forever (net::ERR_CONNECTION_REFUSED) and the app never learns any device state.
+    io(`${getServerBaseUrl()}/system`, {
       transports: ['websocket'],
       reconnection: true,
     });

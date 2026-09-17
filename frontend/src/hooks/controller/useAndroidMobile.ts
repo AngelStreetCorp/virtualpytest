@@ -87,7 +87,8 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
     setIsLandscape(false); // Reset orientation to portrait
   }, [selectedHost, deviceId]);
 
-  // Toggle orientation manually
+  // Toggle orientation manually (kept as a fallback for hosts/devices where
+  // auto-detection below fails, e.g. ADB unreachable)
   const toggleOrientation = useCallback(() => {
     setIsLandscape(prev => {
       const newOrientation = !prev;
@@ -101,6 +102,37 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
 
   const screenshotRef = useRef<HTMLImageElement>(null);
   const { postToHost, executeRemoteCommand } = useControllerApi(selectedHost, deviceId);
+
+  // Auto-detect orientation: read the device's live rotation (via ADB dumpsys) instead of
+  // requiring a manual toggle. Falls back silently to whatever toggleOrientation last set
+  // if the host/ADB can't answer (e.g. older host build, device offline).
+  const checkOrientation = useCallback(async () => {
+    if (!selectedHost || !deviceId) return;
+    try {
+      const result = await postToHost('/server/remote/getOrientation', {}, { includeDeviceId: true });
+      if (!result?.success) return;
+
+      const detectedLandscape = Boolean(result.is_landscape);
+      setIsLandscape(prev => {
+        if (prev === detectedLandscape) return prev;
+        console.log(`[@hook:useAndroidMobile] Auto-detected orientation: ${detectedLandscape ? 'landscape' : 'portrait'}`);
+        onOrientationChange?.(detectedLandscape);
+        return detectedLandscape;
+      });
+    } catch (error) {
+      console.warn('[@hook:useAndroidMobile] Orientation auto-detect failed:', error);
+    }
+  }, [selectedHost, deviceId, postToHost, onOrientationChange]);
+
+  // No polling interval: orientation only changes as a side effect of a tap (handled by the
+  // post-tap check in handleTap/handleOverlayElementClick below), or a manual physical
+  // rotation with no interaction at all, which is rare enough not to warrant a timer while
+  // the stream just sits there. One check when the remote is shown covers the common case
+  // of the device already being in landscape before control is taken.
+  useEffect(() => {
+    if (!selectedHost || !deviceId) return;
+    checkOrientation();
+  }, [selectedHost, deviceId, checkOrientation]);
 
   // Note: Hook lifecycle logging removed to reduce console spam
 
@@ -279,8 +311,13 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
       } catch (error) {
         console.error('[@hook:useAndroidMobile] Element click error:', error);
       }
+
+      // A tap can itself trigger a rotation (e.g. opening a landscape-only screen) — don't
+      // wait for the next 3s poll to notice, or the overlay stays sized for the old
+      // orientation and the next tap or two land on the wrong spot.
+      checkOrientation();
     },
-    [selectedHost, deviceId],
+    [selectedHost, deviceId, checkOrientation],
   );
 
   const handleRemoteCommand = useCallback(
@@ -401,6 +438,7 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
     // Manual orientation
     isLandscape,
     toggleOrientation,
+    checkOrientation,
 
     // Refs
     screenshotRef,

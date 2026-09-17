@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | High on a no-login site (every browser call to `/server/*` answered 401 after the deploy) |
 | Area      | backend_server/src/lib/auth_middleware.py · backend_server/src/app.py       |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

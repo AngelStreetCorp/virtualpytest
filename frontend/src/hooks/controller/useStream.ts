@@ -15,8 +15,11 @@ interface StreamUrlCache {
 
 const streamUrlCache = new Map<string, StreamUrlCache>();
 
-function getCachedStreamUrl(host_name: string, device_id: string): string | null {
-  const cacheKey = `${host_name}:${device_id}`;
+// Host names are only unique WITHIN a server — `host-clone-1` exists on both
+// VirtualPyTest and QualiAI — so the server must be part of the key or selecting one
+// server serves the other's cached URL for 24h (BUG-0106).
+function getCachedStreamUrl(server_url: string, host_name: string, device_id: string): string | null {
+  const cacheKey = `${server_url}|${host_name}:${device_id}`;
   const cached = streamUrlCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp) < CACHE_CONFIG.LONG_TTL) {
     return cached.url;
@@ -27,8 +30,8 @@ function getCachedStreamUrl(host_name: string, device_id: string): string | null
   return null;
 }
 
-function setCachedStreamUrl(host_name: string, device_id: string, url: string) {
-  const cacheKey = `${host_name}:${device_id}`;
+function setCachedStreamUrl(server_url: string, host_name: string, device_id: string, url: string) {
+  const cacheKey = `${server_url}|${host_name}:${device_id}`;
   streamUrlCache.set(cacheKey, { url, timestamp: Date.now() });
 }
 
@@ -75,11 +78,12 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
     async (force: boolean = false) => {
       if (!host || !device_id || device_id.trim() === '') return;
 
-      const deviceKey = `${host.host_name}-${device_id}`;
+      // Server-scoped for the same reason as the cache key: host names collide across servers.
+      const deviceKey = `${host.server_url || ''}|${host.host_name}-${device_id}`;
 
       // Check 24h cache first
       if (!force) {
-        const cachedUrl = getCachedStreamUrl(host.host_name, device_id);
+        const cachedUrl = getCachedStreamUrl(host.server_url || '', host.host_name, device_id);
         if (cachedUrl) {
           console.log(
             `[@hook:useStream] Cache HIT: Stream URL for ${host.host_name}/${device_id} (24h cache)`,
@@ -116,7 +120,23 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
               : host?.host_name
                 ? `/host/${host.host_name}${normalizedPath}`
                 : normalizedPath;
-            const frontendOrigin = typeof window !== 'undefined' ? window.location?.origin : undefined;
+            // Resolve against the origin of the server that OWNS this host, not this
+            // frontend's origin. Hosts register a relative host_url (/host/<name>) that only
+            // resolves on their own proxy; ServerManagerProvider stamps server_url on every
+            // host for exactly this case. Using window.location.origin sent another server's
+            // hosts to THIS proxy, which 502s on names it does not have — and, worse, quietly
+            // served this server's own host of the same name instead (BUG-0106).
+            const ownerOrigin = (() => {
+              const ownerServerUrl = host?.server_url;
+              if (ownerServerUrl && /^https?:\/\//.test(ownerServerUrl)) {
+                try {
+                  return new URL(ownerServerUrl).origin;
+                } catch {
+                  /* malformed server_url — fall back to this frontend's origin */
+                }
+              }
+              return typeof window !== 'undefined' ? window.location?.origin : undefined;
+            })();
             const cleanHostUrl = host?.host_url?.replace(/\/$/, '');
 
             if (cleanHostUrl) {
@@ -124,15 +144,15 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
               // hostAwarePath already includes /host/<name>/..., so avoid double-prefixing.
               if (cleanHostUrl.startsWith('http://') || cleanHostUrl.startsWith('https://')) {
                 processedUrl = `${cleanHostUrl}${hostAwarePath}`;
-              } else if (frontendOrigin) {
-                processedUrl = `${frontendOrigin}${hostAwarePath}`;
+              } else if (ownerOrigin) {
+                processedUrl = `${ownerOrigin}${hostAwarePath}`;
               } else {
                 processedUrl = hostAwarePath;
               }
               console.log(`[@hook:useStream] Resolved relative stream URL via host_url: ${processedUrl}`);
-            } else if (frontendOrigin) {
-              processedUrl = `${frontendOrigin}${hostAwarePath}`;
-              console.log(`[@hook:useStream] Resolved relative stream URL against frontend origin: ${processedUrl}`);
+            } else if (ownerOrigin) {
+              processedUrl = `${ownerOrigin}${hostAwarePath}`;
+              console.log(`[@hook:useStream] Resolved relative stream URL against owning server origin: ${processedUrl}`);
             } else {
               processedUrl = hostAwarePath;
               console.log(`[@hook:useStream] Using normalized path for relative stream URL: ${processedUrl}`);
@@ -147,7 +167,7 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
           setUrlError(null);
 
           // Store in 24h cache
-          setCachedStreamUrl(host.host_name, device_id, processedUrl);
+          setCachedStreamUrl(host.server_url || '', host.host_name, device_id, processedUrl);
 
           // Mark this device as fetched
           fetchedDevicesRef.current.add(deviceKey);
@@ -186,7 +206,7 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
       return;
     }
 
-    const deviceKey = `${host?.host_name}-${device_id}`;
+    const deviceKey = `${host?.server_url || ''}|${host?.host_name}-${device_id}`;
 
     // Check if device changed
     if (currentDeviceRef.current !== deviceKey) {

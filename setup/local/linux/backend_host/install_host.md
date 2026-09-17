@@ -133,7 +133,7 @@ The `install_host.sh` script performs these steps:
 
 8. **Configure VNC**
    - Sets up TigerVNC with XFCE4 desktop
-   - Default password: `admin1234`
+   - Password: generated into `backend_host/src/.env` as `HOST_VNC_PASSWORD` on first install
    - Installs custom `vnc_lite.html` with auto-path detection for nginx routing
    - Template: `backend_host/config/services/linux/vnc.lite.example`
 
@@ -218,7 +218,7 @@ The custom `vnc_lite.html` automatically detects the correct WebSocket path base
 | Service | URL/Address |
 |---------|-------------|
 | Flask API | `http://localhost:6109` |
-| VNC Desktop | `vnc://localhost:5901` (password: admin1234) |
+| VNC Desktop | `vnc://localhost:5901` (password: `HOST_VNC_PASSWORD` in `backend_host/src/.env`) |
 | noVNC Web (direct) | `http://localhost:6080/vnc_lite.html` |
 | noVNC Web (via nginx) | `https://your-server/host/{hostname}/vnc_lite.html` |
 
@@ -325,7 +325,7 @@ ffmpeg -f v4l2 -i /dev/video0 -frames:v 1 test.jpg
 
 ## Next Steps
 1. Edit `backend_host/src/.env` to configure your devices
-2. Test VNC connectivity: `vncviewer localhost:5901` (password: admin1234)
+2. Test VNC connectivity: `vncviewer localhost:5901` (password: `HOST_VNC_PASSWORD` in `backend_host/src/.env`)
 3. Test noVNC web locally: `http://localhost:6080/vnc_lite.html`
 4. Test noVNC via nginx: `https://your-server/host/{hostname}/vnc_lite.html`
 5. Verify device detection with `v4l2-ctl --list-devices`

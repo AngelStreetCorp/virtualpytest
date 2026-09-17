@@ -7,7 +7,7 @@ set -u
 cd "$(dirname "$0")"
 set -a; source ../../../../.env; set +a
 export VPT_MCP_AUTHORIZATION="Bearer $MCP_SECRET_KEY"
-PY=/home/jndoye/shared/projects/virtualpytest/venv/bin/python
+PY=~/virtualpytest/venv/bin/python
 RUN="${1:?usage: run_settings_pipeline.sh <run-dir> <ui-name>}"
 UI="${2:?usage: run_settings_pipeline.sh <run-dir> <ui-name>}"
 EXIT_MORE_WORK=10
@@ -26,6 +26,6 @@ echo "=== VALIDATE ==="
 $PY -u auto_build_mcp_live.py validate --run-dir "$RUN" --under settings --only-failed
 
 echo "=== PUSH ==="
-env $(grep -E "^(SUPABASE_URL|SUPABASE_ANON_KEY)=" /home/jndoye/shared/projects/virtualpytest/.env | xargs) \
+env $(grep -E "^(SUPABASE_URL|SUPABASE_ANON_KEY)=" ~/virtualpytest/.env | xargs) \
   $PY push_autobuild_to_db.py --run-dir "$RUN" --ui-name "$UI"
 echo "PIPELINE_DONE"

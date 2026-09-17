@@ -3,6 +3,16 @@ import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
 
+// Settings renders the signed-in user's chip via useAuth() -> useAuthContext(), which throws
+// outside an AuthProvider. Every other dependency in this suite is mocked the same way; wrapping
+// the render in a real provider would put a Supabase session behind a render test.
+vi.mock('../../frontend/src/hooks/auth/useAuth', () => ({
+  useAuth: () => ({
+    user: { id: 'test-user', email: 'tester@vpt.local' },
+    signOut: vi.fn(),
+  }),
+}));
+
 vi.mock('../../frontend/src/hooks/pages', () => ({
   useSettings: () => ({
     config: {

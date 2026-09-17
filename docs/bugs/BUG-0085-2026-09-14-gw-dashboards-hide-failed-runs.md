@@ -9,7 +9,7 @@
 | Status    | Fixed (pushed to our Grafana; ships to customers with the next bundle)      |
 | Severity  | Medium (a failing gateway test was invisible on the dashboard built to show it) |
 | Area      | infra/monitoring/grafana/dashboards/ookla-speedtest.json · superping.json · dns-lookup.json |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | `43d5293faf`                                                                |
 
 ---

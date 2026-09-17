@@ -50,6 +50,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { useUserInterface } from '../hooks/pages/useUserInterface';
 import { useDeviceModels } from '../hooks/pages/useDeviceModels';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import {
   primeAllVariants,
   useUserInterfaceVariants,
@@ -126,6 +127,7 @@ const VariantsCell: React.FC<{ userInterfaceId: string }> = ({ userInterfaceId }
 const UserInterface: React.FC = () => {
   // Get navigation hook
   const navigate = useNavigate();
+  const { isMobile } = useResponsiveMode();
 
   // Get the hook functions
   const {
@@ -519,16 +521,33 @@ const UserInterface: React.FC = () => {
 
   return (
     <Box>
-      <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Box
+        sx={{
+          mb: 2,
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: isMobile ? 1 : 0,
+        }}
+      >
         <Box>
-          <Typography variant="h4" gutterBottom>
+          <Typography variant={isMobile ? 'h5' : 'h4'} gutterBottom>
             Interface
           </Typography>
           <Typography variant="body1" color="textSecondary">
             Manage navigation and device compatibility for your test automation.
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+        <Box
+          sx={{
+            display: 'flex',
+            gap: 1,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            justifyContent: isMobile ? 'flex-start' : 'flex-end',
+          }}
+        >
           <ToggleButtonGroup
             value={modeFilter}
             exclusive
@@ -536,33 +555,37 @@ const UserInterface: React.FC = () => {
             size="small"
             aria-label="dev/prod filter"
           >
-            <ToggleButton value="all" sx={{ px: 1, py: 0.25 }}>
+            <ToggleButton value="all" sx={{ px: isMobile ? 0.75 : 1, py: 0.25 }}>
               All
             </ToggleButton>
-            <ToggleButton value="dev" sx={{ px: 1, py: 0.25 }}>
+            <ToggleButton value="dev" sx={{ px: isMobile ? 0.75 : 1, py: 0.25 }}>
               Dev
             </ToggleButton>
-            <ToggleButton value="prod" sx={{ px: 1, py: 0.25 }}>
+            <ToggleButton value="prod" sx={{ px: isMobile ? 0.75 : 1, py: 0.25 }}>
               Prod
             </ToggleButton>
           </ToggleButtonGroup>
           <Button
             variant="outlined"
-            startIcon={<ImportIcon />}
+            startIcon={!isMobile ? <ImportIcon /> : undefined}
             onClick={handleOpenImport}
             size="small"
             disabled={loading}
+            aria-label="Import"
+            sx={isMobile ? { minWidth: 0, px: 1 } : undefined}
           >
-            Import
+            {isMobile ? <ImportIcon fontSize="small" /> : 'Import'}
           </Button>
           <Button
             variant="contained"
-            startIcon={<AddIcon />}
+            startIcon={!isMobile ? <AddIcon /> : undefined}
             onClick={() => setOpenDialog(true)}
             size="small"
             disabled={loading}
+            aria-label="Add UI"
+            sx={isMobile ? { minWidth: 0, px: 1 } : undefined}
           >
-            Add UI
+            {isMobile ? <AddIcon fontSize="small" /> : 'Add UI'}
           </Button>
         </Box>
       </Box>
@@ -605,32 +628,46 @@ const UserInterface: React.FC = () => {
               >
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ width: '24%' }}>
+                    <TableCell sx={{ width: isMobile ? '45%' : '24%' }}>
                       <strong>Name</strong>
                     </TableCell>
-                    <TableCell sx={{ width: '22%' }}>
+                    <TableCell sx={{ width: isMobile ? '30%' : '22%' }}>
                       <strong>Models</strong>
                     </TableCell>
-                    <TableCell sx={{ width: '10%' }}>
-                      <strong>Version</strong>
-                    </TableCell>
-                    <TableCell sx={{ width: '16%' }}>
+                    {!isMobile && (
+                      <TableCell sx={{ width: '10%' }}>
+                        <strong>Version</strong>
+                      </TableCell>
+                    )}
+                    <TableCell sx={{ width: isMobile ? '15%' : '16%' }}>
                       <strong>Variants</strong>
                     </TableCell>
-                    <TableCell align="center" sx={{ width: '9%', whiteSpace: 'nowrap' }}>
-                      <strong>Navigation</strong>
-                    </TableCell>
-                    <TableCell align="center" sx={{ width: '9%', whiteSpace: 'nowrap' }}>
-                      <strong>References</strong>
-                    </TableCell>
-                    <TableCell align="center" sx={{ width: '10%', whiteSpace: 'nowrap' }}>
+                    {!isMobile && (
+                      <>
+                        <TableCell align="center" sx={{ width: '9%', whiteSpace: 'nowrap' }}>
+                          <strong>Navigation</strong>
+                        </TableCell>
+                        <TableCell align="center" sx={{ width: '9%', whiteSpace: 'nowrap' }}>
+                          <strong>References</strong>
+                        </TableCell>
+                      </>
+                    )}
+                    <TableCell align="center" sx={{ width: isMobile ? '10%' : '10%', whiteSpace: 'nowrap' }}>
                       <strong>Actions</strong>
                     </TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {visibleInterfaces.map((userInterface) => (
-                    <TableRow key={userInterface.id}>
+                    <TableRow
+                      key={userInterface.id}
+                      onClick={
+                        isMobile && editingId !== userInterface.id
+                          ? () => handleEditNavigation(userInterface)
+                          : undefined
+                      }
+                      sx={{ cursor: isMobile && editingId !== userInterface.id ? 'pointer' : 'default' }}
+                    >
                       <TableCell>
                         {editingId === userInterface.id ? (
                           <TextField
@@ -700,6 +737,7 @@ const UserInterface: React.FC = () => {
                           </Box>
                         )}
                       </TableCell>
+                      {!isMobile && (
                       <TableCell>
                         {editingId === userInterface.id ? (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -753,9 +791,11 @@ const UserInterface: React.FC = () => {
                           formatVersionRange(userInterface)
                         )}
                       </TableCell>
+                      )}
                       <TableCell>
                         <VariantsCell userInterfaceId={userInterface.id} />
                       </TableCell>
+                      {!isMobile && (
                       <TableCell align="center">
                         <Tooltip
                           title={isProd(userInterface) ? 'View navigation (read-only)' : 'Edit navigation'}
@@ -770,6 +810,8 @@ const UserInterface: React.FC = () => {
                           </IconButton>
                         </Tooltip>
                       </TableCell>
+                      )}
+                      {!isMobile && (
                       <TableCell align="center">
                         {/* References route is name-keyed and resolves to the dev
                             row — disabled on prod (refs sync on publish). */}
@@ -797,13 +839,17 @@ const UserInterface: React.FC = () => {
                           </span>
                         </Tooltip>
                       </TableCell>
+                      )}
                       <TableCell align="center">
                         {editingId === userInterface.id ? (
                           <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
                             <IconButton
                               size="small"
                               color="primary"
-                              onClick={handleSaveEdit}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSaveEdit();
+                              }}
                               disabled={submitting}
                               sx={{ p: 0.5 }}
                             >
@@ -816,7 +862,10 @@ const UserInterface: React.FC = () => {
                             <IconButton
                               size="small"
                               color="secondary"
-                              onClick={handleCancelEdit}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCancelEdit();
+                              }}
                               disabled={submitting}
                               sx={{ p: 0.5 }}
                             >
@@ -826,9 +875,10 @@ const UserInterface: React.FC = () => {
                         ) : (
                           <IconButton
                             size="small"
-                            onClick={(e) =>
-                              setActionMenu({ anchorEl: e.currentTarget, ui: userInterface })
-                            }
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActionMenu({ anchorEl: e.currentTarget, ui: userInterface });
+                            }}
                             sx={{ p: 0.5 }}
                             title="Actions"
                           >

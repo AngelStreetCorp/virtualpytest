@@ -145,16 +145,40 @@ if [ "$WITH_GRAFANA" = true ]; then
 fi
 
 # ------------------------------------------------------------------ storage (MinIO + Redis from storage/install_storage.sh)
+# This file is where the MinIO and Redis passwords are decided; install_minio.sh and
+# install_redis.sh configure the services from these values rather than carrying their
+# own. Both are generated per install — they used to be one fixed literal in a public repo,
+# i.e. the same credential on every deployment in the world.
+#
+# An install that already has a value keeps it: `set_env` without FORCE only replaces a
+# placeholder, and the two reads below recover an existing password so a re-run cannot
+# leave the service and the .env disagreeing.
 if [ "$WITH_STORAGE" = true ]; then
-    for pair in "MINIO_ENDPOINT=http://localhost:9000" "MINIO_ACCESS_KEY=admin" "MINIO_SECRET_KEY=admin1234" \
-                "MINIO_BUCKET=virtualpytest" "MINIO_PUBLIC_URL=http://$PUBLIC_HOST:9000" \
-                "REDIS_URL=redis://:admin1234@localhost:6379/0"; do
-        set_env "$ROOT_ENV" "${pair%%=*}" "${pair#*=}"
-    done
-    for pair in "MINIO_ENDPOINT=http://localhost:9000" "MINIO_ACCESS_KEY=admin" "MINIO_SECRET_KEY=admin1234" \
+    MINIO_SECRET="$(get_env "$ROOT_ENV" MINIO_SECRET_KEY)"
+    if is_placeholder "$MINIO_SECRET"; then MINIO_SECRET="$(secret)"; fi
+
+    REDIS_PASS="$(get_env "$ROOT_ENV" REDIS_PASSWORD)"
+    if is_placeholder "$REDIS_PASS"; then
+        # Installs made before REDIS_PASSWORD existed carry it only inside REDIS_URL.
+        REDIS_PASS="$(get_env "$ROOT_ENV" REDIS_URL | sed -nE 's|^redis://[^:]*:([^@]+)@.*|\1|p')"
+        if is_placeholder "$REDIS_PASS"; then REDIS_PASS="$(secret)"; fi
+    fi
+
+    for pair in "MINIO_ENDPOINT=http://localhost:9000" "MINIO_ACCESS_KEY=admin" \
                 "MINIO_BUCKET=virtualpytest" "MINIO_PUBLIC_URL=http://$PUBLIC_HOST:9000"; do
+        set_env "$ROOT_ENV" "${pair%%=*}" "${pair#*=}"
         set_env "$HOST_ENV" "${pair%%=*}" "${pair#*=}"
     done
+    # Server, host and the MinIO service itself must agree, like API_KEY does.
+    FORCE=1 set_env "$ROOT_ENV" MINIO_SECRET_KEY "$MINIO_SECRET"
+    FORCE=1 set_env "$HOST_ENV" MINIO_SECRET_KEY "$MINIO_SECRET"
+    # install_redis.sh reads this; REDIS_URL is what the app uses.
+    FORCE=1 set_env "$ROOT_ENV" REDIS_PASSWORD "$REDIS_PASS"
+    # Only (re)write the URL while it is still the shipped placeholder: on a fleet install
+    # it points at the storage VM, not localhost, and that must survive a re-run.
+    case "$(get_env "$ROOT_ENV" REDIS_URL)" in
+        ""|*CHANGE_ME*) FORCE=1 set_env "$ROOT_ENV" REDIS_URL "redis://:$REDIS_PASS@localhost:6379/0" ;;
+    esac
     set_env "$FE_ENV" VITE_CLOUDFLARE_R2_PUBLIC_URL "http://$PUBLIC_HOST:9000/virtualpytest"
 fi
 

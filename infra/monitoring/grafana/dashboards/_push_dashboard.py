@@ -21,7 +21,7 @@ urllib3.disable_warnings()
 
 # The raw-IP URL returns nginx 403 since 2026-09 — the public hostname is the working default.
 BASE = os.environ.get('GRAFANA_URL', 'https://virtualpytest.angelstreet.io/grafana').rstrip('/')
-AUTH = (os.environ.get('GRAFANA_USER', 'admin'), os.environ.get('GRAFANA_PASS', 'admin1234'))
+AUTH = (os.environ.get('GRAFANA_USER', 'admin'), os.environ['GRAFANA_PASS'])
 FOLDER_UID = os.environ.get('GRAFANA_FOLDER_UID', 'dfbkqtbiuot8ga')  # VirtualPyTest (Awesomation)
 FOLDER_TITLE = os.environ.get('GRAFANA_FOLDER')  # e.g. "apps" — resolved to a uid below
 if FOLDER_TITLE:

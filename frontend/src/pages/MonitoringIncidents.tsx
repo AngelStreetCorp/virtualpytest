@@ -48,11 +48,14 @@ import { useSearchParams } from 'react-router-dom';
 import { HeatMapFreezeModal } from '../components/heatmap/HeatMapFreezeModal';
 import { R2Image } from '../components/common/R2Image';
 import { StyledDialog } from '../components/common/StyledDialog';
+import DesktopOnlyPlaceholder from '../components/mobile/DesktopOnlyPlaceholder';
 import { useAlerts } from '../hooks/pages/useAlerts';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { Alert } from '../types/pages/Monitoring_Types';
 import { parseIncidentFocus, findFocusedAlert } from '../utils/incidentFocus';
 
 const MonitoringIncidents: React.FC = () => {
+  const { isMobile } = useResponsiveMode();
   const { getAllAlerts, updateCheckedStatus, updateDiscardStatus, deleteAllAlerts } = useAlerts();
   const [activeAlerts, setActiveAlerts] = useState<Alert[]>([]);
   const [closedAlerts, setClosedAlerts] = useState<Alert[]>([]);
@@ -780,6 +783,10 @@ const MonitoringIncidents: React.FC = () => {
       </TableCell>
     </TableRow>
   );
+
+  if (isMobile) {
+    return <DesktopOnlyPlaceholder title="Alerts" />;
+  }
 
   return (
     <Box>

@@ -93,13 +93,23 @@ def _abort_stale_queued_executions(supabase, team_id: str, stale_cutoff: str) ->
     """Mark queued executions older than the stale cutoff as aborted."""
     # Use inner join to filter by team_id directly, avoiding .in_() with large ID lists
     stale_result = supabase.table('deployment_executions').select(
-        'id, deployments!inner(team_id)'
+        'id, deployments!inner(team_id, rerun_payload)'
     ).eq('deployments.team_id', team_id).eq(
         'status', 'queued'
     ).lt('scheduled_at', stale_cutoff).execute()
-    stale_ids = [row.get('id') for row in (stale_result.data or []) if row.get('id')]
+    stale_rows = [row for row in (stale_result.data or []) if row.get('id')]
+    stale_ids = [row['id'] for row in stale_rows]
     if not stale_ids:
         return 0
+
+    # Runs that /server/script/execute queued still have an API caller polling their
+    # task_id (tasks never expire on their own); resolve those so the caller learns
+    # the run was dropped instead of waiting on it indefinitely.
+    from backend_server.src.lib.utils.task_manager import task_manager
+    for row in stale_rows:
+        queued_task_id = ((row.get('deployments') or {}).get('rerun_payload') or {}).get('queued_task_id')
+        if queued_task_id:
+            task_manager.complete_task(queued_task_id, {}, error='stale_queue_timeout', success=False)
 
     now_iso = datetime.now(timezone.utc).isoformat()
     BATCH_SIZE = 50
@@ -121,7 +131,7 @@ def abort_queued_execution(execution_id):
     supabase = get_supabase_client()
     try:
         row = supabase.table('deployment_executions').select(
-            'id, status'
+            'id, status, deployments(rerun_payload)'
         ).eq('id', execution_id).single().execute()
     except Exception:
         return jsonify({'success': False, 'error': 'Execution not found'}), 404
@@ -137,6 +147,14 @@ def abort_queued_execution(execution_id):
         'skip_reason': 'manual_abort',
     }).eq('id', execution_id).execute()
 
+    # A run that /server/script/execute queued here still has its API caller polling
+    # the task_id it was handed; tell it the run is not coming rather than leave it
+    # waiting on a task nothing will ever complete.
+    queued_task_id = ((row.data.get('deployments') or {}).get('rerun_payload') or {}).get('queued_task_id')
+    if queued_task_id:
+        from backend_server.src.lib.utils.task_manager import task_manager
+        task_manager.complete_task(queued_task_id, {}, error='aborted', success=False)
+
     emit_system_update('deployment_execution_changed', {
         'domain': 'deployment',
         'action': 'aborted',
@@ -146,13 +164,16 @@ def abort_queued_execution(execution_id):
     return jsonify({'success': True, 'message': 'Queued execution aborted'}), 200
 
 
-@server_deployment_bp.route('/create', methods=['POST'])
-@handle_route_exceptions('deployment:create_deployment')
-def create_deployment():
-    data = request.get_json()
-    team_id = request.args.get('team_id')
+def create_deployment_record(team_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    """Insert a deployment and register it with its host's scheduler.
+
+    The body of the /create route, shared with /server/script/execute: a script that
+    finds its device locked is queued as a one-shot deployment (cron that never
+    fires, max_executions 1) - the same thing the Run Tests page does on a 423 -
+    so every caller gets the queue, not just the browser.
+    """
     supabase = get_supabase_client()
-    
+
     # Build deployment data
     normalized_cron = _normalize_cron_expression(data['cron_expression'])
     deployment_data = {
@@ -210,7 +231,15 @@ def create_deployment():
     if host_info:
         call_host(host_info, '/host/deployment/add', method='POST', data=deployment, timeout=10)
     emit_system_update('deployment_changed', {'domain': 'deployment', 'action': 'created', 'deployment_id': deployment.get('id')})
-    
+    return deployment
+
+
+@server_deployment_bp.route('/create', methods=['POST'])
+@handle_route_exceptions('deployment:create_deployment')
+def create_deployment():
+    data = request.get_json()
+    team_id = request.args.get('team_id')
+    deployment = create_deployment_record(team_id, data)
     return jsonify({'success': True, 'deployment': deployment})
 @server_deployment_bp.route('/update/<deployment_id>', methods=['PUT'])
 @handle_route_exceptions('deployment:update_deployment')
@@ -996,6 +1025,20 @@ def execution_complete():
         'completed_at': data.get('completed_at'),
         'success': bool(success) if success is not None else status != 'failed',
     })
+
+    # A run that /server/script/execute queued here (device was locked) still has
+    # its caller polling the task_id it was handed. Complete that task with the same
+    # result a direct run would have produced, so an API caller cannot tell the
+    # difference between "ran now" and "ran when the device freed up".
+    queued_task_id = ((deployment or {}).get('rerun_payload') or {}).get('queued_task_id')
+    if queued_task_id:
+        from backend_server.src.lib.utils.task_manager import task_manager
+        task_manager.complete_task(
+            queued_task_id,
+            result_payload,
+            error=error,
+            success=result_payload['success'],
+        )
 
     notify_result = notify_completion(
         {

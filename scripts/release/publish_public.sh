@@ -11,6 +11,9 @@
 #   --keep       keep the work directory even on success (printed at the end)
 #   --selftest   plant a secret and a leak term into the export and PROVE the gates refuse
 #                them (TASK-14 acceptance criterion); nothing is pushed
+#   --reseed     REPLACE the public history with this single snapshot (orphan commit, force
+#                push, tags re-pointed). Only for a repo that has never been public — it
+#                rewrites what others may have cloned. Needs force-push allowed on the target.
 #
 # What it guarantees before anything leaves the machine:
 #   1. the export is `git archive <tag>` — a tree, never history;
@@ -33,13 +36,14 @@ die()  { echo "${RED}✗ $*${NC}" >&2; exit 1; }
 usage(){ sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 
 TAG=""; TARGET="${PUBLIC_REPO_URL:-git@github.com:AngelStreetCorp/virtualpytest.git}"
-DRY_RUN=0; KEEP=0; SELFTEST=0
+DRY_RUN=0; KEEP=0; SELFTEST=0; RESEED=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --target)   TARGET="${2:-}"; shift 2 ;;
     --dry-run)  DRY_RUN=1; shift ;;
     --keep)     KEEP=1; shift ;;
     --selftest) SELFTEST=1; shift ;;
+    --reseed)   RESEED=1; shift ;;
     -h|--help)  usage ;;
     -*)         echo "unknown option: $1" >&2; usage ;;
     *)          [[ -z "$TAG" ]] || usage; TAG="$1"; shift ;;
@@ -116,7 +120,9 @@ fi
 
 # ------------------------------------------------------------------ 4. gates on the export
 # leak_gate.sh --all needs a git checkout to enumerate files: a throwaway repo in the export.
-( cd "$EXPORT" && git init -q && git add -A && git -c user.name=publish -c user.email=publish@local commit -qm export )
+# `-f`: the export contains files that are tracked-but-ignored in the internal repo (VERSION.txt,
+# screenshots); without it they escape the identifier gate AND the snapshot (61 files, 2026-09-15).
+( cd "$EXPORT" && git init -q && git add -A -f && git -c user.name=publish -c user.email=publish@local commit -qm export )
 gate_rc=0
 ( cd "$EXPORT" && LEAK_TERMS_FILE="${TERMS_FILE_ABS:-}" LEAK_TERMS="${LEAK_TERMS:-}" "$REPO_ROOT/scripts/security/leak_gate.sh" --all --require-terms ) || gate_rc=$?
 gl_rc=0
@@ -162,19 +168,24 @@ fi
 # ------------------------------------------------------------------ 7. snapshot commit in the public clone
 git clone -q "$TARGET" "$PUBLIC" 2>/dev/null || die "cannot clone ${TARGET}"
 cd "$PUBLIC"
-if git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then die "tag ${TAG} already exists in the public repo"; fi
+if [[ $RESEED -eq 0 ]] && git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then die "tag ${TAG} already exists in the public repo"; fi
 if git show-ref --verify --quiet refs/remotes/origin/main; then git checkout -q main 2>/dev/null || git checkout -q -b main origin/main; else git checkout -q -b main; fi
+if [[ $RESEED -eq 1 ]]; then
+  echo "${YELLOW}reseed: replacing the public history with one orphan snapshot commit${NC}"
+  git checkout -q --orphan reseed && git rm -rfq --cached . >/dev/null 2>&1 || true
+fi
 non_snapshot="$(git log --format='%s' 2>/dev/null | grep -vE '^release: ' | head -3 || true)"
 [[ -z "$non_snapshot" ]] || echo "${YELLOW}warning: public history has non-snapshot commits:${NC} $non_snapshot"
 find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
 cp -a "$EXPORT/." .
-git add -A
+git add -A -f     # -f: see the gate step — ignored-but-tracked files are part of the release
 { printf 'release: %s\n\n' "$TAG"; cat "$BODY"; } > "$WORK/commit.txt"
 git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" commit -q -F "$WORK/commit.txt"
-git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" tag -a "$TAG" -F "$BODY"
+tagf=(); [[ $RESEED -eq 1 ]] && tagf=(-f)
+git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" tag -a "${tagf[@]}" "$TAG" -F "$BODY"
 extra_tags=()
 while IFS= read -r t; do [[ -n "$t" && "$t" != "$TAG" ]] && extra_tags+=("$t"); done <<<"$SAME_COMMIT_TAGS"
-for t in "${extra_tags[@]:-}"; do [[ -n "$t" ]] && git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" tag -a "$t" -F "$BODY"; done
+for t in "${extra_tags[@]:-}"; do [[ -n "$t" ]] && git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" tag -a "${tagf[@]}" "$t" -F "$BODY"; done
 PUB_SHA="$(git rev-parse --short=10 HEAD)"
 echo "public commit ${PUB_SHA}  tags: ${TAG} ${extra_tags[*]:-}"
 echo "history in the public clone: $(git rev-list --count HEAD) commit(s)"
@@ -184,6 +195,12 @@ if [[ $DRY_RUN -eq 1 ]]; then
   echo "${YELLOW}dry-run: nothing pushed. Inspect: cd ${PUBLIC} && git log --stat | head; git tag${NC}"
   exit 0
 fi
-git push -q origin main --follow-tags
-for t in "${extra_tags[@]:-}"; do [[ -n "$t" ]] && git push -q origin "refs/tags/$t"; done
+if [[ $RESEED -eq 1 ]]; then
+  git push -q --force origin HEAD:main
+  git push -q --force origin "refs/tags/$TAG"
+  for t in "${extra_tags[@]:-}"; do [[ -n "$t" ]] && git push -q --force origin "refs/tags/$t"; done
+else
+  git push -q origin main --follow-tags
+  for t in "${extra_tags[@]:-}"; do [[ -n "$t" ]] && git push -q origin "refs/tags/$t"; done
+fi
 echo "${GREEN}✓ published ${TAG} → ${TARGET} (${PUB_SHA}, ${n_files} files)${NC}"

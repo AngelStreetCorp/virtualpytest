@@ -589,48 +589,48 @@ const Status: React.FC = () => {
         )}
       </Grid>
 
-      {/* ── Server VM (192.168.0.103) ──────────────────────────────────────── */}
+      {/* ── Server VM (192.168.x.103) ──────────────────────────────────────── */}
       {/* "Server API" (systemd vpt-server) is authoritative; the old core
           HTTP probe row was a flaky duplicate of the same process. */}
       <AccordionSection
         title="Server VM"
-        subtitle="192.168.0.103 · vpt-server · :5109"
+        subtitle="192.168.x.103 · vpt-server · :5109"
         services={systemdServices}
         onViewLogs={openLogs}
         defaultExpanded
       />
 
-      {/* ── Frontend VM (192.168.0.105) ────────────────────────────────────── */}
+      {/* ── Frontend VM (192.168.x.105) ────────────────────────────────────── */}
       <AccordionSection
         title="Frontend VM"
-        subtitle="192.168.0.105 · vpt-frontend · :3000"
+        subtitle="192.168.x.105 · vpt-frontend · :3000"
         services={coreServices.filter((s) => s.id === 'frontend')}
         onViewLogs={openLogs}
         defaultExpanded
       />
 
-      {/* ── Proxy VM (192.168.0.107) ───────────────────────────────────────── */}
+      {/* ── Proxy VM (192.168.x.107) ───────────────────────────────────────── */}
       <AccordionSection
         title="Proxy VM"
-        subtitle="192.168.0.107 · nginx · :443"
+        subtitle="192.168.x.107 · nginx · :443"
         services={coreServices.filter((s) => s.id === 'nginx')}
         onViewLogs={openLogs}
         defaultExpanded
       />
 
-      {/* ── Database VM (192.168.0.102) ────────────────────────────────────── */}
+      {/* ── Database VM (192.168.x.102) ────────────────────────────────────── */}
       <AccordionSection
         title="Database VM"
-        subtitle="192.168.0.102 · Supabase / PostgreSQL"
+        subtitle="192.168.x.102 · Supabase / PostgreSQL"
         services={coreServices.filter((s) => s.id === 'supabase')}
         onViewLogs={openLogs}
         defaultExpanded
       />
 
-      {/* ── Storage VM (192.168.0.101) ─────────────────────────────────────── */}
+      {/* ── Storage VM (192.168.x.101) ─────────────────────────────────────── */}
       <AccordionSection
         title="Storage VM"
-        subtitle="192.168.0.101 · MinIO · Redis · DB Backup"
+        subtitle="192.168.x.101 · MinIO · Redis · DB Backup"
         services={coreServices.filter((s) => ['minio', 'redis', 'db-backup'].includes(s.id))}
         onViewLogs={openLogs}
         defaultExpanded

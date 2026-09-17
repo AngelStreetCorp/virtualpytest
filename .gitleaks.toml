@@ -41,6 +41,12 @@ regexes = [
   # Shell-variable credentials handed to curl -u: `-u "${USER:-admin}:${PASS:-admin}"` is a
   # placeholder pair, not a secret (the curl-auth-user rule captures the whole user:pass).
   '''^["']?\$\{?[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}?(:\$\{?[A-Za-z_][A-Za-z0-9_]*(:-[^}]*)?\}?)?["']?$''',
+  # The default team id. Not a credential: it is a row id naming which team a query targets,
+  # already committed in ~49 files (MCP tools, api-testing routes, docs) and readable by
+  # anyone with the app open. It trips generic-api-key only because it is uuid-shaped and
+  # sits beside the word `SECRET` in a workflow `secrets.X || '<default>'` fallback.
+  # The literal value, so any OTHER uuid-shaped assignment still trips the rule.
+  '''7fdeb4bb-3639-4ec3-959f-b54769a219ce''',
   # Public by design (TASK-14 §5): the server's PUBLIC key is meant to be distributed.
   '''SERVER_PUBLIC_KEY''',
 ]

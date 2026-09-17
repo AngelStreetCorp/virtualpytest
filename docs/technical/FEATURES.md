@@ -14,12 +14,15 @@ features/<name>/
   backend_host/__init__.py      optional: same for the host app
   backend_host/*.py             optional: standalone scripts run by units below
   backend_host/services/*.service  optional: systemd unit templates (%PROJECT_ROOT%), installed as vpt-<unit>.service
-  frontend/routes.tsx           optional: default-exports a FeatureDefinition (routes / nav / deviceLinks)
+  frontend/routes.tsx           optional: default-exports a FeatureDefinition (routes / nav / deviceLinks / previewActions)
   frontend/**                   pages, components, hooks of the feature
   grafana/*.json                optional: dashboards (push with infra/monitoring/grafana/dashboards/_push_dashboard.py)
   lib/                          optional: python shared by the feature's server + host parts (features.<name>.lib)
   skills/<skill>/SKILL.md       optional: agent skills, loaded next to backend_server/src/agent/skills/definitions/
   backend_server/mcp_tools/*_tools.py  optional: MCP tool classes, discovered like backend_server/src/mcp/tools/
+  app/                           optional: native app project, not deployed to any VM
+  db/*.sql                       optional: the feature's own migrations, idempotent; NOT applied by any deploy script (see Rules)
+  README.md                      recommended: parts, the core hooks the feature relies on, docs, tests, how to disable
 ```
 
 `manifest.json` example: `{"name": "avq", "description": "Audio/Video quality monitor",
@@ -34,7 +37,7 @@ features/<name>/
 | backend_host | same helper with `'backend_host'`, called from `register_host_routes` |
 | host installer | `install_host.sh` adds every `features/*/backend_host/services/*.service` to the service list; `install_service.sh` finds the template there; `redirect_stream_to_data.sh` restarts them too |
 | deploy (host units) | `deploy_customer.sh` reconciles the feature units on every host deploy: re-renders + enables + restarts a unit whose rendered content changed or is missing, `disable --now` + removes the units of disabled/removed features (see below). The classic `update_core.sh` (and the offline bundle path) does the same by running `setup/proxmox/node/reconcile_feature_units.sh` on the host; both share `setup/proxmox/node/lib/feature_units.sh` |
-| frontend | `vpt-features` plugin in `frontend/vite.config.ts` generates `virtual:vpt-features` with one static import per enabled `features/*/frontend/routes.tsx`; `src/config/features.ts` exposes `featureRoutes()`, `featureNavItems(section)`, `featureDeviceLinks()`, `isFeatureEnabled()` used by `App.tsx`, `config/navItems.tsx`, `pages/Dashboard.tsx` |
+| frontend | `vpt-features` plugin in `frontend/vite.config.ts` generates `virtual:vpt-features` with one static import per enabled `features/*/frontend/routes.tsx`; `src/config/features.ts` exposes `featureRoutes()`, `featureNavItems(section)`, `featureDeviceLinks()`, `featurePreviewAction(deviceModel)`, `isFeatureEnabled()` used by `App.tsx`, `config/navItems.tsx`, `pages/Dashboard.tsx`, `components/rec/RecHostPreview.tsx` |
 | agent skills | `SkillLoader.load_all_skills()` also scans `enabled_feature_dirs('skills')` → every `features/<name>/skills/<skill>/SKILL.md` (same format as core). An agent template may list a feature skill in `available_skills`; when the feature is absent the name is simply not loadable (router skips it, `load_skill` logs "not found") |
 | MCP tools | `build_definitions._discover_tool_classes()` also scans `enabled_feature_dirs('backend_server/mcp_tools')` for `*_tools.py` (one `*Tools` class, category = file stem, imported as `features.<name>.backend_server.mcp_tools.<stem>`); `mcp_server` instantiates unknown categories via its fallback (`api_client` first) |
 | tests | **Not automatic — a feature must add its own.** Every `routes[].path` in `features/<name>/frontend/routes.tsx` goes into the `PAGES` array of `tests/e2e/playwright/specs/ui.pages.spec.js` *and* the route inventory in `docs/agent/validation/TESTING.md` (in-repo); a feature with `backend_server` routes adds `tests/backend_server/test_<name>.py`. Nothing discovers these — an untested feature ships silently green. See **Testing a feature** below |
@@ -59,6 +62,8 @@ const feature: FeatureDefinition = {
   // route flags: fullWidth (no Container, like /ai-agent), hideFloatingAiButton (page has its own AI mode)
   nav: [{ section: 'monitoring', label: 'My page', path: '/monitoring/my' }], // sections: ai|test-build|test-execute|test-report|monitoring|docs|settings
   deviceLinks: [{ label: 'My page', icon: <Icon />, path: (host, device) => `/monitoring/my/${host}/${device}` }],
+  // optional: claim the click on a device model's REC preview card (mounted by the card; reports via onCanHandleChange)
+  previewActions: [{ deviceModel: 'my_model', Component: MyPreviewAction }],
 };
 export default feature;
 ```
@@ -74,6 +79,7 @@ Slots offered by core (all append-only, order = feature folder name):
 | `routes[].fullWidth: true` | the page renders without the `Container` width limit (like `/ai-agent`) — `App.tsx` checks `matchesFeatureRoute(pathname, 'fullWidth')` |
 | `routes[].hideFloatingAiButton: true` | the floating Ask-AI button (`AIOmniOverlay`) is hidden while the location matches that route (`matchesFeatureRoute(pathname, 'hideFloatingAiButton')`) — for builder pages that carry their own AI/device chrome |
 | `deviceLinks` | per-device shortcut on the Dashboard |
+| `previewActions` | per-`device_model` stand-in for the click on a REC preview card (`RecHostPreview.tsx`): the card always mounts `Component` with `{hostName, deviceId, open, onClose, onCanHandleChange}`; while it reports `canHandle=true` the click opens it instead of the stream modal — used by `mobile-app` for an unpaired phone slot |
 
 Nav items go through the same page-visibility layers as core ones (the path is the key).
 
@@ -166,7 +172,8 @@ Every feature currently reports gaps; the `Tests` column below is the summary of
 | `quicktest` | frontend | none | QuickTest Builder page (`/builder/quick-test`): linear step list compiled to the core testcase graph; runs via the core `/server/testcase` routes, no backend part |
 | `ai-test` | backend_server, backend_host, frontend, lib, skills, mcp_tools | none | Test Prompt page/routes, `crawl_app` + `crawl-app`/`test-prompt-*` skills; the agent chat is core. No dependency on `virtual-scripts` in either direction |
 | `virtual-scripts` | backend_server, frontend, lib | none | Virtual Scripts editor (`/builder/virtual-scripts`) + `/server/virtual-script/*` CRUD/validation/versions; the virtual-script *runtime* (`virtual_scripts_db`, `script_executor` `virtual_script_id`, executable listing, RunTests) is core |
-| `cicd` | backend_server, frontend, grafana, lib, db | component (render-only) | CI/CD Reports (Test → Report) and Run CI/CD (Test → Execute) over the `cicd` schema + `/server/cicd/*`; GitHub `workflow_dispatch` with runner choice, `ci_projects` registry, *CI/CD Quality* dashboard. Deny-listed for the customer overlay. See [CICD_FEATURE.md](CICD_FEATURE.md) |
+| `cicd` | backend_server, frontend, grafana, lib, db | component (render-only) | CI/CD Reports (Test → Report) and Run CI/CD (Test → Execute) over the `cicd` schema + `/server/cicd/*`; GitHub `workflow_dispatch` with runner choice, `ci_projects` registry, *CI/CD Quality* dashboard. Deny-listed for the customer overlay. User-facing page: [CI/CD](../features/cicd.md); implementation reference: `docs/agent/execution/CICD_FEATURE.md` (internal) |
+| `mobile-app` | backend_server, backend_host, frontend, lib, app, db | unit (host bridge + sim), tier A (server routes), component (both pages), page sweep | One Android APK: the web frontend in a Capacitor shell, plus a phone-as-device mode (scan a QR code, the phone streams its screen and accepts taps/swipes/keys/text through an existing host, `device_model: phone_agent`). The mobile *layout* is core. User page: [Mobile App](../features/mobile-app.md); operators: [MOBILE_APP.md](MOBILE_APP.md); hooks + tests: `features/mobile-app/README.md` |
 
 Feature files import core code by relative path (`../../../frontend/src/...`,
 `shared.src.lib...`). Bare imports (`react`, `@mui/...`) resolve to `frontend/node_modules`
@@ -195,8 +202,18 @@ another (`ai-test` and `virtual-scripts` are independent).
   (routes, nav sections, device links, blueprint registration, service discovery).
 - **Anything a feature needs in core must be inert by default** (a flag, a slot) and
   ships with the pin like any other core change — it cannot be excluded.
-- **Schema is shared** (`setup/db/schema`, `setup/db/migrations`): migrations stay in
-  core and additive; unused tables must be harmless.
+- **Schema is shared** (`setup/db/schema`, `setup/db/migrations`): a migration that core
+  code depends on stays in core and additive; unused tables must be harmless. A migration
+  that only the feature needs (its own schema, a row only it reads — `cicd`, `mobile-app`)
+  ships in `features/<name>/db/` so it is not deployed when the feature is not. **Nothing
+  applies either kind**: `update_core.sh` / `deploy_customer.sh` push code only. The
+  release-note entry carries the `🗄 DB migration` marker and the build's **Upgrade** block
+  lists the file; the operator applies it to every database the release reaches
+  (`docs/agent/release/RELEASING.md`, "Upgrade block").
+- **Core hooks are inventoried.** Everything the feature needs from core (a registry call, a
+  `case`, a gated nav entry, a proxy location, an `.env.example` block) is listed in the
+  feature's `README.md` and summarised in the manifest description. That list is what makes
+  the feature removable: it is the exact residue when the feature is off.
 - **Unit names are global**: `backend_host/services/<unit>.service` becomes
   `vpt-<unit>.service`; do not reuse a core unit name. `manifest.json` may declare them
   explicitly (`"units": ["avq"]`, flat string array); otherwise the file names are used.

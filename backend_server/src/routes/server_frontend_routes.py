@@ -7,8 +7,11 @@ from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 import logging
 
-# Create blueprint for frontend routes
-server_frontend_bp = Blueprint('server_frontend', __name__)
+# Create blueprint for frontend routes.
+# /server/frontend, not the server root: nginx proxies only /server/* to the backend, so
+# POST /navigate and GET /health fell through to the frontend SPA on the public deployment.
+# /server/* is also what app.py's JWT guard gates, so the root mount left them open.
+server_frontend_bp = Blueprint('server_frontend', __name__, url_prefix='/server/frontend')
 
 # Set up logging
 logger = logging.getLogger(__name__)

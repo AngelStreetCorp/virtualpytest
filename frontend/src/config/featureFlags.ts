@@ -18,6 +18,8 @@
  *   VITE_NAV_COMING_SOON=/configuration/cicd-reports,/configuration/code-deployment
  */
 
+import { getEnv } from './constants';
+
 export type NavVisibility = 'visible' | 'hidden' | 'disabled' | 'coming-soon';
 
 /** Normalize a path-ish token to a canonical `/path/like/this`. */
@@ -32,9 +34,9 @@ function parseSet(raw: string | undefined): Set<string> {
   return new Set(raw.split(',').map(normalizePath).filter(Boolean));
 }
 
-const HIDDEN      = parseSet(import.meta.env.VITE_NAV_HIDDEN as string | undefined);
-const DISABLED    = parseSet(import.meta.env.VITE_NAV_DISABLED as string | undefined);
-const COMING_SOON = parseSet(import.meta.env.VITE_NAV_COMING_SOON as string | undefined);
+const HIDDEN      = parseSet(getEnv('VITE_NAV_HIDDEN'));
+const DISABLED    = parseSet(getEnv('VITE_NAV_DISABLED'));
+const COMING_SOON = parseSet(getEnv('VITE_NAV_COMING_SOON'));
 
 /**
  * Env-level visibility for a nav item keyed by its full route path.
@@ -54,11 +56,11 @@ export function getNavVisibility(path: string): NavVisibility {
  * Default is true (enabled) when the env var is missing.
  */
 export function isDeploymentsEnabled(): boolean {
-  const val = import.meta.env.VITE_FEATURE_DEPLOYMENTS as string | undefined;
-  return val === undefined || val === '' || val === 'true';
+  const val = getEnv('VITE_FEATURE_DEPLOYMENTS');
+  return val === '' || val === 'true';
 }
 
 export function isRunVersionSelectorEnabled(): boolean {
-  const val = import.meta.env.VITE_FEATURE_RUN_VERSION_SELECTOR as string | undefined;
+  const val = getEnv('VITE_FEATURE_RUN_VERSION_SELECTOR');
   return val === 'true';
 }

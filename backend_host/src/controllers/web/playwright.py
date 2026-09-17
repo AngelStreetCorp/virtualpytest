@@ -25,6 +25,11 @@ import hashlib
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
 
+# How long connect() waits for another run's browser to leave the debug port before
+# treating it as abandoned and taking the port over. Every script closes its browser
+# at teardown, so a live Chrome here means a run is still in progress.
+BROWSER_BUSY_WAIT_SECONDS = int(os.getenv('VPT_WEB_BUSY_WAIT', '300'))
+
 # =============================================================
 # Single decorator to guarantee execution on controller loop
 # =============================================================
@@ -258,6 +263,21 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         
         if not self._chrome_running:
             try:
+                # A Chrome already serving CDP on the port belongs to another run that
+                # has not torn down yet (each script runs in its own subprocess, so this
+                # process can't know about it any other way). Queue behind it rather than
+                # launching over it. Past the deadline it is an orphan from a run that
+                # died without teardown, and the launcher takes the port as before.
+                if self.browser_engine != "webkit" and self.utils.chrome_manager.cdp_healthy():
+                    self._log(f"Another session's {browser_name} is on the debug port - waiting up to {BROWSER_BUSY_WAIT_SECONDS}s for it to finish")
+                    waited_since = time.time()
+                    while self.utils.chrome_manager.cdp_healthy() and time.time() - waited_since < BROWSER_BUSY_WAIT_SECONDS:
+                        await asyncio.sleep(1)
+                    if self.utils.chrome_manager.cdp_healthy():
+                        self._log(f"Still busy after {BROWSER_BUSY_WAIT_SECONDS}s - treating that {browser_name} as abandoned and taking the port")
+                    else:
+                        self._log(f"Port freed after {time.time() - waited_since:.0f}s")
+
                 self._log(f"{browser_name} not running, launching new process...")
                 if self.browser_engine == "webkit":
                     self.__class__._chrome_process = self.utils.launch_webkit()

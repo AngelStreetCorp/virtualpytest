@@ -59,6 +59,57 @@ Jobs:
 - No direct `backend_host` CI suite.
 - No external host-route assumptions in tests.
 
+## What CI Does Not Run, And How That Is Expressed
+
+**A test that can never run is not coverage — and a permanently "skipped" row is worse than no
+row, because it reads like coverage in a report.** An audit on 2026-09-16 found 73 skipped of 652
+in `backend-server-tests`, of which **40 were empty stubs**: a function whose whole body was
+`pytest.skip("…")` or `pass`, asserting nothing, existing only to document that a surface is
+deliberately untested. `test_restart.py` was 11 of those and nothing else. They were deleted; the
+knowledge they carried is this section.
+
+Surfaces deliberately not exercised on every push, and why:
+
+| Surface | Why not |
+|---|---|
+| `/server/restart/*` (all of it) | every endpoint kicks off real video generation / AI audio analysis on a live host, 5–10 min timeouts |
+| Device execution: `actions/executeBatch`, `control/take|release|takeover`, campaign execute, `remote` state changes, `desktop` bash/pyautogui, `power` | drives a real, shared device — takeover explicitly preempts whoever is using it |
+| AI/agent happy paths: `ai/*`, `agent/*`, `agent_runtime/*`, `agent_benchmark`, `mcp_proxy` execute | spends provider credits, or spawns background agents on a shared deployment |
+| `ai-queue/clear`, `ai/resetCache` | destructive against shared Redis/DB state |
+| `api-testing/run` and `/quick` | a test runner that fires HTTP at other live endpoints as a side effect |
+| `cicd/dispatch`, `cicd/restartRunner` | fires a real workflow_dispatch / SSHes into a runner VM |
+| `settings` .env writes | mutates the live server's own config, leaves `.backup.<ts>` files with no delete endpoint |
+| Third-party success paths: JIRA, Slack, Postman, `public/ask` | real external API calls (and, for Slack, a visible message in a real channel) |
+
+One marker, registered in `tests/backend_server/conftest.py`, expresses what a permanent
+`pytest.mark.skip` used to:
+
+- **`manual`** — real external side effect (credits, Slack, a restarted service, a driven device).
+  Run on purpose: `pytest tests/backend_server -m manual`.
+
+CI deselects it (`-m "not manual"`), so those tests are **absent** from the report rather than
+listed as skipped — and unlike a `skip`, they still run where they are meaningful.
+
+**`local_only` was removed on 2026-09-16.** It covered `/api/events`, `/navigate` and `/docs/api`,
+which had no nginx location block and fell through to the frontend SPA. That was never a property
+of the tests: those three blueprints were mounted outside `/server/*`, the only prefix nginx
+proxies, so they were dead on the public deployment — an alert POST to the events API got a 200
+and a page of HTML and read it as success. The marker was hiding a platform defect. The blueprints
+moved to `/server/events`, `/server/frontend` and `/server/docs/api`; their 12 tests now run
+everywhere, and the routes are covered by the JWT guard for the first time.
+
+The general rule: before marking a test unrunnable, establish that the thing it cannot reach is
+*meant* to be unreachable. If the platform should expose it, the marker is the wrong fix.
+
+A skip that remains is expected to be *conditional on something that is true in CI*: a missing
+role JWT, an unregistered host. If a skip fires on every run forever, it is one of three things —
+delete the stub, mark it `manual`, or fix what makes it unrunnable. Two of the 2026-09-16
+skips turned out to be the third case: `test_permissions` read its host list from
+`/server/server-manager/hosts`, which is not a route (it falls into the auto_proxy catch-all and
+answers 400), so every host-dependent permission test skipped itself on a server with five hosts
+registered; and `test_get_all_campaign_results_returns_expected_shape` was still marked `xfail` for
+a bug that had since been fixed, so it reported XPassed and asserted nothing.
+
 ## Delivery Policy: Ship Tests With The Feature
 
 **A feature or route is not "done" until it has non-regression coverage.** This is a hard rule, not a suggestion, effective 2026-09-06.

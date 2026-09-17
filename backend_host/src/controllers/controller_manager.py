@@ -11,6 +11,10 @@ from typing import Dict, List, Any, Optional
 from shared.src.lib.models.host import Host
 from shared.src.lib.models.device import Device
 from backend_host.src.controllers.controller_config_factory import create_controller_configs_from_device_info
+from backend_host.src.controllers.controller_registry import (
+    get_remote_implementation,
+    get_verification_implementation,
+)
 
 # Import controller classes
 from backend_host.src.controllers.audiovideo.hdmi_stream import HDMIStreamController
@@ -59,6 +63,13 @@ def create_host_from_environment(device_ids: List[str] = None) -> Host:
         host_url = f"/host/{host_name}"
         print(f"[@controller_manager:create_host_from_environment] Auto-constructed HOST_URL: {host_url}")
     
+    # Optional features that contribute a controller (docs/technical/FEATURES.md).
+    # In vpt-host they already registered through register(app); this is the path that
+    # matters for a script subprocess, which builds its controllers with no app at all
+    # and would otherwise create feature-backed devices with that controller missing.
+    from shared.src.lib.utils.features import register_feature_controllers
+    register_feature_controllers('backend_host')
+
     print(f"[@controller_manager:create_host_from_environment] Creating host: {host_name}")
     print(f"[@controller_manager:create_host_from_environment]   Host URL: {host_url}")
     if host_ip == '0.0.0.0':
@@ -77,15 +88,21 @@ def create_host_from_environment(device_ids: List[str] = None) -> Host:
     video_capture_path = os.getenv('HOST_VIDEO_CAPTURE_PATH')
     
     # Auto-construct VNC stream path from HOST_NAME (or allow override)
-    # Uses nginx-proxied path: /host/{host_name}/vnc_lite.html?password={password}
+    # Uses nginx-proxied path: /host/{host_name}/vnc_lite.html
     vnc_stream_path = os.getenv('HOST_VNC_STREAM_PATH')
-    vnc_password = os.getenv('HOST_VNC_PASSWORD', 'admin1234')
-    
+    # No default: HOST_VNC_PASSWORD is generated per install by install_host.sh, and a
+    # literal fallback would put the old shared password in every VNC URL.
+    vnc_password = os.getenv('HOST_VNC_PASSWORD')
+
     if not vnc_stream_path and video_capture_path:
-        # Build nginx-proxied URL (works with any frontend domain)
+        # Build nginx-proxied URL (works with any frontend domain).
+        # The password is deliberately NOT appended. This path is handed to the browser
+        # as an iframe src, so anything in the query string ends up in the address bar,
+        # in history, in the Referer of every sub-request, and in the nginx and
+        # Cloudflare access logs — a VNC password read off a shoulder or a log line is
+        # a live desktop. The noVNC page supplies the credential itself; the access
+        # decision belongs to the gate on /host/<name>/{vnc_lite.html,websockify}.
         vnc_stream_path = f"/host/{host_name}/vnc_lite.html"
-        if vnc_password:
-            vnc_stream_path = f"{vnc_stream_path}?password={vnc_password}"
         print(f"[@controller_manager:create_host_from_environment] Auto-constructed VNC path: {vnc_stream_path}")
     
     should_create_host_vnc = (
@@ -169,12 +186,14 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
             video = os.getenv(f'DEVICE{i}_VIDEO')
             video_capture_path = os.getenv(f'DEVICE{i}_VIDEO_CAPTURE_PATH')
             
-            # Auto-construct video_stream_path from HOST_NAME (or allow override)
+            # Explicit DEVICE{i}_VIDEO_STREAM_PATH, else derived from the capture folder the
+            # way every host .env spells it (/var/www/html/stream/capture2 -> /host/stream/capture2;
+            # the frontend prefixes the host URL). The old fallback referenced an undefined
+            # `host_name` and crashed registration for any device without the explicit key (BUG-0096).
             video_stream_path = os.getenv(f'DEVICE{i}_VIDEO_STREAM_PATH')
             if not video_stream_path and video_capture_path:
-                # Auto-construct: /host/{hostname}/stream/device{N}
-                video_stream_path = f"/host/{host_name}/stream/device{i}"
-                print(f"[@controller_manager] Auto-constructed stream path for device{i}: {video_stream_path}")
+                video_stream_path = f"/host/stream/{os.path.basename(video_capture_path.rstrip('/'))}"
+                print(f"[@controller_manager] Derived stream path for device{i}: {video_stream_path}")
             
             device_ip = os.getenv(f'DEVICE{i}_IP')
             device_port = os.getenv(f'DEVICE{i}_PORT')
@@ -300,6 +319,11 @@ def _create_controller_instance(controller_type: str, implementation: str, param
 
         # Remote Controllers
         elif controller_type == 'remote':
+            # Feature-registered implementations first (controller_registry.py) —
+            # an optional feature can add a remote type without editing this file.
+            registered = get_remote_implementation(implementation)
+            if registered is not None:
+                return registered['factory'](**params)
             if implementation == 'android_mobile':
                 return AndroidMobileRemoteController(**params)
             elif implementation == 'android_tv':
@@ -318,6 +342,11 @@ def _create_controller_instance(controller_type: str, implementation: str, param
 
         # Verification Controllers - now require device_model
         elif controller_type == 'verification':
+            # Feature-registered implementations first, per device model (controller_registry.py):
+            # a paired phone backs 'adb' with its own accessibility tree instead of adb itself.
+            registered = get_verification_implementation(params.get('device_model'), implementation)
+            if registered is not None:
+                return registered['factory'](**params)
             if implementation == 'image':
                 return ImageVerificationController(**params)
             elif implementation == 'text':
@@ -368,6 +397,22 @@ def _create_controller_instance(controller_type: str, implementation: str, param
         print(f"[@controller_manager:_create_controller_instance] ❌ Failed to create {controller_type}_{implementation} controller: {e}")
         print(f"[@controller_manager:_create_controller_instance]   Continuing without this controller...")
         return None
+
+
+def _resolved_device_name(controller) -> str:
+    """The name the connected hardware reports for itself, or '' when it cannot say.
+
+    Optional on purpose: a controller for fixed hardware has nothing to add, and asking must
+    never be able to break device creation.
+    """
+    resolver = getattr(controller, 'get_connected_device_name', None)
+    if not callable(resolver):
+        return ''
+    try:
+        return (resolver() or '').strip()
+    except Exception as e:
+        print(f"[@controller_manager:_resolved_device_name] skipped: {e}")
+        return ''
 
 
 def _create_device_with_controllers(device_config: Dict[str, Any], host: 'Host') -> Device:
@@ -448,6 +493,18 @@ def _create_device_with_controllers(device_config: Dict[str, Any], host: 'Host')
         controller = _create_controller_instance(controller_type, implementation, controller_params)
         if controller:
             device.add_controller(controller_type, controller)
+            # A slot whose hardware arrives at runtime knows its own name better than .env
+            # does: DEVICE{i}_NAME is a slot label ("Phone slot 1"), while the thing paired
+            # into it is a particular phone ("samsung SM-G998B"). vpt-host already renames
+            # the device when a phone pairs, but a script runs in its own process and builds
+            # its devices straight from .env, so every result it recorded carried the slot
+            # label. Controllers that cannot know better simply don't implement this.
+            resolved = _resolved_device_name(controller)
+            if resolved and resolved != device.device_name:
+                print(f"[@controller_manager:_create_device_with_controllers] "
+                      f"{device.device_id}: '{device.device_name}' is a slot label - "
+                      f"using the connected device's own name '{resolved}'")
+                device.device_name = resolved
     
     # Step 3: Create web controllers (no dependencies, needed before verification controllers)
     web_controller = None
@@ -482,8 +539,11 @@ def _create_device_with_controllers(device_config: Dict[str, Any], host: 'Host')
                 print(f"[@controller_manager:_create_device_with_controllers] ⚠️  {implementation} verification needs AV controller but none available - skipping")
                 continue  # Skip creating this controller
 
-        # Add device_model for all verification controllers
+        # Add device_model + device_id for all verification controllers (every one takes
+        # **kwargs). The model picks a feature-registered implementation; the id is what such
+        # an implementation needs to address the device it belongs to.
         controller_params['device_model'] = device_model
+        controller_params['device_id'] = device_id
 
         # Create the verification controller instance
         controller = _create_controller_instance(

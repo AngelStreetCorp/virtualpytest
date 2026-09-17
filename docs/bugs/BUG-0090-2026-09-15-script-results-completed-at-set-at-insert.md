@@ -6,9 +6,10 @@
 |-----------|-----------------------------------------------------------------------------|
 | ID        | BUG-0090                                                                    |
 | Reported  | 2026-09-15                                                                  |
-| Status    | Investigated and documented; NOT fixed (the fix changes a column contract every dashboard reads) |
+| Status    | Open — investigated and documented, not fixed                                                    |
 | Severity  | Medium (in-flight runs are counted as completed failures in every consumer)   |
 | Area      | `shared/src/lib/database/script_results_db.py` · Grafana dashboards reading `script_results` |
+| Fixed in  | Unreleased                                                                                   |
 
 ---
 

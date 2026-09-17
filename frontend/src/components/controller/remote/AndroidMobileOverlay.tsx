@@ -26,6 +26,15 @@ interface AndroidMobileOverlayProps {
   host: any;
   deviceId: string;
   isLandscape: boolean; // Manual orientation toggle
+  // Must match the objectFit the stream player uses for this device, or the element boxes
+  // land on the wrong pixels: 'contain' in the REC modal, 'cover' in the floating HDMI panel.
+  streamObjectFit?: 'cover' | 'contain';
+  // Fired after a base-layer tap (not routed through onElementClick, which already has its
+  // own post-click hook). Lets the caller re-check device orientation right away instead of
+  // waiting for the next poll — a tap can itself cause a rotation (e.g. opening a
+  // landscape-only screen), and until orientation catches up the overlay stays sized for
+  // the old one.
+  onAfterTap?: () => void;
 }
 
 // Element highlight colors - using centralized theme
@@ -43,6 +52,8 @@ export const AndroidMobileOverlay = React.memo(
     host,
     deviceId,
     isLandscape,
+    streamObjectFit = 'cover',
+    onAfterTap,
   }: AndroidMobileOverlayProps) {
     const [scaledElements, setScaledElements] = useState<ScaledElement[]>([]);
     const [clickAnimation, setClickAnimation] = useState<{
@@ -117,8 +128,11 @@ export const AndroidMobileOverlay = React.memo(
       };
     };
 
-    // Calculate actual content dimensions using cover logic to match HLSVideoPlayer objectFit: 'cover'
-    // Cover fills the entire container; overflow is cropped (not letterboxed like contain)
+    // Calculate the rect the video frame actually occupies inside the panel, matching the
+    // player's objectFit. 'contain' letterboxes (REC modal / EnhancedHLSPlayer), 'cover'
+    // fills and crops the overflow (floating HDMI panel for mobile). Elements are scaled
+    // against the virtual (uncropped) frame and clipped to the visible content rect, so a
+    // dump never paints outside the stream area.
     const { actualContentWidth, actualContentHeight, horizontalOffset, verticalOffset, coverCropX, coverCropY } = useMemo(() => {
       if (!panelInfo || !panelInfo.deviceResolution || !panelInfo.size) {
         return { actualContentWidth: 0, actualContentHeight: 0, horizontalOffset: 0, verticalOffset: 0, coverCropX: 0, coverCropY: 0 };
@@ -127,26 +141,38 @@ export const AndroidMobileOverlay = React.memo(
       const deviceAspectRatio = deviceWidth / deviceHeight;
       const panelAspectRatio = panelInfo.size.width / panelInfo.size.height;
 
-      // Cover: scale to fill entire panel, crop overflow
-      // The overlay covers the full panel; we track how much of the virtual content is cropped
-      let virtualWidth, virtualHeight, cropX, cropY;
+      let virtualWidth: number;
+      let virtualHeight: number;
 
-      if (deviceAspectRatio <= panelAspectRatio) {
-        // Device is narrower than panel - fit by width, height overflows
-        virtualWidth = panelInfo.size.width;
-        virtualHeight = panelInfo.size.width / deviceAspectRatio;
-        cropX = 0;
-        cropY = (virtualHeight - panelInfo.size.height) / 2;
+      if (streamObjectFit === 'contain') {
+        // Fit the whole frame inside the panel - nothing is cropped, bars on one axis
+        if (deviceAspectRatio <= panelAspectRatio) {
+          virtualHeight = panelInfo.size.height;
+          virtualWidth = panelInfo.size.height * deviceAspectRatio;
+        } else {
+          virtualWidth = panelInfo.size.width;
+          virtualHeight = panelInfo.size.width / deviceAspectRatio;
+        }
       } else {
-        // Device is wider than panel - fit by height, width overflows
-        virtualHeight = panelInfo.size.height;
-        virtualWidth = panelInfo.size.height * deviceAspectRatio;
-        cropX = (virtualWidth - panelInfo.size.width) / 2;
-        cropY = 0;
+        // Fill the panel - the frame overflows on one axis and is cropped
+        if (deviceAspectRatio <= panelAspectRatio) {
+          virtualWidth = panelInfo.size.width;
+          virtualHeight = panelInfo.size.width / deviceAspectRatio;
+        } else {
+          virtualHeight = panelInfo.size.height;
+          virtualWidth = panelInfo.size.height * deviceAspectRatio;
+        }
       }
 
-      console.log('[@AndroidMobileOverlay] Cover scaling calculated:', {
-        scalingMode: 'cover (fill panel, crop overflow)',
+      // Visible content is the virtual frame clamped to the panel; whatever sticks out is
+      // cropped evenly on both sides, and whatever is missing becomes a centering offset.
+      const contentWidth = Math.min(virtualWidth, panelInfo.size.width);
+      const contentHeight = Math.min(virtualHeight, panelInfo.size.height);
+      const cropX = Math.max(0, (virtualWidth - panelInfo.size.width) / 2);
+      const cropY = Math.max(0, (virtualHeight - panelInfo.size.height) / 2);
+
+      console.log('[@AndroidMobileOverlay] Content rect calculated:', {
+        scalingMode: streamObjectFit,
         deviceAspectRatio,
         panelAspectRatio,
         deviceWidth,
@@ -155,19 +181,21 @@ export const AndroidMobileOverlay = React.memo(
         panelHeight: panelInfo.size.height,
         virtualWidth,
         virtualHeight,
+        contentWidth,
+        contentHeight,
         cropX,
         cropY,
       });
 
       return {
-        actualContentWidth: panelInfo.size.width,
-        actualContentHeight: panelInfo.size.height,
-        horizontalOffset: 0,
-        verticalOffset: 0,
+        actualContentWidth: contentWidth,
+        actualContentHeight: contentHeight,
+        horizontalOffset: (panelInfo.size.width - contentWidth) / 2,
+        verticalOffset: (panelInfo.size.height - contentHeight) / 2,
         coverCropX: cropX,
         coverCropY: cropY,
       };
-    }, [panelInfo, deviceWidth, deviceHeight]);
+    }, [panelInfo, deviceWidth, deviceHeight, streamObjectFit]);
 
     // Direct server tap function - bypasses useRemoteConfigs double conversion
     const handleDirectTap = async (deviceX: number, deviceY: number) => {
@@ -301,9 +329,12 @@ export const AndroidMobileOverlay = React.memo(
 
       // Prioritize onElementClick over direct tap for element clicks
       if (onElementClick) {
+        // onElementClick (handleOverlayElementClick) already triggers its own post-click
+        // orientation check — don't duplicate it here.
         onElementClick(originalElement);
       } else {
         await handleDirectTap(deviceX, deviceY);
+        onAfterTap?.();
       }
     };
 
@@ -356,6 +387,7 @@ export const AndroidMobileOverlay = React.memo(
       setTimeout(() => setCoordinateDisplay(null), 2000);
 
       await handleDirectTap(deviceX, deviceY);
+      onAfterTap?.();
     };
 
     console.log('[@AndroidMobileOverlay] Rendering overlay, isVisible:', isVisible, 'elements length:', elements.length);
@@ -389,14 +421,15 @@ export const AndroidMobileOverlay = React.memo(
           <div
             style={{
               position: 'absolute',
-              left: `${panelInfo.position.x}px`,
-              top: `${panelInfo.position.y + 0}px`,
-              width: `${panelInfo.size.width}px`,
-              height: `${panelInfo.size.height}px`,
+              left: `${panelInfo.position.x + horizontalOffset}px`,
+              top: `${panelInfo.position.y + verticalOffset}px`,
+              width: `${actualContentWidth}px`,
+              height: `${actualContentHeight}px`,
               zIndex: getZIndex('ANDROID_MOBILE_OVERLAY'), // Elements layer - same level as base
               contain: 'layout style size',
               willChange: 'transform',
               pointerEvents: 'none', // Allow clicks to pass through to individual elements
+              overflow: 'hidden', // Never paint an element outside the stream content area
             }}
           >
             {/* Render scaled elements as colored rectangles */}
@@ -499,7 +532,9 @@ export const AndroidMobileOverlay = React.memo(
       JSON.stringify(prevProps.panelInfo) === JSON.stringify(nextProps.panelInfo) &&
       prevProps.host === nextProps.host &&
       prevProps.deviceId === nextProps.deviceId &&
-      prevProps.isLandscape === nextProps.isLandscape
+      prevProps.isLandscape === nextProps.isLandscape &&
+      prevProps.streamObjectFit === nextProps.streamObjectFit &&
+      prevProps.onAfterTap === nextProps.onAfterTap
     );
   },
 );

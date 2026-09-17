@@ -39,20 +39,26 @@ test.describe('Viewport Mobile (375x812)', () => {
   }
 
   async function expectMobileBottomNav(page) {
-    // Bottom nav is in a fixed Paper at bottom of page - use CSS selector
+    // Bottom nav is in a fixed Paper at bottom of page - use CSS selector.
+    // The fifth slot is "More" (a menu), not "Settings": /settings is not even a route at
+    // this width — it answers the SPA's 404 page. Verified against the deployed site at
+    // 375x812, 2026-09-16.
     const bottomNav = page.locator('.MuiPaper-root:has(.MuiBottomNavigation-root)');
     await expect(bottomNav.getByRole('button', { name: 'Dashboard', exact: true })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'Device', exact: true })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'Run', exact: true })).toBeVisible();
     await expect(bottomNav.getByRole('button', { name: 'Heatmap', exact: true })).toBeVisible();
-    await expect(bottomNav.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
+    await expect(bottomNav.getByRole('button', { name: 'More', exact: true })).toBeVisible();
   }
 
   test('Dashboard uses compact mobile layout', async ({ page }) => {
     await gotoWithAutoSign(page, '/');
     await skipIfNotAuthenticated(page);
 
-    await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
+    // The mobile dashboard has no page title — it opens straight on its content. "Hosts" is
+    // its own section heading and is absent from every other page here, so it is what says
+    // "this is the dashboard, rendered".
+    await expect(page.getByRole('heading', { name: 'Hosts', exact: true })).toBeVisible();
     await expectMobileBottomNav(page);
     await expect(page.getByLabel('Ask AI')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
@@ -62,7 +68,14 @@ test.describe('Viewport Mobile (375x812)', () => {
     await gotoWithAutoSign(page, '/device-control');
     await skipIfNotAuthenticated(page);
 
-    await expect(page.getByRole('heading', { name: 'Device' })).toBeVisible();
+    // No heading on this page at mobile width: the content is device cards, and there are
+    // none when no host exposes an AV device. The two filters above them are the page's own
+    // controls and render either way.
+    // Matched on their own text: neither select carries an accessible name (no aria-label,
+    // no aria-labelledby), so getByRole(name:) finds nothing.
+    const filters = page.getByRole('combobox');
+    await expect(filters.filter({ hasText: 'All Targets' })).toBeVisible();
+    await expect(filters.filter({ hasText: 'All Models' })).toBeVisible();
     await expectMobileBottomNav(page);
     await expect(page.getByLabel('Ask AI')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);

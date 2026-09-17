@@ -12,9 +12,9 @@ echo ""
 # Configuration from install_storage.sh
 MINIO_ENDPOINT="http://localhost:9000"
 MINIO_ACCESS_KEY="admin"
-MINIO_SECRET_KEY="admin1234"
+MINIO_SECRET_KEY="${MINIO_SECRET_KEY:?set it, e.g. from the project .env}"
 MINIO_BUCKET="virtualpytest"
-REDIS_PASSWORD="admin1234"
+REDIS_PASSWORD="${REDIS_PASSWORD:?set it, e.g. from the project .env}"
 
 # Colors for output
 GREEN='\033[0;32m'

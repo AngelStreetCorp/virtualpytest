@@ -87,6 +87,9 @@ class IncidentManager:
         # worker and back up its queue. Uploads are best-effort: on timeout the incident is
         # still created/resolved, just without the image.
         self.R2_UPLOAD_TIMEOUT = 8.0
+        # Wait this long before retrying a create_incident that failed, so a persistent DB
+        # error costs one upload per minute instead of one per detection tick (BUG-0109).
+        self.CREATE_RETRY_BACKOFF = 60.0
         self._io_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='incident-io')
         self._last_states_cleanup = 0  # Track last cleanup time
         self.STATES_CLEANUP_INTERVAL = 3600  # Clean device_states every hour
@@ -535,13 +538,32 @@ class IncidentManager:
                     elapsed_time = current_time - first_detected_time
                     
                     if elapsed_time >= self.INCIDENT_REPORT_DELAY:
+                        # Back off after a failed create_incident. Without this, a DB error
+                        # (e.g. an auth/permission failure) leaves the issue in pending_incidents
+                        # forever, so every detection tick re-enters this branch and re-uploads a
+                        # fresh set of R2 images under a new per-second time_key — millions of
+                        # orphan objects that nothing ever reads. See BUG-0109.
+                        retry_key = f'{issue_type}_create_retry_ts'
+                        last_failed_ts = device_state.get(retry_key)
+                        if last_failed_ts is not None and (current_time - last_failed_ts) < self.CREATE_RETRY_BACKOFF:
+                            continue
+
                         # Issue has persisted for threshold duration, report to DB
                         logger.info(f"[{capture_folder}] ⏰ {issue_type} persisted for {elapsed_time:.1f}s, reporting to DB NOW")
-                        
+
                         # ENSURE R2 images are uploaded BEFORE creating DB incident
                         # This handles case where INCIDENT_REPORT_DELAY < 5s (testing) or = 5s edge case
                         has_r2_images = 'r2_images' in detection_result and detection_result['r2_images']
-                        
+
+                        # A previous attempt for this same pending incident already uploaded
+                        # images - reuse them rather than uploading a second copy.
+                        if not has_r2_images:
+                            cached_r2 = device_state.get(f'{issue_type}_pending_r2')
+                            if cached_r2:
+                                detection_result['r2_images'] = cached_r2
+                                has_r2_images = True
+                                logger.info(f"[{capture_folder}] Reusing R2 images from previous {issue_type} attempt")
+
                         if not has_r2_images and issue_type in ['blackscreen', 'freeze', 'macroblocks', 'audio_loss']:
                             # Missing R2 images - upload them NOW before DB insert
                             logger.info(f"[{capture_folder}] Uploading {issue_type} start images to R2 before DB insert...")
@@ -605,11 +627,19 @@ class IncidentManager:
                             device_state['state'] = INCIDENT
                             # Drop any stale recovery candidate from a previous incident.
                             device_state.pop(f'{issue_type}_clear_candidate_ts', None)
+                            device_state.pop(retry_key, None)
+                            device_state.pop(f'{issue_type}_pending_r2', None)
                             # Remove from pending since it's now active
                             del pending_incidents[issue_type]
                             logger.info(f"[{capture_folder}] ✅ Incident {incident_id} created and moved to active")
                         else:
-                            logger.error(f"[{capture_folder}] ❌ create_incident returned None - incident creation FAILED")
+                            # Arm the backoff so the next tick does not immediately retry (and
+                            # re-upload). Keep the images we just uploaded so the retry reuses
+                            # them instead of orphaning another set.
+                            device_state[retry_key] = current_time
+                            if detection_result.get('r2_images'):
+                                device_state[f'{issue_type}_pending_r2'] = detection_result['r2_images']
+                            logger.error(f"[{capture_folder}] ❌ create_incident returned None - incident creation FAILED (retry in {self.CREATE_RETRY_BACKOFF:.0f}s)")
                     else:
                         # Still waiting for 5 minutes
                         remaining_time = self.INCIDENT_REPORT_DELAY - elapsed_time
@@ -724,7 +754,9 @@ class IncidentManager:
                                 except:
                                     pass
                             del device_state[cold_path_key]
-                    
+
+                    device_state.pop(f'{issue_type}_create_retry_ts', None)
+                    device_state.pop(f'{issue_type}_pending_r2', None)
                     del pending_incidents[issue_type]
         
         return transitions  # Return all transitions that occurred

@@ -798,7 +798,37 @@ class VerificationExecutor:
             'elapsed_time_ms': int((time.time() - execution['start_time']) * 1000)
         }
     
-    async def verify_node(self, node_id: str, userinterface_name: str, team_id: str, tree_id: str = None, image_source_url: Optional[str] = None) -> Dict[str, Any]:
+    # `timeout` is MILLISECONDS for every verification type except video, whose helpers read it
+    # as seconds (`int(params.get('timeout', 10))` in video_verification_helpers). Anything that
+    # rewrites a timeout generically has to know that, or it turns a 60s video wait into 60ms.
+    _TIMEOUT_IN_SECONDS = frozenset({'video'})
+
+    @classmethod
+    def _capped_verifications(cls, verifications: List[Dict[str, Any]], cap_ms: int) -> List[Dict[str, Any]]:
+        """Copies of `verifications` with every timeout no longer than `cap_ms`.
+
+        Deep-copied on purpose: these dicts come straight out of the cached unified graph, and
+        writing to them would shorten the node's real verifications for the rest of the run.
+        """
+        import copy
+
+        capped = []
+        for verification in verifications:
+            verification = copy.deepcopy(verification)
+            params = verification.setdefault('params', {})
+            divisor = 1000.0 if verification.get('verification_type') in cls._TIMEOUT_IN_SECONDS else 1.0
+            cap = cap_ms / divisor
+            current = params.get('timeout')
+            try:
+                too_long = current is None or float(current) > cap
+            except (TypeError, ValueError):
+                too_long = True
+            if too_long:
+                params['timeout'] = cap
+            capped.append(verification)
+        return capped
+
+    async def verify_node(self, node_id: str, userinterface_name: str, team_id: str, tree_id: str = None, image_source_url: Optional[str] = None, probe_timeout_ms: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute verifications for a specific node during navigation.
         
@@ -890,6 +920,15 @@ class VerificationExecutor:
                 verification_pass_condition = node_data.get('verification_pass_condition', 'all')
                 print(f"[@lib:verification_executor:verify_node] Using pass_condition from node data: '{verification_pass_condition}' (not embedded in verifications)")
             
+            # A probe asks "is this screen showing NOW?", not "wait for it to appear". A node's
+            # timeouts are written for the second question — they are how long to give a screen
+            # after an action was taken to produce it — so honouring them here means waiting out
+            # every one of them just to discover we are somewhere else.
+            if probe_timeout_ms:
+                verifications = self._capped_verifications(verifications, probe_timeout_ms)
+                print(f"[@lib:verification_executor:verify_node] Probe: timeouts capped at "
+                      f"{probe_timeout_ms}ms")
+
             print(f"[@lib:verification_executor:verify_node] Executing {len(verifications)} verifications for node {node_id} with condition '{verification_pass_condition}'")
             
             # Use actual node's tree_id for database recording (nested tree)

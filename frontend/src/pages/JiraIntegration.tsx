@@ -39,6 +39,7 @@ import {
 import React, { useEffect, useState } from 'react';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { StyledDialog } from '../components/common/StyledDialog';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 
 interface JiraInstance {
   id: string;
@@ -67,6 +68,7 @@ interface JiraStats {
 }
 
 const JiraIntegration: React.FC = () => {
+  const { isMobile } = useResponsiveMode();
   const [instances, setInstances] = useState<JiraInstance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<string>('');
   const [tickets, setTickets] = useState<JiraTicket[]>([]);
@@ -291,9 +293,18 @@ const JiraIntegration: React.FC = () => {
   const selectedInstanceData = instances.find((i) => i.id === selectedInstance);
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
-        <Typography variant="h4">JIRA Integration</Typography>
+    <Box sx={{ p: isMobile ? 1.5 : 3 }}>
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: isMobile ? 'column' : 'row',
+          justifyContent: 'space-between',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: isMobile ? 1.5 : 0,
+          mb: 3,
+        }}
+      >
+        <Typography variant={isMobile ? 'h5' : 'h4'}>JIRA Integration</Typography>
         <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddInstance}>
           Add JIRA Instance
         </Button>

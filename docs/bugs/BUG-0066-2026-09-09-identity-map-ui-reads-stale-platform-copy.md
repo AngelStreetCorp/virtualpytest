@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy — next customer release)                              |
 | Severity  | Medium (wrong / missing `TCnnn` prefixes and display names on Run Tests, reports, campaign tables) |
 | Area      | frontend/public/data/script_identity_map.json · setup/proxmox/node/{deploy_customer,update_core}.sh · overlay `frontend/public/data/` |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---
@@ -31,7 +31,7 @@ repo already held that exact file — but it never reached the browser:
   ones nobody runs any more.
 - Meanwhile every push **excluded** `test_scripts/script_identity_map.json` ("hosts keep their
   own copy"), and `deploy_customer.sh` applied the same exclude to the overlay stage — so the
-  overlay's copy was not even in the release bundle (`release-2026.09.09` verified: only the
+  overlay's copy was not even in the release bundle (`release-2026.09.08` verified: only the
   `.example` and the stale public copy are inside).
 
 Net effect: the map the customer maintains feeds the server (report naming) but the UI shows
@@ -73,5 +73,5 @@ server round-trip; the server copy stays for report naming.
   both 16 entries; the platform's empty copy is not inside.
 - `update_core.local.sh` filters, local `rsync -ani` dry run: bundle mode lists both files as
   pushed; plain-tree mode lists neither (targets keep their own).
-- Not yet deployed anywhere; ships with the next customer release (the `release-2026.09.09`
+- Not yet deployed anywhere; ships with the next customer release (the `release-2026.09.08`
   bundle predates this fix — on that delivery the UI keeps showing the June names, as today).

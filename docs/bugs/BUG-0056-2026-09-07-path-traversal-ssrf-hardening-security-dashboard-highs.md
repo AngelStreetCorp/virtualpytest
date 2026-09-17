@@ -128,7 +128,7 @@ sudo -u vpt_user /opt/virtualpytest/venv/bin/pip install 'defusedxml>=0.7.1'
 
 Until it is installed the code falls back to `xml.etree` (no crash, no hardening).
 Installed 2026-09-07: host-clone-1, sample-app-dongle, sample-app-mobile, sample-app-tablet, vpt-pi1.
-Still to do: sample-app-web, sample-app-backend (jndoye sudo needs a password there), vpt-pi3 (port 223
+Still to do: sample-app-web, sample-app-backend (the deploy user needs a password there), vpt-pi3 (port 223
 unreachable at the time).
 
 ## Follow-ups

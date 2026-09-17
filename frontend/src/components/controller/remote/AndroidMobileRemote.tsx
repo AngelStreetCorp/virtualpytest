@@ -97,6 +97,7 @@ export const AndroidMobileRemote = React.memo(
       // Manual orientation
       isLandscape,
       toggleOrientation,
+      checkOrientation,
 
       // Actions
       handleOverlayElementClick,
@@ -959,6 +960,10 @@ export const AndroidMobileRemote = React.memo(
                 host={host}
                 deviceId={deviceId}
                 isLandscape={isLandscape}
+                // Modal context renders EnhancedHLSPlayer (always objectFit 'contain');
+                // the floating panel renders HDMIStream, which uses 'cover' for mobile.
+                streamObjectFit={streamContainerDimensions ? 'contain' : 'cover'}
+                onAfterTap={checkOrientation}
               />,
               document.body,
             )

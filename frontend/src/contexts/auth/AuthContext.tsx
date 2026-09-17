@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
-import { supabase } from '../../lib/supabase';
+import { supabase, signOutAllIdentities } from '../../lib/supabase';
+import { clearServerIdentities } from '../../lib/serverIdentity';
 import { UserProfile } from '../../types/auth';
 import { clearAutoSignSession, tryActivateAutoSign } from '../../lib/autoSign';
 
@@ -325,11 +326,19 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       setSession(null);
       return;
     }
+    // Sign out of EVERY server identity, not just the primary one (TASK-18). The user
+    // may hold sessions for several Supabase instances via the server picker, and one
+    // visible "sign out" must not leave any of them live.
+    await signOutAllIdentities();
+
     const { error } = await supabase.auth.signOut();
     if (error) {
       console.error('Error signing out:', error);
       throw error;
     }
+    // Drop the cached server→identity map so the next user re-probes instead of
+    // inheriting this one's view of the fleet.
+    clearServerIdentities();
     // Clear local storage cache
     if (user) {
       localStorage.removeItem(`auth_profile_${user.id}`);

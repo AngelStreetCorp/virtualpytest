@@ -6,7 +6,8 @@ import { MonitoringAnalysis, SubtitleAnalysis, LanguageMenuAnalysis } from '../.
 import { EnhancedHLSPlayer } from '../video/EnhancedHLSPlayer';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { MonitoringOverlay } from '../monitoring/MonitoringOverlay';
-import { buildStreamUrl } from '../../utils/buildUrlUtils';
+import { buildStreamUrl, withVncCacheBust } from '../../utils/buildUrlUtils';
+import { useHostSession } from '../../hooks/useHostSession';
 import { RestartPlayer } from './RestartPlayer';
 
 interface ErrorTrendData {
@@ -71,6 +72,11 @@ interface RecStreamContainerProps {
   errorTrendData?: ErrorTrendData;
   analysisTimestamp?: string;
   isAIAnalyzing?: boolean;
+
+  // Reports the real rendered stream box (page coordinates) as it's measured, so callers
+  // that position overlays on top of the video (e.g. the Android mobile tap/element
+  // overlay) can use the actual box instead of the pre-render size estimate.
+  onMeasuredAreaChange?: (rect: { width: number; height: number; x: number; y: number }) => void;
 }
 
 export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
@@ -104,6 +110,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
   errorTrendData,
   analysisTimestamp,
   isAIAnalyzing,
+  onMeasuredAreaChange,
 }) => {
   // VNC archive mode: override streamUrl to use HLS (same as screenshot logic)
   const isVncDevice = device?.device_model === 'host_vnc';
@@ -153,6 +160,15 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
     ? archiveStreamBuild.url
     : streamUrl;
   const effectiveUrlError = archiveStreamBuild.error || urlError;
+
+  // BUG-0107 step 2: the proxy's auth_request gate rejects the iframe's navigation to
+  // /host/<name>/vnc_lite.html without this cookie. Must be set BEFORE the iframe is
+  // given a src, so the live VNC iframe only renders once the mint call resolves. Not
+  // keepAlive: the websocket handshake is the only request the gate ever sees, the
+  // connection then persists independent of cookie expiry (unlike the HLS companion
+  // player below, which is gated internally by HLSVideoPlayer itself).
+  const isLiveVnc = isVncDevice && isLiveMode && !!effectiveStreamUrl;
+  const vncSessionReady = useHostSession(isLiveVnc ? effectiveStreamUrl : null, false);
   // VNC scaling: the iframe keeps a fixed internal size (see calculateVncScaling) and is
   // fitted with a CSS transform, so the scale must follow the REAL stream-area size —
   // which changes whenever the remote/web side panels open (they take width from the
@@ -163,25 +179,32 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
     const el = streamAreaRef.current;
     if (!el || typeof ResizeObserver === 'undefined') return;
     const update = () => {
-      const { width, height } = el.getBoundingClientRect();
+      const { width, height, left, top } = el.getBoundingClientRect();
       setMeasuredStreamArea((prev) =>
         prev && prev.width === width && prev.height === height ? prev : { width, height },
       );
+      // Report the real box (not the pre-render estimate) so overlays positioned on top
+      // of the video — e.g. the Android mobile tap/element overlay — line up with it in
+      // every orientation instead of a formula-based guess that ignores landscape.
+      onMeasuredAreaChange?.({ width, height, x: left, y: top });
     };
     update();
     const ro = new ResizeObserver(update);
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
-  const vncTargetWidth = measuredStreamArea?.width || finalStreamContainerDimensions.width;
-  const vncTargetHeight = measuredStreamArea?.height || finalStreamContainerDimensions.height;
+  }, [onMeasuredAreaChange]);
+  const streamAreaWidth = measuredStreamArea?.width || finalStreamContainerDimensions.width;
+  // The measured height is the box the video actually gets. finalStreamContainerDimensions
+  // caps its height to the LANDSCAPE default resolution, which on a narrow (mobile) viewport
+  // collapses the player to ~width*0.56 and shrinks the video right after the poster fades.
+  const streamAreaHeight = measuredStreamArea?.height || finalStreamContainerDimensions.height;
   const memoizedVncScaling = useMemo(
     () =>
       calculateVncScaling({
-        width: vncTargetWidth,
-        height: vncTargetHeight,
+        width: streamAreaWidth,
+        height: streamAreaHeight,
       }),
-    [calculateVncScaling, vncTargetWidth, vncTargetHeight],
+    [calculateVncScaling, streamAreaWidth, streamAreaHeight],
   );
 
   return (
@@ -251,8 +274,9 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
               justifyContent: 'center',
             }}
           >
+            {vncSessionReady && (
             <iframe
-              src={effectiveStreamUrl}
+              src={withVncCacheBust(effectiveStreamUrl)}
               style={{
                 border: 'none',
                 backgroundColor: '#000',
@@ -268,6 +292,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
               title="VNC Desktop Stream"
               allow="fullscreen"
             />
+            )}
 
             {/* Hidden HLS companion: provides audio for the VNC desktop (noVNC has no
                 audio channel). Plays muted by default; the header mute toggle unmutes it.
@@ -330,7 +355,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
             host={host}
             streamUrl={effectiveStreamUrl}
             width="100%"
-            height={finalStreamContainerDimensions.height}
+            height={streamAreaHeight}
             muted={isMuted}
             isLiveMode={isLiveMode}
             quality={currentQuality}

@@ -95,6 +95,7 @@ DEVICE1_MODEL=android_mobile
 DEVICE1_IP=127.0.0.1
 DEVICE1_ADB_PORT=5554
 DEVICE1_VIDEO=/var/www/html/stream/emulator_frames/latest.png
+DEVICE1_VIDEO_AUDIO=default        # Android types: the emulator's sound, via the host's PulseAudio
 ```
 
 `HOST_TYPE` must contain `android` on the three emulator types — that is what makes the dashboard treat the emulator services as critical instead of optional.
@@ -103,8 +104,12 @@ Finally, on Android types only:
 
 ```bash
 bash /opt/virtualpytest/setup/proxmox/vm/backend-host/optimize_emulator.sh   # kills animations and ANR sources
-sudo systemctl mask --now pulseaudio.service pulseaudio.socket               # no sound hardware, burns CPU
 ```
+
+Do **not** disable PulseAudio on an Android type: the emulator plays into `vpt-pulse.service`
+(`-audio pa` in `vpt-emulator.service`) and the capture records it from there, which is what gives the
+device an audio track and audio-loss detection. A host installed before 2026-09-16 gets it with
+`sudo bash /opt/virtualpytest/setup/proxmox/vm/runner/enable_emulator_audio.sh`.
 
 ---
 
@@ -113,6 +118,7 @@ sudo systemctl mask --now pulseaudio.service pulseaudio.socket               # n
 ```bash
 adb devices                          # emulator-5554  device   (Android types)
 systemctl list-units 'vpt-*' --all   # all critical services active
+pactl -s unix:/run/vpt-pulse/native list short clients | grep qemu   # Android types: the emulator is on vpt-pulse
 free -m                              # >500 MB available
 df -h /                              # <80 % used
 ```

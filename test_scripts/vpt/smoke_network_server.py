@@ -31,6 +31,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from shared.src.lib.executors.script_decorators import script, get_args, get_context
+from test_scripts.vpt.smoke_common import make_step
 
 # VPT infrastructure endpoints to verify
 INFRA_DNS = [
@@ -113,50 +114,34 @@ def main():
     print("\n  DNS resolution:")
     for host, label in INFRA_DNS:
         ok, ms, result = dns_lookup(host)
-        detail = f"→ {result}" if ok else f": {result}"
-        icon = "✅" if ok else "❌"
-        print(f"    {icon} {label} ({host}){detail} ({ms:.0f}ms)")
-        context.step_results.append({
-            "action": f"DNS {host}",
-            "description": f"DNS: {label}",
-            "timestamp": time.time(),
-            "success": ok,
-            "error": result if not ok else None,
-            "response_time_ms": ms,
-        })
+        context.record_step_immediately(make_step(
+            f"DNS {host}", f"DNS: {label}", ok,
+            error=None if ok else result,
+            response_time_ms=ms,
+            detail=f"resolved {result}" if ok else None,
+        ))
 
     # ── TCP connect checks ─────────────────────────────────────────────────────
     print("\n  TCP connect:")
     for host, port, label in INFRA_TCP:
         ok, ms, err = tcp_connect(host, port)
-        icon = "✅" if ok else "❌"
-        err_str = f": {err}" if err else ""
-        print(f"    {icon} {label} ({host}:{port}) ({ms:.0f}ms){err_str}")
-        context.step_results.append({
-            "action": f"TCP {host}:{port}",
-            "description": f"TCP: {label}",
-            "timestamp": time.time(),
-            "success": ok,
-            "error": err if err else None,
-            "response_time_ms": ms,
-        })
+        context.record_step_immediately(make_step(
+            f"TCP {host}:{port}", f"TCP: {label}", ok,
+            error=err if err else None,
+            response_time_ms=ms,
+        ))
 
     # ── Redis check (local) ────────────────────────────────────────────────────
     redis_host = os.getenv("REDIS_HOST", "localhost")
     redis_port = int(os.getenv("REDIS_PORT", "6379"))
     print(f"\n  Redis ({redis_host}:{redis_port}):")
     ok, ms, err = tcp_connect(redis_host, redis_port)
-    icon = "✅" if ok else "❌"
-    err_str = f": {err}" if err else ""
-    print(f"    {icon} Redis task queue{err_str} ({ms:.0f}ms)")
-    context.step_results.append({
-        "action": f"TCP {redis_host}:{redis_port}",
-        "description": f"TCP: Redis task queue ({redis_host}:{redis_port})",
-        "timestamp": time.time(),
-        "success": ok,
-        "error": err if err else None,
-        "response_time_ms": ms,
-    })
+    context.record_step_immediately(make_step(
+        f"TCP {redis_host}:{redis_port}",
+        f"TCP: Redis task queue ({redis_host}:{redis_port})", ok,
+        error=err if err else None,
+        response_time_ms=ms,
+    ))
 
     total = len(context.step_results)
     passed = sum(1 for s in context.step_results if s.get("success"))

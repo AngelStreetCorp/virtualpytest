@@ -24,20 +24,32 @@ export const useRecStreamLayout = (
   scriptNameRightOffset: number | string;
 } => {
   const [isWindowReady, setIsWindowReady] = useState(false);
+  // These dimensions are derived from the viewport, and overlays (e.g. the Android UI-dump
+  // element boxes) are positioned against them in page coordinates. Without tracking the
+  // viewport they go stale on resize and the boxes drift off the stream content area.
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setIsWindowReady(true);
-    }
+    if (typeof window === 'undefined') return;
+    const update = () =>
+      setViewport((prev) =>
+        prev.width === window.innerWidth && prev.height === window.innerHeight
+          ? prev
+          : { width: window.innerWidth, height: window.innerHeight },
+      );
+    update();
+    setIsWindowReady(true);
+    window.addEventListener('resize', update);
+    return () => window.removeEventListener('resize', update);
   }, []);
 
   const streamContainerDimensions = useMemo(() => {
-    if (typeof window === 'undefined') {
+    if (typeof window === 'undefined' || !viewport.width || !viewport.height) {
       return { width: 0, height: 0, x: 0, y: 0 };
     }
 
-    const windowWidth = window.innerWidth;
-    const windowHeight = window.innerHeight;
+    const windowWidth = viewport.width;
+    const windowHeight = viewport.height;
     const modalWidth = windowWidth * 0.95;
     const modalHeight = windowHeight * 0.9;
     const headerMinHeight = 48;
@@ -63,7 +75,7 @@ export const useRecStreamLayout = (
       x: Math.round(streamX),
       y: Math.round(streamY),
     };
-  }, [isDesktopDevice, showRemote, showWeb]);
+  }, [isDesktopDevice, showRemote, showWeb, viewport]);
 
   const finalStreamContainerDimensions = useMemo(() => {
     if (!isWindowReady || typeof window === 'undefined') {

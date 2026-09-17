@@ -280,6 +280,43 @@ function vptFeaturesPlugin(): Plugin {
   };
 }
 
+// ─── Runtime config for the mobile app (features/mobile-app) ───────────────────
+// Emits dist/runtime-config.json with the PUBLIC values the web bundle already ships
+// (Supabase URL + anon key, project name). The Android app scans a QR that carries only
+// the server URL and fetches this file, which keeps the QR small enough for a phone
+// camera. Nothing secret goes here — these strings are in the JS bundle anyway.
+function vptRuntimeConfigPlugin(): Plugin {
+  const FILE = 'runtime-config.json';
+  const body = () =>
+    JSON.stringify(
+      {
+        v: 1,
+        supabase_url: process.env.VITE_SUPABASE_URL ?? env.VITE_SUPABASE_URL ?? '',
+        supabase_anon_key: process.env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY ?? '',
+        project_name: (process.env.VITE_PROJECT_NAME ?? env.VITE_PROJECT_NAME ?? '').trim() || 'VirtualPyTest',
+        server_url: process.env.VITE_SERVER_URL ?? env.VITE_SERVER_URL ?? '',
+      },
+      null,
+      2,
+    );
+  return {
+    name: 'vpt-runtime-config',
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: FILE, source: body() });
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (req.url?.split('?')[0] === `/${FILE}`) {
+          res.setHeader('Content-Type', 'application/json');
+          res.end(body());
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersionDisplay),
@@ -288,6 +325,7 @@ export default defineConfig({
   plugins: [
     react(),
     vptFeaturesPlugin(),
+    vptRuntimeConfigPlugin(),
     // Auto-generate self-signed SSL certificate for HTTPS dev server
     // Required for noVNC to work (needs secure context for Web Crypto API)
     // Controlled by VITE_HTTPS env var (default: true)

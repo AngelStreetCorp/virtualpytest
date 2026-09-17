@@ -47,6 +47,9 @@ export interface UnifiedExecutableSelectorProps {
   };
   allowedTypes?: ('script' | 'testcase')[];
   collapseIcon?: React.ReactNode;
+  /** Rendered above the filter bar. Where a control goes when the bar is too narrow
+   *  to hold it beside the search/folder/tags fields. */
+  topContent?: React.ReactNode;
   compatibilityFilter?: (item: ExecutableItem) => boolean;
   onSelectAllVisible?: (items: ExecutableItem[]) => void;
   onUnselectAllVisible?: (items: ExecutableItem[]) => void;
@@ -71,6 +74,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
   filters = { folders: true, tags: true, search: true },
   allowedTypes,
   collapseIcon,
+  topContent,
   compatibilityFilter,
   onItemClick,
   onSelectAllVisible,
@@ -265,6 +269,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
 
   return (
     <Box>
+      {topContent ? <Box sx={{ mb: 0.75 }}>{topContent}</Box> : null}
       <SelectorFilterBar
         searchQuery={searchQuery}
         onSearchQueryChange={setSearchQuery}

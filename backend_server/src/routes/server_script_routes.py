@@ -25,6 +25,7 @@ from shared.src.lib.config.constants import CACHE_CONFIG
 from shared.src.lib.database.library_visibility_db import list_hidden_library_keys
 from shared.src.lib.utils.supabase_utils import get_supabase_client
 from backend_server.src.lib.utils.adhoc_execution import create_adhoc_execution, complete_adhoc_execution
+from backend_server.src.lib.auth_middleware import require_permission
 
 server_script_bp = Blueprint('server_script', __name__, url_prefix='/server')
 
@@ -475,10 +476,60 @@ def get_edge_options():
         
     return jsonify(response_data)
         
+def _build_script_items(script_names, team_id):
+    """Resolve each script name to {script_ref, prefix, display_name, label}.
+
+    The `scripts` array (bare names) is what every caller used to get, which
+    forced each one to fetch /server/script/identity-map separately and
+    re-implement the normalize + basename-fallback merge — the browser does that
+    in identityMapCache.ts, and an external caller (dmacp, MCP) could not do it
+    at all. `items` carries the server-rendered label so every consumer shows
+    the same string.
+
+    `script_ref` — not `label` — is what goes back to /server/script/execute.
+
+    The map is loaded ONCE for the whole list (it is itself TTL-cached), so this
+    adds no per-script query.
+    """
+    from shared.src.lib.utils.script_identity_utils import (
+        format_script_label,
+        load_effective_identity_map,
+        lookup_identity_entry,
+        normalize_script_ref,
+    )
+
+    try:
+        identity_map = load_effective_identity_map(team_id)
+    except Exception as e:
+        # A missing identity map must never break the script list: items simply
+        # fall back to the bare script name, which is the documented behaviour
+        # for an unmapped script anyway.
+        print(f"[@list_scripts] identity map unavailable, labels fall back to script names: {e}")
+        identity_map = {}
+
+    items = []
+    for script_name in script_names:
+        entry = lookup_identity_entry(identity_map, script_name)
+        prefix = entry.get('prefix') or None
+        display_name = entry.get('display_name') or None
+        items.append({
+            'script_ref': normalize_script_ref(script_name),
+            'prefix': prefix,
+            'display_name': display_name,
+            'label': format_script_label(script_name, prefix, display_name),
+        })
+    return items
+
+
 @server_script_bp.route('/script/list', methods=['GET'])
 @handle_route_exceptions('script:list_scripts')
 def list_scripts():
-    """List all available Python scripts AND AI test cases"""
+    """List all available Python scripts AND AI test cases.
+
+    Returns both `scripts` (bare names, unchanged for back-compat) and `items`
+    (the same scripts with prefix / display_name / label resolved — see
+    _build_script_items). Prefer `items`.
+    """
     # Get team_id from request args (GET request)
     team_id = request.args.get('team_id')
     if not team_id:
@@ -530,6 +581,7 @@ def list_scripts():
     response_data = {
         'success': True,
         'scripts': all_scripts,
+        'items': _build_script_items(all_scripts, team_id),
         'count': len(all_scripts),
         'scripts_directory': scripts_dir,
         'regular_scripts': regular_scripts,
@@ -659,7 +711,15 @@ def abort_running_script():
         }), status_code
 
     return jsonify(response_data), 200
+# Launching a script on a device is `execution.run:run_test`, the same permission
+# /server/testcase/execute has carried all along. This route had no gate at all, so any
+# authenticated user — a viewer included — could start a run on a shared device. The test
+# that says otherwise (test_permissions.py::test_viewer_cannot_run_test) existed but had
+# skipped itself since the day it was written: its host_name fixture read a route that does
+# not exist, so it never ran. Admin and the shared service key bypass the check inside the
+# decorator, so host callbacks, dmacp and MCP are unaffected.
 @server_script_bp.route('/script/execute', methods=['POST'])
+@require_permission('execution.run:run_test')
 def execute_script():
     """Execute script asynchronously to prevent timeouts"""
     data = request.get_json() or {}
@@ -805,6 +865,55 @@ def execute_script():
     )
     if not lock_result.get('success'):
         conflict = lock_result.get('conflict') or get_device_lock_info(host_name, device_id)
+
+        # The device is busy: queue this run rather than refuse it. This is exactly
+        # what the Run Tests page does when it gets a 423 - a one-shot deployment the
+        # host scheduler runs once the device frees up - done server-side so an API
+        # caller firing a batch (BUG-0118) gets the same queue as a browser tab. The
+        # task_id stays open and is completed by /server/deployments/executionComplete
+        # with the run's real result. Callers that would rather fail than wait (the
+        # UI's rerun button) send queue_if_locked=false and get the 423 as before.
+        queue_if_locked = data.get('queue_if_locked', True) is not False
+        if conflict and queue_if_locked:
+            try:
+                from routes.server_deployment_routes import create_deployment_record
+                ui_match = re.search(r'--userinterface(?:[ =])([^\s]+)', parameters or '')
+                queued_deployment = create_deployment_record(team_id, {
+                    'name': f"{script_name}_{host_name}_{device_id}_{int(time.time() * 1000)}",
+                    'host_name': host_name,
+                    'device_id': device_id,
+                    'script_name': script_name,
+                    'userinterface_name': data.get('userinterface_name') or (ui_match.group(1) if ui_match else ''),
+                    'parameters': parameters or '',
+                    'cron_expression': '0 0 1 1 *',
+                    'max_executions': 1,
+                    'virtual_script_id': virtual_script_id,
+                    'environment': data.get('environment'),
+                    'device_info': data.get('device_info'),
+                    'rerun_payload': {
+                        'type': 'script',
+                        'scriptName': script_name,
+                        'hostName': host_name,
+                        'deviceId': device_id,
+                        'parameters': parameters or '',
+                        'queued_task_id': task_id,
+                    },
+                })
+                task_manager.get_task(task_id)['params']['queued_deployment_id'] = queued_deployment.get('id')
+                print(f"[@server_script:execute_script] {host_name}:{device_id} locked by "
+                      f"{conflict.get('owner_type')} - queued {script_name} as deployment {queued_deployment.get('id')} (task {task_id})")
+                return jsonify({
+                    'success': True,
+                    'queued': True,
+                    'task_id': task_id,
+                    'deployment_id': queued_deployment.get('id'),
+                    'message': f'Device {host_name}:{device_id} is busy; run queued and will start when it frees up',
+                    'lock_info': conflict,
+                }), 202
+            except Exception as queue_err:
+                # Fall back to the refusal the caller already knows how to handle.
+                print(f"[@server_script:execute_script] Queue fallback failed ({queue_err}); returning device_locked")
+
         task_manager.complete_task(task_id, {}, error='device_locked')
         if conflict:
             return jsonify(_build_lock_conflict_payload(host_name, device_id, conflict)), 423
@@ -1219,15 +1328,28 @@ def task_complete():
                         f"{unlock_result.get('error')}"
                     )
         
+    # Did this run actually pass? Derived ONCE and used for every record this
+    # callback writes. The adhoc row has consulted _derive_run_success since the
+    # first half of BUG-0089; the task record and the outbound webhook were still
+    # on the old `'failed' if error else 'completed'` rule, so the same run that
+    # the adhoc row correctly marked failed was reported to an external consumer
+    # as completed. One callback must not produce two verdicts.
+    run_success = _derive_run_success(result, error)
+
+    # A failure the host did not phrase as an error still needs a reason on the
+    # wire, or the consumer sees status=failed with error=None. Only ever states
+    # what the callback actually carried.
+    if not run_success and not error:
+        error = result.get('stderr') or 'host reported no script result'
+
     # Update adhoc deployment_execution row if present
     adhoc_exec_id = task_params.get('adhoc_exec_id')
     if adhoc_exec_id:
         try:
             script_result_id = result.get('script_result_id')
-            adhoc_success = _derive_run_success(result, error)
             complete_adhoc_execution(
                 get_supabase_client(), adhoc_exec_id,
-                success=adhoc_success,
+                success=run_success,
                 script_result_id=script_result_id,
             )
             emit_system_update('deployment_changed', {
@@ -1238,12 +1360,12 @@ def task_complete():
         except Exception as adhoc_err:
             print(f"[@route:server_script:task_complete] Adhoc execution update failed (non-fatal): {adhoc_err}")
 
-    task_manager.complete_task(task_id, result, error)
+    task_manager.complete_task(task_id, result, error, success=run_success)
     notify_result = notify_completion(
         {
             'task_id': task_id,
             'execution_type': 'script',
-            'status': 'failed' if error else 'completed',
+            'status': 'completed' if run_success else 'failed',
             'host_name': host_name,
             'device_id': device_id,
             'team_id': team_id,
@@ -1258,7 +1380,7 @@ def task_complete():
     elif notify_result.get('webhook_sent'):
         print(f"[@route:server_script:task_complete] Callback webhook sent for task {task_id}")
         
-    print(f"[@route:server_script:task_complete] Task {task_id} marked as {'failed' if error else 'completed'}")
+    print(f"[@route:server_script:task_complete] Task {task_id} marked as {'completed' if run_success else 'failed'}")
         
     return jsonify({
         'success': True,

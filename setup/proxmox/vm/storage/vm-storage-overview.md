@@ -120,7 +120,7 @@ cd ~/virtualpytest/setup/local/linux/storage
 - **Owner**: `minio-user`
 - **API Endpoint**: http://localhost:9000
 - **Web Console**: http://localhost:9001
-- **Credentials**: virtualpytest / admin1234
+- **Credentials**: `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` from `.env`
 - **Bucket**: `virtualpytest`
 - **Stores**: Test screenshots, videos, logs, results, artifacts
 
@@ -361,7 +361,7 @@ http://192.168.x.100:9001
 
 # Login:
 Username: virtualpytest
-Password: admin1234
+Password: generated per install (`.env`)
 ```
 
 ### Test Redis

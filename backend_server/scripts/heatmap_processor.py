@@ -88,6 +88,11 @@ _stream_handler.setFormatter(_heatmap_formatter)
 logging.basicConfig(level=logging.INFO, handlers=[_file_handler, _stream_handler], force=True)
 logger = logging.getLogger(__name__)
 
+# Written every minute so the dashboard can tell a processor that is merely
+# running from one that is running but producing nothing (see server_system_routes).
+HEATMAP_STATUS_FILE = '/tmp/heatmap_status.json'
+
+
 def cleanup_logs_on_startup():
     """Clean up heatmap log file on service restart for fresh debugging"""
     try:
@@ -117,7 +122,15 @@ class HeatmapProcessor:
         # Performance: Reuse session for connection pooling
         import requests
         self.session = requests.Session()
-        self.session.headers.update({'User-Agent': 'HeatmapProcessor/1.0'})
+        session_headers = {'User-Agent': 'HeatmapProcessor/1.0'}
+        # Some hosts are only reachable via the public proxy, where /host/<name>/stream/...
+        # now sits behind the host-session auth_request gate (BUG-0107 step 2). This is a
+        # server-to-server fetch with no browser cookie, so it authenticates with the shared
+        # service key instead — a no-op for hosts fetched LAN-direct via host_api_url.
+        api_key = os.environ.get('API_KEY')
+        if api_key:
+            session_headers['X-API-Key'] = api_key
+        self.session.headers.update(session_headers)
         # Performance: Cache fonts to avoid repeated loading
         self._fonts_cache = {}
         logger.info(f"🏷️ HeatmapProcessor server path: {self.server_path}")
@@ -148,6 +161,35 @@ class HeatmapProcessor:
                 logger.error(f"❌ HeatmapProcessor error: {e}")
                 time.sleep(60)  # Wait a minute before retrying
     
+    def write_status(self, time_key: str, generated: bool, reason: str = '') -> None:
+        """Record this minute's outcome so the dashboard reports what the processor
+        actually produced, not just whether its unit is running."""
+        try:
+            status = {}
+            if os.path.exists(HEATMAP_STATUS_FILE):
+                try:
+                    with open(HEATMAP_STATUS_FILE, 'r', encoding='utf-8') as status_file:
+                        status = json.load(status_file) or {}
+                except Exception:
+                    status = {}
+
+            now_iso = datetime.now(timezone.utc).isoformat()
+            status['last_attempt'] = now_iso
+            status['last_time_key'] = time_key
+            if generated:
+                status['last_success'] = now_iso
+                status['last_success_time_key'] = time_key
+                status['last_error'] = ''
+            else:
+                status['last_error'] = _ascii_safe(reason)
+
+            tmp_path = f'{HEATMAP_STATUS_FILE}.tmp'
+            with open(tmp_path, 'w', encoding='utf-8') as status_file:
+                json.dump(status, status_file)
+            os.replace(tmp_path, HEATMAP_STATUS_FILE)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not write heatmap status file: {e}")
+
     def process_current_minute(self):
         """Generate mosaic and analysis for current minute"""
         now = datetime.now(timezone.utc)
@@ -160,12 +202,14 @@ class HeatmapProcessor:
             hosts_devices = self.get_hosts_devices()
             if not hosts_devices:
                 logger.warning(f"⚠️ No hosts available for {time_key}")
+                self.write_status(time_key, False, 'No hosts available')
                 return
                 
             # Fetch current captures using latest-json endpoint (same as useMonitoring)
             current_captures = self.fetch_current_captures(hosts_devices)
             if not current_captures:
                 logger.warning(f"⚠️ No current captures retrieved for {time_key}")
+                self.write_status(time_key, False, 'No current captures retrieved')
                 return
                 
                 
@@ -192,13 +236,36 @@ class HeatmapProcessor:
             # Upload to R2 with time-only naming
             success, uploaded_urls = self.upload_heatmap_files(time_key, mosaic_image, analysis_json, ok_mosaic_image, ko_mosaic_image)
             
-            logger.info(f"✅ Generated heatmap for {time_key} ({len(complete_device_list)} devices)")
+            if success:
+                logger.info(f"✅ Generated heatmap for {time_key} ({len(complete_device_list)} devices)")
+            else:
+                # The mosaics were built fine — nothing was stored. Say so, or this reads as
+                # a healthy cycle in the journal (BUG-0109).
+                logger.error(f"❌ Heatmap {time_key} NOT PUBLISHED ({len(complete_device_list)} devices "
+                             f"processed): uploads failed, storage still holds the previous cycle. "
+                             f"If the error is XMinioStorageFull, check `df -i` on the storage VM — "
+                             f"inodes, not bytes.")
+            self.write_status(time_key, success, '' if success else 'Upload failed')
             
         except Exception as e:
             logger.error(f"❌ Error processing {time_key}: {e}")
+            self.write_status(time_key, False, str(e))
     
-    def get_hosts_devices(self) -> List[Dict]:
-        """Get hosts and devices via server API endpoint"""
+    def get_hosts_devices(self, attempts: int = 3, retry_delay: int = 3) -> List[Dict]:
+        """Get hosts and devices, retrying briefly: the local Flask server runs a
+        single worker, so a restart makes one call fail and would otherwise punch a
+        one-minute hole in the 24h buffer."""
+        for attempt in range(1, attempts + 1):
+            hosts_devices = self._fetch_hosts_devices()
+            if hosts_devices:
+                return hosts_devices
+            if attempt < attempts:
+                logger.warning(f"⚠️ No hosts on attempt {attempt}/{attempts}, retrying in {retry_delay}s")
+                time.sleep(retry_delay)
+        return []
+
+    def _fetch_hosts_devices(self) -> List[Dict]:
+        """Get hosts and devices via server API endpoint (single attempt)"""
         try:
             import requests
             
@@ -955,12 +1022,17 @@ class HeatmapProcessor:
                         elif uploaded['remote_path'].endswith(f'{time_key}.json'):
                             uploaded_urls['json_url'] = url
                 
-                if result.get('failed_uploads'):
+                failed_uploads = result.get('failed_uploads') or []
+                if failed_uploads:
                     logger.error(f"❌ Failed uploads for {time_key}:")
-                    for failed in result['failed_uploads']:
+                    for failed in failed_uploads:
                         logger.error(f"   ❌ {failed['remote_path']}: {failed['error']}")
-                
-                return True, uploaded_urls
+
+                # Report the real outcome. This used to `return True` unconditionally, so a
+                # cycle where every upload failed still logged "Generated heatmap" and wrote
+                # a success status — the frontend's "data may be outdated" was the only hint,
+                # and the heatmap silently stopped publishing for ~8h (BUG-0109).
+                return (not failed_uploads), uploaded_urls
                     
             finally:
                 # Clean up temporary files

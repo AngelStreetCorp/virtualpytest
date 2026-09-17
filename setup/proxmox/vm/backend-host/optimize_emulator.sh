@@ -45,6 +45,10 @@ echo "   Done"
 # 4. Disable background ANR dialogs for non-foreground apps
 echo "4. Disabling background ANR dialogs..."
 adb -s "$EMU" shell settings put secure anr_show_background 0
+# A test device's screen is what the capture records; an ANR/crash dialog left on it after
+# the post-boot storm (gms, Gmail, search) hides the app under test for as long as nobody
+# taps "Wait" — 12 days once. The failures still land in logcat and /data/anr.
+adb -s "$EMU" shell settings put global hide_error_dialogs 1
 echo "   Done"
 
 # 5. Disable auto-updates and unnecessary background activity
@@ -72,6 +76,7 @@ echo "Verification:"
 echo "  Animations: $(adb -s "$EMU" shell settings get global window_animation_scale)"
 echo "  Screen timeout: $(adb -s "$EMU" shell settings get system screen_off_timeout)ms"
 echo "  Background ANR: $(adb -s "$EMU" shell settings get secure anr_show_background)"
+echo "  Error dialogs hidden: $(adb -s "$EMU" shell settings get global hide_error_dialogs)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "Emulator optimized. If 'System UI not responding' persists:"

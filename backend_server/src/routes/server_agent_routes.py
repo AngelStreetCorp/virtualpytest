@@ -128,10 +128,38 @@ import threading
 _agent_processing_lock = threading.Lock()
 
 
-def run_agent_coroutine(coro_factory):
-    """Run an agent coroutine under the per-worker processing lock."""
-    with _agent_processing_lock:
-        asyncio.run(coro_factory())
+def run_agent_coroutine(coro_factory, socketio=None, session_id=None):
+    """Run an agent coroutine under the per-worker processing lock.
+
+    This runs in a detached background greenlet, so anything raised here is
+    only printed by gevent: the conversation never receives its error or
+    session_ended event and the chat sits on its 'Received...' ack until the
+    frontend's stall timeout. asyncio.run() itself raises whenever another
+    greenlet in this worker holds a live event loop (one OS thread, so the
+    running-loop flag is shared), which is exactly how a chat goes silent.
+    Close the turn on the session room whatever happens.
+    """
+    coro = coro_factory()
+    try:
+        with _agent_processing_lock:
+            asyncio.run(coro)
+    except Exception as e:
+        logger.error(f"Agent background task crashed: {e}", exc_info=True)
+        coro.close()  # nothing awaited it — silences "never awaited"
+        if socketio is None or session_id is None:
+            return
+        timestamp = datetime.now().isoformat()
+        for event_type, content in (
+            ('error', f'Agent task failed to start: {e}'),
+            ('session_ended', 'Session ended'),
+        ):
+            socketio.emit('agent_event', {
+                'type': event_type,
+                'agent': 'System',
+                'content': content,
+                'timestamp': timestamp,
+                'session_id': session_id,
+            }, room=session_id, namespace='/agent')
 
 # Lazy imports to avoid circular dependencies
 _manager = None
@@ -656,7 +684,7 @@ def register_agent_socketio_handlers(socketio):
                     pass  # Ignore flush errors
         
         socketio.start_background_task(
-            lambda: run_agent_coroutine(process_and_stream)
+            lambda: run_agent_coroutine(process_and_stream, socketio, session_id)
         )
     
     @socketio.on('approve', namespace='/agent')
@@ -708,7 +736,7 @@ def register_agent_socketio_handlers(socketio):
                 }, room=session_id, namespace='/agent')
         
         socketio.start_background_task(
-            lambda: run_agent_coroutine(process_approval)
+            lambda: run_agent_coroutine(process_approval, socketio, session_id)
         )
         
     @socketio.on('stop_generation', namespace='/agent')

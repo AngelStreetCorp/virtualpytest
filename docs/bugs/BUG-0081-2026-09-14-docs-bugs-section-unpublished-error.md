@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low                                                          |
 | Area      | frontend / docs site                                         |
-| Fixed in  | build NNNN                                                   |
+| Fixed in  | build 8887                                                   |
 | Commit    | `this commit`                                                |
 
 ---

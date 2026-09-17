@@ -37,6 +37,20 @@ def _team_id() -> str:
     return data.get('team_id') or ''
 
 
+def _invalidate_script_list_cache() -> None:
+    """Drop the cached /server/script/list response after an identity change.
+
+    That response now embeds the rendered label (items[].label), so without this
+    a rename here would keep showing the old name for the cache TTL. Imported
+    lazily — server_script_routes imports this module's blueprint at startup.
+    """
+    try:
+        from backend_server.src.routes.server_script_routes import invalidate_script_list_cache
+        invalidate_script_list_cache()
+    except Exception as e:
+        print(f"[@script_identity] script list cache invalidation failed (non-fatal): {e}")
+
+
 def _validated_kind(raw_kind):
     """Return (kind, error_response). kind defaults to 'script'."""
     kind = (raw_kind or 'script').strip().lower()
@@ -117,6 +131,8 @@ def set_script_identity():
     if row is None and (prefix or display_name):
         return jsonify({'success': False, 'error': 'Failed to save identity'}), 500
 
+    _invalidate_script_list_cache()
+
     return jsonify({
         'success': True,
         'item': {
@@ -147,6 +163,8 @@ def clear_script_identity():
 
     if not delete_executable_identity(team_id, script_ref, kind):
         return jsonify({'success': False, 'error': 'Failed to clear identity'}), 500
+
+    _invalidate_script_list_cache()
 
     return jsonify({'success': True})
 
@@ -208,6 +226,9 @@ def import_script_identity():
             failed.append({'script_ref': script_ref, 'error': 'write failed'})
         else:
             imported += 1
+
+    if imported:
+        _invalidate_script_list_cache()
 
     return jsonify({
         'success': not failed,

@@ -93,7 +93,30 @@ def _quicktest_graph(target: str = "home") -> dict:
 
 
 @pytest.fixture
-def quicktest(post, delete, api_headers, team_id, device_userinterface):
+def quicktest_team_id(request, team_id, device_team_id) -> str:
+    """The team this tier's testcase belongs in.
+
+    Tier A saves into the CI fixture team, whose ci_userinterface shell is enough to pass
+    graph validation. Tier B actually executes, so its testcase has to live in the team that
+    owns a navigable tree — see device_team_id in conftest.
+    """
+    return device_team_id if request.node.get_closest_marker("device") else team_id
+
+
+@pytest.fixture
+def quicktest_userinterface(request, ci_userinterface, device_userinterface) -> str:
+    """The userinterface this tier's graph validates against.
+
+    Scoped per tier for the same reason as quicktest_team_id: the CI fixture interface only
+    exists in the CI fixture team and DEVICE_USERINTERFACE only in the real one, so a single
+    value cannot serve both — setting DEVICE_USERINTERFACE for tier B otherwise made tier A
+    validate a real interface name against a team that has never heard of it.
+    """
+    return device_userinterface if request.node.get_closest_marker("device") else ci_userinterface
+
+
+@pytest.fixture
+def quicktest(post, delete, api_headers, quicktest_team_id, quicktest_userinterface):
     """Create a QuickTest-shaped testcase; always remove it afterwards."""
     name = f"zz-ci-quicktest-{uuid.uuid4().hex[:8]}"
     created: dict = {}
@@ -101,17 +124,20 @@ def quicktest(post, delete, api_headers, team_id, device_userinterface):
     response = post(
         "/server/testcase/save",
         headers=api_headers,
-        params={"team_id": team_id},
+        params={"team_id": quicktest_team_id},
         json={
             "testcase_name": name,
             "graph_json": _quicktest_graph(),
             "description": "Created by tests/backend_server/test_quicktest.py",
-            "userinterface_name": device_userinterface,
+            "userinterface_name": quicktest_userinterface,
         },
     )
     assert_not_auth_failure(response, "creating a testcase")
-    if response.status_code != 200 or not response.json().get("success"):
-        pytest.skip(f"could not create a testcase ({response.status_code}): {response.text[:200]}")
+    # Fail, never skip. Saving a QuickTest-shaped testcase is the thing this file exists to
+    # cover; when the server rejected the graph these six tests reported "skipped" and nobody
+    # looked. The interface, its tree and its `home` node are provisioned by ci_userinterface.
+    assert response.status_code == 200 and response.json().get("success"), (
+        f"could not create a testcase ({response.status_code}): {response.text[:300]}")
 
     created = response.json().get("testcase") or {}
     created["_name"] = name
@@ -119,7 +145,7 @@ def quicktest(post, delete, api_headers, team_id, device_userinterface):
 
     tc_id = created.get("testcase_id") or created.get("id")
     if tc_id:
-        delete(f"/server/testcase/{tc_id}", headers=api_headers, params={"team_id": team_id})
+        delete(f"/server/testcase/{tc_id}", headers=api_headers, params={"team_id": quicktest_team_id})
 
 
 class TestQuickTestCrud:
@@ -177,7 +203,7 @@ class TestQuickTestCrud:
         ]
         assert "settings" in labels, labels
 
-    def test_delete_removes_it(self, post, get, delete, api_headers, team_id, device_userinterface):
+    def test_delete_removes_it(self, post, get, delete, api_headers, team_id, quicktest_userinterface):
         # Not using the fixture: this test owns the whole lifecycle so the delete is
         # the assertion rather than teardown.
         name = f"zz-ci-quicktest-del-{uuid.uuid4().hex[:8]}"
@@ -188,12 +214,13 @@ class TestQuickTestCrud:
             json={
                 "testcase_name": name,
                 "graph_json": _quicktest_graph(),
-                "userinterface_name": device_userinterface,
+                "userinterface_name": quicktest_userinterface,
             },
         )
         assert_not_auth_failure(created, "creating a testcase")
-        if created.status_code != 200 or not created.json().get("success"):
-            pytest.skip(f"could not create a testcase: {created.text[:200]}")
+        # Fail, never skip: the delete test cannot prove anything without a testcase to delete.
+        assert created.status_code == 200 and created.json().get("success"), (
+            f"could not create a testcase: {created.status_code} {created.text[:300]}")
         tc_id = (created.json().get("testcase") or {}).get("testcase_id") or \
                 (created.json().get("testcase") or {}).get("id")
 
@@ -222,20 +249,20 @@ class TestQuickTestExecution:
     """
 
     def test_execute_runs_on_the_device_host(
-        self, post, get, api_headers, team_id, quicktest, device_host, device_id,
-        device_userinterface
+        self, post, get, api_headers, quicktest_team_id, quicktest, device_host, device_id,
+        quicktest_userinterface
     ):
         # /execute runs a graph directly (no save needed) — it requires graph_json,
         # device_id and host_name; passing only testcase_id is rejected with 400.
         launched = post(
             "/server/testcase/execute",
             headers=api_headers,
-            params={"team_id": team_id},
+            params={"team_id": quicktest_team_id},
             json={
                 "graph_json": _quicktest_graph(),
                 "host_name": device_host,
                 "device_id": device_id,
-                "userinterface_name": device_userinterface,
+                "userinterface_name": quicktest_userinterface,
                 "testcase_id": quicktest.get("testcase_id") or quicktest["id"],
             },
             timeout=60,
@@ -278,7 +305,7 @@ class TestQuickTestExecution:
             polled = get(
                 f"/server/testcase/execution/{execution_id}/status",
                 headers=api_headers,
-                params={"team_id": team_id, "host_name": device_host, "device_id": device_id},
+                params={"team_id": quicktest_team_id, "host_name": device_host, "device_id": device_id},
             )
             assert polled.status_code == 200, (
                 f"status poll failed ({polled.status_code}): {polled.text[:200]}"
@@ -293,7 +320,7 @@ class TestQuickTestExecution:
             # script_results row, matched on metadata.execution_id, so fall through to it
             # rather than treating a vanished record as a failure.
             if not detail:
-                recorded = _script_result_for(get, api_headers, team_id, execution_id)
+                recorded = _script_result_for(get, api_headers, quicktest_team_id, execution_id)
                 if recorded is not None:
                     assert recorded.get("success") is True, (
                         f"QuickTest on {device_host}/{device_id} recorded success="
@@ -303,7 +330,7 @@ class TestQuickTestExecution:
             time.sleep(3)
 
         if status is None:
-            recorded = _script_result_for(get, api_headers, team_id, execution_id)
+            recorded = _script_result_for(get, api_headers, quicktest_team_id, execution_id)
             assert recorded is not None, (
                 "execution never reported a status and no script_results row was recorded"
             )

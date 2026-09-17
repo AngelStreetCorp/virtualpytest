@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | Medium (desktop right edge + taskbar unreachable while controlling a `host_vnc` device) |
 | Area      | frontend/src/components/rec/RecStreamContainer.tsx                          |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

@@ -9,7 +9,7 @@
 | Status    | Fixed (DB applied, code pending deploy)                      |
 | Severity  | Medium                                                       |
 | Area      | frontend / backend / db                                      |
-| Fixed in  | —                                                             |
+| Fixed in  | build 8713                                                    |
 | Commit    | `988ed4a83`                                                  |
 
 ---

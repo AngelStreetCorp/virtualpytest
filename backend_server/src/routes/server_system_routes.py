@@ -10,7 +10,7 @@ import requests
 import os
 import subprocess
 import psutil
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import shlex
 from typing import TypedDict, Optional, List, Any
@@ -741,6 +741,48 @@ def _normalize_server_service_status(raw_status: str) -> str:
     return 'unknown'
 
 
+# Kept in sync with HEATMAP_STATUS_FILE in backend_server/scripts/heatmap_processor.py
+HEATMAP_STATUS_FILE = '/tmp/heatmap_status.json'
+HEATMAP_STALE_AFTER_SECONDS = 180
+
+
+def _heatmap_output_status() -> tuple:
+    """Report the heatmap processor by the frames it actually produced.
+
+    The unit can sit at 'active' while producing nothing (no hosts, failed uploads),
+    which is exactly when the heatmap page reports stale data - so the dashboard
+    reads the processor's own per-minute status file instead.
+    Returns (status_override, detail); status_override is None when output is fresh.
+    """
+    try:
+        with open(HEATMAP_STATUS_FILE, 'r', encoding='utf-8') as status_file:
+            status = json.load(status_file) or {}
+    except FileNotFoundError:
+        return 'unknown', 'No frame generated since startup'
+    except Exception as e:
+        return 'unknown', f'Cannot read heatmap status: {e}'
+
+    last_success = status.get('last_success')
+    if not last_success:
+        return 'stuck', status.get('last_error') or 'No frame generated yet'
+
+    try:
+        last_success_dt = datetime.fromisoformat(last_success)
+        if last_success_dt.tzinfo is None:
+            last_success_dt = last_success_dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return 'unknown', f'Unreadable last_success: {last_success}'
+
+    age_seconds = (datetime.now(timezone.utc) - last_success_dt).total_seconds()
+    if age_seconds > HEATMAP_STALE_AFTER_SECONDS:
+        detail = f'No frame for {int(age_seconds // 60)} min'
+        if status.get('last_error'):
+            detail = f'{detail} ({status["last_error"]})'
+        return 'stuck', detail
+
+    return None, f'Last frame {status.get("last_success_time_key", "?")} ({int(age_seconds)}s ago)'
+
+
 def _build_server_service_health() -> dict:
     """Build server service status summary for dashboard cards."""
     def _is_service_installed(service_name: str) -> bool:
@@ -800,10 +842,19 @@ def _build_server_service_health() -> dict:
             mapped_status = _normalize_server_service_status(current.get('status', 'unknown'))
             break
 
+        detail = ''
+        # Only the heatmap has a per-minute output signal to check; an 'active' unit
+        # that stopped producing frames must not read as healthy on the dashboard.
+        if definition['label'] == 'Heatmap' and mapped_status == 'active':
+            override, detail = _heatmap_output_status()
+            if override:
+                mapped_status = override
+
         services.append({
             'name': definition['candidates'][0],
             'label': definition['label'],
             'status': mapped_status,
+            'detail': detail,
             'critical': definition['critical'],
             'optional': definition['optional'],
             'runtime': 'service',

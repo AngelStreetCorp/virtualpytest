@@ -275,10 +275,14 @@ def get_navigation_preview_with_executor(tree_id, node_id):
         cache_populated = populate_navigation_cache_for_control(tree_id, team_id, host_name, device_id=device_id, variant=variant)
 
         if not cache_populated:
+            # 400, not 500: the usual cause is a tree_id that does not exist (or is not
+            # loadable for this team) — caller input, not a server fault. The two siblings
+            # that populate the same cache (validation preview, batch execute) already
+            # answer 400 here; this one answered 500 and made a bad id look like an outage.
             return jsonify({
                 'success': False,
-                'error': f'Failed to populate navigation cache for tree {tree_id}. Check server logs for details.'
-            }), 500
+                'error': f'Failed to populate navigation cache for tree {tree_id}. Tree may need to be loaded first.'
+            }), 400
 
         print(f"[@route:navigation_execution:get_navigation_preview_with_executor] ✅ Cache populated successfully for tree {tree_id}")
 

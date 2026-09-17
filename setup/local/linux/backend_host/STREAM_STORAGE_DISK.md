@@ -102,7 +102,7 @@ grep stream /etc/fstab                            # tmpfs entry now under /data/
 df -h /data                                       # usage now grows here
 
 symlink 
-jndoye@host5:/$   ls -ld /var/www/html/stream
+<user>@host5:/$   ls -ld /var/www/html/stream
 lrwxrwxrwx 1 root root 12 May 22 12:56 /var/www/html/stream -> /data/stream
 ```
 

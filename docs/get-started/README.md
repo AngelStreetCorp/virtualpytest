@@ -1,18 +1,37 @@
 # Get started
 
-Pick the way you want to run VirtualPyTest. Every path ends with the web UI on port 5073.
+## What is VirtualPyTest?
 
-Buying a machine first? See [Hardware](hardware.md) — Raspberry Pi 5 or mini PC, capture card, with links.
+VirtualPyTest is an open-source test automation platform for real devices — Android TV,
+mobile, set-top boxes, smart TVs, and web. One navigation graph per app, driven by HDMI
+capture, IR/Bluetooth, ADB, or a browser, with AI-assisted verification and Grafana analytics
+on top. Every path below is self-hosted; nothing calls home. Every install ends with the web
+UI on port 5073.
 
-Going beyond a trusted LAN? [Network setup](network.md) has the firewall rules, TLS and
-remote-access options; [Security setup](security.md) covers certificates, API keys, CORS; [Production checklist](production-checklist.md) lists every shipped default to change before going online
-and per-service exposure.
-Letting guests drive devices? [Content filtering](content-filtering.md) keeps lab browsers and
-emulators off adult and malware sites with one DNS change.
+- One script drives every platform variant — mobile, Android TV, STB, web
+- Visual + OCR + AI verification of what's actually on screen, not just a log line
+- Built-in fleet dashboard, 24h screen rewind, and Grafana analytics
+- Runs from a $100 Raspberry Pi to a full Proxmox fleet — same codebase either way
+
+![Fleet dashboard: hosts, devices and live screen](/screenshot/features/fleet-status.webp)
+
+## Architecture
+
+![VirtualPyTest architecture: browser through frontend, backend_server, backend_host, to devices](/docs/get-started/images/architecture.svg)
+
+`backend_host` runs once per machine that owns hardware; a host can run standalone and
+register with a `backend_server` elsewhere (`--host-only` mode, or the host installers).
+
+## Pick an install path
+
+**In a hurry? → [Install VirtualPyTest](install.md)** — one download, one command, three
+minutes, no hardware needed. That page also covers running it on a rented server
+(Hetzner, AWS, Azure — all the same install) and what a managed platform can and cannot host.
 
 | Path | Best for | Time | One command |
 |---|---|---|---|
-| **[Docker](docker.md)** | first look, demo, lab box, single-site on a trusted network | 15 min | `./setup/docker/launch.sh` |
+| **[Docker](docker.md)** | first look, demo, lab box, single-site on a trusted network | 3 min | `./setup/docker/launch.sh` |
+| **[Add a host](add-a-host.md)** | a machine with devices joining a platform that runs elsewhere | 10 min | `./setup/docker/launch.sh --host-only` |
 | **[One VM](proxmox.md#one-vm)** | a site install as native services (systemd) on one Debian/Ubuntu machine or VM | 30 min | `./setup/local/linux/install_all.sh` |
 | **[Proxmox fleet](proxmox.md#proxmox-fleet)** | one VM per role (database, server, frontend, storage, monitoring, proxy, N hosts) | 2 h | per-role installers |
 | **[Developer setup](local-dev.md)** | hacking on the code: foreground services with live logs, Windows/macOS device controllers | 30 min | `./setup/local/linux/install_core.sh` |
@@ -37,21 +56,29 @@ internet. A host can run on its own machine and join a server elsewhere
 
 What to buy for each role, with the models this project runs on: [Hardware](hardware.md).
 
-## After the install
+## Where to go next
 
+**Just want to try it?**
+Run the [Docker](docker.md) quickstart, then the [User Guide](../user-guide/README.md) for
+your first test.
+
+**Configuring what you installed:**
 - **[Configuration reference](configuration.md)** — every variable, every port, the versions.
-- **[Supabase and authentication](supabase.md)** — open mode vs login, cloud vs self-hosted.
+- **[Supabase and authentication](supabase.md)** — open mode vs. login, cloud vs. self-hosted.
 - **[Branding](branding.md)** — name, logo, title, footer.
-- **[Cloud frontend + server](cloud-setup.md)** — Vercel + Render variant with a local host.
+
+**Going to production or beyond a trusted LAN?**
+- **[Network setup](network.md)** — firewall rules, TLS, remote access.
+- **[Security setup](security.md)** — certificates, API keys, CORS.
+- **[Production checklist](production-checklist.md)** — every shipped default to change before going online.
+- **[Content filtering](content-filtering.md)** — keep lab browsers and emulators off adult and malware sites.
+- **[Managed cloud (Vercel + Render)](cloud-setup.md)** — the platform half hosted, the
+  device controller still on your own machine. More moving parts than one Docker host —
+  read [install.md](install.md#what-about-render-vercel-fly-or-app-runner) first.
+
+**Building or extending:**
 - **[CI](ci_cd.md)** — what the regression workflow runs.
-- Then the [User Guide](../user-guide/README.md) for the first test.
+- **[Hardware](hardware.md)** — capture cards, IR/BLE transmitters, machines this runs on.
 
-## Architecture in one picture
-
-```
- browser ──► frontend :5073 ──► backend_server :5109 ──► Supabase :54321 (Postgres + auth + REST)
-                                      │                     MinIO/R2 (files)   Redis (queues)
-                                      ▼                     Grafana :3000 (dashboards)
-                               backend_host :6109  ──► devices (HDMI capture, IR/BLE, ADB, web)
-                               (one per machine with hardware; VNC desktop on :6080)
-```
+**Want the full picture?**
+[Browse all documentation](../README.md) — features, user guide, architecture, API reference, FAQ.

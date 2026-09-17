@@ -18,6 +18,28 @@ def _is_under(base_path: str, file_path: str) -> bool:
 
 host_stream_bp = Blueprint('host_stream', __name__)
 
+
+@host_stream_bp.after_request
+def _add_stream_cors_headers(response):
+    """Put the CORS headers on EVERY response of this blueprint, errors included.
+
+    They used to be added next to each `send_from_directory`, so a 404/400/500 —
+    which is a plain `jsonify(...)` — went out with no `Access-Control-Allow-Origin`
+    at all. A cross-origin caller then does not see the 404: the browser refuses to
+    expose the response and reports "blocked by CORS policy", which is what made a
+    missing manifest on one device look like a CORS misconfiguration of the whole
+    site (BUG-0101 investigation). The status has to survive the error path, not
+    just the happy one.
+
+    `setdefault` so a handler that already set a header (or a future stricter
+    origin) is never duplicated or overridden.
+    """
+    response.headers.setdefault('Access-Control-Allow-Origin', '*')
+    response.headers.setdefault('Access-Control-Allow-Methods', 'GET, OPTIONS')
+    response.headers.setdefault('Access-Control-Allow-Headers', 'Content-Type, Range')
+    response.headers.setdefault('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
+    return response
+
 @host_stream_bp.route('/stream/<device_folder>/<content_type>/<path:filename>', methods=['GET', 'OPTIONS'])
 @host_stream_bp.route('/host/stream/<device_folder>/<content_type>/<path:filename>', methods=['GET', 'OPTIONS'])
 def serve_stream_file(device_folder, content_type, filename):
@@ -48,12 +70,8 @@ def serve_stream_file(device_folder, content_type, filename):
     """
     # Handle CORS preflight
     if request.method == 'OPTIONS':
-        response = current_app.response_class()
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Range')
-        response.headers.add('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
-        return response
+        # headers come from _add_stream_cors_headers
+        return current_app.response_class()
     
     try:
         # device_folder is joined into a filesystem path below: a plain folder name only
@@ -86,10 +104,6 @@ def serve_stream_file(device_folder, content_type, filename):
                 filename,
                 mimetype=mimetype
             )
-            response.headers.add('Access-Control-Allow-Origin', '*')
-            response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
-            response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Range')
-            response.headers.add('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
             response.headers.add('Cache-Control', 'no-cache, no-store, must-revalidate')
             response.headers.add('Pragma', 'no-cache')
             response.headers.add('Expires', '0')
@@ -186,12 +200,6 @@ def serve_stream_file(device_folder, content_type, filename):
             filename,
             mimetype=mimetype
         )
-        
-        # Add CORS headers
-        response.headers.add('Access-Control-Allow-Origin', '*')
-        response.headers.add('Access-Control-Allow-Methods', 'GET, OPTIONS')
-        response.headers.add('Access-Control-Allow-Headers', 'Content-Type, Range')
-        response.headers.add('Access-Control-Expose-Headers', 'Content-Length, Content-Range')
         
         # Cache control based on file type
         if filename.endswith('.m3u8'):

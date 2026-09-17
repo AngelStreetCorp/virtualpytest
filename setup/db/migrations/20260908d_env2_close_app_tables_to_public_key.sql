@@ -1,5 +1,5 @@
 -- TASK-10 env2 parity: close app tables to the public (anon) key on proxmox3
--- Generated 2026-09-08 from live pg_policy / role_table_grants on proxmox3's 192.168.0.102.
+-- Generated 2026-09-08 from live pg_policy / role_table_grants on proxmox3's 192.168.x.102.
 -- Mirrors setup/db/migrations/20260908b_close_app_tables_to_public_key.sql (main env),
 -- regenerated from THIS instance's own (diverged) policy set -- do not reuse main's file blindly.
 -- PREREQUISITE: proxmox3 server (.103) + all hosts (.109/.110/.111/.180/.181/.182) already on

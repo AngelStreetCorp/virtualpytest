@@ -288,6 +288,7 @@ export const RemotePanel = React.memo(
       const finalRemoteType = remoteType || remoteCapability || deviceModel;
       switch (finalRemoteType) {
         case 'android_mobile':
+        case 'phone_agent': // paired phone (features/mobile-app): same tap/dump/apps surface
           return (
             <AndroidMobileRemote
               host={host}

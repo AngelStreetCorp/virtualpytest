@@ -58,7 +58,7 @@ def test_ask_rejects_long_question(base_url, verify_ssl, request_timeout):
     assert "too long" in response.json().get("error", "")
 
 
-@pytest.mark.skip(reason="calls MiniMax for real; run manually after deploy")
+@pytest.mark.manual  # calls MiniMax for real
 def test_ask_answers_from_docs(base_url, verify_ssl):
     response = requests.post(
         f"{base_url}/server/public/ask",
@@ -75,7 +75,7 @@ def test_ask_answers_from_docs(base_url, verify_ssl):
     assert body["cached"] is False
 
 
-@pytest.mark.skip(reason="calls MiniMax once for real; run manually after deploy")
+@pytest.mark.manual  # calls MiniMax once for real
 def test_ask_serves_similar_question_from_cache(base_url, verify_ssl):
     """Second, near-identical phrasing must be a cache hit: no LLM call, cached=true."""
     headers = {"Origin": SITE_ORIGIN}

@@ -21,7 +21,9 @@
 #   leak_gate.sh                       # origin/<branch>..HEAD (what a push would send)
 #   leak_gate.sh --range A..B          # an explicit commit range
 #   leak_gate.sh --staged              # the index, for a pre-commit hook
-#   leak_gate.sh --all                 # every tracked file at HEAD (pre-publish audit)
+#   leak_gate.sh --all                 # every tracked file at HEAD (pre-publish audit).
+#                                      # Ignored/untracked files are out of scope in BOTH
+#                                      # checks — .env and dist/ are not what gets published.
 #   leak_gate.sh --require-terms       # fail if no term list is available (use in CI)
 #
 # Exit: 0 clean · 1 findings · 2 misconfigured (missing terms under --require-terms)
@@ -239,14 +241,14 @@ else
   # Tier 1 — everywhere.
   lines=""; paths=""; msgs=""
   if [[ -n "$T1_LINE_RE" ]]; then
-    lines="$(printf '%s\n' "$all_lines" | grep -inE "${T1_LINE_RE}" || true)"
+    lines="$(printf '%s\n' "$all_lines" | grep -iE "${T1_LINE_RE}" || true)"
     msgs="$(printf '%s\n' "$all_msgs" | grep -inE "${T1_LINE_RE}" || true)"
   fi
   [[ -n "$T1_PATH_RE" ]] && paths="$(printf '%s\n' "$all_paths" | grep -inE "${T1_PATH_RE}" || true)"
 
   # Tier 2 — publishable paths only; commit messages skipped entirely.
   if [[ -n "$T2_LINE_RE" ]]; then
-    t2_lines="$(printf '%s\n' "$all_lines" | drop_internal_lines | grep -inE "${T2_LINE_RE}" || true)"
+    t2_lines="$(printf '%s\n' "$all_lines" | drop_internal_lines | grep -iE "${T2_LINE_RE}" || true)"
     [[ -n "$t2_lines" ]] && lines="${lines:+${lines}$'\n'}${t2_lines}"
   fi
   if [[ -n "$T2_PATH_RE" ]]; then
@@ -274,23 +276,38 @@ fi
 if ! command -v gitleaks >/dev/null 2>&1; then
   echo "${YELLOW}⚠ secrets: SKIPPED — gitleaks not installed (brew install gitleaks).${NC}"
 else
-  gl_out="$(mktemp)"; gl_rep="$(mktemp)"
+  gl_out="$(mktemp)"; gl_rep="$(mktemp)"; gl_tree=""
   case "$MODE" in
     range)  gitleaks detect --redact --no-banner --config .gitleaks.toml \
               --log-opts="$RANGE" --report-format json --report-path "$gl_rep" >"$gl_out" 2>&1 ;;
     staged) gitleaks protect --staged --redact --no-banner --config .gitleaks.toml \
               --report-format json --report-path "$gl_rep" >"$gl_out" 2>&1 ;;
-    all)    gitleaks detect --redact --no-banner --no-git --config .gitleaks.toml \
-              --report-format json --report-path "$gl_rep" >"$gl_out" 2>&1 ;;
+    # --all means "every TRACKED file at HEAD", the same scope the identifier check above
+    # gets from `git ls-files`. gitleaks --no-git walks the filesystem and does NOT honour
+    # .gitignore, so pointing it at the repo scanned the developer's real .env, frontend/dist
+    # and every other build artifact — on this machine 13 of ~20 findings were in files git
+    # has never seen. A pre-publish audit that cannot pass on a working checkout is an audit
+    # everyone learns to skip. Export HEAD to a scratch tree and scan exactly that; the
+    # reported paths stay repo-relative because gitleaks reports relative to --source.
+    all)    gl_tree="$(mktemp -d)"
+            git archive HEAD | tar -x -C "$gl_tree"
+            gitleaks detect --redact --no-banner --no-git --source "$gl_tree" \
+              --config .gitleaks.toml --report-format json --report-path "$gl_rep" >"$gl_out" 2>&1 ;;
   esac
   count="$(grep -o '"RuleID"' "$gl_rep" 2>/dev/null | wc -l | tr -d ' ')"
   count="${count:-0}"
   if (( count > 0 )); then
     echo "${RED}✗ secrets: ${count} finding(s)${NC}"
-    python3 - "$gl_rep" <<'PY' 2>/dev/null || cat "$gl_rep"
+    python3 - "$gl_rep" "$gl_tree" <<'PY' 2>/dev/null || cat "$gl_rep"
 import json, sys
+# --all scans an export of HEAD in a scratch dir, so gitleaks reports absolute paths into it.
+# Strip that prefix: a finding has to name the repo path a human can open and fix.
+root = (sys.argv[2] if len(sys.argv) > 2 else '').rstrip('/')
 for f in json.load(open(sys.argv[1]))[:20]:
-    print(f"  {f['RuleID']}: {f['File']}:{f['StartLine']}  {f.get('Match','')[:80]!r}")
+    path = f['File']
+    if root and path.startswith(root + '/'):
+        path = path[len(root) + 1:]
+    print(f"  {f['RuleID']}: {path}:{f['StartLine']}  {f.get('Match','')[:80]!r}")
 PY
     echo "  → rotate the value, then remove it from the commit (git rebase -i / amend)."
     echo "  → false positive? add a narrow allowlist entry to .gitleaks.toml, never a blanket path."
@@ -299,6 +316,7 @@ PY
     echo "${GREEN}✓ secrets: clean${NC}"
   fi
   rm -f "$gl_out" "$gl_rep"
+  [[ -n "$gl_tree" ]] && rm -rf "$gl_tree"
 fi
 
 if (( FAILED )); then

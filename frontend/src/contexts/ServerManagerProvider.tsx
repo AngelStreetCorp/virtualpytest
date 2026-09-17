@@ -7,6 +7,11 @@ import { getAllServerUrls, buildServerUrlForServer } from '../utils/buildUrlUtil
 import { CACHE_CONFIG, STORAGE_KEYS } from '../config/constants';
 import { apiClient } from '../utils/apiClient';
 import { isAuthEnabled } from '../lib/supabase';
+import {
+  discoverServerIdentity,
+  getServerAuthState,
+  ServerAuthState,
+} from '../lib/serverIdentity';
 import { useAuthContext } from './auth/AuthContext';
 
 const log = (..._args: unknown[]): void => {};
@@ -93,6 +98,17 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
   const [error, setError] = useState<string | null>(null);
   const [pendingServers, setPendingServers] = useState<Set<string>>(new Set());
   const [failedServers, setFailedServers] = useState<Set<string>>(new Set());
+
+  // Per-server auth state (TASK-18). Distinct from failedServers: a server we simply
+  // have no session for is reachable and selectable-after-login, not broken, and
+  // collapsing the two into "Offline" is what made a different-Supabase server look
+  // like a dead one.
+  const [serverAuthStates, setServerAuthStates] = useState<Record<string, ServerAuthState>>({});
+
+  // Read inside fetchServerData without adding a dependency that would rebuild the
+  // callback (and re-trigger every fetch effect) on each discovery round.
+  const serverAuthStatesRef = useRef<Record<string, ServerAuthState>>(serverAuthStates);
+  serverAuthStatesRef.current = serverAuthStates;
   
   // Server change transition state - blocks re-selection while streams initialize
   const [isServerChanging, setIsServerChanging] = useState(false);
@@ -154,6 +170,32 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
   }, [isServerChanging, selectedServer]);
 
   // ========================================
+  // SERVER AUTH DISCOVERY (TASK-18)
+  // ========================================
+
+  /**
+   * Ask every configured server which Supabase it authenticates against, then work out
+   * whether we already hold a session for it.
+   *
+   * Runs regardless of whether the user is signed in: the probe is unauthenticated, and
+   * knowing the identity BEFORE login is what lets the very first API call of the session
+   * attach the right token instead of the primary one.
+   */
+  const refreshServerAuth = useCallback(async () => {
+    const entries = await Promise.all(
+      availableServers.map(async (serverUrl) => {
+        await discoverServerIdentity(serverUrl);
+        return [serverUrl, await getServerAuthState(serverUrl)] as const;
+      }),
+    );
+    setServerAuthStates(Object.fromEntries(entries));
+  }, [availableServers]);
+
+  useEffect(() => {
+    void refreshServerAuth();
+  }, [refreshServerAuth, isAuthenticated]);
+
+  // ========================================
   // SERVER DATA FETCHING
   // ========================================
 
@@ -211,14 +253,22 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
 
     isRequestInProgress.current = true;
     setError(null);
+
+    // TASK-18: skip servers we hold no session for. Calling them would 401 on every
+    // refresh and then show up as "Offline", which reads as a broken server rather than
+    // one that is simply waiting for a login.
+    const fetchableServers = availableServers.filter(
+      (serverUrl) => serverAuthStatesRef.current[serverUrl] !== 'needs-auth',
+    );
+
     // Don't reset serverHostsData to empty - keep old data while fetching
     // This prevents triggering hostCount=0 conditions during refresh
-    setPendingServers(new Set(availableServers));
+    setPendingServers(new Set(fetchableServers));
     setFailedServers(new Set()); // Reset failed servers
 
     const fetchPromise = (async () => {
     // Fetch from all servers in parallel
-    const promises = availableServers.map(async (serverUrl) => {
+    const promises = fetchableServers.map(async (serverUrl) => {
       try {
         // Lightweight by default; full stats only when explicitly requested (e.g. Dashboard).
         const response = await apiClient(
@@ -260,7 +310,14 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
               service_health: data.server_info?.service_health || null,
             },
             frontend_info: data.frontend_info || null,
-            hosts: data.hosts || []
+            // Stamp each host with the server it came from. A host registers a RELATIVE
+            // host_url (/host/<name>) that only resolves correctly against its own proxy;
+            // without this, selecting another server here builds stream/VNC URLs against
+            // THIS origin and they 502 on a proxy that knows nothing about those hosts.
+            hosts: (data.hosts || []).map((host: Host) => ({
+              ...host,
+              server_url: serverUrl || window.location.origin,
+            }))
           };
 
           return { success: true, serverUrl, data: serverData };
@@ -515,13 +572,17 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
       pendingServers,
       failedServers,
 
+      // Per-server auth state (TASK-18)
+      serverAuthStates,
+
       // Server change transition state
       isServerChanging,
 
       // Actions
       refreshServerData,
+      refreshServerAuth,
     }),
-    [selectedServer, availableServers, setSelectedServer, serverHostsData, isLoading, error, refreshServerData, pendingServers, failedServers, isServerChanging]
+    [selectedServer, availableServers, setSelectedServer, serverHostsData, isLoading, error, refreshServerData, pendingServers, failedServers, isServerChanging, serverAuthStates, refreshServerAuth]
   );
 
   return (

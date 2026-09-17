@@ -3,6 +3,7 @@ import { Box, Typography, IconButton } from '@mui/material';
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 import { StreamViewerLayoutConfig } from '../../config/layoutConfig';
+import { useHostSession } from '../../hooks/useHostSession';
 
 // Proxy for Hls.isSupported() usable before the dynamic hls.js import. When MSE is
 // available, hls.js is the ONLY valid engine for .m3u8: Chromium answers
@@ -45,7 +46,7 @@ interface HLSVideoPlayerProps {
  * - CPU-efficient latency correction (only when needed)
  */
 export function HLSVideoPlayer({
-  streamUrl,
+  streamUrl: rawStreamUrl,
   isStreamActive = false,
   isCapturing = false,
   sx = {},
@@ -59,6 +60,17 @@ export function HLSVideoPlayer({
   onPlayerReady, // Callback when player loads successfully
   onCurrentSegmentChange, // Callback when current segment changes
 }: HLSVideoPlayerProps) {
+  // BUG-0107 step 2: /host/<name>/stream/... now sits behind the proxy's auth_request
+  // gate. This is the one sink every live/archive stream path converges on (direct,
+  // via useStream, or via EnhancedHLSPlayer's own fallback chain) — withholding the URL
+  // here until the session cookie is confirmed covers all of them without touching each
+  // call site. `keepAlive: true` because HLS re-fetches segments for as long as playback
+  // runs, unlike VNC's one-time handshake — a long-running view needs the cookie refreshed
+  // periodically or it 401s mid-stream once the short TTL elapses. No-op (and no render
+  // delay) for any URL the gate doesn't cover.
+  const hostSessionReady = useHostSession(rawStreamUrl, true);
+  const streamUrl = hostSessionReady ? rawStreamUrl : undefined;
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<any>(null);
   // Fatal-media-error bookkeeping for hls.recoverMediaError(): first strike recovers

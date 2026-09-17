@@ -1016,6 +1016,17 @@ class ActionExecutor:
         if iterator_count > 1:
             successful_iterations = len([r for r in iteration_results if r['success']])
             result_message += f" ({successful_iterations}/{iterator_count} iterations)"
+        # Keep what the controller said it did, when it said anything beyond "it worked". A
+        # selector-based action (click_element on a search term) only becomes reviewable once
+        # the result names the node it landed on — otherwise a run that tapped an ad and a run
+        # that tapped the video look identical in the report.
+        controller_detail = next(
+            (r.get('message') for r in reversed(iteration_results)
+             if r.get('success') and r.get('message') and r.get('message') != 'Success'),
+            None,
+        )
+        if controller_detail:
+            result_message += f" - {controller_detail}"
         
         # Capture screenshot (no upload)
         from shared.src.lib.utils.device_utils import capture_screenshot

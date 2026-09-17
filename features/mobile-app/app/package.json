@@ -1,0 +1,20 @@
+{
+  "private": true,
+  "name": "virtualpytest-mobile-app",
+  "version": "1.0.0",
+  "description": "Capacitor shell around the VirtualPyTest frontend + native phone-agent plugin (features/mobile-app)",
+  "scripts": {
+    "build:web": "cd ../../../frontend && ./node_modules/.bin/vite build",
+    "sync": "npx cap sync android",
+    "apk": "bash scripts/apk.sh",
+    "apk:release": "bash scripts/apk-release.sh"
+  },
+  "dependencies": {
+    "@capacitor/android": "7.6.9",
+    "@capacitor/core": "7.6.9"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "7.6.9",
+    "typescript": "5.2.2"
+  }
+}

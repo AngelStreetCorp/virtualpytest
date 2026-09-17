@@ -21,6 +21,7 @@ import {
   Article as LogsIcon,
   ErrorOutline as VersionMismatchIcon,
   Warning as ErrorBadgeIcon,
+  Lan as IpIcon,
 } from '@mui/icons-material';
 import {
   Box,
@@ -41,6 +42,7 @@ import {
 
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { DeviceFilterBar } from '../components/common/DeviceFilterBar';
+import { ServerSelector } from '../components/common/ServerSelector';
 import { DeviceInfoTooltipIcon } from '../components/common/DeviceInfoTooltipIcon';
 import { featureDeviceLinks } from '../config/features';
 import { ServiceLogsModal } from '../components/common/ServiceLogsModal';
@@ -1126,13 +1128,11 @@ const Dashboard: React.FC = () => {
                     </Tooltip>
                   ))}
                   {device.device_ip && (
-                    <Typography
-                      variant="caption"
-                      color="textSecondary"
-                      sx={{ ml: 'auto', fontFamily: 'monospace', fontSize: '0.7rem' }}
-                    >
-                      {device.device_ip}
-                    </Typography>
+                    <Tooltip title={device.device_ip}>
+                      <IpIcon
+                        sx={{ ml: 'auto', fontSize: 15, color: 'text.secondary' }}
+                      />
+                    </Tooltip>
                   )}
                 </Box>
               ))}
@@ -1407,15 +1407,25 @@ const Dashboard: React.FC = () => {
   if (isMobile || isTablet) {
     return (
       <Box>
-        <Typography variant={isMobile ? 'h5' : 'h4'} component="h1" mb={1}>
-          Dashboard
-        </Typography>
+        {!isMobile && (
+          <Typography variant="h4" component="h1" mb={1}>
+            Dashboard
+          </Typography>
+        )}
 
         {error && (
           <Alert severity="error" sx={{ mb: 1 }}>
             {error}
           </Alert>
         )}
+
+        {/* The desktop navbar carries the server picker, and mobile does not render that
+            navbar at all — so on a phone there was no way to switch server. It sits above the
+            device filters because it scopes them: the targets and models below are whichever
+            this server knows about. */}
+        <Box sx={{ mb: 1 }}>
+          <ServerSelector size="small" minWidth={160} />
+        </Box>
 
         <Box sx={{ mb: 1 }}>
           <DeviceFilterBar
@@ -1895,13 +1905,15 @@ const Dashboard: React.FC = () => {
                               >
                                 {service.label}
                               </Typography>
-                              <Chip
-                                label={service.status}
-                                size="small"
-                                color={getServiceStatusColor(service.status, service.optional)}
-                                variant="outlined"
-                                sx={{ fontSize: '0.6rem', height: '18px' }}
-                              />
+                              <Tooltip title={service.detail || ''}>
+                                <Chip
+                                  label={service.status}
+                                  size="small"
+                                  color={getServiceStatusColor(service.status, service.optional)}
+                                  variant="outlined"
+                                  sx={{ fontSize: '0.6rem', height: '18px' }}
+                                />
+                              </Tooltip>
                             </Box>
                           ))
                         )}

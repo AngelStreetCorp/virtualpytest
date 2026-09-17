@@ -4,9 +4,14 @@ services:
     env: docker
     dockerfilePath: ./backend_server/Dockerfile
     dockerContext: .
-    plan: free
+    # The public repo, on main. This used to point at a `dev` branch that no longer
+    # exists, so every Blueprint deploy tracked a branch nobody could see.
+    repo: https://github.com/AngelStreetCorp/virtualpytest
+    branch: main
+    # Free instances spin down when idle, and a control plane that cold-starts looks like
+    # a broken platform to a host trying to register or heartbeat.
+    plan: starter
     region: oregon
-    branch: dev
     envVars:
       - key: PYTHONPATH
         value: /opt/render/project/src:/opt/render/project
@@ -16,8 +21,13 @@ services:
         value: false
       - key: RENDER
         value: true
-      # Add other environment variables as needed in Render dashboard
-      # - key: GITHUB_TOKEN
-      #   sync: false  # Set this in Render dashboard for security
-      # - key: SERVER_URL
-      #   value: https://your-app-name.onrender.com 
+      # Set the rest in the Render dashboard (Environment tab), never in this file.
+      # REQUIRED, or every API call 401s / the server cannot reach its data:
+      #   SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_JWT_SECRET
+      #   API_KEY              identical on the server and every host
+      #   SERVER_URL           https://<your-app>.onrender.com
+      #   REDIS_URL            Render Key Value, or any managed Redis
+      #   CLOUDFLARE_R2_*      object storage (there is no managed MinIO)
+      # Auth posture: SERVER_OPEN_MODE=false on anything internet-facing.
+      #   SERVER_OPEN_MODE=true accepts every API call with no login.
+      # See docs/get-started/cloud-setup.md and docs/get-started/production-checklist.md. 

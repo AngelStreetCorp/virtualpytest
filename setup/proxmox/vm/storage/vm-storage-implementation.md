@@ -54,7 +54,7 @@ VirtualPyTest Storage VM provides NFS-shared storage with MinIO S3-compatible ob
 #### MinIO Setup
 - Installs MinIO server + client (`mc`)
 - Data stored on `/data` disk (not system disk)
-- Credentials: `virtualpytest` / `admin1234`
+- Credentials: `virtualpytest` / `<generated per install>`
 - Creates bucket: `virtualpytest`
 - Ports: 9000 (API), 9001 (Console)
 - Configures systemd service for auto-start
@@ -117,7 +117,7 @@ sudo ./setup/proxmox/vm/scripts/mount_nfs_shared.sh
 ### MinIO (S3-Compatible Storage)
 - **Console**: http://192.168.x.100:9001
 - **API**: http://192.168.x.100:9000
-- **Credentials**: virtualpytest / admin1234
+- **Credentials**: `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` from `.env`
 - **Bucket**: virtualpytest
 - **Data Path**: /data/minio
 
@@ -134,7 +134,7 @@ Add these to VirtualPyTest project configuration:
 # MinIO S3-Compatible Storage
 MINIO_ENDPOINT=http://192.168.x.100:9000
 MINIO_ACCESS_KEY=virtualpytest
-MINIO_SECRET_KEY=admin1234
+MINIO_SECRET_KEY=<generated per install>
 MINIO_BUCKET=virtualpytest
 MINIO_CONSOLE_URL=http://192.168.x.100:9001
 

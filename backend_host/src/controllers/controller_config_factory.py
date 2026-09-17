@@ -267,7 +267,15 @@ def _get_av_params(implementation: str, device_config: dict) -> dict:
 def _get_remote_params(implementation: str, device_config: dict) -> dict:
     """Get parameters for Remote controllers."""
     # Getting remote params for implementation: {implementation}
-    
+
+    # Feature-registered implementations (controller_registry.py) build their own
+    # params from the flat device config; a registration without a builder gets {}.
+    from backend_host.src.controllers.controller_registry import get_remote_implementation
+    registered = get_remote_implementation(implementation)
+    if registered is not None:
+        builder = registered.get('params_builder')
+        return dict(builder(device_config)) if builder else {}
+
     if implementation in ['android_mobile', 'android_tv']:
         params = {
             'device_ip': device_config.get('device_ip', '192.168.1.100'),

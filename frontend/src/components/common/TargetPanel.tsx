@@ -12,7 +12,8 @@ import {
   ListItemText,
   SelectChangeEvent,
 } from '@mui/material';
-import { Search as SearchIcon, Lock as LockIcon } from '@mui/icons-material';
+import { Search as SearchIcon, Lock as LockIcon, ErrorOutline as UnavailableIcon } from '@mui/icons-material';
+import { EllipsisText } from './EllipsisText';
 import { UserinterfaceSelector } from './UserinterfaceSelector';
 import { useDeviceFlags } from '../../hooks/useDeviceFlags';
 
@@ -34,6 +35,15 @@ export interface TargetPanelProps {
   getDevicesFromHost: (hostName: string) => Device[];
   /** Disable toggling for specific target keys (e.g., currently running). */
   isTargetDisabled?: (key: string) => boolean;
+  /**
+   * Why a disabled target cannot be picked, shown beside it.
+   *
+   * Without a reason a greyed-out row is a dead end: the user cannot tell "another script has
+   * it" from "the phone behind this slot is asleep", and only the second is something they can
+   * go and fix. Optional — a target disabled for a reason core already makes obvious (a run in
+   * progress) needs none.
+   */
+  getDisabledReason?: (key: string) => string | undefined;
   /** Force visual checked state for specific target keys without selecting them for new runs. */
   isTargetForceChecked?: (key: string) => boolean;
   /** Hide host rows that are incompatible with the selected executable. */
@@ -62,6 +72,7 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
   allHosts,
   getDevicesFromHost,
   isTargetDisabled,
+  getDisabledReason,
   isTargetForceChecked,
   isTargetLocked,
   getLockTooltip,
@@ -319,6 +330,7 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
             const isSelected = selectedDevices.has(target.key) || (isTargetForceChecked?.(target.key) ?? false);
             const isDisabled = isTargetDisabled?.(target.key) ?? false;
             const isLocked = isTargetLocked?.(target.key) ?? false;
+            const disabledReason = isDisabled ? getDisabledReason?.(target.key) : undefined;
             const userinterface = selectedDevices.get(target.key) || '';
 
             return (
@@ -347,16 +359,13 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
                       },
                     }}
                   />
-                  <Typography
+                  <EllipsisText
                     variant="body2"
                     sx={{
                       minWidth: 0,
                       flex: '0 1 34%',
                       fontSize: '0.8rem',
                       cursor: isDisabled ? 'default' : 'pointer',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
                     }}
                     onClick={() => {
                       if (!isDisabled) {
@@ -365,27 +374,25 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
                     }}
                   >
                     {target.targetLabel}
-                  </Typography>
+                  </EllipsisText>
                   {isLocked && (
                     <Tooltip title={getLockTooltip?.(target.key) || 'Locked'} arrow>
                       <LockIcon sx={{ fontSize: 14, color: 'warning.main', flexShrink: 0 }} />
                     </Tooltip>
                   )}
-                  <Typography
+                  {!isLocked && disabledReason && (
+                    <Tooltip title={disabledReason} arrow>
+                      <UnavailableIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0 }} />
+                    </Tooltip>
+                  )}
+                  <EllipsisText
                     variant="caption"
                     color="text.secondary"
-                    sx={{
-                      minWidth: 0,
-                      flex: '1 1 42%',
-                      fontSize: '0.7rem',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
+                    sx={{ minWidth: 0, flex: '1 1 42%', fontSize: '0.7rem' }}
                   >
                     {target.hostName}
-                  </Typography>
-                  <Typography
+                  </EllipsisText>
+                  <EllipsisText
                     variant="caption"
                     color="text.secondary"
                     sx={{
@@ -394,13 +401,10 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
                       fontSize: '0.7rem',
                       textAlign: 'right',
                       mr: 1,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
                     }}
                   >
                     {target.modelLabel}
-                  </Typography>
+                  </EllipsisText>
                 </Box>
 
                 {isSelected && showUserinterfaceSelector && (

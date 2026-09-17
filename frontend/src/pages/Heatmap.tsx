@@ -36,6 +36,7 @@ const HeatmapContent: React.FC = () => {
     currentIndex,
     setCurrentIndex,
     analysisData,
+    loadedItem,
     hasIncidents,
     goToLatest,
     hasDataError,
@@ -57,6 +58,8 @@ const HeatmapContent: React.FC = () => {
   const [streamModalOpen, setStreamModalOpen] = useState(false);
   const [streamModalHost, setStreamModalHost] = useState<Host | null>(null);
   const [streamModalDevice, setStreamModalDevice] = useState<Device | null>(null);
+  // The loader can fall back a few minutes, so the header names the frame on screen.
+  const displayedItem = loadedItem || (hasDataError ? null : timeline[currentIndex]);
   const filteredDevices = getFilteredDevices(analysisData?.devices || [], filter);
   const hasAnalysisRows = filteredDevices.some((device: any) => device.analysis_json && typeof device.analysis_json === 'object');
 
@@ -122,10 +125,16 @@ const HeatmapContent: React.FC = () => {
         </MuiAlert>
       )}
 
-      {/* Stale Data Warning */}
-      {hasDataError && analysisData && (
+      {/* Missing frame notice. Files are keyed by HHMM in a 24h circular buffer, so a
+          minute the processor skipped still holds the previous day's frame; the hook
+          rejects it rather than passing yesterday's mosaic off as this minute's. */}
+      {hasDataError && (
         <MuiAlert severity="warning" sx={{ mb: 1 }}>
-          Heatmap data may be outdated. The backend processor might not be generating new data.
+          No heatmap was generated for{' '}
+          {timeline[currentIndex]
+            ? timeline[currentIndex].displayTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })
+            : 'this minute'}
+          . Check the Heatmap service on the Dashboard if this covers more than a minute or two.
         </MuiAlert>
       )}
 
@@ -137,9 +146,9 @@ const HeatmapContent: React.FC = () => {
               <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
                 <HeatmapIcon color="primary" />
                 <Typography variant={isMobile ? 'subtitle1' : 'h6'}>24h Heatmap</Typography>
-                {timeline[currentIndex] && (
+                {displayedItem && (
                   <Typography variant="body2" sx={{ ml: isMobile ? 0 : 1, color: 'text.primary' }}>
-                    {timeline[currentIndex].isToday ? 'Today' : 'Yesterday'} {timeline[currentIndex].displayTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                    {displayedItem.isToday ? 'Today' : 'Yesterday'} {displayedItem.displayTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
                   </Typography>
                 )}
                 {!isMobile && (
@@ -208,6 +217,7 @@ const HeatmapContent: React.FC = () => {
           onCellClick={handleOverlayClick}
           hasIncidents={hasIncidents()}
           hasDataError={hasDataError}
+          displayItem={loadedItem}
           analysisData={analysisData}
           filter={filter}
           getMosaicUrl={getMosaicUrl}
@@ -215,28 +225,33 @@ const HeatmapContent: React.FC = () => {
         />
       </Box>
 
-      {/* Analysis Section */}
-      {hasAnalysisRows ? (
-        <Box sx={{ mb: 3 }}>
-          <HeatMapAnalysisSection
-            images={filteredDevices}
-            analysisExpanded={analysisExpanded}
-            onToggleExpanded={() => setAnalysisExpanded(!analysisExpanded)}
-            frameTimestamp={analysisData?.timestamp || timeline[currentIndex]?.displayTime?.toISOString()}
-          />
-        </Box>
-      ) : (
-        <Card sx={{ mb: 3 }}>
-          <CardContent sx={{ py: 1.5 }}>
-            <Typography variant="body2" color="text.secondary">
-              No device analysis available for this frame.
-            </Typography>
-          </CardContent>
-        </Card>
-      )}
+      {/* Analysis + History sections are dense, desktop-oriented panels — hidden on
+          mobile for now rather than squeezed in, until they get a mobile design. */}
+      {!isMobile && (
+        <>
+          {hasAnalysisRows ? (
+            <Box sx={{ mb: 3 }}>
+              <HeatMapAnalysisSection
+                images={filteredDevices}
+                analysisExpanded={analysisExpanded}
+                onToggleExpanded={() => setAnalysisExpanded(!analysisExpanded)}
+                frameTimestamp={analysisData?.timestamp || timeline[currentIndex]?.displayTime?.toISOString()}
+              />
+            </Box>
+          ) : (
+            <Card sx={{ mb: 3 }}>
+              <CardContent sx={{ py: 1.5 }}>
+                <Typography variant="body2" color="text.secondary">
+                  No device analysis available for this frame.
+                </Typography>
+              </CardContent>
+            </Card>
+          )}
 
-      {/* History Section */}
-      <HeatMapHistory ref={historyRef} />
+          {/* History Section */}
+          <HeatMapHistory ref={historyRef} />
+        </>
+      )}
 
       {/* Freeze Modal */}
       {/* Freeze modal removed (freeze click disabled) */}

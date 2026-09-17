@@ -188,8 +188,7 @@ export const LoginPage: React.FC = () => {
           flexDirection: 'column',
           alignItems: 'center',
           justifyContent: 'flex-start',
-          minHeight: '100vh',
-          pt: 8,
+          pt: { xs: 3, sm: 8 },
           pb: 2,
         }}
       >

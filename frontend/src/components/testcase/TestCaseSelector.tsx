@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import {
   Box, Chip, Typography, CircularProgress, Paper,
-  List, ListItem, ListItemButton, IconButton, Tooltip,
+  List, ListItem, ListItemButton, IconButton, Tooltip, Alert,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -486,9 +486,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
   // Render error state
   if (error) {
     return (
-      <Box sx={{ p: 2, bgcolor: 'error.light', borderRadius: 1 }}>
-        <Typography color="error">{error}</Typography>
-      </Box>
+      <Alert severity="error">{error}</Alert>
     );
   }
 
@@ -571,7 +569,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                       }}
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', minWidth: 0 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: '1 1 48%', minWidth: 0 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: isMobile ? '1 1 70%' : '1 1 48%', minWidth: 0 }}>
                           <Chip
                             icon={item.type === 'script' ? <ScriptIcon /> : undefined}
                             label={item.type === 'testcase' ? 'TC' : item.type === 'virtual' ? 'VS' : 'S'}
@@ -634,7 +632,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                           })()}
                         </Box>
 
-                        <Box sx={{ flex: '0 1 24%', minWidth: 0 }}>
+                        <Box sx={{ flex: '0 1 24%', minWidth: 0, display: isMobile ? 'none' : 'block' }}>
                           {folderLabel ? (
                             <Typography
                               variant="caption"
@@ -742,24 +740,28 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                           </Tooltip>
                         )}
 
-                        <IconButton
-                          size="small"
-                          onClick={(e) => toggleVisibility(e, item)}
-                          sx={{
-                            p: 0.5,
-                            ml: 'auto',
-                            flexShrink: 0,
-                            color: isSelected ? 'primary.contrastText' : 'text.secondary',
-                            '&:hover': {
-                              bgcolor: isSelected ? 'rgba(255,255,255,0.2)' : 'action.hover'
-                            },
-                          }}
-                        >
-                          {isHidden ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-                        </IconButton>
+                        {/* Visibility/delete are power-user row actions with no room on
+                            mobile — hidden there so the actual name has space to show. */}
+                        {!isMobile && (
+                          <IconButton
+                            size="small"
+                            onClick={(e) => toggleVisibility(e, item)}
+                            sx={{
+                              p: 0.5,
+                              ml: 'auto',
+                              flexShrink: 0,
+                              color: isSelected ? 'primary.contrastText' : 'text.secondary',
+                              '&:hover': {
+                                bgcolor: isSelected ? 'rgba(255,255,255,0.2)' : 'action.hover'
+                              },
+                            }}
+                          >
+                            {isHidden ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                          </IconButton>
+                        )}
 
                         {/* Delete Button (Test Cases only) */}
-                        {isTestCase && onDelete && (
+                        {!isMobile && isTestCase && onDelete && (
                           <IconButton
                             size="small"
                             onClick={(e) => handleDeleteClick(e, item)}

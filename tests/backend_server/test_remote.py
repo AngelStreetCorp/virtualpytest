@@ -73,7 +73,7 @@ def test_stream_tap_unknown_host_returns_400(base_url, api_headers, verify_ssl, 
     assert body.get("success") is False
 
 
-@pytest.mark.skipif(not REAL_HOST, reason="Set REMOTE_TEST_HOST to enable hardware reads")
+@pytest.mark.manual  # hardware read: set REMOTE_TEST_HOST and run with -m manual
 def test_take_screenshot_from_real_device(base_url, api_headers, verify_ssl, request_timeout):
     """The configured Android TV device returns a base64 PNG screenshot."""
     response = requests.post(
@@ -90,7 +90,7 @@ def test_take_screenshot_from_real_device(base_url, api_headers, verify_ssl, req
     assert len(body["screenshot"]) > 100
 
 
-@pytest.mark.skipif(not REAL_HOST, reason="Set REMOTE_TEST_HOST to enable hardware reads")
+@pytest.mark.manual  # hardware read: set REMOTE_TEST_HOST and run with -m manual
 def test_screenshot_and_dump_from_real_device(base_url, api_headers, verify_ssl, request_timeout):
     """Only asserts the
     screenshot field — this controller type doesn't include a separate UI
@@ -109,7 +109,7 @@ def test_screenshot_and_dump_from_real_device(base_url, api_headers, verify_ssl,
     assert isinstance(body.get("screenshot"), str)
 
 
-@pytest.mark.skipif(not REAL_HOST, reason="Set REMOTE_TEST_HOST to enable hardware reads")
+@pytest.mark.manual  # hardware read: set REMOTE_TEST_HOST and run with -m manual
 def test_get_apps_from_real_device(base_url, api_headers, verify_ssl, request_timeout):
     """Regression for an Android TV app-listing bug:
     android_tv.py's get_installed_apps() pre-converted to
@@ -136,21 +136,3 @@ def test_get_apps_from_real_device(base_url, api_headers, verify_ssl, request_ti
     if apps:
         assert "packageName" in apps[0]
 
-
-@pytest.mark.skip(
-    reason="Visibly changes what's on a real, possibly-shared device's screen "
-    "on every CI run (tap/click) or simulates input — deliberately not run in "
-    "the every-push regression suite. Candidate for a separate, manually- or "
-    "schedule-triggered hardware suite instead of a permanent skip; see "
-    "tests/docs/testing-strategy.md."
-)
-@pytest.mark.parametrize("scenario", [
-    "click_element_on_real_device",
-    "tap_coordinates_on_real_device",
-    "execute_command_on_real_device",
-    "dump_ui_from_real_device",
-])
-def test_remote_state_changing_actions_not_run_in_regression_suite(scenario):
-    """These drive a real device's UI (not just read from it) and are
-    intentionally excluded from the push/PR-triggered suite even though
-    hardware is available — see the skip reason."""

@@ -174,11 +174,16 @@ def execute(workspace_id: str = None,
     
     try:
         import os
+        from shared.src.lib.utils.build_url_utils import server_auth_headers
         server_url = os.getenv('BACKEND_SERVER_URL', 'http://localhost:5109')
-        
-        # Call existing /server/postman/test endpoint (already handles variables, substitution, execution)
+
+        # Call existing /server/postman/test endpoint (already handles variables, substitution, execution).
+        # host -> server is a service call: it carries the shared X-API-Key, never a user JWT
+        # (docs/agent/platform/SERVER_AUTH.md). Without it this 401s on any deployment that
+        # enforces login, and on an open-mode one now that open mode waives only the browser login.
         response = requests.post(  # nosec B113 - timeout is set below (expression, not a literal)
             f'{server_url}/server/postman/test',
+            headers=server_auth_headers(),
             json={
                 'workspaceId': workspace_id,
                 'environmentId': environment_id or None,

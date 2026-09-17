@@ -90,3 +90,41 @@ def register_feature_blueprints(app, part: str) -> int:
             import traceback
             traceback.print_exc()
     return count
+
+
+def register_feature_controllers(part: str = 'backend_host') -> int:
+    """Import features.<name>.<part> and call its optional register_controllers().
+
+    The no-Flask sibling of register_feature_blueprints. Scripts run as their own
+    subprocess (shared/src/lib/executors/script_executor.py), so they build a Host and
+    its controllers with no app to register against — a feature that contributes a
+    controller has to be given a second chance here or its devices come up with that
+    controller missing. A feature without the function is silently skipped, and a
+    feature that already registered through register(app) is expected to make its
+    register_controllers() a no-op (the app-side registration is the better one: it
+    holds live in-process state a subprocess can only reach over the network).
+    """
+    count = 0
+    for feat in enabled_features():
+        name = feat['name']
+        if not os.path.isfile(os.path.join(feat['path'], part, '__init__.py')):
+            continue
+        try:
+            module = importlib.import_module(f"features.{name}.{part}")
+        except Exception as e:
+            print(f"[@features] ❌ {name}: {part} failed to import: {e}")
+            continue
+        hook = getattr(module, 'register_controllers', None)
+        if not callable(hook):
+            continue
+        try:
+            hook()
+            count += 1
+            # "ran", not "registered": a feature that already registered through
+            # register(app) is expected to make this a no-op, and only it can tell.
+            print(f"[@features] ✅ {name}: {part} register_controllers() ran")
+        except Exception as e:
+            print(f"[@features] ❌ {name}: {part} controllers failed to register: {e}")
+            import traceback
+            traceback.print_exc()
+    return count

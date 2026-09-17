@@ -813,9 +813,11 @@ class TextVerificationController:
                 print(f"[@controller:TextVerification] No source image provided, capturing screenshot automatically")
                 source_path = self.av_controller.take_screenshot()
                 if not source_path or not os.path.exists(source_path):
+                    reason = getattr(self.av_controller, 'last_screenshot_error', None)
                     return {
                         'success': False,
-                        'message': 'Failed to capture screenshot automatically for text verification',
+                        'message': 'Failed to capture screenshot automatically for text verification'
+                                   + (f': {reason}' if reason else ''),
                         'screenshot_path': None
                     }
                 print(f"[@controller:TextVerification] Using automatically captured screenshot: {source_path}")

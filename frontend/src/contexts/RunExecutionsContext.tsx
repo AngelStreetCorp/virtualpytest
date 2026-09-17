@@ -11,6 +11,7 @@ import { io, Socket } from 'socket.io-client';
 
 import { DeploymentExecution, useDeployment } from '../hooks/useDeployment';
 import { useWorkspaceContext } from './workspace/WorkspaceContext';
+import { getServerBaseUrl } from '../utils/buildUrlUtils';
 
 type SystemUpdateHandler = (event: any) => void;
 
@@ -137,7 +138,10 @@ export const RunExecutionsProvider: React.FC<{ children: React.ReactNode }> = ({
   useEffect(() => {
     if (socketRef.current) return;
 
-    const socket: Socket = io(`${window.location.origin}/system`, {
+    const socket: Socket = // The server, not the page. These are the same host on the web, but the mobile app serves
+    // the bundle from its own https://localhost, where a socket aimed at the page origin is
+    // refused forever (net::ERR_CONNECTION_REFUSED) and the app never learns any device state.
+    io(`${getServerBaseUrl()}/system`, {
       transports: ['websocket'],
       reconnection: true,
     });

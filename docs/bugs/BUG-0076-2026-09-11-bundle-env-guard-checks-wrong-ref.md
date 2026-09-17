@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | release / packaging (`setup/proxmox/node/build_customer_bundle.sh`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 8887                                                   |
 | Commit    | this commit                                                  |
 
 ---

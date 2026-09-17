@@ -94,18 +94,24 @@ class VideoVerificationHelpers:
             motion_threshold = float(params.get('motion_threshold', 5.0))
             duration = int(params.get('duration', 3))
             timeout = int(params.get('timeout', 10))
+            # Without this the check always measured the centre 60% of the frame,
+            # which is the wrong place on any screen where the player does not fill
+            # it — a portrait phone puts the video across the top and static page
+            # furniture in the middle.
+            area = params.get('area') or None
             
             if command == 'WaitForVideoToAppear':
-                success = self.controller.waitForVideoToAppear(motion_threshold, duration, timeout)
+                success = self.controller.waitForVideoToAppear(motion_threshold, duration, timeout, area)
                 message = f"Video {'appeared' if success else 'did not appear'} (motion threshold: {motion_threshold}%)"
             else:  # WaitForVideoToDisappear
-                success = self.controller.waitForVideoToDisappear(motion_threshold, duration, timeout)
+                success = self.controller.waitForVideoToDisappear(motion_threshold, duration, timeout, area)
                 message = f"Video {'disappeared' if success else 'still present'} (motion threshold: {motion_threshold}%)"
             
             details = {
                 'motion_threshold': motion_threshold,
                 'duration': duration,
-                'timeout': timeout
+                'timeout': timeout,
+                'area': area
             }
             
             return self._create_success_result(success, message, details)
@@ -497,6 +503,12 @@ class VideoVerificationHelpers:
             {
                 'command': 'WaitForVideoToAppear',
                 'params': {
+                    'area': create_param(
+                        ParamType.AREA,
+                        required=False,
+                        default=None,
+                        description="Region to restrict motion to; defaults to centre 60% - set it wherever the player does not fill the frame (a portrait phone draws it across the top)"
+                    ),
                     'motion_threshold': create_param(
                         ParamType.NUMBER,
                         required=False,
@@ -526,6 +538,12 @@ class VideoVerificationHelpers:
             {
                 'command': 'WaitForVideoToDisappear',
                 'params': {
+                    'area': create_param(
+                        ParamType.AREA,
+                        required=False,
+                        default=None,
+                        description="Region to restrict motion to; defaults to centre 60% - set it wherever the player does not fill the frame (a portrait phone draws it across the top)"
+                    ),
                     'motion_threshold': create_param(
                         ParamType.NUMBER,
                         required=False,

@@ -111,39 +111,4 @@ def test_save_disambiguation_requires_json_body(base_url, request_timeout, verif
 # real API credits on every run.
 # ---------------------------------------------------------------------------
 
-import pytest
 
-
-@pytest.mark.skip(reason="Proxies to backend_host AI compatibility analysis - requires a live host, no dry-run mode")
-def test_analyze_compatibility_happy_path():
-    pass
-
-
-@pytest.mark.skip(reason="Proxies to backend_host and triggers real LLM plan generation - would spend API credits")
-def test_generate_plan_happy_path():
-    pass
-
-
-@pytest.mark.skip(reason="Proxies to backend_host execution status lookup - requires a live host + in-flight execution/task_id")
-def test_get_status_happy_path():
-    pass
-
-
-@pytest.mark.skip(reason="Proxies to backend_host to stop a real AI execution - requires a live host + in-flight execution")
-def test_stop_execution_happy_path():
-    pass
-
-
-@pytest.mark.skip(reason="Deletes real rows from the shared ai_graph_cache table for team_id - destructive, not repeatable-safe")
-def test_reset_cache_happy_path():
-    pass
-
-
-@pytest.mark.skip(reason="Proxies to backend_host and triggers real LLM prompt disambiguation analysis - would spend API credits")
-def test_analyze_prompt_happy_path():
-    pass
-
-
-@pytest.mark.skip(reason="Proxies to backend_host to persist disambiguation preferences - requires a live host")
-def test_save_disambiguation_happy_path():
-    pass

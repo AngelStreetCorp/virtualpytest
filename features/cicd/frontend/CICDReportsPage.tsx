@@ -267,8 +267,15 @@ const JOB_DESCRIPTION: Record<string, string> = {
     'Runs the web/* VirtualPyTest scripts (Dailymotion playback check, browser-use task) in a browser on the CI runner itself. Fails when a script reports SCRIPT_SUCCESS:false.',
 };
 
-// All jobs expected in a complete run — used to detect in-progress runs
-const EXPECTED_JOBS = ['lint', 'backend-server-tests', 'frontend-component-tests', 'e2e-smoke', 'e2e-pages', 'e2e-viewport', 'web-script-local-debug', 'api-routes'];
+// Every job a complete run reports. This is the DENOMINATOR of the x/y chip, not the number of
+// rows that happened to arrive: a job whose result never reaches cicd.ci_jobs used to shrink the
+// total instead of showing as missing, so a run with all ten green read "9/9" when e2e-viewport's
+// insert lost a race with the ci_runs row it depends on (fixed in regression.yml, but the display
+// must not depend on that fix holding). A name here with no row renders as a grey square and a
+// "no result reported" row — visibly absent, never silently subtracted.
+// KEEP IN SYNC with the job ids in .github/workflows/regression.yml (the same list JOB_DESCRIPTION
+// documents); the two `typecheck`/`vpt-smoke` entries were missing here while both jobs existed.
+const EXPECTED_JOBS = ['lint', 'typecheck', 'backend-server-tests', 'frontend-component-tests', 'e2e-smoke', 'e2e-pages', 'e2e-viewport', 'web-script-local-debug', 'api-routes', 'vpt-smoke'];
 
 const CATEGORY_COLOR: Record<string, 'default' | 'primary' | 'secondary' | 'info' | 'warning'> = {
   browser: 'primary',
@@ -794,10 +801,14 @@ const CICDReports: React.FC = () => {
                   const primaryReport = reportJobs[0];
                   const passCount = jobEntries.filter(([, j]) => j.status === 'success').length;
                   const knownJobNames = new Set(jobEntries.map(([n]) => n));
-                  // Show pending slots only for the latest run while it's in progress
-                  const pendingJobs = run.run === runs[0]?.run && latestRunInProgress
-                    ? EXPECTED_JOBS.filter((j) => !knownJobNames.has(j))
-                    : [];
+                  // Every expected job with no row — whatever the reason. On the latest run while it
+                  // is still going that means "not finished yet"; on a finished run it means the
+                  // result never arrived, which is exactly the case that must not disappear.
+                  const missingJobs = EXPECTED_JOBS.filter((j) => !knownJobNames.has(j));
+                  const isLatestInProgress = run.run === runs[0]?.run && latestRunInProgress;
+                  const pendingJobs = missingJobs;
+                  // The total is what a complete run owes, never just what turned up.
+                  const jobsExpected = Math.max(EXPECTED_JOBS.length, jobEntries.length);
 
                   return (
                     <React.Fragment key={run.run}>
@@ -871,7 +882,7 @@ const CICDReports: React.FC = () => {
                           {jobEntries.length > 0 ? (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                               <Typography variant="caption" color="text.secondary" sx={{ minWidth: 30 }}>
-                                {passCount}/{jobEntries.length}
+                                {passCount}/{jobsExpected}
                               </Typography>
                               <Box sx={{ display: 'flex', gap: 0.5 }}>
                                 {jobEntries.map(([name, job]) => (
@@ -885,6 +896,23 @@ const CICDReports: React.FC = () => {
                                           job.status === 'success' ? 'success.main' :
                                           job.status === 'failure' ? 'error.main' : 'text.disabled',
                                         opacity: job.status === 'skipped' || job.status === 'cancelled' ? 0.3 : 1,
+                                        flexShrink: 0,
+                                      }}
+                                    />
+                                  </Tooltip>
+                                ))}
+                                {missingJobs.map((name) => (
+                                  <Tooltip
+                                    key={`missing-${name}`}
+                                    title={`${name}: ${isLatestInProgress ? 'not finished yet' : 'no result reported'}`}
+                                  >
+                                    <Box
+                                      sx={{
+                                        width: 10,
+                                        height: 10,
+                                        borderRadius: '2px',
+                                        border: '1px dashed',
+                                        borderColor: 'text.disabled',
                                         flexShrink: 0,
                                       }}
                                     />
@@ -980,7 +1008,9 @@ const CICDReports: React.FC = () => {
                                         </TableCell>
                                         <TableCell width={90} />
                                         <TableCell width={80}>
-                                          <Typography variant="caption" color="text.disabled">pending</Typography>
+                                          <Typography variant="caption" color="text.disabled">
+                                            {isLatestInProgress ? 'pending' : 'no result'}
+                                          </Typography>
                                         </TableCell>
                                         <TableCell align="right" sx={{ width: 60, maxWidth: 60 }} />
                                       </TableRow>

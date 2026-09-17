@@ -31,12 +31,19 @@ class TaskManager:
         
         return task_id
     
-    def complete_task(self, task_id: str, result: Dict[str, Any], error: str = None):
-        """Mark task as completed with result"""
+    def complete_task(self, task_id: str, result: Dict[str, Any], error: str = None, success: bool = None):
+        """Mark task as completed with result.
+
+        `success` is the caller's verdict, for when a bare `error` does not
+        capture the outcome: a host callback can report no transport error and
+        still describe a run that never happened (BUG-0089). Callers that have
+        no such verdict omit it and keep the original "error means failed" rule.
+        """
         with self._lock:
             if task_id in self._tasks:
+                failed = bool(error) if success is None else not success
                 self._tasks[task_id].update({
-                    'status': 'completed' if not error else 'failed',
+                    'status': 'failed' if failed else 'completed',
                     'completed_at': time.time(),
                     'result': result,
                     'error': error

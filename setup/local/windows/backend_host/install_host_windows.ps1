@@ -29,7 +29,9 @@ $script:LOGS_PATH = Join-Path $script:INSTALL_PATH "logs"
 $script:NOVNC_PATH = Join-Path $script:INSTALL_PATH "novnc"
 $script:NOVNC_VERSION = "1.5.0"
 $script:NOVNC_ZIP_URL = "https://github.com/novnc/noVNC/archive/refs/tags/v$($script:NOVNC_VERSION).zip"
-$script:DEFAULT_HOST_VNC_PASSWORD = "admin1234"
+# No shipped default: it used to be one literal shared by every install of a public repo.
+# Get-HostVncPassword generates one and writes it to .env when none is configured.
+$script:DEFAULT_HOST_VNC_PASSWORD = ""
 $script:HOST_VNC_PORT = 5900
 $script:VENV_PATH = Join-Path $script:PROJECT_ROOT "venv"
 $script:PYTHON_EXE = Join-Path $script:VENV_PATH "Scripts\python.exe"
@@ -166,16 +168,34 @@ function Setup-NoVNC {
 }
 
 function Get-HostVncPassword {
-    # TightVNC only uses first 8 chars; match Linux default.
+    # TightVNC only uses the first 8 characters.
     $pwd = $script:DEFAULT_HOST_VNC_PASSWORD
+    $envFile = Join-Path $script:BACKEND_HOST_PATH "src\\.env"
     try {
-        $envFile = Join-Path $script:BACKEND_HOST_PATH "src\\.env"
         if (Test-Path $envFile) {
             $line = (Get-Content -Path $envFile -ErrorAction SilentlyContinue) | Where-Object { $_ -match '^HOST_VNC_PASSWORD=' } | Select-Object -First 1
             if ($line) { $pwd = (($line -split '=', 2)[1]).Trim(" `"'") }
         }
     } catch { }
-    if (-not $pwd) { $pwd = $script:DEFAULT_HOST_VNC_PASSWORD }
+    if ((-not $pwd) -or ($pwd -eq "CHANGE_ME")) {
+        # Generate one and persist it, so it survives a re-run instead of changing
+        # every time. There is deliberately no literal to fall back on.
+        $bytes = New-Object byte[] 16
+        [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+        $pwd = (([System.Convert]::ToBase64String($bytes)) -replace '[^A-Za-z0-9]', '')
+        if ($pwd.Length -gt 8) { $pwd = $pwd.Substring(0, 8) }
+        try {
+            if (Test-Path $envFile) {
+                $content = Get-Content -Path $envFile
+                if ($content | Where-Object { $_ -match '^HOST_VNC_PASSWORD=' }) {
+                    ($content -replace '^HOST_VNC_PASSWORD=.*', "HOST_VNC_PASSWORD=$pwd") | Set-Content -Path $envFile
+                } else {
+                    Add-Content -Path $envFile -Value "HOST_VNC_PASSWORD=$pwd"
+                }
+                Write-Log "Generated a VNC password into $envFile (HOST_VNC_PASSWORD)"
+            }
+        } catch { Write-Log "Could not persist the generated VNC password to $envFile" "WARNING" }
+    }
     if ($pwd.Length -gt 8) { $pwd = $pwd.Substring(0, 8) }
     return $pwd
 }
@@ -1020,6 +1040,7 @@ function Setup-VNC {
         }
 
         Write-Log "TightVNC configured on port $($script:HOST_VNC_PORT) (no authentication)"
+        Write-Log "VNC has NO authentication on this host — the firewall rule is limited to the local subnet. Keep this machine off untrusted networks." "WARNING"
     } else {
         Write-Log "TightVNC not installed, skipping VNC configuration" "WARNING"
     }
@@ -1055,9 +1076,14 @@ function Setup-Firewall {
             Description = "VirtualPyTest Host API"
         },
         @{
+            # TightVNC runs here without authentication (see Configure-TightVNC for why),
+            # so this rule is scoped to the local subnet. Opening an unauthenticated
+            # remote desktop to every routable address is not something a hardening
+            # checklist can make safe after the fact.
             Name = "VirtualPyTest VNC"
             Port = $script:HOST_VNC_PORT
-            Description = "VirtualPyTest VNC Server"
+            Description = "VirtualPyTest VNC Server (LAN only — no VNC authentication)"
+            RemoteAddress = "LocalSubnet"
         },
         @{
             Name = "VirtualPyTest noVNC"
@@ -1081,9 +1107,13 @@ function Setup-Firewall {
         Remove-NetFirewallRule -DisplayName $rule.Name -ErrorAction SilentlyContinue | Out-Null
 
         # Create new rule (suppress output)
-        New-NetFirewallRule -DisplayName $rule.Name -Direction Inbound -Protocol TCP -LocalPort $rule.Port -Action Allow -Description $rule.Description | Out-Null
-
-        Write-Log "Created firewall rule: $($rule.Name) (Port $($rule.Port))"
+        if ($rule.RemoteAddress) {
+            New-NetFirewallRule -DisplayName $rule.Name -Direction Inbound -Protocol TCP -LocalPort $rule.Port -Action Allow -Description $rule.Description -RemoteAddress $rule.RemoteAddress | Out-Null
+            Write-Log "Created firewall rule: $($rule.Name) (Port $($rule.Port), $($rule.RemoteAddress) only)"
+        } else {
+            New-NetFirewallRule -DisplayName $rule.Name -Direction Inbound -Protocol TCP -LocalPort $rule.Port -Action Allow -Description $rule.Description | Out-Null
+            Write-Log "Created firewall rule: $($rule.Name) (Port $($rule.Port))"
+        }
     }
 
     Write-Log "Windows Firewall configured"

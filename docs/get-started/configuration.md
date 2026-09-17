@@ -26,7 +26,7 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | 54322 | Postgres | ✓ | ✓ |
 | 54323 | Supabase Studio | — (Studio is on 54321) | ✓ |
 | 9000 / 9001 | MinIO S3 / console | ✓ | ✓ |
-| 6379 | Redis | internal only | ✓ (password `admin1234`) |
+| 6379 | Redis | internal only | ✓ (`REDIS_PASSWORD`, generated per install) |
 
 ## Server — `.env`
 
@@ -37,17 +37,18 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | `SERVER_PORT` | listen port | `5109` |
 | `API_KEY` | shared secret between the server and every host (`X-API-Key`). **Identical on all hosts.** | generated |
 | `FLASK_SECRET_KEY` | Flask session secret | generated |
-| `SERVER_OPEN_MODE` | `true` = no authentication on `/server/*` (default for fresh installs, trusted network only) | `true`, installer |
+| `SERVER_OPEN_MODE` | `true` = no browser **login** on `/server/*` (default for fresh installs, trusted network only). Direct non-browser calls still send `X-API-Key` when `API_KEY` is set | `true`, installer |
 | `SUPABASE_JWT_SECRET` | enables login: browser JWTs are verified with it. Ignored while `SERVER_OPEN_MODE=true` | from the Supabase install |
 | `SERVER_PUBLIC_KEY` / `SERVER_PUBLIC_ROLE` | no-Supabase deployments: weak key the SPA sends as `X-Server-Key` (must differ from `API_KEY`) | unset |
+| `CORS_ALLOWED_ORIGINS` | comma-separated browser origins allowed to call `/server/*` cross-origin; only needed when the frontend is on a different origin than this server. **No `*` fallback** (BUG-0092) | the vendor's own known frontend domains |
 | `AUTO_SIGN_ENABLED` / `AUTO_SIGN_TOKEN` / `AUTO_SIGN_ROLE` | CI / agent-browser bypass of the login | `false` |
 | `SUPABASE_URL` | Supabase API base (REST + auth) | `http://localhost:54321` (VM) · `http://api-gw:8000` (Docker, internal) |
 | `SUPABASE_ANON_KEY` | public key (row-level security applies) | from the Supabase install |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-side key, bypasses RLS. Never in the frontend. | from the Supabase install |
 | `SUPABASE_DB_URI` | direct Postgres URI — Grafana datasource and backups only | `postgresql://postgres:postgres@localhost:54322/postgres` |
 | `CLOUDFLARE_R2_ENDPOINT` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `_BUCKET` / `_PUBLIC_URL` | Cloudflare R2 object storage. Takes precedence over MinIO when the three credentials are set. `_PUBLIC_URL` set = direct links, unset = presigned links | unset |
-| `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET` / `MINIO_PUBLIC_URL` | self-hosted S3 (MinIO). `MINIO_PUBLIC_URL` is what browsers use | `http://localhost:9000`, `admin` / `admin1234`, `virtualpytest` |
-| `REDIS_URL` (+ `REDIS_TOKEN` for Upstash) | alert / script queues | `redis://:admin1234@localhost:6379/0` |
+| `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET` / `MINIO_PUBLIC_URL` | self-hosted S3 (MinIO). `MINIO_PUBLIC_URL` is what browsers use | `http://localhost:9000`, `admin` / generated per install, `virtualpytest` |
+| `REDIS_URL` (+ `REDIS_TOKEN` for Upstash) | alert / script queues | `redis://:<REDIS_PASSWORD>@localhost:6379/0` (password generated per install) |
 | `GRAFANA_URL` | internal Grafana base the server calls (with sub-path when behind nginx) | `http://localhost:3000` |
 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | Grafana admin the server uses | `admin` / generated |
 | `AI_AGENT_PROVIDER` / `AI_AGENT_MODEL` / `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `MINIMAX_API_KEY` | AI features (optional) | empty = AI features off |

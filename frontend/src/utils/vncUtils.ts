@@ -1,3 +1,25 @@
+/** The remote desktop's fixed size. calculateVncScaling keeps the iframe's layout box at
+ *  this and shrinks only the render, which is why anything centring the iframe itself has to
+ *  reason about a 1440x847 box (see BUG-0104). */
+const VNC_RESOLUTION = { width: 1440, height: 847 };
+
+/**
+ * The size the scaled render actually occupies — i.e. what you must size a wrapper to if you
+ * want to centre it. Centre THAT wrapper, never the iframe: the iframe's own box is the full
+ * remote desktop, so as a flex item it gets shrunk and its top-left lands off the card, which
+ * is how the previews turned into black rectangles the first time this was attempted.
+ */
+export const vncScaledSize = (targetSize: { width: number; height: number }) => {
+  const scale = Math.min(
+    targetSize.width / VNC_RESOLUTION.width,
+    targetSize.height / VNC_RESOLUTION.height,
+  );
+  return {
+    width: Math.round(VNC_RESOLUTION.width * scale),
+    height: Math.round(VNC_RESOLUTION.height * scale),
+  };
+};
+
 export const calculateVncScaling = (targetSize: { width: number; height: number }) => {
   const vncResolution = { width: 1440, height: 847 };
   const scaleX = targetSize.width / vncResolution.width;

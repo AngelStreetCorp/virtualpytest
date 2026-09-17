@@ -11,6 +11,8 @@ import {
   Search as SearchIcon,
 } from '@mui/icons-material';
 
+import { useResponsiveMode } from '../../hooks/useResponsiveMode';
+
 interface TagOption {
   name: string;
   color: string;
@@ -46,7 +48,9 @@ export const SelectorFilterBar: React.FC<SelectorFilterBarProps> = ({
   showFolders = true,
   showTags = true,
   rightContent,
-}) => (
+}) => {
+  const { isMobile } = useResponsiveMode();
+  return (
   <Box sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
     {showSearch && (
       <TextField
@@ -79,9 +83,11 @@ export const SelectorFilterBar: React.FC<SelectorFilterBarProps> = ({
               ...params.InputProps,
               startAdornment: (
                 <>
-                  <InputAdornment position="start">
-                    <FolderIcon fontSize="small" />
-                  </InputAdornment>
+                  {!isMobile && (
+                    <InputAdornment position="start">
+                      <FolderIcon fontSize="small" />
+                    </InputAdornment>
+                  )}
                   {params.InputProps.startAdornment}
                 </>
               ),
@@ -134,4 +140,5 @@ export const SelectorFilterBar: React.FC<SelectorFilterBarProps> = ({
 
     {rightContent ? <Box sx={{ flexShrink: 0 }}>{rightContent}</Box> : null}
   </Box>
-);
+  );
+};

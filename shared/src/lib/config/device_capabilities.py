@@ -31,6 +31,17 @@ DEVICE_CONTROLLER_MAP = {
         'power': ['tapo'],
         'network': []
     },
+    # A paired phone running the VirtualPyTest app (features/mobile-app): frames arrive
+    # over Socket.IO and are written to the slot's image file, so the AV side is the
+    # ordinary ffmpeg capture folder; input goes through the phone's AccessibilityService.
+    'phone_agent': {
+        'av': ['hdmi_stream'],
+        'remote': ['phone_agent'],
+        'desktop': [],
+        'web': [],
+        'power': [],
+        'network': []
+    },
      'fire_tv': {
         'av': ['hdmi_stream'], 
         'remote': ['android_tv', 'ir_remote'],
@@ -130,6 +141,12 @@ CONTROLLER_VERIFICATION_MAP = {
     'android_mobile': ['adb'],
     'android_tv': ['adb'],
     'appium': ['appium'],
+    # A paired phone has no adb, but it has the same information: its AccessibilityService
+    # node tree. features/mobile-app backs the 'adb' verification type with that for
+    # phone_agent devices, so android_mobile navigation trees (whose screen checks are
+    # `verification_type: 'adb'`) run against a phone unchanged. image/text/video/colour
+    # come from hdmi_stream as for any other device.
+    'phone_agent': ['adb'],
     'bash': []
 }
 

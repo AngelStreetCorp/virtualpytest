@@ -59,6 +59,7 @@ import { formatToLocalTime } from '../utils/dateUtils';
 import { openR2Url } from '../utils/infrastructure/cloudflareUtils';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { formatScriptLabel, ensureScriptIdentityMap } from '../utils/executionUtils';
+import { getEnv } from '../config/constants';
 
 // Target filter options are "<host_name> - <device_name>" so the dropdown
 // shows the same identifier RunTests uses for a run target. Helpers below
@@ -74,6 +75,12 @@ const parseTargetKey = (key: string): { hostName: string; deviceName: string | n
     : { hostName: key.slice(0, idx), deviceName: key.slice(idx + TARGET_KEY_SEP.length) };
 };
 // Display label for a target key. The underlying key is "<host> - <device>",
+// and the cell carries the full label as its title, because the column is narrow
+// enough to cut it ("Phone slot 1 - ho…").
+// Note the device name here is whatever the run recorded. A paired phone records
+// its own name ("samsung SM-G998B") rather than the slot label it sits in — see
+// _resolved_device_name in controller_manager.py — so older rows can still show a
+// slot label while newer ones name the phone.
 // but we show the device first ("<device> - <host>"). A host's own implicit
 // device is named "<host>_Host", so "<host> - <host>_Host" shows the host
 // twice — collapse it to just the host name. The underlying key (value) is
@@ -100,7 +107,7 @@ function getScriptLabel(result: ScriptResult): string {
 
 const TestReports: React.FC = () => {
   // Get Grafana URL from environment variable
-  const grafanaUrl = (import.meta as any).env?.VITE_GRAFANA_URL || 'http://localhost/grafana';
+  const grafanaUrl = getEnv('VITE_GRAFANA_URL') || 'http://localhost/grafana';
 
   const { getAllScriptResults, updateCheckedStatus, updateDiscardStatus } = useScriptResults();
   const { getAllCampaignResults } = useCampaignResults();
@@ -1047,7 +1054,7 @@ const TestReports: React.FC = () => {
                               </Box>
                             </TableCell>
                             {isCampaignColumnVisible('host') && (
-                              <TableCell sx={{ py: 0.5, ...campaignResizeCols.bodyCellSx('host') }}>{formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}</TableCell>
+                              <TableCell sx={{ py: 0.5, ...campaignResizeCols.bodyCellSx('host') }} title={formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}>{formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}</TableCell>
                             )}
                             {isCampaignColumnVisible('device') && (
                               <TableCell sx={{ py: 0.5, ...campaignResizeCols.bodyCellSx('device') }}>{result.device_name}</TableCell>
@@ -1405,7 +1412,7 @@ const TestReports: React.FC = () => {
                         <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('uiName') }}>{result.userinterface_name || 'N/A'}</TableCell>
                       )}
                       {isColumnVisible('host') && (
-                        <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('host') }}>{formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}</TableCell>
+                        <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('host') }} title={formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}>{formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}</TableCell>
                       )}
                       {isColumnVisible('device') && (
                         <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('device') }}>{result.device_name}</TableCell>

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | user provisioning (`shared/src/lib/database/users_db.py`)      |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 8887                                                   |
 | Commit    | `d224ff6c03`                                                 |
 
 ---

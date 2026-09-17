@@ -7,8 +7,11 @@ import os
 from flask import Blueprint, send_from_directory
 from pathlib import Path
 
-# Create blueprint for OpenAPI documentation
-server_openapi_bp = Blueprint('server_openapi', __name__, url_prefix='/docs/api')
+# Create blueprint for OpenAPI documentation.
+# /server/docs/api, not /docs/api: nginx proxies only /server/* to the backend, and /docs/api
+# is already the frontend's own published docs site (frontend/public/docs/api, Swagger UI at
+# /docs/api/interactive.html) — so the old prefix was both unreachable and shadowed.
+server_openapi_bp = Blueprint('server_openapi', __name__, url_prefix='/server/docs/api')
 
 # Get project root and docs directory
 current_dir = Path(__file__).parent

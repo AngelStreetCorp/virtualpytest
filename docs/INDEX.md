@@ -33,6 +33,7 @@ Master lookup: scan the section matching the question's topic, open the file who
 - `features/ai-validation.md` — OCR/image/screen-state verification with evidence capture; `features/visual-capture.md` — video capture, live streaming, screenshots.
 - `features/analytics.md` — real-time Grafana dashboards (execution, device health, system perf).
 - `features/integrations.md` — feature-level tour of JIRA/Grafana/CI-CD integrations; `features/navigation-tree-history.md` — tree version control and restore.
+- `features/mobile-app.md` — Android app: the platform in a phone layout, and a paired phone as a device under test (`phone_agent`); technical detail in `technical/MOBILE_APP.md`.
 - `features/nav-visibility.md` — 3-layer navbar item visibility keyed by full route path.
 - `features/requirements-management.md` — requirements-management feature spec (link requirements to testcases/scripts, coverage tracking, REST + hooks).
 - `features/workspace-scoping.md` — how `device_filter`/`script_filter` narrow devices, scripts and run history; which APIs to call.

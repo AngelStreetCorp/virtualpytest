@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | Medium (server dependency install fails; running server unaffected)         |
 | Area      | backend_server/requirements.txt                                             |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---
@@ -37,7 +37,7 @@ Dependabot PR #25 (`5dbaecfcc`, 2026-09-07) bumped `h2` 4.3.0 → 4.4.1 but left
 pin `hpack==4.1.0` untouched. `h2 4.4.1` declares `hpack<5,>=4.2` and `hyperframe<7,>=6.1`
 (wheel metadata). The file had become self-contradictory; TASK-09 P3.6 had already flagged
 "fix the conflicting pins so a resolver can install it" and nothing exercised a clean install
-since (CI runs from a pre-built venv). The bundle `release-2026.09.09` carries the broken file.
+since (CI runs from a pre-built venv). The bundle `release-2026.09.08` carries the broken file.
 
 ## Fix
 

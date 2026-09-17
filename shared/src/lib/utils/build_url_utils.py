@@ -311,7 +311,7 @@ def _get_host_route_prefix(host_info: dict) -> str:
 
 
 def get_host_api_origin(host_info: dict) -> str:
-    """The origin a *process* should call a host on, e.g. http://192.168.0.109:6109.
+    """The origin a *process* should call a host on, e.g. http://192.168.x.109:6109.
 
     Prefers `host_api_url` — the direct address the server itself uses in
     call_host(). `host_url` is usually browser-relative (`/host/<name>`), a route
@@ -541,7 +541,7 @@ def buildStreamUrl(host_info: dict, device_id: str) -> str:
             raise ValueError(f"VNC device {device_id} has no video_stream_path configured")
         
         # Case 1: Relative path (nginx proxy mode)
-        # e.g., "/host/host-debian12/vnc_lite.html?password=admin1234"
+        # e.g., "/host/host-debian12/vnc_lite.html"
         # Return as-is, frontend prepends origin
         if vnc_path.startswith('/'):
             return vnc_path
@@ -562,14 +562,12 @@ def buildStreamUrl(host_info: dict, device_id: str) -> str:
         clean_path = vnc_path.lstrip('/')
         vnc_stream_url = f"https://{host_ip}:6080/{clean_path}"
 
-        # For Linux hosts in direct mode, append password if not already present
-        host_os = host_info.get('host_os', '').lower()
-        if host_os == 'linux' and 'password=' not in vnc_stream_url:
-            if '?' in vnc_stream_url:
-                vnc_stream_url += '&password=admin1234'
-            else:
-                vnc_stream_url += '?password=admin1234'
-
+        # The password is deliberately NOT appended, in direct mode either. This URL is
+        # handed to the browser as an iframe src, so a credential in the query string
+        # ends up in the address bar, in history, in the Referer of every sub-request
+        # and in the access logs of every proxy it crosses. The noVNC page supplies the
+        # credential itself; access is decided by the gate in front of the console and
+        # its websockify socket, not by a secret in a URL anyone can read.
         return vnc_stream_url
     else:
         # For regular devices, return HLS stream URL

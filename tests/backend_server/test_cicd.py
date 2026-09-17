@@ -89,26 +89,39 @@ class TestCicdApi:
 class TestRunnerHostMapping:
     """Regression guard for BUG-0050."""
 
-    def test_every_registered_runner_is_mapped_to_its_vm(self, get, api_headers):
+    def test_every_registered_runner_resolves_to_its_own_vm(self, get, api_headers):
+        """Every self-hosted runner the page lists must resolve to the VM it runs on.
+
+        The server derives the VM from the runner name (`<project>-<vmid>-<n>`, last octet =
+        VMID on the lab) unless CI_RUNNER_HOSTS overrides it; the response exposes the result as
+        `host`. A runner that landed on the single-VM fallback would be restarted on the wrong
+        machine (BUG-0050) — that is what this catches, for every project, sibling ones included.
+        """
         response = get("/server/cicd/runners", headers=api_headers)
         if response.status_code != 200 or response.json().get("configured") is False:
             pytest.skip("cicd feature not configured here")
 
-        # The synthetic github-hosted row has no VM and nothing to restart.
-        live = {
-            r.get("name")
-            for r in response.json().get("runners") or []
+        live = [
+            r for r in response.json().get("runners") or []
             if r.get("name") and r.get("name") != "github-hosted"
-        }
+        ]
         if not live:
             pytest.skip("no self-hosted runners registered")
+        if not any("host" in r for r in live):
+            pytest.skip("deployed server predates the runners' `host` field (deploy pending)")
 
-        unmapped = live - _mapped_runner_names()
-        assert not unmapped, (
-            f"runners registered on GitHub but missing from _DEFAULT_RUNNER_HOSTS: "
-            f"{sorted(unmapped)}. The restart button would send these to the "
-            f"CI_RUNNER_HOST fallback (192.168.0.163) and restart a runner on the wrong "
-            f"VM — this is BUG-0050. Add them to the map, or set CI_RUNNER_HOSTS."
+        wrong = []
+        for r in live:
+            host = r.get("host") or ""
+            m = re.match(r"^[A-Za-z0-9-]+?-(\d{1,3})-\d+$", r["name"])
+            if not re.match(r"^\d{1,3}(\.\d{1,3}){3}$", host):
+                wrong.append(f"{r['name']} -> {host!r} (not an address)")
+            elif m and not host.endswith(f".{int(m.group(1))}"):
+                wrong.append(f"{r['name']} -> {host} (expected last octet {int(m.group(1))})")
+        assert not wrong, (
+            "runners whose restart would target the wrong VM (BUG-0050): "
+            + "; ".join(wrong)
+            + ". Fix the name convention or set CI_RUNNER_HOSTS / CI_RUNNER_SUBNET on the server."
         )
 
     def test_the_map_is_not_empty(self):

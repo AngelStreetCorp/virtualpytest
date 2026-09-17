@@ -114,6 +114,7 @@ export const getConfigurableRemotePanelLayout = (
   // Fallback to default values based on remote type
   switch (remoteType) {
     case 'android_mobile':
+    case 'phone_agent':
       return {
         collapsed: {
           width: '200px',
@@ -322,6 +323,7 @@ export const loadRemoteConfig = (deviceModel: string, irType?: string): any => {
     let config = null;
     switch (deviceModel) {
       case 'android_mobile':
+      case 'phone_agent':
         config = androidMobileRemoteConfig;
         break;
       case 'android_tv':

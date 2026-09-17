@@ -48,6 +48,20 @@ AUTO_VERIFY_CONFIDENCE_THRESHOLD = 0.7
 VERIFICATION_MODES = ('end', 'each', 'auto')
 
 
+# How long the two "where am I?" probes may spend before deciding we are somewhere else.
+#
+# Both run before a single command reaches the device, and both used to honour the node's own
+# verification timeouts — which are sized for "wait for this screen to appear after we acted on
+# it", not for "is it showing right now". On the youtube-android-mobile tree that was 60s for the
+# target (WaitForVideoToAppear) plus 20s+20s for home: 101 seconds of a 139-second run spent
+# before the first tap, on a phone that was plainly sitting on its launcher.
+#
+# A screen that IS showing answers in well under a second (0.2-0.7s for the element checks, 2.1s
+# for the motion one). Getting this wrong in the tight direction is cheap: the probe says "not
+# here", and navigation starts from entry — slower, never incorrect.
+POSITION_PROBE_TIMEOUT_MS = 5000
+
+
 class NavigationExecutor:
     """
     Standardized navigation executor that orchestrates action and verification execution
@@ -1220,7 +1234,8 @@ class NavigationExecutor:
                     node_id=target_node_id,
                     userinterface_name=userinterface_name,
                     team_id=team_id,
-                    tree_id=tree_id
+                    tree_id=tree_id,
+                    probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
                 )
                 
                 # Only skip navigation if verifications exist AND passed
@@ -1302,7 +1317,8 @@ class NavigationExecutor:
                             node_id=home_id,
                             userinterface_name=userinterface_name,
                             team_id=team_id,
-                            tree_id=tree_id
+                            tree_id=tree_id,
+                            probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
                         )
                         
                         if home_verification.get('success') and home_verification.get('has_verifications', True):

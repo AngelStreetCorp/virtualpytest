@@ -6,6 +6,7 @@ Handles the formatting of individual step results for HTML reports.
 
 import os
 import json
+import html
 from typing import Dict, List
 from datetime import datetime
 from .cloudflare_utils import convert_to_signed_url
@@ -522,6 +523,18 @@ def _format_verification_failures(step: Dict) -> str:
     return items_html
 
 
+def _action_result_detail(result: Dict, command: str) -> str:
+    """The part of an action's result message that adds something to `command(params)`.
+
+    action_executor builds `message` as the command name plus, after " - ", whatever the
+    controller reported about what it did. Only that tail is new information; the rest (the
+    command itself, an iteration count) is already on the line, so nothing else is shown.
+    """
+    message = (result.get('message') or '').strip()
+    separator = f'{command} - '
+    return message[len(separator):].strip() if message.startswith(separator) else ''
+
+
 def format_step_actions(step: Dict) -> str:
     """Format actions section for a step with execution status."""
     # Check if this is an "already at destination" step
@@ -564,6 +577,15 @@ def format_step_actions(step: Dict) -> str:
                     success = result.get('success', False)
                     status_badge = f'<span class="action-result-badge {"success" if success else "failure"}">{"✓" if success else "✗"}</span>'
                     action_line += f" {status_badge}"
+                    # A controller that reported what it actually did says so here. It matters
+                    # for selector-based actions: click_element(element_id=' seconds') is a
+                    # search term, not an id, and only the detail tells you which node it hit.
+                    detail = _action_result_detail(result, command)
+                    if detail:
+                        action_line += (
+                            f' <span class="action-result-detail" '
+                            f'style="color:#a0a0a0;">{html.escape(detail)}</span>'
+                        )
             
             actions_html += f'<div class="action-item">{action_line}</div>'
     

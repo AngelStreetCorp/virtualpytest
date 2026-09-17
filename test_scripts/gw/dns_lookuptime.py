@@ -39,7 +39,7 @@ DNS_SYSTEM_DEFAULT = 'system'
 
 _script_args = [
     '--url:str:google.com',
-    f'--dns:str:{DNS_SYSTEM_DEFAULT}',
+    '--dns:str:system',
 ]
 
 _script_description = "Measure DNS lookup time for a hostname using nslookup"

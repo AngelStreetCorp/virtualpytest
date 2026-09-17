@@ -33,8 +33,9 @@ import { useAuth } from './hooks/auth/useAuth';
 import { useResponsiveMode } from './hooks/useResponsiveMode';
 import { isAuthEnabled } from './lib/supabase';
 import { BrandingProvider, useBranding } from './contexts/BrandingContext';
-import MobileTopBar from './components/mobile/MobileTopBar';
+import MobileRunNavTabs from './components/mobile/MobileTopBar';
 import MobileBottomNav from './components/mobile/MobileBottomNav';
+import { RouteErrorBoundary } from './components/common/RouteErrorBoundary';
 import { featureRoutes, matchesFeatureRoute } from './config/features';
 
 // Lazy load all pages for better performance and to avoid loading everything at once
@@ -107,6 +108,7 @@ const runViewSx = (visible: boolean) => ({
 
 const RunExecutionShell: React.FC = () => {
   const { pathname } = useLocation();
+  const { isMobile } = useResponsiveMode();
 
   const showRunTests = isRunTestsPath(pathname);
   const showBuildCampaigns = isBuildCampaignPath(pathname);
@@ -115,7 +117,15 @@ const RunExecutionShell: React.FC = () => {
   return (
     <RunExecutionsProvider>
       <Box sx={{ width: '100%' }}>
+        {isMobile ? <MobileRunNavTabs /> : null}
         <Box sx={runViewSx(showRunTests)} hidden={!showRunTests}>
+          {/* One Run Tests page at every width. The simplified mobile page was built on the
+              assumption that this one could not work on a phone; it can — the only thing that
+              actually broke below ~600px was the Selected Items parameter row, which laid its
+              fixed-width controls out with `nowrap` and overlapped the target chip. That row
+              wraps now, and a narrow viewport keeps the full page: targets, campaigns, Start/
+              Repeat scheduling, Last Executions with Report/Logs/rerun — none of which the
+              simplified page had. */}
           <RunTests />
         </Box>
         <Box sx={runViewSx(showBuildCampaigns)} hidden={!showBuildCampaigns}>
@@ -242,12 +252,26 @@ const ConditionalContainer: React.FC<{ children: React.ReactNode }> = ({ childre
           mt: 1,
           mb: 1,
           px: 1,
-          pb: 9,
-          flex: 1,
+          // MobileBottomNav is a fixed-position sibling (not part of this scroll flow), so its
+          // real footprint has to be reserved here explicitly: MUI's BottomNavigation is a fixed
+          // 56px (see @mui/material/BottomNavigation) plus the Paper's 1px top border, rounded up
+          // to 64px for a little breathing room, plus the iOS home-indicator safe area on notched
+          // phones — a flat spacing unit (previously `pb: 9` / 72px) doesn't account for that inset
+          // and let the last card clip behind the nav bar on notched devices.
+          pb: 'calc(64px + env(safe-area-inset-bottom, 0px))',
+          // `flex: 1` + `minHeight: 0` capped this box at the viewport height, and a page
+          // taller than that simply overflowed it (overflow is visible): the 64px reserved
+          // above was then *inside* the capped box, above the escaping content instead of
+          // below it, so the reservation vanished exactly when it was needed and the last
+          // ~56px of every long mobile page sat under the fixed nav — measured on an S21:
+          // container 763px tall holding 819px of content, scroll ending 88px past the
+          // viewport with the nav covering the last 56. `1 0 auto` keeps the fill-the-screen
+          // behaviour for short pages (grow) while letting a long one size to its content
+          // (basis auto, no shrink), so the scroll container scrolls past the padding.
+          flex: '1 0 auto',
           display: 'flex',
           flexDirection: 'column',
           alignItems: 'stretch',
-          minHeight: 0,
         }}
       >
         {children}
@@ -327,8 +351,11 @@ const AppHeader: React.FC = () => {
     return null;
   }
 
+  // Mobile: no top app bar — the bottom nav already provides navigation
+  // context, so the fixed header (logo + theme toggle) added no value and
+  // its overlay was clipping the top of in-page headings.
   if (isMobile) {
-    return <MobileTopBar />;
+    return null;
   }
 
   // Full header with navigation
@@ -410,6 +437,11 @@ const AIOrchestratorWrapper: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  // Mobile hides its scrollbar entirely (index.css) — no gutter needed to reserve
+  // space for it, so 'stable' (which leaves a blank strip even with the thumb/track
+  // hidden) is only worth it on desktop, where the scrollbar is still visible.
+  const { isMobile } = useResponsiveMode();
+
   // Detect if app is running under a proxy path (e.g., /pi4/)
   // Check if current path starts with /piX/ pattern
   const getBasename = () => {
@@ -446,8 +478,9 @@ const App: React.FC = () => {
                       <GlobalAgentBadges />
                       <AgentActivityBridge />
 
-                      <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: 'stable', display: 'flex', flexDirection: 'column' }}>
+                      <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: isMobile ? 'auto' : 'stable', display: 'flex', flexDirection: 'column' }}>
                       <ConditionalContainer>
+                        <RouteErrorBoundary>
                         <Suspense fallback={<LoadingSpinner />}>
                 <Routes>
                   {/* Public Routes - Only login and OAuth callback */}
@@ -603,6 +636,7 @@ const App: React.FC = () => {
                   </Route>
                 </Routes>
               </Suspense>
+                        </RouteErrorBoundary>
             </ConditionalContainer>
 
             <ResponsiveFooter />

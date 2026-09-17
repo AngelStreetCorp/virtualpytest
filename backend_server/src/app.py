@@ -107,12 +107,16 @@ def validate_startup_requirements():
     # BUG-0070); else a JWT secret ⇒ JWT enforced; else deny (401).
     from backend_server.src.lib.auth_middleware import (
         has_supabase_jwt_secret_configured,
+        is_api_key_configured,
         is_server_open_mode,
     )
     if is_server_open_mode():
         print(
             "[@backend_server:validate] 🚨 /server/* auth: OPEN MODE (SERVER_OPEN_MODE=true) — "
-            "unauthenticated requests allowed. Dev / trusted network only."
+            "browser requests allowed with no login. Dev / trusted network only."
+            + (" Direct (non-browser) calls still require X-API-Key."
+               if is_api_key_configured()
+               else " API_KEY is NOT set, so direct calls are unauthenticated too.")
             + (" NOTE: a SUPABASE_JWT_SECRET is also configured and is IGNORED for /server/* "
                "while open mode is on — remove SERVER_OPEN_MODE to enforce JWT."
                if has_supabase_jwt_secret_configured() else "")
@@ -161,6 +165,10 @@ def configure_global_frontend_auth_guard(app):
         '/server/health',
         '/server/action/health',   # health check for action execution service — no auth required
         '/server/storage/health',   # liveness probe (status page / monitors), returns no data beyond "r2_configured"
+        # The exact path, NOT the '/server/frontend' prefix: the guard below matches
+        # `path == prefix or path.startswith(prefix + '/')`, so exempting the prefix would
+        # take POST /server/frontend/navigate with it. /navigate stays closed.
+        '/server/frontend/health',
         '/server/auth/check',
         '/server/mcp',
         # Anonymous visitors of virtualpytest.com; guarded inside the route by an
@@ -171,6 +179,12 @@ def configure_global_frontend_auth_guard(app):
         '/server/campaigns/executionComplete',
         '/server/deployment/executionComplete',
         '/server/integrations/slack/events',
+        # Called only by nginx `auth_request` as an internal subrequest — an
+        # iframe/HLS navigation carries no user JWT, so this route validates its
+        # own short-lived host-session cookie instead (see
+        # server_host_session_routes.py). /server/host-session/session (minting
+        # that cookie) is NOT here — it requires the normal user JWT.
+        '/server/host-session/authorize',
         # Carries its own bearer (CICD_INGEST_TOKEN, checked inside the route). It exists
         # for GitHub-hosted runners, which cannot reach the LAN database — and which have
         # no user JWT either. Without this the global guard rejected their token as a
@@ -268,6 +282,7 @@ def register_all_server_routes(app):
             server_branding_routes,
             server_permissions_routes,
             server_security_routes,
+            server_host_session_routes,
         )
         # Import via absolute package path to avoid module alias split with emit callers
         # that import backend_server.src.routes.server_system_socket_routes.
@@ -347,6 +362,7 @@ def register_all_server_routes(app):
             (server_branding_routes.server_branding_bp, 'Runtime branding (name, logo, favicon)'),
             (server_permissions_routes.server_permissions_bp, 'Fine-grained permissions (matrix, user effective)'),
             (server_security_routes.server_security_bp, 'Security scan reports (admin-only; Bandit/Snyk/npm-audit)'),
+            (server_host_session_routes.server_host_session_bp, 'Host session gate for proxied VNC/HLS/phone-link paths (BUG-0107 step 2)'),
         ]
         
         registered_count = 0

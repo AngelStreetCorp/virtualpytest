@@ -42,7 +42,7 @@ The plain form is `@require_admin_role`, but that gate reads `request.user_role`
 | Credential | Role granted | Passes `@require_admin_role` |
 |---|---|---|
 | `X-API-Key: <API_KEY>` | `service` | yes (`ADMIN_ROLES = ('admin', 'service')`) |
-| `SERVER_OPEN_MODE=true`, no credential | `SERVER_PUBLIC_ROLE` (default `admin`) | yes, unless lowered |
+| `SERVER_OPEN_MODE=true`, browser, no credential | `SERVER_PUBLIC_ROLE` (default `admin`) | yes, unless lowered |
 | `X-Server-Key: <SERVER_PUBLIC_KEY>` | `SERVER_PUBLIC_ROLE` (default `admin`) | yes, unless lowered |
 | Nothing, and none of the above configured | — | no — 401 before the route runs |
 

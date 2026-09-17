@@ -16,6 +16,7 @@ bearer token.
 
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -196,6 +197,7 @@ def list_runners():
                 runner.update({
                     'project': name,
                     'repo': proj['repo'],
+                    'host': _runner_host(runner.get('name') or ''),   # the VM the restart button targets
                     # the LAN runner is the only one that can reach LAN-only targets
                     'can_run': list(SUITES),
                 })
@@ -236,7 +238,18 @@ def branches():
     return jsonify({'success': True, 'branches': names})
 
 
+_RUNNER_NAME_VMID = re.compile(r'^[A-Za-z0-9-]+?-(\d{1,3})-\d+$')   # <project>-<vmid>-<n>, project may contain '-'
+
+
 def _runner_host(name: str) -> str:
+    """VM address of a self-hosted runner, in order of precedence:
+
+    1. an explicit entry in `CI_RUNNER_HOSTS` (JSON name -> address) or the built-in map;
+    2. the runner-name convention `<project>-<vmid>-<n>` (vpt-163-1, labox-164-2 ...): the
+       VM's address is `<CI_RUNNER_SUBNET>.<vmid>` — on the lab every runner VM's last
+       octet IS its VMID, so a sibling project's runners need no mapping at all;
+    3. `CI_RUNNER_HOST`, the single fallback VM.
+    """
     hosts = dict(_DEFAULT_RUNNER_HOSTS)
     raw = os.environ.get('CI_RUNNER_HOSTS', '').strip()
     if raw:
@@ -244,7 +257,16 @@ def _runner_host(name: str) -> str:
             hosts.update(json.loads(raw))
         except Exception:
             pass
-    return hosts.get(name) or os.environ.get('CI_RUNNER_HOST', '192.168.0.163')
+    if hosts.get(name):
+        return hosts[name]
+    m = _RUNNER_NAME_VMID.match(name or '')
+    if m:
+        subnet = os.environ.get('CI_RUNNER_SUBNET', '').strip().rstrip('.')
+        if not subnet and hosts:
+            subnet = next(iter(hosts.values())).rsplit('.', 1)[0]   # same LAN as the known VMs
+        if subnet:
+            return f"{subnet}.{int(m.group(1))}"
+    return os.environ.get('CI_RUNNER_HOST', '192.168.0.163')
 
 
 @feature_cicd_bp.route('/runners/<name>/restart', methods=['POST'], strict_slashes=False)
@@ -261,7 +283,7 @@ def restart_runner(name: str):
     host = _runner_host(name)
     user = os.environ.get('CI_RUNNER_USER', 'jndoye')
     password = os.environ.get('CI_RUNNER_SSH_PASSWORD', '')
-    jump = os.environ.get('CI_RUNNER_SSH_JUMP', '')     # e.g. "jndoye@<origin-ip>"
+    jump = os.environ.get('CI_RUNNER_SSH_JUMP', '')     # e.g. "<user>@<origin-ip>"
     ssh_key = os.environ.get('CI_RUNNER_SSH_KEY', '')   # path to private key
 
     ssh_opts = ['-o', 'StrictHostKeyChecking=no', '-o', 'ConnectTimeout=10', '-o', 'BatchMode=no']

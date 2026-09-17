@@ -356,7 +356,12 @@ function openVideoModal(videoUrl, label) {{
                     <button class="modal-close" onclick="closeVideoModal()">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <video id="modal-video" controls style="min-width: 800px; width: 100%; max-width: 1200px; height: auto;">
+                    <!-- Fit the viewport in BOTH orientations. 'min-width: 800px' with
+                         'height: auto' blew a portrait phone recording (1080x2400) up to about
+                         1780px tall, which put the player's own controls below the fold with no
+                         way to reach them. Bounding height as well as width lets a landscape
+                         capture still fill the modal while a portrait one scales down to fit. -->
+                    <video id="modal-video" controls style="max-width: 100%; max-height: 78vh; width: auto; height: auto; display: block; margin: 0 auto;">
                         Your browser does not support video playback.
                     </video>
                 </div>

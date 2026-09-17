@@ -17,7 +17,7 @@
  * 4. Stream URLs - Live video streams (buildStreamUrl)
  */
 
-import { APP_CONFIG, SERVER_CONFIG, STORAGE_KEYS } from '../config/constants';
+import { getEnv, APP_CONFIG, SERVER_CONFIG, STORAGE_KEYS } from '../config/constants';
 
 // =====================================================
 // SERVER URL BUILDING (Frontend to Backend Server)
@@ -74,6 +74,13 @@ const normalizeServerUrl = (url: string): string => {
   return trimmed;
 };
 
+/** One value per page load: stable across re-renders (so the iframe is not reloaded on every
+ *  render) but never reused across sessions. */
+const VNC_SESSION_TAG = Date.now().toString(36);
+
+export const withVncCacheBust = (url: string): string =>
+  `${url}${url.includes('?') ? '&' : '?'}_vpt=${VNC_SESSION_TAG}`;
+
 export const getServerBaseUrl = (): string => {
   // Use localStorage selection or fall back to configured URL
   try {
@@ -91,6 +98,49 @@ export const buildServerUrl = (endpoint: string): string => {
   
   // Always add team_id to all server URLs
   return `${url}${url.includes('?') ? '&' : '?'}team_id=${APP_CONFIG.DEFAULT_TEAM_ID}`;
+};
+
+// Mirrors backend_server/src/routes/server_host_session_routes.py:_GATED_HOST_PATH — any
+// path the proxy's auth_request actually gates. Kept in sync manually; a path added to one
+// side with no matching change on the other either mints a useless cookie (harmless) or lets
+// a real request through ungated (a hole), so treat drift here as a security review item.
+const GATED_HOST_PATH_RE =
+  /\/host\/([^/]+)\/(?:vnc_lite\.html|websockify|vnc\/|core\/|vendor\/|include\/|app\/|utils\/|stream\/)/;
+
+/** Whether `url` is proxied through a path the proxy's auth_request gate covers. */
+export const isGatedHostPath = (url: string | null | undefined): boolean =>
+  !!url && GATED_HOST_PATH_RE.test(url);
+
+/**
+ * Mint the short-lived HttpOnly host-session cookie (BUG-0107 step 2) before a
+ * VNC iframe or HLS player navigates to a proxied `/host/<name>/...` URL. The
+ * proxy's `auth_request` gate rejects that navigation without this cookie, so
+ * callers must await this and only use the URL on success. A no-op (resolves
+ * true, no network call) for URLs the gate does not cover.
+ *
+ * VNC only needs this once, at the initial websocket handshake — the
+ * connection then persists independent of cookie expiry. HLS is not a single
+ * persistent connection: the player re-fetches segments for as long as
+ * playback continues, so a long-running view needs this re-called
+ * periodically (see the `useHostSession` hook) or it will 401 mid-stream once
+ * the cookie's short TTL elapses.
+ */
+export const ensureHostSession = async (url: string): Promise<boolean> => {
+  const match = GATED_HOST_PATH_RE.exec(url);
+  if (!match) return true;
+  const hostName = match[1];
+
+  try {
+    const response = await fetch(buildServerUrl('/server/host-session/session'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ host_name: hostName }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 };
 
 /**
@@ -238,7 +288,7 @@ export const getAllServerUrls = (): string[] => {
   const urls: string[] = [];
 
   // Parse primary URL from env
-  const primaryUrl = (import.meta as any).env?.VITE_SERVER_URL;
+  const primaryUrl = getEnv('VITE_SERVER_URL');
   if (primaryUrl) {
     const parsedPrimary = parseUrlList(primaryUrl);
     const normalizedPrimary = parsedPrimary.map(url => normalizeServerUrl(url));
@@ -246,7 +296,7 @@ export const getAllServerUrls = (): string[] => {
   }
 
   // Parse slave URLs (supports all formats)
-  const slaveUrls = (import.meta as any).env?.VITE_SLAVE_SERVER_URL;
+  const slaveUrls = getEnv('VITE_SLAVE_SERVER_URL');
   if (slaveUrls) {
     const parsedSlaves = parseUrlList(slaveUrls);
     const normalizedSlaves = parsedSlaves.map(url => normalizeServerUrl(url));
@@ -320,13 +370,19 @@ const internalBuildHostUrl = (host: any, endpoint: string): string => {
 
   // Use host_url if available (most efficient)
   if (host.host_url) {
-    let hostUrl = host.host_url;
+    let hostUrl = resolveHostUrlOrigin(host);
     let finalEndpoint = cleanEndpoint;
 
-    // When host_url is a relative proxy path (e.g., /host/host-clone-2),
-    // the "host/" prefix in endpoints is redundant — strip it to avoid
-    // doubled paths like /host/host-clone-2/host/host-clone-2/stream/...
-    if (hostUrl.startsWith('/host/') && finalEndpoint.startsWith('host/')) {
+    // When host_url is a proxy path (e.g., /host/host-clone-2), the "host/" prefix
+    // in endpoints is redundant — strip it to avoid doubled paths like
+    // /host/host-clone-2/host/host-clone-2/stream/...
+    //
+    // Test the host's registered PATH, not `hostUrl`: once resolveHostUrlOrigin has
+    // prefixed another server's origin, the resolved value no longer starts with
+    // '/host/', this check silently stopped firing, and every cross-server stream URL
+    // came out doubled — which is precisely the case the prefixing exists to fix.
+    const hostPath: string = host.host_url;
+    if (hostPath.startsWith('/host/') && finalEndpoint.startsWith('host/')) {
       finalEndpoint = finalEndpoint.slice('host/'.length);
     }
 
@@ -343,6 +399,37 @@ const internalBuildHostUrl = (host: any, endpoint: string): string => {
   }
 
   throw new Error('Host must have either host_url or both host_ip and host_port');
+};
+
+/**
+ * Resolve a host's base URL against the server that owns it.
+ *
+ * Hosts register a RELATIVE host_url (`/host/<name>`) because normally the frontend and the
+ * host's proxy are the same origin. With several servers in the selector that stops being
+ * true: viewing a host of server B from server A's frontend resolved `/host/<name>` against
+ * A's proxy, which either 404s or — when A happens to have a stale map entry for that name —
+ * 502s on an upstream that is not the host at all.
+ *
+ * `server_url` (stamped in ServerManagerProvider) is that server's public base URL, so
+ * prefixing with it produces the URL the host is actually reachable at. Same-origin and
+ * absolute host_urls are untouched.
+ */
+const resolveHostUrlOrigin = (host: any): string => {
+  const hostUrl = host?.host_url || '';
+  if (!hostUrl.startsWith('/')) return hostUrl; // already absolute
+
+  const serverUrl = host?.server_url;
+  if (!serverUrl || !/^https?:\/\//.test(serverUrl)) return hostUrl;
+
+  try {
+    const serverOrigin = new URL(serverUrl).origin;
+    if (typeof window !== 'undefined' && serverOrigin === window.location.origin) {
+      return hostUrl; // same origin — relative path is correct and keeps working offline of DNS
+    }
+    return `${serverOrigin}${hostUrl}`;
+  } catch {
+    return hostUrl;
+  }
 };
 
 /**
@@ -464,6 +551,13 @@ export const buildStreamUrl = (host: any, deviceId?: string, mode: 'live' | 'arc
 
   try {
     // Check if this is a VNC device - return VNC URL directly (no HLS suffix)
+    // Cache-busted per session: a stale entry here is not a slow picture, it is a dead
+    // iframe. If this URL ever answers from somewhere other than the proxy's vnc_lite
+    // location — as it did while the mobile app's own navigation bug sent it elsewhere — the
+    // WebView caches that response, security headers included, and replays it on every later
+    // load: X-Frame-Options: SAMEORIGIN, ERR_BLOCKED_BY_RESPONSE, "Webpage not available",
+    // permanently and invisibly. The page is a live console, so there is nothing worth
+    // keeping across sessions anyway.
     const devices = host?.devices || [];
     const device = devices.find((d: any) => d?.device_id === deviceId);
     if (device?.device_model === 'host_vnc' && mode === 'live') {
@@ -473,11 +567,11 @@ export const buildStreamUrl = (host: any, deviceId?: string, mode: 'live' | 'arc
       }
       // Full URL: return as-is
       if (vncPath.startsWith('http://') || vncPath.startsWith('https://')) {
-        return vncPath;
+        return withVncCacheBust(vncPath);
       }
       // Relative path (nginx proxy mode): build full URL via host
       if (vncPath.startsWith('/')) {
-        const finalUrl = internalBuildHostUrl(host, vncPath.slice(1));
+        const finalUrl = withVncCacheBust(internalBuildHostUrl(host, vncPath.slice(1)));
         console.log('[buildStreamUrl] VNC URL constructed', { deviceId, vncPath, finalUrl });
         return finalUrl;
       }
@@ -486,7 +580,7 @@ export const buildStreamUrl = (host: any, deviceId?: string, mode: 'live' | 'arc
       if (!hostIp) {
         throw new Error('host_ip is required to build VNC URL for direct mode');
       }
-      const finalUrl = `https://${hostIp}:6080/${vncPath}`;
+      const finalUrl = withVncCacheBust(`https://${hostIp}:6080/${vncPath}`);
       console.log('[buildStreamUrl] VNC direct URL constructed', { deviceId, finalUrl });
       return finalUrl;
     }

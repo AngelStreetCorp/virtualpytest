@@ -90,10 +90,10 @@ RUN mkdir -p /var/www/html \
     && chmod -R 1777 /tmp/.X11-unix
 
 
-# Create VNC password file (default: admin1234, can be overridden)
-RUN echo "admin1234" | vncpasswd -f > /home/vpt_user/.vnc/passwd \
-    && chown vpt_user:vpt_user /home/vpt_user/.vnc/passwd \
-    && chmod 600 /home/vpt_user/.vnc/passwd
+# No VNC password in the image. This image is published to GHCR, so anything baked here
+# would be the same password on every pull. The entrypoint writes
+# /home/vpt_user/.vnc/passwd on each start from HOST_VNC_PASSWORD, and generates a
+# per-container one when that is unset.
 
 # Copy supervisor configuration from docker folder
 COPY backend_host/docker/supervisord.conf /etc/supervisor/conf.d/virtualpytest.conf

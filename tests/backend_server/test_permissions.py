@@ -36,10 +36,16 @@ def _is_auth_enforced(base_url: str, verify_ssl: bool) -> bool:
 
 
 def _get_host_name(base_url: str, api_key: str, verify_ssl: bool) -> str:
-    """Return first available host_name from /server/server-manager/hosts."""
+    """Return the first registered host_name from /server/system/getAllHosts.
+
+    This used to read /server/server-manager/hosts, which is not a route: it falls into the
+    auto_proxy catch-all and answers 400, so the helper always returned "" and every
+    host-dependent permission test skipped itself with "No host_name available" — on a server
+    with five hosts registered.
+    """
     try:
         resp = requests.get(
-            f"{base_url}/server/server-manager/hosts",
+            f"{base_url}/server/system/getAllHosts",
             headers={"Content-Type": "application/json", "X-API-Key": api_key},
             timeout=5,
             verify=verify_ssl,
@@ -47,8 +53,16 @@ def _get_host_name(base_url: str, api_key: str, verify_ssl: bool) -> str:
         if resp.status_code == 200:
             data = resp.json()
             hosts = data if isinstance(data, list) else data.get("hosts", [])
-            if hosts:
-                return hosts[0].get("host_name") or hosts[0].get("name", "")
+            names = [h.get("host_name") or h.get("name", "") for h in hosts]
+            names = [n for n in names if n]
+            # Prefer VirtualPyTest's own device host: the labox-* fleet belongs to the labox
+            # product and is not VPT CI's to drive (tests/docs/testing-strategy.md).
+            preferred = os.environ.get("DEVICE_HOST", "host-clone-1")
+            if preferred in names:
+                return preferred
+            non_labox = [n for n in names if not n.startswith("labox-")]
+            if non_labox or names:
+                return (non_labox or names)[0]
     except Exception:
         pass
     return os.environ.get("HOST_NAME", "")
@@ -267,15 +281,15 @@ class TestUC1RunnerCannotBuild:
         assert resp.status_code == 200, resp.text
 
     def test_runner_can_view_reports(
-        self, runner_jwt, base_url, team_id, host_name, verify_ssl, request_timeout
+        self, runner_jwt, base_url, team_id, verify_ssl, request_timeout
     ):
         _skip_if_no_jwt(runner_jwt, "runner")
-        if not host_name:
-            pytest.skip("No host_name available")
+        # /server/script-results (bare) is not a route — it falls into the auto_proxy
+        # catch-all and answers 400/404. The listing is a plain DB read, no host involved.
         resp = requests.get(
-            f"{base_url}/server/script-results",
+            f"{base_url}/server/script-results/getAllScriptResults",
             headers=jwt_headers(runner_jwt),
-            params={"team_id": team_id, "host_name": host_name},
+            params={"team_id": team_id},
             timeout=request_timeout,
             verify=verify_ssl,
         )
@@ -369,15 +383,25 @@ class TestUC2ViewerCannotHide:
         assert resp.status_code == 403, resp.text
 
     def test_viewer_cannot_run_test(
-        self, viewer_jwt, base_url, team_id, host_name, verify_ssl, request_timeout, auth_enforced
+        self, viewer_jwt, base_url, team_id, host_name, device_id, verify_ssl, request_timeout,
+        auth_enforced,
     ):
+        """A viewer must be refused before anything is launched on a device.
+
+        The payload is deliberately complete (host_name, device_id, script_name): with a field
+        missing the route answers 400 for the wrong reason and the test passes nothing. It must
+        be the permission check that answers.
+        """
         _skip_if_no_jwt(viewer_jwt, "viewer")
         _skip_if_open_mode(auth_enforced)
-        if not host_name:
-            pytest.skip("No host_name available")
         resp = requests.post(
             f"{base_url}/server/script/execute",
-            json={"team_id": team_id, "host_name": host_name, "script_id": "fake"},
+            json={
+                "team_id": team_id,
+                "host_name": host_name,
+                "device_id": device_id,
+                "script_name": "validation.py",
+            },
             headers=jwt_headers(viewer_jwt),
             timeout=request_timeout,
             verify=verify_ssl,

@@ -6,7 +6,8 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { buildServerUrl } from '../../utils/buildUrlUtils';
+import { useSyncExternalStore } from 'react';
+import { buildServerUrl, getServerBaseUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 
 export interface Workspace {
@@ -59,12 +60,35 @@ export interface WorkspaceCreatePayload {
 
 const workspacesUrl = (path: string = '') => buildServerUrl(`/server/workspaces${path}`);
 
-// Query keys for React Query caching
+/**
+ * Every workspace list is scoped to the server it came from.
+ *
+ * Workspaces live in each server's own database, and buildServerUrl() already
+ * targets the selected server — but the React Query key used to be a bare
+ * ['workspaces'], so switching servers served the previous server's cached list
+ * for the whole 5-minute staleTime. WorkspaceContext then found the stored
+ * active workspace still present in that stale list and kept it applied. The
+ * visible bug: QualiAI (which has no workspaces at all) showed Awesomation's
+ * "TV" workspace, silently applying its device/script/page filters.
+ *
+ * WorkspaceProvider sits OUTSIDE ServerManagerProvider, so useServerManager()
+ * is not available here; we read the selection the same way buildServerUrl
+ * does and re-render on the server-change event it already dispatches.
+ */
+const subscribeToServerChange = (cb: () => void) => {
+  window.addEventListener('vpt:server-changed', cb);
+  return () => window.removeEventListener('vpt:server-changed', cb);
+};
+
+const useSelectedServer = (): string =>
+  useSyncExternalStore(subscribeToServerChange, getServerBaseUrl, getServerBaseUrl);
+
+// Query keys for React Query caching — all scoped by server
 const QUERY_KEYS = {
-  workspaces: ['workspaces'],
-  workspace: (id: string) => ['workspaces', id],
-  workspaceMembers: (workspaceId: string) => ['workspaces', workspaceId, 'members'],
-  userWorkspaces: (userId: string) => ['workspaces', 'user', userId],
+  workspaces: (server: string) => ['workspaces', server],
+  workspace: (server: string, id: string) => ['workspaces', server, id],
+  workspaceMembers: (server: string, workspaceId: string) => ['workspaces', server, workspaceId, 'members'],
+  userWorkspaces: (server: string, userId: string) => ['workspaces', server, 'user', userId],
 };
 
 /**
@@ -73,6 +97,7 @@ const QUERY_KEYS = {
  */
 export const useWorkspaces = () => {
   const queryClient = useQueryClient();
+  const server = useSelectedServer();
 
   // Fetch all workspaces
   const {
@@ -81,7 +106,7 @@ export const useWorkspaces = () => {
     error,
     refetch,
   } = useQuery({
-    queryKey: QUERY_KEYS.workspaces,
+    queryKey: QUERY_KEYS.workspaces(server),
     queryFn: async (): Promise<Workspace[]> => api.get(workspacesUrl()),
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
@@ -92,8 +117,8 @@ export const useWorkspaces = () => {
   // (['workspaces', 'user', userId]) and the anonymous public-only fallback
   // (['workspaces', 'public']).
   const invalidateDownstreamWorkspaceLists = () => {
-    queryClient.invalidateQueries({ queryKey: ['workspaces', 'user'] });
-    queryClient.invalidateQueries({ queryKey: ['workspaces', 'public'] });
+    queryClient.invalidateQueries({ queryKey: ['workspaces', server, 'user'] });
+    queryClient.invalidateQueries({ queryKey: ['workspaces', server, 'public'] });
   };
 
   // Create workspace mutation
@@ -101,7 +126,7 @@ export const useWorkspaces = () => {
     mutationFn: async (payload: WorkspaceCreatePayload): Promise<Workspace> =>
       api.post(workspacesUrl(), payload),
     onSuccess: (newWorkspace) => {
-      queryClient.setQueryData(QUERY_KEYS.workspaces, (old: Workspace[] = []) => [...old, newWorkspace]);
+      queryClient.setQueryData(QUERY_KEYS.workspaces(server), (old: Workspace[] = []) => [...old, newWorkspace]);
       invalidateDownstreamWorkspaceLists();
       console.log('[@hook:useWorkspaces:create] Successfully created and cached new workspace');
     },
@@ -115,10 +140,10 @@ export const useWorkspaces = () => {
     mutationFn: async ({ id, payload }: { id: string; payload: WorkspaceCreatePayload }): Promise<Workspace> =>
       api.put(workspacesUrl(`/${id}`), payload),
     onSuccess: (updatedWorkspace, variables) => {
-      queryClient.setQueryData(QUERY_KEYS.workspaces, (old: Workspace[] = []) =>
+      queryClient.setQueryData(QUERY_KEYS.workspaces(server), (old: Workspace[] = []) =>
         old.map((ws) => (ws.id === variables.id ? updatedWorkspace : ws))
       );
-      queryClient.setQueryData(QUERY_KEYS.workspace(variables.id), updatedWorkspace);
+      queryClient.setQueryData(QUERY_KEYS.workspace(server, variables.id), updatedWorkspace);
       invalidateDownstreamWorkspaceLists();
       console.log('[@hook:useWorkspaces:update] Successfully updated and cached workspace');
     },
@@ -133,10 +158,10 @@ export const useWorkspaces = () => {
       await api.delete(workspacesUrl(`/${id}`));
     },
     onSuccess: (_, id) => {
-      queryClient.setQueryData(QUERY_KEYS.workspaces, (old: Workspace[] = []) =>
+      queryClient.setQueryData(QUERY_KEYS.workspaces(server), (old: Workspace[] = []) =>
         old.filter((ws) => ws.id !== id)
       );
-      queryClient.removeQueries({ queryKey: QUERY_KEYS.workspace(id) });
+      queryClient.removeQueries({ queryKey: QUERY_KEYS.workspace(server, id) });
       invalidateDownstreamWorkspaceLists();
       console.log('[@hook:useWorkspaces:delete] Successfully deleted and removed from cache');
     },
@@ -150,8 +175,8 @@ export const useWorkspaces = () => {
     mutationFn: async ({ workspaceId, userId, role }: { workspaceId: string; userId: string; role?: string }): Promise<WorkspaceMember> =>
       api.post(workspacesUrl(`/${workspaceId}/members/user`), { user_id: userId, role }),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaceMembers(variables.workspaceId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaces });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaceMembers(server, variables.workspaceId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaces(server) });
       console.log('[@hook:useWorkspaces:addUser] Successfully added user to workspace');
     },
     onError: (error) => {
@@ -164,8 +189,8 @@ export const useWorkspaces = () => {
     mutationFn: async ({ workspaceId, teamId, role }: { workspaceId: string; teamId: string; role?: string }): Promise<WorkspaceMember> =>
       api.post(workspacesUrl(`/${workspaceId}/members/team`), { team_id: teamId, role }),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaceMembers(variables.workspaceId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaces });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaceMembers(server, variables.workspaceId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaces(server) });
       console.log('[@hook:useWorkspaces:addTeam] Successfully added team to workspace');
     },
     onError: (error) => {
@@ -179,8 +204,8 @@ export const useWorkspaces = () => {
       await api.delete(workspacesUrl(`/${workspaceId}/members/${memberId}`));
     },
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaceMembers(variables.workspaceId) });
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaces });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaceMembers(server, variables.workspaceId) });
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.workspaces(server) });
       console.log('[@hook:useWorkspaces:removeMember] Successfully removed member from workspace');
     },
     onError: (error) => {
@@ -221,8 +246,9 @@ export const useWorkspaces = () => {
  * Hook for getting a single workspace by ID
  */
 export const useWorkspace = (id: string) => {
+  const server = useSelectedServer();
   return useQuery({
-    queryKey: QUERY_KEYS.workspace(id),
+    queryKey: QUERY_KEYS.workspace(server, id),
     queryFn: async (): Promise<Workspace> => api.get(workspacesUrl(`/${id}`)),
     enabled: !!id,
     staleTime: 5 * 60 * 1000,
@@ -233,8 +259,9 @@ export const useWorkspace = (id: string) => {
  * Hook for getting workspace members
  */
 export const useWorkspaceMembers = (workspaceId: string) => {
+  const server = useSelectedServer();
   return useQuery({
-    queryKey: QUERY_KEYS.workspaceMembers(workspaceId),
+    queryKey: QUERY_KEYS.workspaceMembers(server, workspaceId),
     queryFn: async (): Promise<WorkspaceMember[]> =>
       api.get(workspacesUrl(`/${workspaceId}/members`)),
     enabled: !!workspaceId,
@@ -246,8 +273,9 @@ export const useWorkspaceMembers = (workspaceId: string) => {
  * Hook for getting workspaces for a specific user
  */
 export const useUserWorkspaces = (userId: string) => {
+  const server = useSelectedServer();
   return useQuery({
-    queryKey: QUERY_KEYS.userWorkspaces(userId),
+    queryKey: QUERY_KEYS.userWorkspaces(server, userId),
     queryFn: async (): Promise<Workspace[]> =>
       api.get(workspacesUrl(`/user/${userId}`)),
     enabled: !!userId,
@@ -261,8 +289,9 @@ export const useUserWorkspaces = (userId: string) => {
  * GET /server/workspaces endpoint, filtered client-side to `is_public`.
  */
 export const usePublicWorkspaces = (enabled: boolean) => {
+  const server = useSelectedServer();
   return useQuery({
-    queryKey: ['workspaces', 'public'],
+    queryKey: ['workspaces', server, 'public'],
     queryFn: async (): Promise<Workspace[]> => {
       const all: Workspace[] = await api.get(workspacesUrl());
       return all.filter((w) => w.is_public);

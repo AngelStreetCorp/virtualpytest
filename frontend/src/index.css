@@ -73,6 +73,18 @@ body {
   background: #a8a8a8;
 }
 
+/* Mobile: touch scrolling stays fully functional, the visible scrollbar track/thumb
+   does not — matches the isMobile breakpoint in hooks/useResponsiveMode.ts (<=767px). */
+@media (max-width: 767px) {
+  * {
+    scrollbar-width: none; /* Firefox */
+  }
+
+  *::-webkit-scrollbar {
+    display: none; /* Chrome, Safari, Edge */
+  }
+}
+
 /* Material-UI overrides */
 .MuiAppBar-root {
   box-shadow: 0 2px 4px rgba(0,0,0,0.1) !important;

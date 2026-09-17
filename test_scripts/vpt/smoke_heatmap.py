@@ -25,6 +25,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from shared.src.lib.executors.script_decorators import script, get_args, get_context
+from test_scripts.vpt.smoke_common import headers as _headers, make_step
 
 MONITORING_ENDPOINTS = [
     ("/server/heatmap/history",                 "Heatmap — history records"),
@@ -34,63 +35,49 @@ MONITORING_ENDPOINTS = [
 ]
 
 
-def _headers() -> dict:
-    h = {"Content-Type": "application/json"}
-    api_key = os.getenv("API_KEY", "")
-    if api_key:
-        h["X-API-Key"] = api_key
-        h["Authorization"] = f"Bearer {api_key}"
-    return h
-
-
 def test_endpoint(server_url: str, path: str, description: str, team_id: str) -> dict:
-    step = {
-        "action": f"GET {path}",
-        "description": description,
-        "timestamp": time.time(),
-        "success": False,
-        "error": None,
-        "response_time_ms": 0,
-        "status_code": None,
-        "record_count": None,
-    }
+    t0 = time.time()
     try:
-        params = {"team_id": team_id}
-        t0 = time.time()
         resp = requests.get(
             f"{server_url}{path}",
-            params=params,
+            params={"team_id": team_id},
             headers=_headers(),
             timeout=12,
             verify=False,
         )
-        step["response_time_ms"] = round((time.time() - t0) * 1000, 1)
-        step["status_code"] = resp.status_code
-
-        if resp.status_code == 200:
-            step["success"] = True
+        ms = round((time.time() - t0) * 1000, 1)
+        record_count = None
+        ok = resp.status_code == 200
+        if ok:
             try:
                 body = resp.json()
                 # Try to extract a record count for context
                 for key in ("heatmaps", "alerts", "executions", "data", "results"):
                     val = body.get(key)
                     if isinstance(val, list):
-                        step["record_count"] = len(val)
+                        record_count = len(val)
                         break
             except Exception:
                 pass
-            count_str = f", {step['record_count']} records" if step["record_count"] is not None else ""
-            print(f"  ✅ {description}: HTTP {resp.status_code} ({step['response_time_ms']:.0f}ms{count_str})")
-        else:
-            step["error"] = f"HTTP {resp.status_code}"
-            print(f"  ❌ {description}: HTTP {resp.status_code}")
+        step = make_step(
+            f"GET {path}", description, ok,
+            error=None if ok else f"HTTP {resp.status_code}",
+            status_code=resp.status_code,
+            response_time_ms=ms,
+            detail=f"{record_count} records" if record_count is not None else None,
+        )
+        step["record_count"] = record_count
+        return step
     except requests.exceptions.Timeout:
-        step["error"] = "Timeout (12s)"
-        print(f"  ❌ {description}: Timeout")
+        step = make_step(f"GET {path}", description, False,
+                          error="Timeout (12s)", response_time_ms=(time.time() - t0) * 1000)
+        step["record_count"] = None
+        return step
     except Exception as e:
-        step["error"] = str(e)
-        print(f"  ❌ {description}: {e}")
-    return step
+        step = make_step(f"GET {path}", description, False,
+                          error=str(e), response_time_ms=(time.time() - t0) * 1000)
+        step["record_count"] = None
+        return step
 
 
 def capture_summary(context, server_url: str) -> str:
@@ -134,7 +121,7 @@ def main():
 
     for path, description in MONITORING_ENDPOINTS:
         step = test_endpoint(server_url, path, description, team_id)
-        context.step_results.append(step)
+        context.record_step_immediately(step)
 
     total = len(context.step_results)
     passed = sum(1 for s in context.step_results if s.get("success"))

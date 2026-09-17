@@ -45,8 +45,8 @@ GET  /server/health                # Health check
 
 ### Script Execution
 ```
-GET  /server/script/list
-POST /server/script/execute
+GET  /server/script/list           # -> scripts[] (bare names) + items[] {script_ref, prefix, display_name, label}
+POST /server/script/execute        # send items[].script_ref, never items[].label
 POST /server/script/abortRunning
 GET  /server/script/status/<task_id>
 ```

@@ -11,8 +11,12 @@ from events import Event, EventPriority, get_event_bus
 from events.event_router import EventRouter, get_event_router
 from agent.async_utils import run_async
 
-# Create blueprint
-server_event_bp = Blueprint('server_events', __name__, url_prefix='/api/events')
+# Create blueprint.
+# /server/events, not /api/events: nginx proxies only /server/* to the backend, so at the old
+# prefix every route here fell through to the frontend SPA on the public deployment — an alert
+# POST got 200 and a page of HTML, and read it as success. /server/* is also what app.py's JWT
+# guard gates, so the old prefix left these open as well.
+server_event_bp = Blueprint('server_events', __name__, url_prefix='/server/events')
 
 
 def get_team_id() -> str:

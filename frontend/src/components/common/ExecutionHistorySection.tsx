@@ -37,6 +37,8 @@ interface ExecutionHistorySectionProps {
   headerCellSx?: (key: ExecutionHistoryColumnKey) => SxProps<Theme> | undefined;
   bodyCellSx?: (key: ExecutionHistoryColumnKey) => SxProps<Theme> | undefined;
   renderHeaderExtra?: (key: ExecutionHistoryColumnKey) => React.ReactNode;
+  /** Rendered on the title row, right-aligned — e.g. a result filter. */
+  titleExtra?: React.ReactNode;
   tableSx?: SxProps<Theme>;
 }
 
@@ -57,6 +59,7 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
   headerCellSx,
   bodyCellSx,
   renderHeaderExtra,
+  titleExtra,
   tableSx,
 }) => {
   const content = rows.length === 0 ? (
@@ -147,6 +150,9 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
                 {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               </IconButton>
               <Typography variant="h6">{title}</Typography>
+              {titleExtra ? (
+                <Box sx={{ ml: 'auto' }} onClick={(e) => e.stopPropagation()}>{titleExtra}</Box>
+              ) : null}
             </Box>
             <Collapse in={expanded}>
               {content}
@@ -154,9 +160,10 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
           </>
         ) : (
           <>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              {title}
-            </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
+              <Typography variant="h6">{title}</Typography>
+              {titleExtra ? <Box sx={{ ml: 'auto' }}>{titleExtra}</Box> : null}
+            </Box>
             {content}
           </>
         )}

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | Low — the server-side API-testing runner was unusable, nothing else affected |
 | Area      | backend_server/src/routes/server_api_testing_routes.py                      |
-| Fixed in  | build 8713                                                                  |
+| Fixed in  | build 8887                                                                  |
 | Commit    | this commit                                                                 |
 
 ---

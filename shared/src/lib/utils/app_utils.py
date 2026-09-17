@@ -194,6 +194,37 @@ def setup_and_cleanup_app(app_name, port_getter_func, app_type="application", se
     print("✅ Flask application setup completed")
     return app
 
+# Default allowlist when CORS_ALLOWED_ORIGINS is unset: the deployments already known (from
+# code comments and docs/get-started/cloud-setup.md §4.1) to call this API cross-origin, so
+# fixing BUG-0092 doesn't silently break them. Anything else — a customer overlay's own
+# frontend domain, a self-hoster's split frontend/backend hosts — must set the env var.
+DEFAULT_CORS_ALLOWED_ORIGINS = (
+    'https://virtualpytest.angelstreet.io,'
+    'https://rpitest.angelstreet.io,'
+    'https://virtualpytest.com,'
+    'https://www.virtualpytest.com,'
+    'https://virtualpytest.vercel.app,'
+    'http://localhost:5073,'
+    # The mobile app (features/mobile-app). Capacitor serves the bundled build from its own
+    # local server, so every call the APK makes is cross-origin from `https://localhost` —
+    # without this the app reaches its server for nothing: the Dashboard shows "No servers
+    # connected" and the Socket.IO handshake just times out. It belongs in the default rather
+    # than each deployment's .env because one APK is meant to serve any deployment, and its
+    # origin is fixed by Capacitor, not by the deployment. `capacitor://localhost` is the
+    # same build on iOS, harmless until that ships.
+    'https://localhost,'
+    'capacitor://localhost'
+)
+
+
+def _cors_allowed_origins():
+    """CORS_ALLOWED_ORIGINS, comma-separated (same convention as PUBLIC_ASK_ALLOWED_ORIGINS in
+    server_public_ask_routes.py), else DEFAULT_CORS_ALLOWED_ORIGINS above. Never '*' — BUG-0092."""
+    raw = os.getenv('CORS_ALLOWED_ORIGINS', DEFAULT_CORS_ALLOWED_ORIGINS)
+    origins = [o.strip().rstrip('/') for o in raw.split(',') if o.strip()]
+    return origins or None
+
+
 def setup_flask_app(app_name="VirtualPyTest"):
     """Setup and configure Flask application with CORS and WebSocket support"""
     app = Flask(app_name)
@@ -225,17 +256,38 @@ def setup_flask_app(app_name="VirtualPyTest"):
     
     app.secret_key = secret_key
 
-    # CORS: allow all origins — nginx handles access control.
-    # max_age caches the OPTIONS preflight response in the browser so cross-origin
-    # XHRs (e.g. virtualpytest.angelstreet.io frontend → rpitest.angelstreet.io
-    # backend) don't double up with a per-request preflight. Chrome caps at 7200s
-    # (2 h), Firefox at 86400s (24 h); set 86400 and let each browser apply its cap.
-    # Without this, every cross-origin fetch fires its own OPTIONS round-trip and
-    # all those OPTIONS calls queue on the single Gunicorn worker — turning ~30
-    # page-load XHRs into ~60 server hits.
-    CORS(app, origins="*", supports_credentials=True, max_age=86400)
+    # CORS: an explicit origin allowlist, NOT nginx. nginx's /server/ and /host/ locations
+    # have no IP or origin restriction of their own (verified: neither production-https.conf
+    # nor any other shipped template gates them) — this is the only origin-based control that
+    # exists in front of the API. It used to be `origins="*", supports_credentials=True`, which
+    # Flask-CORS turns into "reflect whatever Origin the caller sends, and allow credentials for
+    # it" (confirmed live 2026-09-15: a request with `Origin: https://evil.example.com` got that
+    # exact value back with `Access-Control-Allow-Credentials: true`) — i.e. every browser tab
+    # anywhere could make a fully-credentialed cross-origin call and read the response. Auth here
+    # is a bearer token / `X-Server-Key` header the frontend attaches itself, not a cookie, so
+    # this did not enable classic session-riding CSRF — but `SERVER_PUBLIC_KEY` (the no-login
+    # admin key shipped in every frontend bundle, "weak by design" per auth_middleware.py) is
+    # exactly the kind of value a malicious *page* — not just a malicious *script* — could now
+    # read the response for, on behalf of any visitor, with zero further access of its own.
+    # Fix (BUG-0092): an explicit allowlist. `CORS_ALLOWED_ORIGINS` (comma-separated, same
+    # convention as `PUBLIC_ASK_ALLOWED_ORIGINS` in server_public_ask_routes.py) overrides the
+    # default, which covers the deployments already known to call cross-origin: the main
+    # frontend calling a different server (virtualpytest.angelstreet.io -> rpitest.angelstreet.io
+    # and back), the marketing site, the documented Vercel/Render split (cloud-setup.md §4.1),
+    # and local dev. Anyone with a different split — a customer overlay's own domain, a
+    # self-hoster's separate frontend host — MUST set `CORS_ALLOWED_ORIGINS` in their `.env` or
+    # their frontend simply won't be able to call this server; there is no wildcard fallback any
+    # more, on purpose (see docs/get-started/production-checklist.md).
+    #
+    # max_age caches the OPTIONS preflight response in the browser so cross-origin XHRs don't
+    # double up with a per-request preflight. Chrome caps at 7200s (2 h), Firefox at 86400s
+    # (24 h); set 86400 and let each browser apply its cap. Without this, every cross-origin
+    # fetch fires its own OPTIONS round-trip and all those OPTIONS calls queue on the single
+    # Gunicorn worker — turning ~30 page-load XHRs into ~60 server hits.
+    cors_origins = _cors_allowed_origins()
+    CORS(app, origins=cors_origins, supports_credentials=True, max_age=86400)
 
-    # SocketIO: allow all origins — nginx handles access control.
+    # SocketIO: same allowlist as the HTTP CORS above (BUG-0092) — not a separate wildcard.
     # async_mode MUST match the gunicorn worker class. On Linux backend services
     # run with `worker_class='gevent'` (see gunicorn_app.py) and
     # gevent.monkey.patch_all() is called at import time, so use 'gevent' — that
@@ -254,11 +306,11 @@ def setup_flask_app(app_name="VirtualPyTest"):
     # response can't masquerade as a dead connection.
     from flask_socketio import SocketIO
     if os.name == 'nt':
-        socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+        socketio = SocketIO(app, cors_allowed_origins=cors_origins, async_mode='threading')
     else:
         socketio = SocketIO(
             app,
-            cors_allowed_origins="*",
+            cors_allowed_origins=cors_origins,
             async_mode='gevent',
             ping_interval=25,
             ping_timeout=120,

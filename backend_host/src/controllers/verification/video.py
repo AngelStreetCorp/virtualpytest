@@ -373,16 +373,25 @@ class VideoVerificationController(VerificationControllerInterface):
     # High-Level Verification Methods
     # =============================================================================
 
-    def waitForVideoToAppear(self, motion_threshold: float = 5.0, duration: float = 3.0, timeout: float = 10.0) -> bool:
-        """Wait for video content to appear (motion detected)."""
+    def waitForVideoToAppear(self, motion_threshold: float = 5.0, duration: float = 3.0,
+                             timeout: float = 10.0, area: Dict[str, int] = None) -> bool:
+        """Wait for video content to appear (motion detected).
+
+        `area` matters wherever the player does not fill the frame. detect_motion defaults to
+        the centre 60%, which is right for a TV — video edge to edge, overlays round the
+        outside. On a portrait phone it is wrong: YouTube draws its player across the top ~28%
+        and fills the centre with the title, Subscribe row and comments, so the default region
+        measures a static block while the video plays (measured on a 1080x2400 phone: 0.9-2.9%
+        in the centre against 4.1-7.6% over the player).
+        """
             
-        print(f"VideoVerify[{self.device_name}]: Waiting for video to appear (motion threshold: {motion_threshold}%, duration: {duration}s, timeout: {timeout}s)")
+        print(f"VideoVerify[{self.device_name}]: Waiting for video to appear (motion threshold: {motion_threshold}%, duration: {duration}s, timeout: {timeout}s, area: {area})")
         
         start_time = time.time()
         check_interval = 1.0
         
         while time.time() - start_time < timeout:
-            motion_detected = self.detect_motion(duration, motion_threshold)
+            motion_detected = self.detect_motion(duration, motion_threshold, area)
             
             if motion_detected:
                 elapsed = time.time() - start_time
@@ -394,16 +403,25 @@ class VideoVerificationController(VerificationControllerInterface):
         print(f"VideoVerify[{self.device_name}]: Video did not appear within {timeout}s")
         return False
 
-    def waitForVideoToDisappear(self, motion_threshold: float = 5.0, duration: float = 3.0, timeout: float = 10.0) -> bool:
-        """Wait for video content to disappear (no motion detected)."""
+    def waitForVideoToDisappear(self, motion_threshold: float = 5.0, duration: float = 3.0,
+                                timeout: float = 10.0, area: Dict[str, int] = None) -> bool:
+        """Wait for video content to disappear (no motion detected).
+
+        `area` matters wherever the player does not fill the frame. detect_motion defaults to
+        the centre 60%, which is right for a TV — video edge to edge, overlays round the
+        outside. On a portrait phone it is wrong: YouTube draws its player across the top ~28%
+        and fills the centre with the title, Subscribe row and comments, so the default region
+        measures a static block while the video plays (measured on a 1080x2400 phone: 0.9-2.9%
+        in the centre against 4.1-7.6% over the player).
+        """
             
-        print(f"VideoVerify[{self.device_name}]: Waiting for video to disappear (motion threshold: {motion_threshold}%, duration: {duration}s, timeout: {timeout}s)")
+        print(f"VideoVerify[{self.device_name}]: Waiting for video to disappear (motion threshold: {motion_threshold}%, duration: {duration}s, timeout: {timeout}s, area: {area})")
         
         start_time = time.time()
         check_interval = 1.0
         
         while time.time() - start_time < timeout:
-            motion_detected = self.detect_motion(duration, motion_threshold)
+            motion_detected = self.detect_motion(duration, motion_threshold, area)
             
             if not motion_detected:
                 elapsed = time.time() - start_time

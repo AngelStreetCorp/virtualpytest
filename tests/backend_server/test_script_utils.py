@@ -29,7 +29,7 @@ def test_normalize_script_reference():
 
 
 def test_is_discoverable_script_reference():
-    from lib.utils.script_utils import _is_discoverable_script_reference as is_discoverable
+    from lib.utils.script_utils import is_discoverable_script_ref as is_discoverable
 
     # Discoverable
     assert is_discoverable("foo.py") is True

@@ -6,7 +6,7 @@ that stranded the rigid replay."""
 import importlib.util
 from pathlib import Path
 
-SCRIPTS = Path("/home/jndoye/shared/projects/virtualpytest-demo/backend_host/scripts")
+SCRIPTS = Path("~/virtualpytest-demo/backend_host/scripts")
 spec = importlib.util.spec_from_file_location("ab", SCRIPTS / "auto_build_mcp_live.py")
 ab = importlib.util.module_from_spec(spec); spec.loader.exec_module(ab)
 

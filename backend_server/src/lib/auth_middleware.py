@@ -37,7 +37,8 @@ def _log_open_mode_warning_once() -> None:
         return
     print(
         "[@auth_middleware] 🚨 SERVER OPEN MODE: SERVER_OPEN_MODE=true — "
-        "/server/* served without a credential (dev/trusted-net only)."
+        "/server/* browser requests served with no login (dev/trusted-net only). "
+        "Direct non-browser calls still need X-API-Key when API_KEY is set."
     )
     _open_mode_warning_logged = True
 
@@ -91,11 +92,14 @@ def _is_auto_sign_enabled() -> bool:
 
 
 def is_server_open_mode() -> bool:
-    """Explicit, dev-only opt-in to serve `/server/*` with no credential.
+    """Explicit, dev-only opt-in to serve `/server/*` **browser** traffic with no login.
 
     Default **off**: the platform is closed by default. Set `SERVER_OPEN_MODE=true`
     only on local dev or a trusted isolated network. Replaces the old implicit
     "no JWT secret ⇒ open" behaviour.
+
+    It waives the *user login* axis only. When `API_KEY` is configured, a direct
+    non-browser call still has to present it — see `_looks_like_browser()`.
     """
     return _is_truthy_env(os.getenv('SERVER_OPEN_MODE'))
 
@@ -113,6 +117,36 @@ def is_server_public_key_configured() -> bool:
     if not key:
         return False
     return key != (os.getenv('API_KEY') or '').strip()
+
+
+def is_api_key_configured() -> bool:
+    """True when the shared service key `API_KEY` is set on this server."""
+    return bool((os.getenv('API_KEY') or '').strip())
+
+
+def _looks_like_browser() -> bool:
+    """True when the request carries browser-only fetch metadata.
+
+    Browsers set `Sec-Fetch-*` on every fetch/XHR/navigation and page scripts can
+    neither forge nor omit them (forbidden header names); curl, requests and
+    scanners send neither those nor `Origin`.
+
+    This is what lets `SERVER_OPEN_MODE` mean "no user **login** required" instead
+    of "no credential required" — the two are separate axes. `API_KEY` is the
+    credential of the server API and has nothing to do with frontend login, so a
+    direct (non-browser) call must present it even in open mode, while the SPA of
+    a no-login deployment keeps working with no credential at all.
+
+    A speed bump, not a boundary: `curl -H 'Sec-Fetch-Site: same-origin'` passes.
+    A deployment that needs a real boundary configures a login
+    (`SUPABASE_JWT_SECRET`) and leaves open mode off — then every browser call
+    carries a JWT and this heuristic is never consulted.
+    """
+    return bool(
+        (request.headers.get('Sec-Fetch-Site') or '').strip()
+        or (request.headers.get('Sec-Fetch-Mode') or '').strip()
+        or (request.headers.get('Origin') or '').strip()
+    )
 
 
 # Browser navigations (a report page opened in a new tab, an <a href>, window.open) cannot
@@ -683,7 +717,16 @@ def require_user_auth_if_enabled(f: Callable) -> Callable:
 
 def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
     """
-    Enforce JWT auth for the current Flask request when auth is enabled.
+    Authorize the current `/server/*` request. Two independent axes:
+
+    - **`API_KEY` / `X-API-Key`** — the credential of the server API, for machine
+      callers (host->server, CI, provisioning, scripts). Checked first, validated
+      strictly, and never waived by open mode or by the JWT posture.
+    - **User login** — a Supabase JWT when a secret is configured; `SERVER_OPEN_MODE`
+      waives *this* axis, and only for requests that look like a browser.
+
+    Order: strict X-API-Key -> auto-sign -> open mode (browsers) -> user JWT ->
+    SERVER_PUBLIC_KEY -> 401.
 
     Returns:
       - None when request may continue
@@ -697,8 +740,21 @@ def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
         }), 503
 
     # Service-auth: host -> server and server-to-server calls present the shared
-    # X-API-Key instead of a user JWT. Allow them through the frontend-JWT guard.
-    if _is_valid_service_api_key():
+    # X-API-Key instead of a user JWT. `API_KEY` is the credential of the *server
+    # API*; it is a different axis from frontend login, so this runs before open
+    # mode and before the JWT branch and is never waived by either.
+    #
+    # A *present* X-API-Key is validated strictly: a wrong key is a hard 401, it
+    # never falls through to a later branch. Before this, a service with a typo'd
+    # key was silently admitted as admin on an open-mode deployment and rejected
+    # on a JWT one — the same caller "working" on one site and 401-ing on another
+    # with no way to tell why (docs/agent/platform/SERVER_AUTH.md §3).
+    if request.headers.get('X-API-Key') is not None:
+        if not _is_valid_service_api_key():
+            return jsonify({
+                'error': 'unauthorized',
+                'message': 'Invalid X-API-Key'
+            }), 401
         request.user_id = 'service_api_key'
         request.user_email = 'service@local'
         request.user_role = 'service'
@@ -717,6 +773,16 @@ def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
     # explicit open-mode line did nothing. Open mode = "everything allowed" by definition,
     # so granting the configured public role here does not widen the posture (BUG-0064).
     if is_server_open_mode():
+        # Open mode waives the browser *login*, not the server API key. A direct
+        # (non-browser) call still presents X-API-Key whenever one is configured,
+        # so `curl /server/...` against a no-login deployment is refused while its
+        # own SPA — which has no credential to send — keeps working.
+        if is_api_key_configured() and not _looks_like_browser():
+            return jsonify({
+                'error': 'unauthorized',
+                'message': 'X-API-Key header is required: SERVER_OPEN_MODE waives the '
+                           'browser login, not the server API key'
+            }), 401
         _log_open_mode_warning_once()
         request.user_id = 'open_mode'
         request.user_email = 'open@local'

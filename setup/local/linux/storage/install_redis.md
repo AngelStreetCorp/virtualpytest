@@ -47,7 +47,7 @@ REDIS_URL=redis://localhost:6379/0
 
 ```bash
 # With password authentication (replace with actual IP)
-REDIS_URL=redis://:admin1234@192.168.x.101:6379/0
+REDIS_URL=redis://:<REDIS_PASSWORD>@192.168.x.101:6379/0
 ```
 
 **Features:**
@@ -119,7 +119,7 @@ bind 0.0.0.0                    # Listen on all interfaces
 port 6379                        # Standard Redis port
 
 # Security
-requirepass admin1234            # Password authentication enabled
+requirepass <REDIS_PASSWORD from .env>            # Password authentication enabled
 
 # Memory
 maxmemory 256mb                  # Memory limit
@@ -155,7 +155,7 @@ Environment=HOME=/var/lib/redis-commander
 Environment=PATH=/usr/local/bin:/usr/bin:/bin
 Environment=NODE_PATH=/usr/local/lib/node_modules
 WorkingDirectory=/var/lib/redis-commander
-ExecStart=/usr/local/bin/redis-commander --redis-host 127.0.0.1 --redis-port 6379 --redis-password admin1234 --http-auth admin:admin1234
+ExecStart=/usr/local/bin/redis-commander --redis-host 127.0.0.1 --redis-port 6379 --redis-password "$REDIS_PASSWORD" --http-auth admin:"$REDIS_PASSWORD"
 Restart=always
 
 # Security
@@ -169,12 +169,12 @@ WantedBy=multi-user.target
 
 **Local Access**: `http://localhost:8081`
 **Proxied Access**: `https://your-domain/redis/`
-**Web Login**: `admin` / `admin1234`
+**Web Login**: `admin` / `<generated per install>`
 
 Redis Commander automatically connects to Redis using:
 - **Host**: `127.0.0.1`
 - **Port**: `6379`
-- **Password**: `admin1234`
+- **Password**: generated per install (`.env`)
 
 No manual configuration needed - just open the web interface and start managing queues!
 
