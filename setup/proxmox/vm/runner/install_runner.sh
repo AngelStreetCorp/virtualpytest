@@ -29,11 +29,11 @@ set -e
 HOST_NAME="runner-01"
 HOST_TYPE="runner_host"
 HOST_PORT="6109"
-SERVER_URL="http://192.168.0.103:5109"
+SERVER_URL="http://${SERVER_HOST:?set SERVER_HOST}:5109"
 API_KEY=""
-SUPABASE_URL="http://192.168.0.102:54321"
+SUPABASE_URL="http://${SUPABASE_HOST:?set SUPABASE_HOST}:54321"
 SUPABASE_ANON_KEY=""
-SUPABASE_DB_URI="postgresql://postgres:postgres@192.168.0.102:54322/postgres"
+SUPABASE_DB_URI="postgresql://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}@${SUPABASE_HOST:?set SUPABASE_HOST}:54322/postgres"
 # Storage credentials belong to the storage VM and are generated there per install; there
 # is no default to fall back on. Pass them from that machine's .env.
 MINIO_SECRET_KEY=""
@@ -162,17 +162,17 @@ API_KEY=$API_KEY
 SUPABASE_URL=$SUPABASE_URL
 SUPABASE_ANON_KEY=$SUPABASE_ANON_KEY
 SUPABASE_DB_URI=$SUPABASE_DB_URI
-MINIO_ENDPOINT=http://192.168.0.101:9000
+MINIO_ENDPOINT=http://${MINIO_HOST:?set MINIO_HOST}:9000
 MINIO_ACCESS_KEY=admin
 MINIO_SECRET_KEY=$MINIO_SECRET_KEY
 MINIO_BUCKET=virtualpytest
-MINIO_CONSOLE_URL=http://192.168.0.101:9001
+MINIO_CONSOLE_URL=http://${MINIO_HOST:?set MINIO_HOST}:9001
 MINIO_PUBLIC_URL=$SERVER_URL/minio
 # Use the deployment's public MinIO proxy for SigV4 report URLs.  This must be
 # set separately from MINIO_ENDPOINT because cloned deployments share private
 # 192.168.0.x addresses.
 MINIO_PRESIGN_ENDPOINT=$SERVER_URL/minio
-REDIS_URL=redis://:$REDIS_PASSWORD@192.168.0.101:6379/0
+REDIS_URL=redis://:$REDIS_PASSWORD@${REDIS_HOST:?set REDIS_HOST}:6379/0
 ENVIRONMENT=production
 SKIP_SPEEDTEST=true
 EOF

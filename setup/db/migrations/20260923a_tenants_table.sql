@@ -3,7 +3,7 @@
 -- built-in default tenant with the well-known UUID the rest of the codebase uses
 -- as its tenant fallback. Idempotent.
 --
--- Pre-state expected (verified 2026-09-23 on 192.168.0.102):
+-- Pre-state expected on the deployment database:
 --   * 0 rows in public.tenants
 --   * 0 rows with is_default=true anywhere (this is the only default)
 --

@@ -3,7 +3,7 @@
 -- picked the default team by is_default = true (no tenants / user_tenants
 -- writes).
 --
--- Captured from 192.168.0.102 on 2026-09-23 before the migration. Re-apply this
+-- Captured from the deployment database on 2026-09-23 before the migration. Re-apply this
 -- if you need to roll back to a state where handle_new_user does not touch
 -- the tenants table.
 
