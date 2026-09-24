@@ -4,10 +4,9 @@ import {
   Tab, Tabs, Table, TableBody, TableCell, TableHead, TableRow, TextField,
   Tooltip, Typography,
 } from '@mui/material';
-import { Refresh, Terminal } from '@mui/icons-material';
+import { Refresh } from '@mui/icons-material';
 import { apiClient } from '../utils/apiClient';
 import { buildServerUrl } from '../utils/buildUrlUtils';
-import { ServiceLogsModal } from '../components/common/ServiceLogsModal';
 import { useServerManager } from '../hooks/useServerManager';
 
 type Question = {
@@ -37,7 +36,7 @@ type AgentEvent = {
   tool_calls: number;
   error_summary: string | null;
 };
-type Service = { name: string; status: string };
+type Service = { name: string; status: string; active?: boolean };
 type OutcomeFilter = 'all' | 'answered' | 'cached' | 'off_topic' | 'error';
 const SERVER_LOG_SERVICES = [
   { name: 'vpt-server', label: 'vpt-server' },
@@ -71,23 +70,23 @@ const Logs: React.FC = () => {
   const [stats, setStats] = useState<Stats | null>(null);
   const [apiLogs, setApiLogs] = useState('');
   const [serverLogs, setServerLogs] = useState('');
+  const [hostLogs, setHostLogs] = useState('');
   const [serverService, setServerService] = useState('vpt-server');
+  const [hostService, setHostService] = useState('vpt-host');
   const [apiSearch, setApiSearch] = useState('');
   const [apiLines, setApiLines] = useState(100);
   const [apiSince, setApiSince] = useState('1h');
   const [apiLevel, setApiLevel] = useState('');
+  const [hostSearch, setHostSearch] = useState('');
   const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(() => new Set());
   const [services, setServices] = useState<Service[]>([]);
   const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
-  const [selectedService, setSelectedService] = useState('');
   const [selectedHost, setSelectedHost] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshed, setRefreshed] = useState<Date | null>(null);
-  const [modalOpen, setModalOpen] = useState(false);
   const { serverHostsData } = useServerManager();
   const hosts = useMemo(() => serverHostsData.flatMap((server) => server.hosts), [serverHostsData]);
-  const activeHost = hosts.find((host) => host.host_name === selectedHost);
   const requestController = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -129,6 +128,19 @@ const Logs: React.FC = () => {
         if (response.status === 403) throw new Error('Logs are available to administrators only.');
         if (!response.ok) throw new Error(`Unable to load services (HTTP ${response.status}).`);
         setServices((await response.json()).services || []);
+        if (selectedHost && hostService) {
+          const logResponse = await apiClient(buildServerUrl('/server/logs/view'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ service: hostService, host_name: selectedHost, lines: apiLines, since: apiSince, level: apiLevel || undefined }),
+            signal: controller.signal,
+          });
+          if (logResponse.status === 401) throw new Error('Your session is not available for this server. Sign in again or select an authenticated server.');
+          if (logResponse.status === 403) throw new Error('Logs are available to administrators only.');
+          const data = await logResponse.json();
+          if (!logResponse.ok || !data.success) throw new Error(data.error || `Unable to load host logs (HTTP ${logResponse.status}).`);
+          setHostLogs(data.logs || '');
+        }
       }
       setRefreshed(new Date());
     } catch (e) {
@@ -136,7 +148,7 @@ const Logs: React.FC = () => {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [tab, days, limit, apiLines, apiSince, apiLevel, serverService]);
+  }, [tab, days, limit, apiLines, apiSince, apiLevel, serverService, selectedHost, hostService]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => () => { requestController.current?.abort(); }, []);
@@ -167,17 +179,15 @@ const Logs: React.FC = () => {
     '& .MuiTableCell-root:hover': { backgroundColor: 'transparent !important' },
     '& .MuiTableHead-root, & .MuiTableCell-head': { backgroundColor: 'rgba(255,255,255,0.06) !important' },
   };
-  const hostServices = services.filter((service) => HOST_SERVICE_NAMES.has(service.name));
-  const openLogs = (service: string, hostName?: string) => {
-    setSelectedService(service);
-    setSelectedHost(hostName || '');
-    setModalOpen(true);
-  };
+  const hostServices = services.filter((service) => HOST_SERVICE_NAMES.has(service.name) && service.active !== false && service.status === 'active');
+
+  useEffect(() => {
+    if (!selectedHost && hosts.length > 0) setSelectedHost(hosts[0].host_name);
+  }, [hosts, selectedHost]);
 
   return (
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-        <Terminal color="primary" />
         <Typography variant="h4" sx={{ flex: 1 }}>Logs</Typography>
         {refreshed && <Typography variant="caption" color="text.secondary">Last refreshed: {refreshed.toLocaleString('en-GB')}</Typography>}
         <Tooltip title="Refresh">
@@ -185,7 +195,7 @@ const Logs: React.FC = () => {
         </Tooltip>
       </Box>
 
-      <Tabs value={tab} onChange={(_, value) => { setTab(value); setSelectedService(''); setSelectedHost(''); setModalOpen(false); }} sx={{ mb: 2 }}>
+      <Tabs value={tab} onChange={(_, value) => { setTab(value); }} sx={{ mb: 2 }}>
         <Tab label="MCP" />
         <Tab label="API" />
         <Tab label="ASK AI" />
@@ -299,26 +309,22 @@ const Logs: React.FC = () => {
 
       {!loading && tab === 4 && <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
         <TextField select label="Host" size="small" value={selectedHost} onChange={(event) => setSelectedHost(event.target.value)} sx={{ minWidth: 220 }}>
-          <MenuItem value="">Select a host</MenuItem>{hosts.map((host) => <MenuItem key={host.host_name} value={host.host_name}>{host.host_name}</MenuItem>)}
+          {hosts.map((host) => <MenuItem key={host.host_name} value={host.host_name}>{host.host_name}</MenuItem>)}
         </TextField>
-        <TextField select label="Host service" size="small" value={selectedService} onChange={(event) => setSelectedService(event.target.value)} sx={{ minWidth: 280 }}>
-          <MenuItem value="">Select a service</MenuItem>{hostServices.map((service) => <MenuItem key={service.name} value={service.name}>{service.name} · {service.status}</MenuItem>)}
+        <TextField select label="Host service" size="small" value={hostService} onChange={(event) => setHostService(event.target.value)} sx={{ minWidth: 280 }}>
+          {hostServices.map((service) => <MenuItem key={service.name} value={service.name}>{service.name} · {service.status}</MenuItem>)}
           {selectedHost && <MenuItem value="deployments">deployments · deployment file</MenuItem>}
         </TextField>
-        <Button variant="contained" disabled={!selectedService || !selectedHost} onClick={() => openLogs(selectedService, selectedHost)}>View logs</Button>
+        <TextField label="Search logs" size="small" value={hostSearch} onChange={(event) => setHostSearch(event.target.value)} sx={{ width: 220 }} />
       </Box>}
+
+      {!loading && tab === 4 && <Paper sx={{ mt: 1.5, p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', bgcolor: 'grey.900', color: 'grey.100', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+        {hostLogs.split('\n').filter((line) => line.toLowerCase().includes(hostSearch.toLowerCase())).join('\n') || <Typography color="grey.500">No active host services or no host logs found for this range.</Typography>}
+      </Paper>}
 
       {(tab === 1 || tab === 3 || tab === 4) && <Typography variant="body2" sx={{ mt: 2 }}>
         <a href="/docs/user-guide/troubleshooting">Troubleshooting and log review guide</a>
       </Typography>}
-      {selectedService && <ServiceLogsModal
-        open={modalOpen}
-        serviceLabel={selectedService}
-        logService={selectedService}
-        logHostName={selectedHost || undefined}
-        streamDevices={selectedHost && selectedService === 'vpt-stream' ? activeHost?.devices.map((device) => ({ device_id: device.device_id, device_name: device.device_name })) : undefined}
-        onClose={() => setModalOpen(false)}
-      />}
     </Box>
   );
 };

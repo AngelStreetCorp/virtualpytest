@@ -114,6 +114,12 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ matrix.image }}:${{ steps.meta.outputs.tag }}
             ${{ env.REGISTRY }}/${{ matrix.image }}:latest
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.description=VirtualPyTest ${{ matrix.image }} container image
+            org.opencontainers.image.source=https://github.com/AngelStreetCorp/virtualpytest
+            org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
+            org.opencontainers.image.licenses=AGPL-3.0
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 

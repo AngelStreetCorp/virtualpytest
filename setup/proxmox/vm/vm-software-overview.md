@@ -87,7 +87,7 @@
 ### 4. Backend Server VM (192.168.x.103)
 **Role**: Main application API
 **Software Installed**:
-- Python 3.9+ (Flask API)
+- Python 3.11+ (Flask API)
 - Gunicorn (application server)
 - PostgreSQL client libraries
 
@@ -102,7 +102,7 @@
 ### 5. Backend Host VMs (192.168.x.140+)
 **Role**: Device control and test execution
 **Software Installed**:
-- Python 3.9+ (automation)
+- Python 3.11+ (automation)
 - XFCE4 desktop environment
 - VNC/noVNC (remote access)
 - Firefox/Chromium browsers
