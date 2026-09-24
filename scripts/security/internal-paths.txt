@@ -46,6 +46,10 @@ docs/security/*.json
 .githooks/
 tests/backend_server/.env.test.jwt
 
+# Regression CI, its runner access, and its credentials belong to virtualpytest-internal.
+# The public snapshot keeps release-images.yml for release artifact publishing only.
+.github/workflows/regression.yml
+
 # --- product screenshots, until they are re-shot on anonymised fixtures -------------------
 # A pre-publication audit read the images, which no text scanner ever has: device watermarks
 # and table rows carry the customer's own host naming, a Grafana panel is

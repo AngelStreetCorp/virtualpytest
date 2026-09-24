@@ -1,7 +1,7 @@
 import { KeyboardArrowDown, OpenInNew } from '@mui/icons-material';
-import { Button, Chip, Menu, MenuItem, Box, Typography } from '@mui/material';
+import { Button, Chip, Menu, MenuItem, Box, Typography, IconButton, Tooltip } from '@mui/material';
 import React, { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { getNavVisibility } from '../../config/featureFlags';
 import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
@@ -10,6 +10,7 @@ import { NavigationDropdownProps, NavigationItem } from '../../types/pages/Navig
 const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, footer }) => {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const location = useLocation();
+  const navigate = useNavigate();
   const { isPathHidden } = useWorkspaceContext();
   const open = Boolean(anchorEl);
   const navItemWidth = 108;
@@ -85,6 +86,35 @@ const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, f
             {item.icon}
             <Typography variant="body2" sx={{ flex: 1 }}>{item.label}</Typography>
             <OpenInNew fontSize="small" sx={{ opacity: 0.5, ml: 1 }} />
+          </Box>
+        </MenuItem>
+      );
+    }
+
+    if (item.externalHref) {
+      return (
+        <MenuItem
+          key={item.path}
+          onClick={() => { navigate(item.path); handleClose(); }}
+          sx={{ py: 1.5, px: 2, '&:hover': { backgroundColor: 'action.hover' } }}
+        >
+          <Box display="flex" alignItems="center" gap={1} width="100%">
+            {item.icon}
+            <Typography variant="body2" sx={{ flex: 1 }}>{item.label}</Typography>
+            <Tooltip title={`Open ${item.label} instance`}>
+              <IconButton
+                size="small"
+                aria-label={`Open ${item.label} instance`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  window.open(item.externalHref, '_blank', 'noopener,noreferrer');
+                  handleClose();
+                }}
+                sx={{ p: 0.5, mr: -0.5 }}
+              >
+                <OpenInNew fontSize="small" sx={{ opacity: 0.6 }} />
+              </IconButton>
+            </Tooltip>
           </Box>
         </MenuItem>
       );

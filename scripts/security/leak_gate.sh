@@ -140,6 +140,7 @@ esac
 
 echo "${BOLD}Leak gate${NC} — scanning ${SCOPE_DESC}"
 FAILED=0
+MISCONFIGURED=0
 
 # ------------------------------------------------------------------- 1. identifier check
 # The term file is gitignored, so it exists only in the clone it was created in — a linked
@@ -171,10 +172,14 @@ if [[ -z "$TERMS" ]]; then
     echo "${RED}✗ identifiers: no term list.${NC}"
     echo "  Set the LEAK_TERMS secret (CI) or create ${TERMS_FILE} (local)."
     echo "  See docs/agent/release/ANONYMIZATION.md and ${TERMS_FILE}.example"
-    exit 2
+    # Continue to the independent Gitleaks check below. A missing identifier list must
+    # fail the job, but must not prevent secret scanning from running.
+    MISCONFIGURED=1
   fi
-  echo "${YELLOW}⚠ identifiers: SKIPPED — no ${TERMS_FILE} and no \$LEAK_TERMS.${NC}"
-  echo "  cp ${TERMS_FILE}.example ${TERMS_FILE} and fill it in (gitignored) to enable this check."
+  if (( ! REQUIRE_TERMS )); then
+    echo "${YELLOW}⚠ identifiers: SKIPPED — no ${TERMS_FILE} and no \$LEAK_TERMS.${NC}"
+    echo "  cp ${TERMS_FILE}.example ${TERMS_FILE} and fill it in (gitignored) to enable this check."
+  fi
 else
   # Two kinds of term:
   #
@@ -340,6 +345,12 @@ PY
   fi
   rm -f "$gl_out" "$gl_rep"
   [[ -n "$gl_tree" ]] && rm -rf "$gl_tree"
+fi
+
+if (( MISCONFIGURED )); then
+  echo
+  echo "${RED}${BOLD}Leak gate MISCONFIGURED.${NC} Identifier scanning needs its term list."
+  exit 2
 fi
 
 if (( FAILED )); then

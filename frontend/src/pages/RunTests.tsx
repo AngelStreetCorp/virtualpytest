@@ -71,7 +71,7 @@ import type { RerunPayload } from '../types/common/Rerun_Types';
 import { RunWithInputsDialog } from '../components/testcase/RunWithInputsDialog';
 import { stampInputValues } from '../utils/testcase/scriptInputUtils';
 import { validateCronExpression } from '../utils/cronUtils';
-import { formatToLocalTimeShort } from '../utils/dateUtils';
+import { formatExecutionHistoryTimestamp, formatToLocalTimeShort } from '../utils/dateUtils';
 import { CronHelper } from '../components/common/CronHelper';
 import { ExecutionHistoryRow } from '../components/common/ExecutionHistoryTable';
 import ExecutionHistorySection from '../components/common/ExecutionHistorySection';
@@ -1914,6 +1914,48 @@ const RunTests: React.FC = () => {
       showSuccess(`Aborted ${successCount} running target(s)`);
     } else {
       showError(`Abort partial: ${successCount}/${targets.length} target(s)`);
+    }
+  };
+
+  const handleAbortHistoryRow = async (row: ExecutionHistoryRow) => {
+    const abort = row.abortPayload;
+    if (!abort) return;
+    const endpoint = abort.executionType === 'campaign'
+      ? '/server/campaigns/abortRunning'
+      : abort.executionType === 'testcase'
+        ? '/server/testcase/abortRunning'
+        : '/server/script/abortRunning';
+    const deviceId = getExecutionDeviceId(abort.deviceId || '');
+    try {
+      const response = await fetch(buildServerUrl(endpoint), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          host_name: abort.hostName,
+          device_id: deviceId,
+          ...(abort.executionType === 'campaign' ? { execution_id: row.id } : {}),
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload?.success) {
+        showError(payload?.error || 'Could not abort execution');
+        return;
+      }
+
+      const targetKey = buildTargetKey(abort.hostName, abort.deviceId);
+      setExecutions((prev) => prev.map((exec) => {
+        if (exec.status !== 'running' || buildTargetKey(exec.hostName, exec.deviceId) !== targetKey) return exec;
+        const controller = executionAbortControllers.current.get(exec.id);
+        if (controller) {
+          controller.abort();
+          executionAbortControllers.current.delete(exec.id);
+        }
+        const completedAtRaw = new Date().toISOString();
+        return { ...exec, status: 'aborted', completedAtRaw, endTime: formatToLocalTimeShort(completedAtRaw) };
+      }));
+      showSuccess('Execution aborted');
+    } catch {
+      showError('Could not abort execution');
     }
   };
 
@@ -3911,8 +3953,8 @@ const RunTests: React.FC = () => {
         targetLabel: formatTargetLabel(execution.hostName, execution.deviceId, deviceDisplayName),
         scriptLabel: getScriptDisplayName(execution.scriptName, aiTestCasesInfo),
         parametersLabel,
-        startedLabel: execution.startTime || '-',
-        completedLabel: execution.endTime || '-',
+        startedLabel: formatExecutionHistoryTimestamp(execution.startedAtRaw || execution.startTime),
+        completedLabel: formatExecutionHistoryTimestamp(execution.completedAtRaw || execution.endTime),
         status: execution.status,
         resultSuccess: execution.executionType === 'campaign'
           ? (execution.campaignSuccess ?? (execution.testResult === 'success' ? true : execution.testResult === 'failure' ? false : null))
@@ -3925,6 +3967,9 @@ const RunTests: React.FC = () => {
         // original is still running/queued just race the original.
         rerunPayload: (execution.status === 'completed' || execution.status === 'failed')
           ? execution.rerunPayload
+          : undefined,
+        abortPayload: execution.status === 'running'
+          ? { hostName: execution.hostName, deviceId: execution.deviceId, executionType: execution.executionType }
           : undefined,
       };
     }),
@@ -3939,6 +3984,15 @@ const RunTests: React.FC = () => {
       : executionHistoryRows.filter((row) => row.resultSuccess === (historyResultFilter === 'success'))),
     [executionHistoryRows, historyResultFilter],
   );
+  const hasSuccessfulExecution = executionHistoryRows.some((row) => row.resultSuccess === true);
+  const hasFailedExecution = executionHistoryRows.some((row) => row.resultSuccess === false);
+
+  useEffect(() => {
+    if ((historyResultFilter === 'success' && !hasSuccessfulExecution)
+      || (historyResultFilter === 'failure' && !hasFailedExecution)) {
+      setHistoryResultFilter('all');
+    }
+  }, [historyResultFilter, hasFailedExecution, hasSuccessfulExecution]);
 
   const historyResultFilterControl = (
     <ToggleButtonGroup
@@ -3949,8 +4003,8 @@ const RunTests: React.FC = () => {
       sx={{ '& .MuiToggleButton-root': { py: 0.25, px: 1, fontSize: '0.72rem', textTransform: 'none' } }}
     >
       <ToggleButton value="all">All</ToggleButton>
-      <ToggleButton value="success">Success</ToggleButton>
-      <ToggleButton value="failure">Failure</ToggleButton>
+      <ToggleButton value="success" disabled={!hasSuccessfulExecution}>Success</ToggleButton>
+      <ToggleButton value="failure" disabled={!hasFailedExecution}>Failure</ToggleButton>
     </ToggleButtonGroup>
   );
 
@@ -4360,7 +4414,7 @@ const RunTests: React.FC = () => {
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                   <Typography variant="h6">
-                    Selected Items
+                    Selected Items ({selectedExecutableItems.length + selectedCampaignExecutableItems.length})
                   </Typography>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                     {selectedTargetEntries.length > 0 && (
@@ -4724,13 +4778,14 @@ const RunTests: React.FC = () => {
         {/* Last Executions */}
         <Grid item xs={12}>
           <ExecutionHistorySection
-            title="Last Executions"
+            title={`Last Executions (${filteredExecutionHistoryRows.length})`}
             titleExtra={historyResultFilterControl}
             rows={filteredExecutionHistoryRows}
             scriptColumnLabel={browserTab === 'campaigns' ? 'Campaign' : 'Test'}
             emptyMessage={browserTab === 'campaigns' ? 'No campaign executions yet' : 'No test executions yet'}
             onOpenUrl={handleOpenR2Url}
             onRerun={handleRerun}
+            onAbort={handleAbortHistoryRow}
             isCompact={isCompact}
             isTablet={isTablet}
             cardSx={{ '& .MuiCardContent-root': { p: 2, '&:last-child': { pb: 2 } } }}

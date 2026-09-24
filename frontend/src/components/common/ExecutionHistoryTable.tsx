@@ -1,9 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { Box, Chip, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
-import { Link as LinkIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, PlayArrow as ScriptIcon, CheckCircle as PassIcon, Error as FailIcon, RestartAlt as RerunIcon } from '@mui/icons-material';
+import { Link as LinkIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, PlayArrow as ScriptIcon, CheckCircle as PassIcon, Error as FailIcon, RestartAlt as RerunIcon, HourglassTop as RunningIcon, Schedule as QueuedIcon, Block as AbortedIcon, RemoveCircleOutline as SkippedIcon, StopCircle as AbortIcon } from '@mui/icons-material';
 import { SxProps, Theme } from '@mui/material/styles';
 
-import { getStatusChip } from '../../utils/executionUtils';
 import type { RerunPayload } from '../../types/common/Rerun_Types';
 
 export type ExecutionHistoryColumnKey = 'target' | 'script' | 'start' | 'end' | 'status' | 'report' | 'logs' | 'rerun';
@@ -35,12 +34,14 @@ export interface ExecutionHistoryRow {
   // Full launch-time config for one-click rerun. When absent the rerun cell
   // renders empty (e.g. older deployment rows that predate the column).
   rerunPayload?: RerunPayload;
+  abortPayload?: { hostName: string; deviceId?: string; executionType: 'script' | 'testcase' | 'campaign' };
 }
 
 interface ExecutionHistoryTableProps {
   rows: ExecutionHistoryRow[];
   onOpenUrl: (url: string) => void;
   onRerun?: (payload: RerunPayload) => void;
+  onAbort?: (row: ExecutionHistoryRow) => void;
   scriptColumnLabel?: string;
   headerCellSx?: (key: ExecutionHistoryColumnKey) => SxProps<Theme> | undefined;
   bodyCellSx?: (key: ExecutionHistoryColumnKey) => SxProps<Theme> | undefined;
@@ -69,31 +70,38 @@ const columns: Array<{ key: ExecutionHistoryColumnKey; label: string }> = [
   { key: 'status', label: 'Status' },
   { key: 'report', label: 'Report' },
   { key: 'logs', label: 'Logs' },
-  { key: 'rerun', label: 'Rerun' },
+  { key: 'rerun', label: 'Action' },
 ];
 
 export const getExecutionHistoryStatusChip = (row: ExecutionHistoryRow): React.JSX.Element => {
-  if (row.status === 'running' || row.status === 'queued' || row.status === 'aborted' || row.status === 'skipped') {
-    return getStatusChip(row.status);
-  }
-
-  if (row.resultSuccess != null) {
-    return (
-      <Chip
-        label={row.resultSuccess ? 'SUCCESS' : 'FAILURE'}
-        color={row.resultSuccess ? 'success' : 'error'}
-        size="small"
-      />
-    );
-  }
-
-  return getStatusChip(row.status);
+  const status = row.status === 'completed' && row.resultSuccess != null
+    ? (row.resultSuccess ? 'success' : 'failure')
+    : row.status;
+  const statusView: Record<string, { label: string; color: 'success' | 'error' | 'warning' | 'info' | 'disabled'; icon: React.ReactNode }> = {
+    success: { label: 'Passed', color: 'success', icon: <PassIcon fontSize="small" /> },
+    failure: { label: 'Failed', color: 'error', icon: <FailIcon fontSize="small" /> },
+    completed: { label: 'Completed', color: 'success', icon: <PassIcon fontSize="small" /> },
+    failed: { label: 'Failed', color: 'error', icon: <FailIcon fontSize="small" /> },
+    running: { label: 'Running', color: 'warning', icon: <RunningIcon fontSize="small" /> },
+    queued: { label: 'Queued', color: 'info', icon: <QueuedIcon fontSize="small" /> },
+    aborted: { label: 'Aborted', color: 'error', icon: <AbortedIcon fontSize="small" /> },
+    skipped: { label: 'Skipped', color: 'disabled', icon: <SkippedIcon fontSize="small" /> },
+  };
+  const view = statusView[status] ?? { label: status, color: 'disabled' as const, icon: <SkippedIcon fontSize="small" /> };
+  return (
+    <Tooltip title={view.label} arrow>
+      <Box component="span" aria-label={view.label} sx={{ display: 'inline-flex', color: view.color === 'disabled' ? 'text.disabled' : `${view.color}.main`, verticalAlign: 'middle' }}>
+        {view.icon}
+      </Box>
+    </Tooltip>
+  );
 };
 
 export const ExecutionHistoryTable: React.FC<ExecutionHistoryTableProps> = ({
   rows,
   onOpenUrl,
   onRerun,
+  onAbort,
   scriptColumnLabel,
   headerCellSx,
   bodyCellSx,
@@ -142,34 +150,31 @@ export const ExecutionHistoryTable: React.FC<ExecutionHistoryTableProps> = ({
                     </Box>
                   </TableCell>
                   <TableCell sx={bodyCellSx?.('script')}>
-                    {row.parametersLabel ? (
-                      <Tooltip
-                        arrow
-                        title={
-                          <Box sx={{ whiteSpace: 'pre-line', fontFamily: 'monospace', fontSize: '0.7rem' }}>
-                            {row.parametersLabel}
-                          </Box>
-                        }
+                    <Tooltip
+                      arrow
+                      title={
+                        <Box sx={{ whiteSpace: 'pre-line', fontFamily: 'monospace', fontSize: '0.7rem', maxWidth: 420 }}>
+                          <strong>{row.scriptLabel}</strong>
+                          {row.parametersLabel ? `\n${row.parametersLabel}` : ''}
+                        </Box>
+                      }
+                    >
+                      <Typography
+                        variant="body2"
+                        component="span"
+                        sx={{ cursor: 'help', borderBottom: '1px dotted', borderColor: 'text.disabled' }}
                       >
-                        <Typography
-                          variant="body2"
-                          component="span"
-                          sx={{ cursor: 'help', borderBottom: '1px dotted', borderColor: 'text.disabled' }}
-                        >
-                          {row.scriptLabel}
-                        </Typography>
-                      </Tooltip>
-                    ) : (
-                      <Typography variant="body2">{row.scriptLabel}</Typography>
-                    )}
+                        {row.scriptLabel}
+                      </Typography>
+                    </Tooltip>
                   </TableCell>
                   <TableCell sx={bodyCellSx?.('start')}>
-                    <Typography variant="body2" color={row.startedLabel !== '-' ? 'text.primary' : 'text.disabled'}>
+                      <Typography variant="caption" color={row.startedLabel !== '-' ? 'text.primary' : 'text.disabled'} sx={{ whiteSpace: 'nowrap' }}>
                       {row.startedLabel}
                     </Typography>
                   </TableCell>
                   <TableCell sx={bodyCellSx?.('end')}>
-                    <Typography variant="body2" color={row.completedLabel !== '-' ? 'text.primary' : 'text.disabled'}>
+                      <Typography variant="caption" color={row.completedLabel !== '-' ? 'text.primary' : 'text.disabled'} sx={{ whiteSpace: 'nowrap' }}>
                       {row.completedLabel}
                     </Typography>
                   </TableCell>
@@ -178,45 +183,41 @@ export const ExecutionHistoryTable: React.FC<ExecutionHistoryTableProps> = ({
                   </TableCell>
                   <TableCell sx={{ ...bodyCellSx?.('report') as object, textAlign: 'center' }}>
                     {row.reportUrl ? (
-                      <Chip
-                        label="Report"
-                        clickable
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onOpenUrl(row.reportUrl!);
-                        }}
-                        size="small"
-                        sx={{ cursor: 'pointer' }}
-                        icon={<LinkIcon />}
-                        color="primary"
-                        variant="outlined"
-                      />
+                      <Tooltip title="Open report">
+                        <IconButton aria-label="Open report" size="small" color="primary" onClick={(event) => { event.stopPropagation(); onOpenUrl(row.reportUrl!); }}>
+                          <LinkIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     ) : (
-                      <Chip label="No Report" size="small" variant="outlined" disabled />
+                      <Tooltip title="No report available"><span><IconButton aria-label="No report available" size="small" disabled><LinkIcon fontSize="small" /></IconButton></span></Tooltip>
                     )}
                   </TableCell>
                   <TableCell sx={{ ...bodyCellSx?.('logs') as object, textAlign: 'center' }}>
                     {row.hideTopLevelLogs ? (
                       ''
                     ) : row.logsUrl ? (
-                      <Chip
-                        icon={<LinkIcon />}
-                        label="Logs"
-                        size="small"
-                        clickable
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          onOpenUrl(row.logsUrl!);
-                        }}
-                        color="secondary"
-                        variant="outlined"
-                      />
+                      <Tooltip title="Open logs">
+                        <IconButton aria-label="Open logs" size="small" color="secondary" onClick={(event) => { event.stopPropagation(); onOpenUrl(row.logsUrl!); }}>
+                          <LinkIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                     ) : (
-                      <Chip label="No Logs" size="small" variant="outlined" disabled />
+                      <Tooltip title="No logs available"><span><IconButton aria-label="No logs available" size="small" disabled><LinkIcon fontSize="small" /></IconButton></span></Tooltip>
                     )}
                   </TableCell>
                   <TableCell sx={{ ...bodyCellSx?.('rerun') as object, textAlign: 'center' }}>
-                    {row.rerunPayload && onRerun ? (
+                    {row.status === 'running' && row.abortPayload && onAbort ? (
+                      <Tooltip title="Abort execution">
+                        <IconButton
+                          size="small"
+                          color="error"
+                          aria-label="Abort execution"
+                          onClick={(event) => { event.stopPropagation(); onAbort(row); }}
+                        >
+                          <AbortIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    ) : row.rerunPayload && onRerun ? (
                       <Tooltip title="Rerun on the same device with the same script and parameters">
                         <IconButton
                           size="small"

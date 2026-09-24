@@ -58,6 +58,19 @@ export const formatToLocalTimeShort = (utcTimestamp: string | null | undefined):
   }
 };
 
+/** Show only the local time for today's execution history rows; retain date and time for older rows. */
+export const formatExecutionHistoryTimestamp = (utcTimestamp: string | null | undefined): string => {
+  if (!utcTimestamp) return '-';
+  const date = new Date(utcTimestamp);
+  if (isNaN(date.getTime())) return utcTimestamp;
+  const now = new Date();
+  const isToday = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (!isToday) return formatToLocalTimeShort(utcTimestamp);
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
 /**
  * Format a UTC ISO timestamp to local date (without time)
  * @param utcTimestamp - ISO 8601 timestamp string in UTC
@@ -152,4 +165,3 @@ export const formatRelativeTime = (utcTimestamp: string | null | undefined): str
     return utcTimestamp;
   }
 };
-

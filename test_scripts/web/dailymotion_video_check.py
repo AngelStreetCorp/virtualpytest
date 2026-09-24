@@ -571,6 +571,16 @@ def main():
 
     step_results = []
 
+    # Match the device execution path used by youtube_video_check: capture a
+    # device screenshot and attach it to each completed report step.
+    from shared.src.lib.utils.device_utils import capture_screenshot_for_script
+
+    def capture_step_screenshot(screenshot_id: str) -> str:
+        captured_id = capture_screenshot_for_script(device, context, screenshot_id)
+        if captured_id and context.screenshot_paths:
+            return context.screenshot_paths[-1]
+        return ""
+
     def add_step(message: str, success: bool, actions=None, verifications=None, screenshot_path: str = ""):
         append_local_debug_step_result(
             step_results=step_results,
@@ -612,6 +622,14 @@ def main():
         context.execution_summary = _summary(context, video_url, {})
         return False
 
+    # ensure_browser_session creates the first step; attach the current browser
+    # state to it so the browser launch row also has its own screenshot.
+    browser_launch_shot = capture_step_screenshot("dailymotion_browser_ready")
+    if step_results and browser_launch_shot:
+        step_results[-1]["screenshot_path"] = browser_launch_shot
+        step_results[-1]["step_end_screenshot_path"] = browser_launch_shot
+        step_results[-1]["action_screenshots"] = [browser_launch_shot]
+
     # Navigate to home and dismiss cookies
     nav_home = asyncio.run(web_controller.navigate_to_url(_HOME_URL))
     if not nav_home.get('success'):
@@ -627,7 +645,8 @@ def main():
     if modal_selector:
         asyncio.run(web_controller.execute_javascript(_JS_DISMISS_CONSENT_MODAL))
         time.sleep(2)
-    add_step("Open Dailymotion and dismiss cookie consent", True)
+    home_step_shot = capture_step_screenshot("dailymotion_home_state")
+    add_step("Open Dailymotion and dismiss cookie consent", True, screenshot_path=home_step_shot)
 
     # Navigate to the Dailymotion embed player (see comment in _run_local_playwright_flow).
     # video_url was already normalized via _resolve_video_url() at the top of main(),
@@ -662,7 +681,8 @@ def main():
     asyncio.run(web_controller.execute_javascript(_JS_CLICK_PLAYER_OVERLAY))
     asyncio.run(web_controller.execute_javascript(_JS_FORCE_PLAY))
     asyncio.run(web_controller.execute_javascript(_JS_ENTER_FULLSCREEN))
-    add_step("Open target Dailymotion video (embed player)", True)
+    video_open_step_shot = capture_step_screenshot("dailymotion_video_opened")
+    add_step("Open target Dailymotion video (embed player)", True, screenshot_path=video_open_step_shot)
 
     if preroll_wait > 0:
         time.sleep(preroll_wait)
@@ -703,11 +723,12 @@ def main():
     except Exception as ff_exc:
         print(f"⚠️ [dailymotion_video_check] First-frame probe read failed: {ff_exc}")
 
+    monitor_step_shot = capture_step_screenshot("dailymotion_monitor_end")
     add_step("Monitor playback progression", playback_confirmed, verifications=[{
         'success': playback_confirmed,
         'label': 'Playback progressed',
         'details': {'progress_seconds': progress_seconds, 'sample_count': len(samples)},
-    }])
+    }], screenshot_path=monitor_step_shot)
 
     context.overall_success = playback_confirmed
     if not playback_confirmed and not context.error_message:

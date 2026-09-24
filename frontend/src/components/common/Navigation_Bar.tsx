@@ -26,7 +26,7 @@ const NavigationBar: React.FC = () => {
   const { isPathHidden } = useWorkspaceContext();
   const { mode, setMode } = useTheme();
   const [slackUrl, setSlackUrl] = useState<string>('https://slack.com');
-  const [testrailProjectUrl, setTestrailProjectUrl] = useState<string>('');
+  const [testrailInstanceUrl, setTestrailInstanceUrl] = useState<string>('https://virtualpytest.testrail.io');
   const navItemSx = {
     justifyContent: 'center',
     textAlign: 'center',
@@ -63,8 +63,8 @@ const NavigationBar: React.FC = () => {
         const response = await fetch(buildServerUrl('/server/integrations/testrail/config'));
         const data = await response.json();
         const config = data?.config;
-        if (data?.success && config?.has_credentials && config?.base_url && config?.project_id) {
-          setTestrailProjectUrl(`${config.base_url}/index.php?/projects/overview/${encodeURIComponent(config.project_id)}`);
+        if (data?.success && config?.base_url) {
+          setTestrailInstanceUrl(config.base_url);
         }
       } catch (error) {
         // The TestRail link is optional; users without plugin access simply do not see it.
@@ -75,7 +75,7 @@ const NavigationBar: React.FC = () => {
 
   // Langfuse URL from env — if set, the dropdown item opens externally
   const langfuseUrl = getEnv('VITE_LANGFUSE_URL') as string | undefined;
-  const integrationsItems = buildIntegrationsItems({ slackUrl, langfuseUrl, testrailProjectUrl });
+  const integrationsItems = buildIntegrationsItems({ slackUrl, langfuseUrl, testrailInstanceUrl });
 
   const isActive = (path: string, prefix = false) =>
     prefix ? location.pathname.startsWith(path) : location.pathname === path;

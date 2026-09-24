@@ -330,10 +330,6 @@ body {{
     border-bottom: none;
 }}
 
-.step-item:hover {{
-    background: var(--step-hover);
-}}
-
 .step-item.success {{
     border-left: 3px solid var(--success-color);
 }}

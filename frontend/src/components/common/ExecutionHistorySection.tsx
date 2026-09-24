@@ -10,7 +10,7 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Link as LinkIcon, RestartAlt as RerunIcon } from '@mui/icons-material';
+import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Link as LinkIcon, RestartAlt as RerunIcon, StopCircle as AbortIcon } from '@mui/icons-material';
 import { SxProps, Theme } from '@mui/material/styles';
 
 import ExecutionHistoryTable, {
@@ -26,6 +26,7 @@ interface ExecutionHistorySectionProps {
   emptyMessage: string;
   onOpenUrl: (url: string) => void;
   onRerun?: (payload: RerunPayload) => void;
+  onAbort?: (row: ExecutionHistoryRow) => void;
   scriptColumnLabel?: string;
   isCompact?: boolean;
   isTablet?: boolean;
@@ -48,6 +49,7 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
   emptyMessage,
   onOpenUrl,
   onRerun,
+  onAbort,
   scriptColumnLabel,
   isCompact = false,
   isTablet = false,
@@ -108,7 +110,13 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
                     variant="outlined"
                   />
                 ) : null}
-                {row.rerunPayload && onRerun ? (
+                {row.status === 'running' && row.abortPayload && onAbort ? (
+                  <Tooltip title="Abort execution">
+                    <IconButton size="small" color="error" aria-label="Abort execution" onClick={() => onAbort(row)}>
+                      <AbortIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                ) : row.rerunPayload && onRerun ? (
                   <Tooltip title="Rerun on the same device with the same script and parameters">
                     <IconButton size="small" color="primary" onClick={() => onRerun(row.rerunPayload!)}>
                       <RerunIcon fontSize="small" />
@@ -129,6 +137,7 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
       rows={rows}
       onOpenUrl={onOpenUrl}
       onRerun={onRerun}
+      onAbort={onAbort}
       scriptColumnLabel={scriptColumnLabel}
       headerCellSx={headerCellSx}
       bodyCellSx={bodyCellSx}

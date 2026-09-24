@@ -422,20 +422,203 @@ gcloud compute firewall-rules create vpt-public \
 > [Production checklist](get-started/production-checklist.md) before
 > opening any port.
 
-## 9. Optional — put it on a hostname with HTTPS
+## 9. Optional — Cloudflare in front of the showcase
 
-The compose stack is designed to be fronted by a TLS-terminating reverse
-proxy. Two common shapes:
+For a public-facing showcase the stack needs TLS, a real hostname, and at
+least a country gate and a content filter on the visitor side. Putting
+Cloudflare in front handles all three without changing the GCP firewall.
 
-- **Cloudflare in front of the VM**: Cloudflare Tunnel (cloudflared) on the
-  VM, your domain pointed at the tunnel, no public inbound ports. See
-  [Network setup](get-started/network.md#cloudflare-tunnel).
-- **nginx + certbot on the VM**: open only 443, terminate TLS, proxy to the
-  compose services. See [Security](get-started/security.md).
+```text
+                                                          ┌────────────────────────────────────────────┐
+                       visitor (browser)                  │ Cloudflare edge                              │
+                              │                            │  DNS (proxied / orange cloud)                │
+                              ▼                            │  TLS 1.3  ·  HTTP/3                          │
+            ┌──────────────────────────────────┐            │  WAF                                         │
+            │ vpt.example.com / api / grafana / │ ───────►   │   • Country allowlist (EU+US+CA+UK+AU)      │
+            │ minio / studio                    │            │   • Managed ruleset: Adult + Malware only    │
+            └──────────────────────────────────┘            │  Bot Fight Mode, Rate limits, Analytics      │
+                                                          └────────────────────┬───────────────────────┘
+                                                                               │ TLS (Cloudflare <-> origin over QUIC,
+) Cloudflare Tunnel (cloudflared on the VM dials out over 7844 — no GCP firewall ports opened
+                                                                               ▼
+                                                          ┌────────────────────────────────────────────┐
+                                                          │ GCP VM  e2-custom-4-8192  Debian 13         │
+                                                          │ ┌────────────────────────────────────────┐ │
+                                                          │ │ Docker Compose stack (setup/docker)     │ │
+                                                          │ │  frontend · backend_server · backend_host│ │
+                                                          │ │  redis · supabase (7) · grafana          │ │
+                                                          │ └────────────────────────────────────────┘ │
+                                                          │  systemd:  minio.service · cloudflared.service│ │
+                                                          │  systemd-resolved → 1.1.1.3 (Families DNS)  │
+                                                          └────────────────────────────────────────────┘
+```
 
-In either case the only change you need in `.env` is
-`PUBLIC_HOST=your.domain.com` followed by `./launch.sh --rebuild` (the
-frontend bakes `VITE_*` values at build time).
+Cloudflare reaches the VM through **Cloudflare Tunnel** (`cloudflared`),
+not through any GCP firewall port. The tunnel dials out from the VM to
+Cloudflare's nearest edge over QUIC on port 7844 — the GCP firewall
+stays closed, and the VM has no public IPs to attack. See
+[Cloudflare Tunnels — quickstart](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/)
+for the official primer.
+
+> **Why Tunnel over opening 443.** Opening port 443 on the VM exposes it to
+> every scanner on the internet even with a Cloudflare proxy in front, because
+> Cloudflare origin-pull requests can be spoofed and the WAF does not inspect
+> traffic that bypasses it. Tunnel inverts the flow — the VM dials out, and
+> Cloudflare is the only path in.
+
+### 9.1 Install `cloudflared` and create the systemd unit
+
+The Debian 13 apt repo for `cloudflared` does not have a Release file today,
+so install from the upstream `.deb` directly. As of `main-2026.09.24-9321`
+this is already done on the reference VM (`/usr/local/bin/cloudflared`).
+
+```bash
+# latest .deb URL (always pin a version in production)
+curl -fsSL -o /tmp/cloudflared.deb \
+  https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+sudo dpkg -i /tmp/cloudflared.deb
+cloudflared --version
+
+# systemd unit (the FIPS deb does not ship one)
+sudo tee /etc/systemd/system/cloudflared.service > /dev/null <<'UNIT'
+[Unit]
+Description=cloudflared — Cloudflare Tunnel for VirtualPyTest showcase
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/cloudflared --no-autoupdate --config /etc/cloudflared/config.yml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+sudo systemctl daemon-reload
+sudo systemctl enable cloudflared.service
+```
+
+### 9.2 Create the tunnel in the Cloudflare dashboard
+
+The token lives in a separate file so `config.yml` is portable across boxes.
+This is the part you do on the Cloudflare dashboard, not on the VM:
+
+1. **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**.
+   Pick a name (e.g. `vpt-gcloud`); copy the one-line install command
+   Cloudflare shows you — it prints a token like
+   `eyJhIjoiNjM4...xMtR4In0` and a `<TUNNEL_ID>` UUID.
+2. **Public hostname tab**: add `<your-showcase-domain>` →
+   `http://localhost:5073` for the visitor UI. Repeat for the API, Grafana,
+   MinIO console and Supabase Studio (one hostname per service).
+3. Back on the VM, drop the token JSON you downloaded (or paste the JSON the
+   dashboard shows under "Configure your tunnel") to
+   `/etc/cloudflared/<TUNNEL_ID>.json` and put the matching UUID into
+   `/etc/cloudflared/config.yml`:
+
+   ```bash
+   sudo tee /etc/cloudflared/config.yml > /dev/null <<'YAML'
+   tunnel: <TUNNEL_ID>
+   credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+   ingress:
+     - hostname: <your-showcase-domain>
+       service: http://localhost:5073
+       originRequest: { connectTimeout: 10s }
+     - hostname: api.<your-showcase-domain>
+       service: http://localhost:5109
+     - hostname: grafana.<your-showcase-domain>
+       service: http://localhost:3000
+     - hostname: minio.<your-showcase-domain>
+       service: http://localhost:9001
+     - hostname: studio.<your-showcase-domain>
+       service: http://localhost:54321
+     - service: http_status:404   # catch-all is mandatory
+   YAML
+
+   sudo systemctl restart cloudflared.service
+   sudo systemctl status cloudflared.service --no-pager
+   ```
+
+After this, `https://<your-showcase-domain>` on the open internet reaches
+the frontend container on the VM — no GCP firewall changes required.
+
+### 9.3 WAF — country allowlist (EU + US + CA + UK + AU)
+
+Two ways to apply the country rule. The script on the VM
+(`/home/virtualpytest/cloudflare/waf-rules.sh`, mode `0755`) takes a scoped
+API token and pushes both the country allowlist and the managed-ruleset
+categories in one go:
+
+```bash
+# On the Mac (or any host with curl + jq / python):
+CLOUDFLARE_API_TOKEN=<token> CLOUDFLARE_ZONE_ID=<zone-id> \
+  scp vpt-gcloud-standalone:/home/virtualpytest/cloudflare/waf-rules.sh ./
+bash waf-rules.sh
+```
+
+The script ships with the agreed allowlist (DE FR IT ES NL BE SE NO DK FI
+IE AT PT CH LU PL US CA GB AU NZ) and the categories you picked (Adult +
+Malware only; everything else explicitly disabled). Edit the script if you
+want to change either list.
+
+If you prefer to click through the dashboard instead:
+**Security → WAF → Custom Rules → Create rule**, name
+`[VPT] Country allowlist`, expression
+`(not ip.geoip.country in {DE FR IT ES NL BE SE NO DK FI IE AT PT CH LU PL US CA GB AU NZ})`,
+action **Block**, priority `1`, deploy.
+
+### 9.4 WAF — content categories (Adult + Malware only)
+
+The script in §9.3 already applies this via the Cloudflare API. The same
+result by hand:
+
+1. **Security → WAF → Managed Rules → Cloudflare Managed Ruleset → Configure**
+2. Search **"Adult and Sexually Explicit"** → enable.
+3. Search **"Malware"** → enable.
+4. Leave every other category (Drugs, Weapons, Gambling, Hacking, Crypto
+   Mining, Piracy, Phishing) **disabled** — explicitly check the toggle is
+   off if the dashboard defaults to "on".
+
+### 9.5 Visitor filtering = cloud. Browser-side = DNS resolver.
+
+Cloudflare WAF inspects the visitor URL only — it does **not** filter what
+the host's noVNC browser fetches while running automation. For the
+browser-side filter, point the VM's resolver at Cloudflare for Families.
+Already done on the reference VM (`/etc/systemd/resolved.conf.d/family.conf`):
+
+```ini
+[Resolve]
+DNS=1.1.1.3 1.0.0.3
+FallbackDNS=
+```
+
+```bash
+sudo systemctl restart systemd-resolved
+dig +short @127.0.0.53 pornhub.com   # expect 0.0.0.0 (blocked)
+dig +short @127.0.0.53 github.com   # expect a real A record
+```
+
+This covers every container that uses the host's resolver by default — the
+whole docker stack — plus anything else on the VM (noVNC's Chromium, curl
+from inside the host, etc.). For mobile emulators / real devices on a
+separate network, point their DHCP-supplied DNS at `1.1.1.3 / 1.0.0.3`
+or set Android's Private DNS to `family.cloudflare-dns.com`. The full
+rationale and recipes are in [Content filtering](get-started/content-filtering.md).
+
+### 9.6 Putting PUBLIC_HOST on the right name
+
+Once the tunnel is up, the only change needed in `.env` is
+`PUBLIC_HOST=<your-showcase-domain>` followed by a rebuild so the frontend
+bakes `VITE_*` values at build time:
+
+```bash
+cd /home/virtualpytest/virtualpytest/setup/docker
+sed -i 's|^PUBLIC_HOST=.*|PUBLIC_HOST=<your-showcase-domain>|' .env
+./launch.sh --rebuild   # rebuilds the frontend image and recreates the container
+```
 
 ## 10. Day-two
 

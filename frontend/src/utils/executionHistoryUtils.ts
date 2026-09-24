@@ -1,6 +1,6 @@
 import { ExecutionHistoryRow, ExecutionHistoryScriptRow } from '../components/common/ExecutionHistoryTable';
 import { CampaignScript, DeploymentExecution } from '../hooks/useDeployment';
-import { formatToLocalTimeShort } from './dateUtils';
+import { formatExecutionHistoryTimestamp } from './dateUtils';
 import { getLogsUrl, getScriptDisplayName } from './executionUtils';
 
 export interface CampaignScriptLike {
@@ -68,8 +68,8 @@ export const mapDeploymentExecutionToHistoryRow = (
     scriptLabel: isCampaign
       ? getCampaignDisplayName(execution.deployments?.script_name, execution.campaign_name || execution.deployments?.name)
       : getScriptDisplayName(execution.deployments?.script_name || execution.deployments?.name || '-'),
-    startedLabel: execution.started_at ? formatToLocalTimeShort(execution.started_at) : '-',
-    completedLabel: execution.completed_at ? formatToLocalTimeShort(execution.completed_at) : '-',
+    startedLabel: formatExecutionHistoryTimestamp(execution.started_at),
+    completedLabel: formatExecutionHistoryTimestamp(execution.completed_at),
     status: (execution.status || 'completed') as ExecutionHistoryRow['status'],
     resultSuccess: campaignSuccess ?? null,
     reportUrl: execution.report_url || undefined,

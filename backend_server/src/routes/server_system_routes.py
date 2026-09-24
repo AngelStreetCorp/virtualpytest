@@ -1998,6 +1998,8 @@ def restart_server_service():
 
 
 @server_system_bp.route('/rebootServer', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:rebootServer')
 def reboot_server():
     """Reboot the server machine"""
@@ -2011,6 +2013,8 @@ def reboot_server():
 # =============================================================================
 
 @server_system_bp.route('/restartHostService', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:restartHostService')
 def restart_host_service_proxy():
     """Proxy restart vpt-host service request to specific host"""
@@ -2030,6 +2034,8 @@ def restart_host_service_proxy():
 
 
 @server_system_bp.route('/restartHostServices', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:restartHostServices')
 def restart_host_services_proxy():
     """Proxy autofix (restart specific down services) to a specific host."""
@@ -2055,6 +2061,8 @@ def restart_host_services_proxy():
 
 
 @server_system_bp.route('/controlHostService', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:controlHostService')
 def control_host_service_proxy():
     """Proxy a single-service start/stop/restart to a specific host."""
@@ -2083,6 +2091,8 @@ def control_host_service_proxy():
 
 
 @server_system_bp.route('/rebootHost', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:rebootHost')
 def reboot_host_proxy():
     """Proxy reboot host request to specific host"""
@@ -2162,6 +2172,8 @@ def run_command_on_host_proxy():
 
 
 @server_system_bp.route('/updateCoreLocal', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:updateCoreLocal')
 def update_core_local():
     """Update local server/frontend code on this VM."""
@@ -2279,6 +2291,8 @@ def update_core_local():
 
 
 @server_system_bp.route('/rollbackCoreLocal', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:rollbackCoreLocal')
 def rollback_core_local():
     """Rollback local server/frontend code from backup."""
@@ -2484,6 +2498,8 @@ def rollback_core_local():
 
 
 @server_system_bp.route('/listCoreBackups', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:listCoreBackups')
 def list_core_backups():
     """List rollback backup options for local server/frontend code."""
@@ -2505,6 +2521,8 @@ def list_core_backups():
 
 
 @server_system_bp.route('/updateHostCore', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:updateHostCore')
 def update_host_core_proxy():
     """Proxy host core update request to specific host."""
@@ -2546,6 +2564,8 @@ def update_host_core_proxy():
 
 
 @server_system_bp.route('/rollbackHostCore', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:rollbackHostCore')
 def rollback_host_core_proxy():
     """Proxy host core rollback request to specific host."""
@@ -2590,6 +2610,8 @@ def rollback_host_core_proxy():
 
 
 @server_system_bp.route('/listHostCoreBackups', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:listHostCoreBackups')
 def list_host_core_backups_proxy():
     """Proxy host rollback backup listing request to a specific host."""
@@ -2615,6 +2637,8 @@ def list_host_core_backups_proxy():
 
 
 @server_system_bp.route('/restartHostStreamService', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:restartHostStreamService')
 def restart_host_stream_service_proxy():
     """Proxy a REAL vpt-stream service restart to a host. vpt-stream is one

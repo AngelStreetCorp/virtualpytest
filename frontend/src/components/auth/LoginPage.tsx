@@ -20,11 +20,13 @@ import { GitHub as GitHubIcon, Google as GoogleIcon, Email as EmailIcon } from '
 import { useAuth } from '../../hooks/auth/useAuth';
 import { isAuthEnabled } from '../../lib/supabase';
 import { useBranding } from '../../contexts/BrandingContext';
+import { getEnv } from '../../config/constants';
 
 export const LoginPage: React.FC = () => {
   const { signInWithGoogle, signInWithGithub, signInWithEmail, signUpWithEmail, resetPassword, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
   const { branding } = useBranding();
+  const oauthEnabled = getEnv('VITE_ENABLE_OAUTH', 'true') === 'true';
   
   const [tab, setTab] = useState<'login' | 'signup' | 'reset'>('login');
   const [email, setEmail] = useState('');
@@ -336,9 +338,9 @@ export const LoginPage: React.FC = () => {
               </Box>
             )}
 
-            <Divider sx={{ my: 2 }}>or continue with</Divider>
+            {oauthEnabled && <Divider sx={{ my: 2 }}>or continue with</Divider>}
 
-            <Stack direction="row" spacing={2} justifyContent="center">
+            {oauthEnabled && <Stack direction="row" spacing={2} justifyContent="center">
               <Button
                 variant="outlined"
                 onClick={handleGoogleSignIn}
@@ -370,7 +372,7 @@ export const LoginPage: React.FC = () => {
               >
                 <GitHubIcon sx={{ fontSize: 24 }} />
               </Button>
-            </Stack>
+            </Stack>}
 
             {tab === 'login' && (
               <Box sx={{ mt: 2, textAlign: 'center' }}>

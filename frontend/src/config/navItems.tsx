@@ -286,12 +286,6 @@ export const INTEGRATIONS_ITEMS: NavItem[] = [
     icon: <IntegrationIcon fontSize="small" />,
   },
   {
-    label: 'Open TestRail',
-    path: '/integrations/testrail',
-    icon: <IntegrationIcon fontSize="small" />,
-    external: true,
-  },
-  {
     label: 'Slack',
     path: '/integrations/slack',
     icon: <IntegrationIcon fontSize="small" />,
@@ -314,23 +308,23 @@ export const INTEGRATIONS_ITEMS: NavItem[] = [
  * - Slack is always external; its `href` is injected from the backend config.
  * - Langfuse becomes external only when `VITE_LANGFUSE_URL` is set; otherwise
  *   it stays as an internal link to `/langfuse-dashboard` (the config page).
- * - Open TestRail appears only for a configured project and opens that project
- *   in a separate tab.
+ * - TestRail keeps its configuration page link and shows an external shortcut
+ *   to the configured instance URL.
  */
 export function buildIntegrationsItems(params: {
   slackUrl: string;
   langfuseUrl?: string;
-  testrailProjectUrl?: string;
+  testrailInstanceUrl?: string;
 }): NavItem[] {
-  return INTEGRATIONS_ITEMS.filter((item) => item.label !== 'Open TestRail' || Boolean(params.testrailProjectUrl)).map((item) => {
+  return INTEGRATIONS_ITEMS.map((item) => {
     if (item.label === 'Slack') {
       return { ...item, href: params.slackUrl };
     }
     if (item.label === 'Langfuse' && params.langfuseUrl) {
       return { ...item, external: true, href: params.langfuseUrl };
     }
-    if (item.label === 'Open TestRail' && params.testrailProjectUrl) {
-      return { ...item, href: params.testrailProjectUrl };
+    if (item.label === 'TestRail' && params.testrailInstanceUrl) {
+      return { ...item, externalHref: params.testrailInstanceUrl };
     }
     return item;
   });
