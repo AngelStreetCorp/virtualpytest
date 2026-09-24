@@ -4,6 +4,50 @@ info:
   version: 1.0.0
   description: Admin-only endpoints used by the frontend Logs page.
 paths:
+  /server/public/stats:
+    get:
+      summary: Read aggregated public assistant question statistics
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 90, default: 30 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 50 } }
+      responses:
+        '200':
+          description: Summary totals and aggregated top questions. Rows are not raw events and IP hashes are omitted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  totals:
+                    type: object
+                    properties:
+                      questions: { type: integer }
+                      answered: { type: integer }
+                      cached: { type: integer }
+                      off_topic: { type: integer }
+                      error: { type: integer }
+                      llm_seconds: { type: number }
+                  top_questions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        question: { type: string }
+                        count: { type: integer }
+                        first: { type: string, format: date-time }
+                        last: { type: string, format: date-time }
+                        cached: { type: integer }
+                        off_topic: { type: integer }
+                        errors: { type: integer }
+                        llm_calls: { type: integer }
+                        avg_llm_seconds: { type: number, nullable: true }
+                        sources: { type: array, items: { type: string } }
+        '400': { description: Invalid date range or limit }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
   /server/logs/agent:
     get:
       summary: List structured agent execution history

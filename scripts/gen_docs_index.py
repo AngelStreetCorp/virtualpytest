@@ -208,20 +208,10 @@ def doc_cell(e, link):
 
 
 # ---- collect candidates ----
-# Git-ignored docs are deliberately local-only: docs/agent/infra/ and friends describe one
-# private deployment and never reach the repo (the public snapshot is `git archive`, so
-# untracked cannot ship). Indexing them would route every other clone — and every public
-# reader — to a file they do not have. Ask git once, in bulk, rather than per file.
-def _internal_paths():
-    """Prefixes publish_public.sh strips from the export — tracked, but never public."""
-    f = os.path.join(REPO, "scripts", "security", "internal-paths.txt")
-    try:
-        return [l.strip() for l in open(f, encoding="utf-8")
-                if l.strip() and not l.lstrip().startswith("#")]
-    except OSError:
-        return []
-
-
+# Git-ignored docs are local-only (often deployment-specific), so don't route another clone
+# to them. The tracked docs/agent tree itself is internal-only and is removed wholesale by the
+# public snapshot workflow; its generated index is for this internal repository and should
+# include tracked agent docs even though none of them are published.
 def _ignored(paths):
     if not paths:
         return set()
@@ -243,13 +233,9 @@ for p in sorted(glob.glob(os.path.join(AGENT, "**", "*.md"), recursive=True)):
 
 _rels = [os.path.relpath(p, REPO) for p in candidates]
 _skipped = _ignored(_rels)
-# Same reasoning for internal-paths: those docs are tracked, so every internal clone has
-# them, but the public snapshot deletes them — routing a public reader there is a dead link.
-_deny = _internal_paths()
-_skipped |= {r for r in _rels if any(r.startswith(d) for d in _deny)}
 if _skipped:
     candidates = [p for p in candidates if os.path.relpath(p, REPO) not in _skipped]
-    print(f"skipped {len(_skipped)} doc(s) not in the public snapshot (git-ignored or internal-path)")
+    print(f"skipped {len(_skipped)} git-ignored local doc(s)")
 
 # ---- Pass 1: inject frontmatter where missing (skipped in --check) ----
 injected = 0

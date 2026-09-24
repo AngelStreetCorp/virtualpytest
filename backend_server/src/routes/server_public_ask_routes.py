@@ -538,7 +538,7 @@ def public_ask_stats():
         if outcome in ('answered', 'off_topic'):
             totals['llm_seconds'] += float(e.get('seconds', 0))
         g = groups.setdefault(e.get('key', ''), {
-            'question': e.get('q', ''), 'count': 0, 'cached': 0, 'off_topic': 0,
+            'question': e.get('q', ''), 'count': 0, 'cached': 0, 'off_topic': 0, 'errors': 0,
             'llm_calls': 0, 'llm_seconds': 0.0, 'first': e.get('ts'), 'last': e.get('ts'), 'sources': e.get('sources', []),
         })
         g['count'] += 1
@@ -547,6 +547,8 @@ def public_ask_stats():
             g['cached'] += 1
         elif outcome == 'off_topic':
             g['off_topic'] += 1
+        elif outcome == 'error':
+            g['errors'] += 1
         elif outcome == 'answered':
             g['llm_calls'] += 1
             g['llm_seconds'] += float(e.get('seconds', 0))
