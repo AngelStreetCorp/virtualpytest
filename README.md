@@ -163,6 +163,13 @@ cd virtualpytest
 the web UI is on `http://<this-machine>:5073`. Every install path (Docker, one VM, Proxmox
 fleet, developer setup) starts from the [Get Started guide](docs/get-started/README.md).
 
+For Docker there are two supported shapes: use the command above for the complete Compose stack,
+or run `./setup/docker/launch.sh --host-only` when this machine only owns devices and should join
+a server elsewhere. The registry publishes separate `virtualpytest-server`, `virtualpytest-host`,
+and `virtualpytest-frontend` images; Compose pulls them together rather than providing one
+monolithic image. See [Install with Docker](docs/get-started/docker.md) and
+[Add a host](docs/get-started/add-a-host.md).
+
 ---
 
 ## Why VirtualPyTest

@@ -1,5 +1,11 @@
 # Install with Docker (one machine)
 
+This page describes the **full Docker Compose stack**: server, host, frontend, Supabase, Redis,
+object storage, and Grafana. The VirtualPyTest application itself is three images
+(`virtualpytest-server`, `virtualpytest-host`, and `virtualpytest-frontend`), pulled or built by
+Compose; there is no single monolithic VirtualPyTest image. If this machine only owns devices and
+the platform runs elsewhere, use [host-only mode](add-a-host.md) instead.
+
 The whole platform on one Linux or macOS machine, in one command. Good for a first look,
 a demo, a lab box, or a single-site deployment on a trusted network.
 
