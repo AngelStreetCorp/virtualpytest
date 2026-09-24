@@ -81,7 +81,7 @@ host has `SUPABASE_SERVICE_ROLE_KEY` in its `.env` — the migration header says
 | Task | Docker | One VM |
 |---|---|---|
 | Studio | `http://<PUBLIC_HOST>:54321` | `http://<PUBLIC_HOST>:54323` |
-| psql | `docker exec -it vpt-supabase-db psql -U postgres` | `psql postgresql://postgres:postgres@localhost:54322/postgres` |
+| psql | `docker exec -it vpt-supabase-db psql -U postgres` | `psql postgresql://postgres:<password>@localhost:54322/postgres` |
 | Backup | `docker exec vpt-supabase-db pg_dump -U postgres postgres > backup.sql` | daily `pg_dump` via `/etc/cron.d/vpt-db-backup` (installed by `install_supabase.sh`) |
 | Restart | `./setup/docker/launch.sh` | `sudo systemctl restart supabase` |
 | Upgrade Supabase | bump the tags in `setup/docker/supabase/docker-compose.yml` | `supabase stop && supabase start` after updating the CLI |

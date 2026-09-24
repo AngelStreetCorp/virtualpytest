@@ -130,7 +130,7 @@ SERVER_PORT=5109
 # Database Configuration
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your_anon_key
-SUPABASE_DB_URI=postgresql://postgres:password@...supabase.com:6543/postgres
+SUPABASE_DB_URI=postgresql://postgres:<password>@...supabase.com:6543/postgres
 
 # AI Provider
 AI_AGENT_PROVIDER=anthropic          # anthropic | openrouter | openai | minimax | google | local

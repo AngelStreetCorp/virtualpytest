@@ -45,7 +45,7 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | `SUPABASE_URL` | Supabase API base (REST + auth) | `http://localhost:54321` (VM) · `http://api-gw:8000` (Docker, internal) |
 | `SUPABASE_ANON_KEY` | public key (row-level security applies) | from the Supabase install |
 | `SUPABASE_SERVICE_ROLE_KEY` | server-side key, bypasses RLS. Never in the frontend. | from the Supabase install |
-| `SUPABASE_DB_URI` | direct Postgres URI — Grafana datasource and backups only | `postgresql://postgres:postgres@localhost:54322/postgres` |
+| `SUPABASE_DB_URI` | direct Postgres URI — Grafana datasource and backups only | `postgresql://postgres:<password>@localhost:54322/postgres` |
 | `CLOUDFLARE_R2_ENDPOINT` / `_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` / `_BUCKET` / `_PUBLIC_URL` | Cloudflare R2 object storage. Takes precedence over MinIO when the three credentials are set. `_PUBLIC_URL` set = direct links, unset = presigned links | unset |
 | `MINIO_ENDPOINT` / `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` / `MINIO_BUCKET` / `MINIO_PUBLIC_URL` | self-hosted S3 (MinIO). `MINIO_PUBLIC_URL` is what browsers use | `http://localhost:9000`, `admin` / generated per install, `virtualpytest` |
 | `REDIS_URL` (+ `REDIS_TOKEN` for Upstash) | alert / script queues | `redis://:<REDIS_PASSWORD>@localhost:6379/0` (password generated per install) |

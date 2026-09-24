@@ -123,7 +123,7 @@ SERVER_URL=http://localhost:5109
 # Database (Supabase)
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-anon-key
-DATABASE_URL=postgresql://postgres:password@host:5432/postgres
+DATABASE_URL=postgresql://postgres:<password>@host:5432/postgres
 
 # Grafana
 GRAFANA_ADMIN_USER=admin

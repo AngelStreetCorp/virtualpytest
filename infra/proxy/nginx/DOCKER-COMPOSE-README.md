@@ -47,7 +47,7 @@ docker-compose up -d
 
 ```bash
 # Database (Supabase)
-DATABASE_URL=postgresql://postgres:password@db.your-project.supabase.co:5432/postgres
+DATABASE_URL=postgresql://postgres:<password>@db.your-project.supabase.co:5432/postgres
 SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your-supabase-anon-key
 
