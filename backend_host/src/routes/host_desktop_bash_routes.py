@@ -2,16 +2,23 @@
 Host Desktop Bash Routes
 
 Host-side bash desktop endpoints that execute using instantiated bash desktop controllers.
+
+SECURITY: gated by the global /host/* X-API-Key check (app.py) AND by a
+separate admin token (Authorization: Admin <VPT_HOST_ADMIN_TOKEN>). The
+endpoint tokenizes the bash command with shlex before running it via
+argv + shell=False (see BashDesktopController.execute_command).
 """
 
 from flask import Blueprint, request, jsonify
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
 from backend_host.src.lib.utils.route_handlers import get_desktop_controller
+from backend_host.src.lib.utils.admin_token import require_admin_token
 
 # Create blueprint
 host_desktop_bash_bp = Blueprint('host_desktop_bash', __name__, url_prefix='/host/desktop/bash')
 
 @host_desktop_bash_bp.route('/executeCommand', methods=['POST'])
+@require_admin_token
 @route_exception_handler()
 def execute_bash_command():
     print("[@route:host_desktop_bash:execute_command] Executing bash desktop command")

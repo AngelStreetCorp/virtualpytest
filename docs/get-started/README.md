@@ -41,6 +41,7 @@ Not sure which setup you need? Start with Docker. You can move to a larger deplo
 | --------------------------------------------- | -------------------------------- |
 | **Try VirtualPyTest or run a small lab**      | [Docker quick start](docker.md)  |
 | **Install VirtualPyTest on a server or VM**   | [Installation guide](install.md) |
+| **Install VirtualPyTest on a Google Cloud VM**| [GCP standalone](gcp-standalone.md) |
 | **Connect another machine that owns devices** | [Add a host](add-a-host.md)      |
 | **Build a larger multi-machine lab**          | [Proxmox deployment](proxmox.md) |
 | **Develop or modify VirtualPyTest**           | [Developer setup](local-dev.md)  |

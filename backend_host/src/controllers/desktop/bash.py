@@ -3,10 +3,19 @@ Bash Desktop Controller Implementation
 
 This controller provides bash command execution functionality on the host machine.
 Simple local command execution only - no SSH, no connection checks.
+
+SECURITY: The endpoint is intended for trusted admin tooling (the host API
+key in normal operation comes from an admin-controlled vault). It still
+hardens against shell injection by tokenizing the command with shlex.split
+and passing the result as argv to subprocess.Popen (shell=False). Pipes,
+redirects, command substitution, and `&&`/`||` are NOT supported and the
+endpoint explicitly only supports single-command invocation with arguments
+(see the placeholder shown in get_available_actions below).
 """
 
 from typing import Dict, Any, List, Optional
 import subprocess
+import shlex
 import time
 import json
 import os
@@ -16,49 +25,54 @@ from ..base_controller import DesktopControllerInterface
 
 class BashDesktopController(DesktopControllerInterface):
     """Bash desktop controller for executing bash commands locally on the host machine."""
-    
+
+    # Cap single-command input so a misbehaving caller can't exhaust memory
+    # or push a huge argv into execve. 32 KB is far above any realistic
+    # `ls -la`-style command.
+    _MAX_BASH_COMMAND_BYTES = 32 * 1024
+
     def __init__(self, **kwargs):
         """Initialize the Bash desktop controller."""
         super().__init__("Bash Desktop", "bash")
-        
+
         # Command execution state
         self.last_command_output = ""
         self.last_command_error = ""
         self.last_exit_code = 0
-        
+
         print(f"[@controller:BashDesktop] Initialized for local execution")
-    
+
     def connect(self) -> bool:
         """Connect to host machine (always true for local execution)."""
         print(f"Desktop[{self.desktop_type.upper()}]: Local execution ready")
         return True
-            
+
     def disconnect(self) -> bool:
         """Disconnect from host machine (always true for local execution)."""
         print(f"Desktop[{self.desktop_type.upper()}]: Local execution disconnected")
         return True
-            
+
     def execute_command(self, command: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """
         Execute bash command directly on local host.
-        
+
         Args:
             command: Command type ('execute_bash_command')
             params: Command parameters containing the actual bash command
-            
+
         Returns:
             Dict: Command execution result
         """
         if params is None:
             params = {}
-        
+
         print(f"Desktop[{self.desktop_type.upper()}]: Executing command '{command}' with params: {params}")
-        
+
         if command == 'execute_bash_command':
             bash_command = params.get('command') or params.get('bash_command')
             working_dir = params.get('working_dir')
             timeout = params.get('timeout', 30)
-            
+
             if not bash_command:
                 return {
                     'success': False,
@@ -67,22 +81,54 @@ class BashDesktopController(DesktopControllerInterface):
                     'exit_code': -1,
                     'execution_time': 0
                 }
-            
+            if not isinstance(bash_command, str):
+                return {
+                    'success': False,
+                    'output': '',
+                    'error': 'command must be a string',
+                    'exit_code': -1,
+                    'execution_time': 0
+                }
+            if len(bash_command.encode('utf-8', errors='replace')) > self._MAX_BASH_COMMAND_BYTES:
+                return {
+                    'success': False,
+                    'output': '',
+                    'error': f'command exceeds {self._MAX_BASH_COMMAND_BYTES} bytes',
+                    'exit_code': -1,
+                    'execution_time': 0
+                }
+
             # Execute the bash command directly using subprocess
             start_time = time.time()
-            
+
             try:
-                # Execute bash commands safely without shell=True to prevent command injection
-                # Use ['bash', '-c', command] for proper bash interpretation
+                # SECURITY: tokenize the command via shlex and run as argv,
+                # with shell=False. The previous code passed `bash_command` as
+                # a single argv to `['bash', '-c', bash_command]`, which is
+                # functionally identical to shell=True and trivially injectable
+                # (`; rm -rf /`, `$(...)`, backticks). Tokenizing refuses any
+                # unquoted shell metacharacter; pipes/redirects/subshells need
+                # an admin-curated command allowlist instead, intentionally out
+                # of scope here (the API placeholder documented this as
+                # single-command, args-only: `ls -la, ps aux, echo "hello"`).
+                argv = shlex.split(bash_command)
+                if not argv:
+                    return {
+                        'success': False,
+                        'output': '',
+                        'error': 'empty command after tokenization',
+                        'exit_code': -1,
+                        'execution_time': 0
+                    }
                 process = subprocess.Popen(
-                    ['bash', '-c', bash_command],
+                    argv,
                     shell=False,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
-                    cwd=working_dir
+                    cwd=working_dir,
                 )
-                
+
                 # Wait for command completion with timeout
                 try:
                     stdout, stderr = process.communicate(timeout=timeout)
@@ -92,20 +138,20 @@ class BashDesktopController(DesktopControllerInterface):
                     stdout, stderr = process.communicate()
                     exit_code = -1
                     stderr = f"Command timed out after {timeout} seconds\n{stderr}"
-                
+
                 execution_time = int((time.time() - start_time) * 1000)  # Convert to milliseconds
                 success = exit_code == 0
-                
+
                 # Store last command results
                 self.last_command_output = stdout or ''
                 self.last_command_error = stderr or ''
                 self.last_exit_code = exit_code
-                
+
                 if success:
                     print(f"Desktop[{self.desktop_type.upper()}]: Executing local command: '{bash_command}' - SUCCESS")
                 else:
                     print(f"Desktop[{self.desktop_type.upper()}]: Executing local command: '{bash_command}' - FAILED (exit code {exit_code}): {stderr[:200] if stderr else 'No error details'}")
-                
+
                 return {
                     'success': success,
                     'output': stdout or '',
@@ -113,12 +159,12 @@ class BashDesktopController(DesktopControllerInterface):
                     'exit_code': exit_code,
                     'execution_time': execution_time
                 }
-                
+
             except Exception as e:
                 execution_time = int((time.time() - start_time) * 1000)
                 error_msg = f"Local command execution error: {e}"
                 print(f"Desktop[{self.desktop_type.upper()}]: {error_msg}")
-                
+
                 return {
                     'success': False,
                     'output': '',
@@ -126,7 +172,7 @@ class BashDesktopController(DesktopControllerInterface):
                     'exit_code': -1,
                     'execution_time': execution_time
                 }
-        
+
         else:
             print(f"Desktop[{self.desktop_type.upper()}]: Unknown command: {command}")
             return {

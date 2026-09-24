@@ -18,6 +18,7 @@ Master lookup: scan the section matching the question's topic, open the file who
 - `get-started/content-filtering.md` — keep lab browsers, emulators and devices off adult/malware sites: block list via Cloudflare for Families DNS (one dnsmasq change on the Proxmox node covers every VM and emulator), standalone-box and per-device recipes, allow-list variant for a showcase device, what DNS filtering does not cover.
 - `get-started/production-checklist.md` — going-live hardening: every default credential the installers ship (MinIO/Redis/VNC/Postgres/JWT), the auth switches (`SERVER_OPEN_MODE`, public key, auto-sign), what must not be exposed, least privilege, backups, CI runners.
 - `get-started/security.md` — transport security (nginx ssl-params, certbot renewal), API key generation, CORS posture, UFW/firewall hardening, and the per-service exposure rules.
+- `get-started/gcp-standalone.md` — single Google Cloud Compute Engine VM: project setup, OS Login, 30 GB disk sizing, the MinIO workaround in §6, SSH-tunnel default; companion to [Docker](get-started/docker.md).
 - `get-started/cloud-setup.md` — Vercel frontend + Render server + local host variant; `get-started/branding.md` — white-labeling; `get-started/ci_cd.md` — the regression workflow's jobs.
 
 ## User Guide (using the product)

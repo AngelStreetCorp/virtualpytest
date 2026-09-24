@@ -12,7 +12,7 @@
 
 This guide deploys VirtualPyTest in a hybrid setup:
 
-- **Frontend**: Deployed on Vercel (global CDN)
+- **Frontend**: Deployed on Render or Vercel (global CDN)
 - **Backend Server**: Deployed on Render (scalable API)
 - **Backend Host**: Running locally (hardware access required)
 - **Database**: Supabase (managed PostgreSQL)
@@ -63,12 +63,18 @@ buildpack. Use it instead of configuring a Web Service by hand:
 4. Render creates the service with these settings already in the file:
    - **Name**: `virtualpytest-backend-server`
    - **Environment**: Docker (`backend_server/Dockerfile`)
-   - **Port**: `80` (`SERVER_PORT=80` — Render's Docker services are reached over 80/443
-     externally regardless of what the app binds to internally)
+   - **Port**: Render injects the runtime `PORT`; do not set `SERVER_PORT=80` or hardcode
+     `5109` in the container Supervisor configuration. The image binds to `PORT` on Render
+     and falls back to `SERVER_PORT=5109` for local Docker/native installs.
+
+> **Important: image-backed Render services.** If the Render service was created with an
+> image, pushing GitHub does not rebuild it. Publish the image from the public repository
+> first, then update the Render service to the new immutable tag and redeploy. A service can
+> show `RUNNING` while still failing Render's port scan if the image binds only to `5109`.
 
 ### 1.2 Add the Remaining Environment Variables
 
-`render.yaml` only checks in `PYTHONPATH`, `SERVER_PORT`, `DEBUG`, and `RENDER`. Add the rest in
+`render.yaml` only checks in `PYTHONPATH`, `DEBUG`, and `RENDER`. Add the rest in
 the Render dashboard (Environment tab) — they're deliberately not in the committed file:
 
 ```bash
@@ -76,6 +82,18 @@ the Render dashboard (Environment tab) — they're deliberately not in the commi
 SUPABASE_URL=your_supabase_project_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+SUPABASE_JWT_SECRET=your_jwt_secret
+API_KEY=the_same_value_used_by_each_backend_host
+SERVER_URL=https://virtualpytest-backend-server.onrender.com
+SERVER_OPEN_MODE=false
+CORS_ALLOWED_ORIGINS=https://your-frontend.onrender.com,https://your-frontend.vercel.app
+
+# Managed dependencies (keep credentials in Render, never in Git)
+REDIS_URL=rediss://...
+S3_ENDPOINT_URL=https://...                 # or the provider-specific S3 variable
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
+S3_BUCKET=virtualpytest
 
 # Optional: GitHub integration
 GITHUB_TOKEN=your_github_token_if_needed
@@ -89,6 +107,20 @@ Render will:
 - ✅ Deploy to a global URL (e.g., `https://virtualpytest-backend-server.onrender.com`)
 - ✅ Provide SSL certificate automatically
 - ✅ Set up auto-deploys from your Git branch
+
+### 1.4 Required image release order
+
+For the public repository and GHCR images, use this order:
+
+1. Commit and push the fix to the internal repository.
+2. Create the release tag and publish the sanitized snapshot with
+   `scripts/release/publish_public.sh <tag>`.
+3. From `AngelStreetCorp/virtualpytest`, run the `Release artifacts` workflow for that tag.
+4. Wait for `virtualpytest-server` to be published in GHCR.
+5. Change the image reference in Render and redeploy.
+6. Verify `/server/health` before connecting a host.
+
+Do not test an older tag: the self-test must use the exact tag and image being released.
 
 ## 🌐 Step 2: Deploy Frontend to Vercel
 
@@ -306,7 +338,54 @@ Deploy Backend Host directly to Render using Docker (see Step 3.2 above)
 
 ## 🔧 Step 4: Configure Cross-Service Communication
 
-### 4.1 CORS: only needed if the frontend calls Render directly
+### 4.0 Supabase, Redis, and S3-compatible storage
+
+For a managed starter deployment, Supabase supplies PostgreSQL, authentication, and Storage.
+Use its S3-compatible Storage endpoint for artifacts, or substitute Cloudflare R2 or another
+S3 provider. Redis is a separate managed dependency; use a Redis-compatible provider such as
+Render Key Value or Upstash and set `REDIS_URL` in Render and on any service that needs it.
+
+For a fresh Supabase project, apply only the canonical schema path:
+
+```bash
+./setup/db/apply_schema.sh \\
+  "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres"
+```
+
+This applies `setup/db/schema/*.sql` in order and applies the final public-key lockdown. Do
+not apply every file in `setup/db/migrations/` to a fresh database; those files are for an
+already-created schema. Confirm RLS is enabled and the `anon` role has no direct application
+table grants before putting the backend online.
+
+### 4.1 Redirect a local or Pi host to Render
+
+The host must remain on the machine with the devices. Set its native or Docker host
+environment to the public backend URL and the same API key used by the server:
+
+```bash
+SERVER_URL=https://virtualpytest-backend-server.onrender.com
+API_KEY=<same-server-api-key>
+```
+
+Restart only the host service, then verify its local health and the server logs. If the host is
+behind a private LAN, use an SSH/reverse tunnel for administration; the host itself only needs
+outbound HTTPS access to Render.
+
+For the Pi tunnel used by the project:
+
+```bash
+ssh proxmox 'ssh vpt-pi4 "hostname; systemctl is-active vpt-host.service"'
+```
+
+After changing the host environment:
+
+```bash
+ssh proxmox 'ssh vpt-pi4 "sudo systemctl restart vpt-host.service"'
+```
+
+Do not redirect the host until the Render backend health endpoint returns successfully.
+
+### 4.2 CORS: only needed if the frontend calls Render directly
 
 `shared/src/lib/utils/app_utils.py` already calls `CORS(app, origins=..., supports_credentials=True)`
 for you — you don't add the call, you set which origins are allowed. `CORS_ALLOWED_ORIGINS`
@@ -324,7 +403,7 @@ Whether you need to set it depends on how `VITE_SERVER_URL` is configured:
 CORS_ALLOWED_ORIGINS=https://virtualpytest.vercel.app,http://localhost:5073
 ```
 
-### 4.2 Frontend API Endpoint
+### 4.3 Frontend API Endpoint
 
 `VITE_SERVER_URL` is read in `frontend/src/utils/buildUrlUtils.ts`, not a dedicated
 `apiClient.ts` — that's where to look if a request is going to the wrong URL.
@@ -434,4 +513,4 @@ Before going live:
 
 - [Supabase and authentication](./supabase.md)
 - [Developer setup](./local-dev.md)
-- Architecture Overview 
+- Architecture Overview

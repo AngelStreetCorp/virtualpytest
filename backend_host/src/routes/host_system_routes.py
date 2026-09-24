@@ -11,6 +11,7 @@ System control endpoints for host-level operations:
 
 from flask import Blueprint, request, jsonify, current_app
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
+from backend_host.src.lib.utils.admin_token import require_admin_token
 from backend_host.src.lib.utils.system_info_utils import (
     CONTROLLABLE_SERVICE_NAMES,
     resolve_windows_service_target,
@@ -689,6 +690,12 @@ def restart_service():
 # end) so a runaway command can't blow the JSON payload / proxy memory.
 _RUNCMD_MAX_OUTPUT = 64 * 1024
 
+# Cap the *input* command as well. The output cap keeps a long-running
+# command from flooding the response; this one keeps a hostile caller from
+# pushing a 100 MB bash script into the temp file before the timeout even
+# starts. 256 KB is well above any realistic admin-authored script.
+_RUNCMD_MAX_INPUT = 256 * 1024
+
 
 def _truncate_tail(text: str) -> tuple:
     """Return (text, truncated). Keeps the last _RUNCMD_MAX_OUTPUT chars."""
@@ -702,13 +709,15 @@ def _truncate_tail(text: str) -> tuple:
 
 
 @host_system_bp.route('/runCommand', methods=['POST'])
+@require_admin_token
 @route_exception_handler()
 def run_command():
     """Run an admin-authored shell script on THIS host and return its
-    stdout/stderr/exit code. Gated upstream by admin auth on backend_server
-    and by X-API-Key here. The script runs as the vpt-host service user
-    (vpt_user); passwordless sudo inside it requires the opt-in
-    /etc/sudoers.d/run-command drop-in. Synchronous and bounded by `timeout`."""
+    stdout/stderr/exit code. Two-factor auth: the global /host/* X-API-Key
+    check (app.py) AND `Authorization: Admin <VPT_HOST_ADMIN_TOKEN>`.
+    The script runs as the vpt-host service user (vpt_user); passwordless
+    sudo inside it requires the opt-in /etc/sudoers.d/run-command drop-in.
+    Synchronous and bounded by `timeout`."""
     import platform
     import tempfile
     import hashlib
@@ -717,6 +726,11 @@ def run_command():
     command = str(data.get('command') or '')
     if not command.strip():
         return jsonify({'success': False, 'error': 'command is required'}), 400
+    if len(command.encode('utf-8', errors='replace')) > _RUNCMD_MAX_INPUT:
+        return jsonify({
+            'success': False,
+            'error': f'command exceeds {_RUNCMD_MAX_INPUT}-byte input cap',
+        }), 400
 
     try:
         timeout = max(1, min(600, int(data.get('timeout', 120))))
