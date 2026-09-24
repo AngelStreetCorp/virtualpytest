@@ -527,6 +527,14 @@ def _restart_systemd_unit(unit: str):
     # autofixable unit is a real Windows service. See system_info_utils.py.
     windows_scheduled_tasks = {'vpt-stream'}
     try:
+        # Defense-in-depth: validate the unit name even though callers
+        # allowlist via _AUTOFIX_ALLOWED_UNITS. This closes the CodeQL
+        # 'Uncontrolled command line' taint path at the function boundary.
+        try:
+            from shared.src.lib.utils.system_utils import validate_systemd_unit_name
+            validate_systemd_unit_name(unit)
+        except ValueError as exc:
+            return False, str(exc)
         if is_windows:
             if unit in windows_scheduled_tasks:
                 ps_cmd = (
@@ -562,11 +570,13 @@ def _unit_is_active(unit: str) -> bool:
     if platform.system() == 'Windows':
         return True
     try:
+        from shared.src.lib.utils.system_utils import validate_systemd_unit_name
+        validate_systemd_unit_name(unit)
         proc = subprocess.run(
             ['systemctl', 'is-active', unit], capture_output=True, text=True, timeout=10
         )
         return proc.stdout.strip() == 'active'
-    except Exception:
+    except (ValueError, Exception):
         return False
 
 
@@ -579,6 +589,18 @@ def _control_systemd_unit(unit: str, action: str):
     # controllable unit is a real Windows service. See system_info_utils.py.
     windows_scheduled_tasks = {'vpt-stream'}
     try:
+        # Defense-in-depth: validate `unit` and `action` even though the
+        # calling routes allowlist both via _AUTOFIX_ALLOWED_UNITS and the
+        # (start|stop|restart) enum. This closes the CodeQL taint path at
+        # the function boundary so future callers can't bypass the gate.
+        try:
+            from shared.src.lib.utils.system_utils import (
+                validate_systemd_unit_name, validate_systemctl_action,
+            )
+            validate_systemd_unit_name(unit)
+            validate_systemctl_action(action)
+        except ValueError as exc:
+            return False, str(exc)
         if is_windows:
             if unit in windows_scheduled_tasks:
                 if action == 'start':

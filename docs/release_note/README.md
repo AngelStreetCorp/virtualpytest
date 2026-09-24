@@ -43,6 +43,7 @@ schema. Entries that exist only on this branch (`feat/demo`) sit at the end of e
 ### Features
 
 ### Bug fixes
+- **Dailymotion script: missing Execution Summary + placeholder URL crash** — `dailymotion_video_check` now sets `context.execution_summary` on every return path (so the report stops showing the “📊 Execution summary not available” fallback) and falls back to `_DEFAULT_VIDEO_URL` when `--url` is missing or malformed (e.g. an unfilled `{_DEFAULT_VIDEO_URL}` placeholder), instead of crashing with “Could not extract a video id from --url: …” · [BUG-0161](../bugs/BUG-0161-2026-09-24-dailymotion-script-missing-summary-and-placeholder-url.md)
 
 ## build 9311 — 2026-09-24
 

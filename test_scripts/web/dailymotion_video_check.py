@@ -73,6 +73,21 @@ def _extract_video_id(url: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def _resolve_video_url(url: Optional[str]) -> str:
+    """Return a usable Dailymotion video URL.
+
+    Falls back to _DEFAULT_VIDEO_URL when the input is missing, doesn't match a
+    Dailymotion /video/<id> shape, or is an unfilled placeholder (e.g. a literal
+    '{_DEFAULT_VIDEO_URL}' forwarded by an upstream caller). Keeps the device
+    run resilient against malformed --url values that would otherwise fail with
+    'Could not extract a video id from --url: ...' and leave the report's
+    Execution Summary empty.
+    """
+    if url and _extract_video_id(url):
+        return url
+    return _DEFAULT_VIDEO_URL
+
+
 def _embed_url_for(video_id: str) -> str:
     # The embed player at geo.dailymotion.com reliably exposes a <video> element
     # and plays content under the CDP launcher flags, unlike the /video/<id> SPA route
@@ -130,6 +145,36 @@ def capture_local_execution_summary(
     lines.append(f"🎯 Result: {'SUCCESS' if context.overall_success else 'FAILED'}")
     if context.error_message:
         lines.append(f"❌ Error: {context.error_message}")
+    return "\n".join(lines)
+
+
+def _summary(context, url: str, data: Optional[Dict[str, Any]] = None) -> str:
+    """Build the device-controller execution summary.
+
+    Called at every return path so the report always has an Execution Summary
+    instead of the '📊 Execution summary not available' fallback. Pattern
+    mirrors `facebook_check.py._summary` / `device_get_info.py`.
+    """
+    data = data or {}
+    video_id = data.get('video_id') or _extract_video_id(url) or '-'
+    page_load = data.get('page_load_time_ms')
+    video_load = data.get('video_load_time_ms')
+    first_frame_method = data.get('first_frame_method')
+    progress = data.get('progress_seconds', 0.0)
+    playback_confirmed = bool(data.get('playback_confirmed'))
+
+    lines = [
+        "DAILYMOTION_VIDEO_CHECK SUMMARY",
+        f"URL: {url}",
+        f"Video ID: {video_id}",
+        f"Video Playing: {'YES' if playback_confirmed else 'NO'}",
+        f"Progress Seconds: {float(progress):.2f}",
+        f"Page Load Time: {f'{page_load}ms' if page_load is not None else '-'}",
+        f"Video Load Time: {f'{video_load}ms ({first_frame_method})' if video_load is not None else '-'}",
+        f"Result: {'SUCCESS' if context.overall_success else 'FAILED'}",
+    ]
+    if context.error_message:
+        lines.append(f"Error: {context.error_message}")
     return "\n".join(lines)
 
 
@@ -472,7 +517,10 @@ def main():
     args = get_args()
     context = get_context()
 
-    video_url = args.url
+    # Normalize --url up-front: a placeholder ('{_DEFAULT_VIDEO_URL}') or any
+    # other non-Dailymotion value falls back to _DEFAULT_VIDEO_URL so a single
+    # bad launch no longer fails with 'Could not extract a video id from --url'.
+    video_url = _resolve_video_url(args.url)
     preroll_wait = args.preroll_wait
     monitor_duration = args.monitor_duration
 
@@ -549,6 +597,7 @@ def main():
         context.error_message = "No web controller available on this device"
         context.overall_success = False
         context.step_results = step_results
+        context.execution_summary = _summary(context, video_url, {})
         return False
 
     browser_session = ensure_browser_session(
@@ -560,6 +609,7 @@ def main():
         context.error_message = f"Failed to open browser: {browser_session.get('error')}"
         context.overall_success = False
         context.step_results = step_results
+        context.execution_summary = _summary(context, video_url, {})
         return False
 
     # Navigate to home and dismiss cookies
@@ -568,6 +618,7 @@ def main():
         context.error_message = f"Failed to navigate to Dailymotion: {nav_home.get('error', 'Unknown')}"
         context.overall_success = False
         context.step_results = step_results
+        context.execution_summary = _summary(context, video_url, {})
         return False
 
     time.sleep(3)
@@ -578,12 +629,15 @@ def main():
         time.sleep(2)
     add_step("Open Dailymotion and dismiss cookie consent", True)
 
-    # Navigate to the Dailymotion embed player (see comment in _run_local_playwright_flow)
+    # Navigate to the Dailymotion embed player (see comment in _run_local_playwright_flow).
+    # video_url was already normalized via _resolve_video_url() at the top of main(),
+    # so _extract_video_id() is only here as a safety net for unexpected values.
     video_id = _extract_video_id(video_url)
     if not video_id:
         context.error_message = f"Could not extract a video id from --url: {video_url}"
         context.overall_success = False
         context.step_results = step_results
+        context.execution_summary = _summary(context, video_url, {})
         return False
     embed_url = _embed_url_for(video_id)
     page_load_start = time.time()
@@ -600,6 +654,7 @@ def main():
         context.error_message = f"Failed to navigate to embed player: {nav_video.get('error', 'Unknown')}"
         context.overall_success = False
         context.step_results = step_results
+        context.execution_summary = _summary(context, video_url, {'page_load_time_ms': page_load_time_ms, 'video_id': video_id})
         return False
 
     time.sleep(3)
@@ -671,6 +726,14 @@ def main():
         },
     }
     context.step_results = step_results
+    context.execution_summary = _summary(context, video_url, {
+        'video_id': video_id,
+        'playback_confirmed': playback_confirmed,
+        'progress_seconds': progress_seconds,
+        'page_load_time_ms': page_load_time_ms,
+        'video_load_time_ms': video_load_time_ms,
+        'first_frame_method': first_frame_method,
+    })
     return playback_confirmed
 
 

@@ -508,7 +508,8 @@ def start_server(app):
     """Start the backend_server with proper configuration (delegates to gunicorn_app)."""
     cleanup = setup_server_cleanup()
 
-    server_port = int(os.getenv('SERVER_PORT', '5109'))
+    # Render injects PORT; local Docker/native installs use SERVER_PORT.
+    server_port = int(os.getenv('PORT') or os.getenv('SERVER_PORT', '5109'))
     server_url = os.getenv('SERVER_URL', f'http://localhost:{server_port}')
     debug_mode = os.getenv('DEBUG', 'false').lower() == 'true'
 

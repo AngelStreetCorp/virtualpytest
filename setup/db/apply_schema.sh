@@ -7,10 +7,10 @@
 # script is for a brand-new database only.
 #
 # Usage:
-#   DATABASE_URL="postgresql://postgres:PASSWORD@db.PROJECT-REF.supabase.co:5432/postgres" \
+#   DATABASE_URL="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}" \
 #     ./setup/db/apply_schema.sh
 #
-#   ./setup/db/apply_schema.sh "postgresql://postgres:PASSWORD@db.PROJECT-REF.supabase.co:5432/postgres"
+#   ./setup/db/apply_schema.sh "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
 #
 #   ./setup/db/apply_schema.sh --dry-run          # list files in order, apply nothing
 #

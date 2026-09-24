@@ -15,8 +15,6 @@ services:
     envVars:
       - key: PYTHONPATH
         value: /opt/render/project/src:/opt/render/project
-      - key: SERVER_PORT
-        value: 80
       - key: DEBUG
         value: false
       - key: RENDER
@@ -30,4 +28,4 @@ services:
       #   CLOUDFLARE_R2_*      object storage (there is no managed MinIO)
       # Auth posture: SERVER_OPEN_MODE=false on anything internet-facing.
       #   SERVER_OPEN_MODE=true accepts every API call with no login.
-      # See docs/get-started/cloud-setup.md and docs/get-started/production-checklist.md. 
+      # See docs/get-started/cloud-setup.md and docs/get-started/production-checklist.md.

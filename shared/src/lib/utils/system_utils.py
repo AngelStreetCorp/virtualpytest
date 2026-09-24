@@ -207,39 +207,137 @@ def get_systemd_service_status(service_name: str) -> Dict[str, Any]:
 # journalctl accepts systemd.time(7) spans, NOT bare tokens like "1h".
 # Map the unit so "1h" -> "-1h", "15m" -> "-15min", "7d" -> "-7d".
 _JOURNAL_SINCE_UNIT = {
-    's': 's', 'sec': 's', 'second': 's',
-    'm': 'min', 'min': 'min', 'minute': 'min',
-    'h': 'h', 'hr': 'h', 'hour': 'h',
-    'd': 'd', 'day': 'd',
-    'w': 'week', 'week': 'week',
+    's': 's', 'sec': 's', 'secs': 's', 'second': 's', 'seconds': 's',
+    'm': 'min', 'min': 'min', 'mins': 'min', 'minute': 'min', 'minutes': 'min',
+    'h': 'h', 'hr': 'h', 'hrs': 'h', 'hour': 'h', 'hours': 'h',
+    'd': 'd', 'day': 'd', 'days': 'd',
+    'w': 'week', 'week': 'week', 'weeks': 'week',
 }
+
+# journalctl -p accepts a syslog priority name, a single digit 0-7, or a
+# 'from..to' range over the same vocabulary. Anything else is rejected by
+# journalctl itself; we reject it here too so we never pass it to the cmd.
+_JOURNAL_PRIORITIES = frozenset({
+    'emerg', 'alert', 'crit', 'err', 'warning', 'notice', 'info', 'debug',
+})
+_PRI_NAMES = '|'.join(sorted(_JOURNAL_PRIORITIES))
+_JOURNAL_PRIORITY_RE = re.compile(
+    rf'^(?:[0-7]|{_PRI_NAMES})(?:\.\.(?:[0-7]|{_PRI_NAMES}))?$'
+)
+
+# Service names reaching subprocess.run must look like a systemd unit name:
+# must start with a letter/digit/dot/underscore/@ (systemd template instance),
+# then letters/digits/dot/underscore/hyphen/@. No leading hyphen.
+_SERVICE_NAME_RE = re.compile(r'^[A-Za-z0-9_.@][A-Za-z0-9_.@-]*$')
+
+# systemctl verbs the codebase uses as subprocess actions. Anything else is
+# a command-injection vector: 'enable', 'disable', 'mask', 'start', 'stop',
+# 'restart', 'reload', 'reload-or-restart', 'try-reload-or-restart',
+# 'kill', 'is-active', 'status', plus 'reset-failed'. We validate against
+# this set so an attacker cannot smuggle in arbitrary verbs.
+_SYSTEMCTL_ACTIONS = frozenset({
+    'start', 'stop', 'restart', 'reload', 'reload-or-restart',
+    'try-reload-or-restart', 'kill', 'is-active', 'status',
+    'enable', 'disable', 'mask', 'unmask', 'reset-failed',
+})
+
+
+def validate_systemd_unit_name(unit: str) -> str:
+    """Return the unit name if it matches systemd's documented unit
+    charset, else raise ValueError.
+
+    Defense-in-depth: callers may already whitelist the unit (the route
+    layer does), but the helper that runs `systemctl ... <unit>` is a
+    shared utility and must not trust its callers.  This narrows the taint
+    path that CodeQL flags as 'Uncontrolled command line'.
+    """
+    if not _SERVICE_NAME_RE.fullmatch(unit):
+        raise ValueError(
+            f'invalid systemd unit name: {unit!r} '
+            f'(must match [A-Za-z0-9_.@-]+)'
+        )
+    return unit
+
+
+def validate_systemctl_action(action: str) -> str:
+    """Return the action if it is one of the well-known systemctl verbs,
+    else raise ValueError. Use this as a gate before any
+    `subprocess.run([..., action, unit])` call so the action argv slot
+    cannot be set to an arbitrary token (e.g. `--help`, `edit`, `condreload`).
+    """
+    if action not in _SYSTEMCTL_ACTIONS:
+        raise ValueError(
+            f'invalid systemctl action: {action!r} '
+            f'(expected one of {sorted(_SYSTEMCTL_ACTIONS)})'
+        )
+    return action
+
+
+def validate_journalctl_level(level: str) -> str:
+    """Return the level if it matches journalctl's documented priority syntax,
+    else raise ValueError. Defense-in-depth: callers already validate the
+    HTTP layer, but read_journal_logs is a shared utility and must not trust
+    its callers.
+    """
+    if not _JOURNAL_PRIORITY_RE.fullmatch(level):
+        raise ValueError(
+            f'invalid journalctl priority: {level!r} '
+            f'(expected 0-7, one of {sorted(_JOURNAL_PRIORITIES)}, '
+            f'or a range like "info..debug")'
+        )
+    return level
+
+
+def _validate_service_name(service: str) -> str:
+    """Backwards-compatible alias. Prefer validate_systemd_unit_name."""
+    return validate_systemd_unit_name(service)
+
+
+def _validate_journal_level(level: str) -> str:
+    """Backwards-compatible alias. Prefer validate_journalctl_level."""
+    return validate_journalctl_level(level)
 
 
 def normalize_journal_since(since: Optional[str]) -> Optional[str]:
     """Convert UI relative tokens (e.g. '1h', '15m', '7d') into valid journalctl
     --since syntax ('-1h', '-15min', '-7d').
 
-    Absolute timestamps ('2026-05-19 08:00'), keywords ('today', 'yesterday'),
-    and already-relative values ('-1h') are passed through unchanged so
-    journalctl can parse them itself.
+    Accepts only the documented systemd.time(7) syntax we use in the UI:
+      - relative spans: '1h', '30m', '7d', '2 weeks', '-1h', '+30min'
+      - absolute timestamps: 'YYYY-MM-DD', 'YYYY-MM-DD HH:MM[:SS]'
+      - keywords: 'today', 'yesterday', 'now', 'tomorrow'
+    Anything else returns None so the caller treats it as 'no --since',
+    rather than passing a free-form string to subprocess.
     """
     if not since:
-        return since
+        return None
     s = since.strip()
-    # Already journalctl-acceptable: signed relative, has time/date separators.
-    if s[:1] in ('-', '+') or ' ' in s or ':' in s:
+    if not s:
+        return None
+    # Already-signed relative ('-1h', '+30min').
+    if s[:1] in ('-', '+'):
+        rest = s[1:]
+        if re.fullmatch(r'\d+\s*[a-zA-Z]+', rest):
+            return s
+        # Anything else after the sign is rejected (no pass-through).
+        return None
+    if s.lower() in ('today', 'yesterday', 'now', 'tomorrow'):
         return s
-    if s.lower() in ('today', 'yesterday', 'now'):
+    # Absolute date 'YYYY-MM-DD'.
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}', s):
         return s
+    # Absolute timestamp 'YYYY-MM-DD HH:MM[:SS]'.
+    if re.fullmatch(r'\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?', s):
+        return s
+    # Relative span without sign: '1h', '30min', '7d', '2 weeks'.
     m = re.fullmatch(r'(\d+)\s*([a-zA-Z]+)', s)
-    if not m:
-        # e.g. a bare date "2026-05-19" — let journalctl parse it.
-        return s
-    value, unit = m.group(1), m.group(2).lower()
-    mapped = _JOURNAL_SINCE_UNIT.get(unit)
-    if not mapped:
-        return s
-    return f'-{value}{mapped}'
+    if m:
+        value, unit = m.group(1), m.group(2).lower()
+        mapped = _JOURNAL_SINCE_UNIT.get(unit)
+        if mapped:
+            return f'-{value}{mapped}'
+        return None
+    return None
 
 
 def _read_windows_service_logs(
@@ -324,6 +422,18 @@ def read_journal_logs(
     import platform
     if platform.system() == 'Windows':
         return _read_windows_service_logs(service, lines=lines, grep=grep)
+
+    # Defense-in-depth: validate every caller-controlled arg reaching
+    # subprocess.run, even though the routes already whitelist `service`.
+    # The route whitelists are the primary defense; this catches any future
+    # caller (tests, scripts, internal calls) and turns the taint into a
+    # explicit error instead of passing arbitrary strings to journalctl.
+    _validate_service_name(service)
+    if level is not None:
+        try:
+            level = _validate_journal_level(str(level))
+        except ValueError as exc:
+            return {'success': False, 'error': str(exc), 'service': service}
 
     cmd = ['journalctl', '-u', f'{service}.service', '--no-pager']
     if lines:

@@ -209,3 +209,4 @@ setup/docker/.env
 /dist/
 frontend/dist.new/
 frontend/dist.old/
+.env.cloud

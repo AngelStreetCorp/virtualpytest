@@ -94,7 +94,8 @@ def run_server(app, on_signal, post_worker_init_callback=None):
         on_signal: Callback for graceful shutdown (SIGTERM/SIGINT)
         post_worker_init_callback: Called after worker init (e.g. start_agent_background_workers)
     """
-    server_port = int(os.getenv('SERVER_PORT', '5109'))
+    # Render injects PORT; local Docker/native installs use SERVER_PORT.
+    server_port = int(os.getenv('PORT') or os.getenv('SERVER_PORT', '5109'))
     debug_mode = os.getenv('DEBUG', 'false').lower() == 'true'
     ssl_context = _resolve_ssl_context()
 

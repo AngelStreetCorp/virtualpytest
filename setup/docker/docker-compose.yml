@@ -23,7 +23,7 @@ name: virtualpytest
 
 include:
   - path: supabase/docker-compose.yml
-    env_file: .env
+    env_file: setup/docker/.env
 
 services:
 

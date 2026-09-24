@@ -648,8 +648,15 @@ class AndroidAppCrawler:
         """Get the currently focused app package."""
         try:
             import subprocess
-            cmd = f"adb -s {self.device_id} shell dumpsys window | grep mCurrentFocus"
-            result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=5)
+            # Use argv + shell=False. The previous form interpolated device_id
+            # into a shell string (shell=True), which is command injection
+            # when device_id is attacker-controllable. ADB itself rejects IDs
+            # that don't start with `emulator-`, `localhost:`, or a serial
+            # regex; we let adb fail loudly instead of parsing strings ourselves.
+            result = subprocess.run(
+                ['adb', '-s', self.device_id, 'shell', 'dumpsys', 'window'],
+                capture_output=True, text=True, timeout=5,
+            )
             for line in result.stdout.split('\n'):
                 if 'mCurrentFocus' in line and '/' in line:
                     parts = line.split(' ')

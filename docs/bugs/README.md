@@ -39,6 +39,15 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 
 ## Unreleased
 
+- **Dailymotion script: missing Execution Summary + placeholder URL crash** · reported 2026-09-24 · [BUG-0161](BUG-0161-2026-09-24-dailymotion-script-missing-summary-and-placeholder-url.md)
+- **An adb verification silently drops leading and trailing spaces from its search term** · reported 2026-09-17 · [BUG-0136](BUG-0136-2026-09-17-adb-verification-strips-search-term-whitespace.md)
+- **The auto-sign token was published to the internet in the frontend bundle** · reported 2026-09-17 · [BUG-0134](BUG-0134-2026-09-17-auto-sign-token-published-in-the-frontend-bundle.md)
+- **VNC preview cards render black: centering pushes the scaled iframe out of view** — VNC previews are black cards: the iframe's layout box stays 1440×847 and scales from its top-left, so centring it moved the render off the card · reported 2026-09-15 · [BUG-0104](BUG-0104-2026-09-15-vnc-preview-scaled-off-screen-by-centering.md)
+- **vpt-pi1 keeps disappearing from the UI; a Cloudflare Tunnel fixed the 522s but NOT the reported symptom** — `vpt-pi1` intermittently vanishes from the UI — **root-caused 2026-09-15**: the host is *evicted from the server registry* (9 gaps >180s in one morning, ~70 min absent). The ping ran ~7 sequential WAN DB calls **before** pinging, each on a fresh TCP connection (httpx keepalive 5s vs 60s cycle), and the Pi's outbound SYNs are dropped by the router — with postgrest's 120s default timeout one dropped SYN stalled the ping thread for minutes. Fixed: metrics moved to their own thread, DB client given a 5s connect timeout + connect-retries + 300s keep-alive, ping interval 60s→30s · reported 2026-09-15 · [BUG-0093](BUG-0093-2026-09-15-rpitest-unreachable-tunnel-did-not-fix-it.md)
+- **A running script is indistinguishable from one that failed instantly** · reported 2026-09-15 · [BUG-0090](BUG-0090-2026-09-15-script-results-completed-at-set-at-insert.md)
+
+## build 9307 — 2026-09-24
+
 - **VNC service could not create its X11 authority file** · reported 2026-09-23 · [BUG-0160](BUG-0160-2026-09-23-vnc-service-home-owned-by-root.md)
 - **Dotted image reference names fail verification** · reported 2026-09-23 · [BUG-0159](BUG-0159-2026-09-23-dotted-image-reference-name-cannot-resolve.md)
 - **Backend Host stalls when starting with no configured devices** · reported 2026-09-23 · [BUG-0158](BUG-0158-2026-09-23-empty-backend-host-startup-stalls.md)
@@ -63,13 +72,8 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 - **Switching workspace left the old target selected and still under control** · reported 2026-09-17 · [BUG-0139](BUG-0139-2026-09-17-workspace-switch-keeps-the-old-target.md)
 - **A click on an Appium device searched a cache nothing had filled, and said the button was not there** · reported 2026-09-17 · [BUG-0138](BUG-0138-2026-09-17-appium-click-searches-an-empty-cache.md)
 - **A queued API run finished, but the caller polling it was never told** · reported 2026-09-17 · [BUG-0137](BUG-0137-2026-09-17-queued-api-run-never-finishes-its-task.md)
-- **An adb verification silently drops leading and trailing spaces from its search term** · reported 2026-09-17 · [BUG-0136](BUG-0136-2026-09-17-adb-verification-strips-search-term-whitespace.md)
 - **The script API accepted a device id and ran the script on a different device** · reported 2026-09-17 · [BUG-0135](BUG-0135-2026-09-17-script-execute-ignores-device-id.md)
-- **The auto-sign token was published to the internet in the frontend bundle** · reported 2026-09-17 · [BUG-0134](BUG-0134-2026-09-17-auto-sign-token-published-in-the-frontend-bundle.md)
 - **The daily fleet-health table stopped writing nine days ago and reported success every morning** · reported 2026-09-17 · [BUG-0133](BUG-0133-2026-09-17-fleet-health-stopped-writing-and-reported-success.md)
-- **VNC preview cards render black: centering pushes the scaled iframe out of view** — VNC previews are black cards: the iframe's layout box stays 1440×847 and scales from its top-left, so centring it moved the render off the card · reported 2026-09-15 · [BUG-0104](BUG-0104-2026-09-15-vnc-preview-scaled-off-screen-by-centering.md)
-- **vpt-pi1 keeps disappearing from the UI; a Cloudflare Tunnel fixed the 522s but NOT the reported symptom** — `vpt-pi1` intermittently vanishes from the UI — **root-caused 2026-09-15**: the host is *evicted from the server registry* (9 gaps >180s in one morning, ~70 min absent). The ping ran ~7 sequential WAN DB calls **before** pinging, each on a fresh TCP connection (httpx keepalive 5s vs 60s cycle), and the Pi's outbound SYNs are dropped by the router — with postgrest's 120s default timeout one dropped SYN stalled the ping thread for minutes. Fixed: metrics moved to their own thread, DB client given a 5s connect timeout + connect-retries + 300s keep-alive, ping interval 60s→30s · reported 2026-09-15 · [BUG-0093](BUG-0093-2026-09-15-rpitest-unreachable-tunnel-did-not-fix-it.md)
-- **A running script is indistinguishable from one that failed instantly** · reported 2026-09-15 · [BUG-0090](BUG-0090-2026-09-15-script-results-completed-at-set-at-insert.md)
 
 ## build 9151 — 2026-09-17
 

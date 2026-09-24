@@ -68,10 +68,10 @@ EXPOSE 5109
 
 # Health check for Flask API
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:5109/server/health || exit 1
+  CMD-SHELL curl -f "http://localhost:$${PORT:-5109}/server/health" || exit 1
 
 # SECURITY NOTE: supervisord runs as vpt_user for better security
 USER vpt_user
 
 # Run supervisor to manage Flask
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf", "-n"] 
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf", "-n"]

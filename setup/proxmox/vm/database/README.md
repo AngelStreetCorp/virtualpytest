@@ -13,7 +13,7 @@ There is **one** Supabase instance in the entire infrastructure, running on **th
 |------|-------|
 | Supabase Studio | `https://<origin-ip>:54323` → proxied to `192.168.x.102:54323` |
 | Supabase API (PostgREST) | `http://192.168.x.102:54321` |
-| PostgreSQL direct | `postgresql://postgres:postgres@192.168.x.102:54322/postgres` |
+| PostgreSQL direct | `postgresql://<user>:<password>@<host>:<port>/<db>` (see `local install_supabase.sh` for the actual values) |
 | App data (testcases, nav trees, scripts, etc.) | This database |
 | Monitoring metrics (system_metrics, system_device_metrics) | Also this database — Grafana reads directly via `54322` |
 

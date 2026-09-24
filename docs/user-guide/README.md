@@ -20,6 +20,7 @@ This guide covers everything you need to know to get the most out of VirtualPyTe
 ### Configuration
 - **[Configuration reference](../get-started/configuration.md)** - Every variable and port
 - **[Supabase and authentication](../get-started/supabase.md)** - Open mode vs login, cloud vs self-hosted
+- **[Free cloud starter](./free-cloud-starter.md)** - Render, Supabase, Redis, and a Linux host for a showcase
 - **[Who can do what](./permissions.md)** - Roles, teams and workspaces, with worked examples
 
 ### Best Practices
@@ -225,6 +226,5 @@ Check [Troubleshooting](./troubleshooting.md) for solutions to:
 
 **Ready to start testing?**  
 ➡️ [Getting Started Guide](./getting-started.md)
-
 
 

@@ -2423,17 +2423,27 @@ def rollback_core_local():
             restart_scheduled = True
         elif restart_service and target_kind != 'frontend':
             if target_kind != 'server':
-                restart_cmd = (
-                    "if systemctl list-unit-files | grep -q '^vpt-frontend\\.service'; then sudo systemctl restart vpt-frontend; "
-                    "elif systemctl list-unit-files | grep -q '^vpt-frontend-prod\\.service'; then sudo systemctl restart vpt-frontend-prod; "
-                    "else sudo systemctl restart vpt-frontend; fi"
-                )
+                # Pick the first unit present (vpt-frontend, else
+                # vpt-frontend-prod, else fall back to vpt-frontend and let
+                # systemctl surface the error). Argv form — no shell, no
+                # interpolation; previously passed as a `bash -lc` string
+                # which made CodeQL's taint rule fire and was a foot-gun if
+                # anyone later added data to the script.
+                candidates = ('vpt-frontend', 'vpt-frontend-prod')
+                chosen_unit = None
+                for candidate in candidates:
+                    probe = subprocess.run(
+                        ['systemctl', 'list-unit-files', candidate + '.service'],
+                        capture_output=True, text=True, check=False, timeout=10,
+                    )
+                    if probe.returncode == 0 and candidate + '.service' in probe.stdout:
+                        chosen_unit = candidate
+                        break
+                if chosen_unit is None:
+                    chosen_unit = 'vpt-frontend'
                 restart_result = subprocess.run(
-                    ['bash', '-lc', restart_cmd],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    timeout=120,
+                    ['sudo', 'systemctl', 'restart', chosen_unit],
+                    capture_output=True, text=True, check=False, timeout=120,
                 )
                 if restart_result.returncode != 0:
                     _set_server_deploy_state('failed', error=restart_result.stderr[-2000:] or restart_result.stdout[-2000:])

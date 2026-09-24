@@ -36,7 +36,6 @@ type AgentEvent = {
   tool_calls: number;
   error_summary: string | null;
 };
-type Service = { name: string; status: string; active?: boolean };
 type OutcomeFilter = 'all' | 'answered' | 'cached' | 'off_topic' | 'error';
 const SERVER_LOG_SERVICES = [
   { name: 'vpt-server', label: 'vpt-server' },
@@ -55,10 +54,10 @@ const formatDate = (value?: string | null) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('en-GB');
 };
-const HOST_SERVICE_NAMES = new Set([
-  'vpt-host', 'vpt-server-host', 'vpt-stream', 'vpt-vnc', 'vpt-websockify',
-  'vpt-emulator', 'vpt-emulator-fifo',
-]);
+const HOST_LOG_SERVICES = [
+  'vpt-host', 'vpt-server-host', 'vpt-stream', 'vpt-vnc',
+  'vpt-websockify', 'vpt-emulator', 'vpt-emulator-fifo', 'deployments',
+];
 
 const Logs: React.FC = () => {
   // Tab order: MCP, API, ASK AI, Server, Host.
@@ -79,7 +78,6 @@ const Logs: React.FC = () => {
   const [apiLevel, setApiLevel] = useState('');
   const [hostSearch, setHostSearch] = useState('');
   const [expandedQuestions, setExpandedQuestions] = useState<Set<string>>(() => new Set());
-  const [services, setServices] = useState<Service[]>([]);
   const [agentEvents, setAgentEvents] = useState<AgentEvent[]>([]);
   const [selectedHost, setSelectedHost] = useState('');
   const [error, setError] = useState('');
@@ -123,11 +121,6 @@ const Logs: React.FC = () => {
         if (tab === 1) setApiLogs(data.logs || '');
         else setServerLogs(data.logs || '');
       } else if (tab === 4) {
-        const response = await apiClient(buildServerUrl('/server/logs/services'), { signal: controller.signal });
-        if (response.status === 401) throw new Error('Your session is not available for this server. Sign in again or select an authenticated server.');
-        if (response.status === 403) throw new Error('Logs are available to administrators only.');
-        if (!response.ok) throw new Error(`Unable to load services (HTTP ${response.status}).`);
-        setServices((await response.json()).services || []);
         if (selectedHost && hostService) {
           const logResponse = await apiClient(buildServerUrl('/server/logs/view'), {
             method: 'POST',
@@ -179,8 +172,6 @@ const Logs: React.FC = () => {
     '& .MuiTableCell-root:hover': { backgroundColor: 'transparent !important' },
     '& .MuiTableHead-root, & .MuiTableCell-head': { backgroundColor: 'rgba(255,255,255,0.06) !important' },
   };
-  const hostServices = services.filter((service) => HOST_SERVICE_NAMES.has(service.name) && service.active !== false && service.status === 'active');
-
   useEffect(() => {
     if (!selectedHost && hosts.length > 0) setSelectedHost(hosts[0].host_name);
   }, [hosts, selectedHost]);
@@ -312,8 +303,7 @@ const Logs: React.FC = () => {
           {hosts.map((host) => <MenuItem key={host.host_name} value={host.host_name}>{host.host_name}</MenuItem>)}
         </TextField>
         <TextField select label="Host service" size="small" value={hostService} onChange={(event) => setHostService(event.target.value)} sx={{ minWidth: 280 }}>
-          {hostServices.map((service) => <MenuItem key={service.name} value={service.name}>{service.name} · {service.status}</MenuItem>)}
-          {selectedHost && <MenuItem value="deployments">deployments · deployment file</MenuItem>}
+          {HOST_LOG_SERVICES.map((service) => <MenuItem key={service} value={service}>{service}{service === 'deployments' ? ' · deployment file' : ''}</MenuItem>)}
         </TextField>
         <TextField label="Search logs" size="small" value={hostSearch} onChange={(event) => setHostSearch(event.target.value)} sx={{ width: 220 }} />
       </Box>}
