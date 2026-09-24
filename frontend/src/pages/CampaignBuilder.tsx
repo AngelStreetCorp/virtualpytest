@@ -61,6 +61,7 @@ import { CampaignBuilderDialogs } from '../components/campaign/builder/CampaignB
 import { ExecutionProgressOverlay } from '../components/common/ExecutionProgressOverlay';
 import { CampaignNode, CampaignDragData } from '../types/pages/CampaignGraph_Types';
 import { useTestCaseSave } from '../hooks/testcase/useTestCaseSave';
+import { filterCompatibleInterfaces } from '../utils/userinterface/deviceCompatibilityUtils';
 import { testcaseScriptConfigToBlockIO } from '../utils/testcase/scriptInputUtils';
 import { useTheme } from '../contexts/ThemeContext';
 import { useHostData, useHostControl } from '../hooks/useHostManager';
@@ -217,15 +218,18 @@ export const CampaignBuilderContent: React.FC = () => {
       
       try {
         const selectedDevice = selectedHost.devices?.find((d: any) => d.device_id === selectedDeviceId);
-        const deviceModel = selectedDevice?.device_model;
-        
+        if (!selectedDevice) {
+          setCompatibleInterfaceNames([]);
+          setUserinterfaceName('');
+          return;
+        }
+
         const interfaces = await getAllUserInterfaces();
-        
-        const compatibleInterfaces = interfaces.filter((ui: any) => {
-          const hasTree = !!ui.root_tree;
-          const isCompatible = ui.models?.includes(deviceModel);
-          return hasTree && isCompatible;
-        });
+
+        // Same helper the TestCase builder and the navigation editor use, so model
+        // families (android_mobile / phone_agent / cloud_android_mobile) resolve the
+        // same way everywhere — this used to be an inline exact-string match.
+        const compatibleInterfaces = filterCompatibleInterfaces(interfaces as any, selectedDevice);
         
         const names = compatibleInterfaces.map((ui: any) => ui.name);
         

@@ -702,9 +702,17 @@ def update_execution_result_with_kpi(
     kpi_measurement_ms: Optional[int] = None,
     kpi_measurement_error: Optional[str] = None,
     kpi_report_url: Optional[str] = None,
-    kpi_display_label: Optional[str] = None
+    kpi_display_label: Optional[str] = None,
+    kpi_measurement_meta: Optional[dict] = None
 ) -> bool:
-    """Update execution_result with KPI measurement results."""
+    """Update execution_result with KPI measurement results.
+
+    `kpi_measurement_meta` is the confidence block (shared/src/lib/utils/kpi_confidence.py):
+    effective fps over the action->match window, frames missed, which storage served the
+    frames, and the interval the transition is provably inside. It is stored because the
+    frames themselves are gone within minutes — without it a past measurement can never be
+    audited, which is what made the numbers arguable.
+    """
     try:
         update_data = {
             'kpi_measurement_success': kpi_measurement_success
@@ -721,6 +729,8 @@ def update_execution_result_with_kpi(
         # edge (e.g. the standby modes over the single wake edge) stay separate.
         if kpi_display_label:
             update_data['kpi_display_label'] = kpi_display_label
+        if kpi_measurement_meta:
+            update_data['kpi_measurement_meta'] = kpi_measurement_meta
 
         kpi_status = f"✓ {kpi_measurement_ms}ms" if kpi_measurement_success else f"✗ {kpi_measurement_error}"
         report_status = f" | Report: {kpi_report_url}" if kpi_report_url else ""

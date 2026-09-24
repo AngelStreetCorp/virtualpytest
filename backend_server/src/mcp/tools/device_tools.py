@@ -10,6 +10,7 @@ import requests
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
+from shared.src.lib.config.device_capabilities import model_matches_any
 from backend_server.src.lib.utils.lock_utils import get_device_lock_info
 
 
@@ -228,8 +229,10 @@ class DeviceTools:
                 device_model = device.get('device_model')
                 device_capabilities = device.get('device_capabilities', {})
                 
-                # Check exact model match
-                if device_model in models:
+                # Check model match, family-aware: a tree built for `android_mobile`
+                # also runs on a paired phone and a cloud farm phone
+                # (MODEL_FAMILIES in shared/src/lib/config/device_capabilities.py)
+                if model_matches_any(device_model, models):
                     compatible_devices.append(device)
                 # Check capability match (e.g., device with 'web' capability matches 'web' model)
                 elif any(device_capabilities.get(model) for model in models):

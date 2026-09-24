@@ -43,15 +43,21 @@ interface WorkspaceProviderProps {
 }
 
 export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const userId = user?.id ?? '';
   // Signed-in users get memberships + public workspaces via the RPC.
   // Anonymous users (no Supabase session → no userId) fall back to the plain
   // list endpoint filtered to `is_public` — since /server/workspaces has no
   // RLS gate when ENFORCE_FRONTEND_JWT is off, public workspaces remain
   // visible without a JWT.
+  //
+  // `!userId` alone is not "anonymous", it is also "auth has not resolved yet",
+  // which is true on the first render of every page load. Without the isLoading
+  // gate a signed-in user fires the anonymous request too, and that one hits
+  // GET /server/workspaces — which is @require_admin_role. An admin gets a 200
+  // and never notices; every viewer and tester got a 403 on every navigation.
   const { data: membershipWorkspaces = [], isLoading: isLoadingMembership } = useUserWorkspaces(userId);
-  const { data: publicOnlyWorkspaces = [], isLoading: isLoadingPublic } = usePublicWorkspaces(!userId);
+  const { data: publicOnlyWorkspaces = [], isLoading: isLoadingPublic } = usePublicWorkspaces(!userId && !isAuthLoading);
   const userWorkspaces = userId ? membershipWorkspaces : publicOnlyWorkspaces;
   const isLoadingWorkspaces = userId ? isLoadingMembership : isLoadingPublic;
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(() => {

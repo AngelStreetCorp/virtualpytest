@@ -11,6 +11,8 @@ from backend_host.src.lib.utils.execution_event_utils import emit_execution_even
 import threading
 import time
 import requests
+
+from shared.src.lib.utils.build_url_utils import server_auth_headers
 from typing import Dict, Any
 
 # Import campaign executor (moved to shared level)
@@ -78,7 +80,10 @@ def execute_campaign_async(campaign_config: Dict[str, Any], execution_id: str, c
             }
             
             print(f"[@route:host_campaign] Sending callback to server: {callback_url}")
-            response = requests.post(callback_url, json=callback_data, timeout=30)
+            response = requests.post(
+                callback_url, json=callback_data,
+                headers=server_auth_headers(), timeout=30,
+            )
             
             if response.status_code == 200:
                 print(f"[@route:host_campaign] Callback sent successfully")

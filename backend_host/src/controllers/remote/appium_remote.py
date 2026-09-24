@@ -24,7 +24,9 @@ shared_utils_path = os.path.join(project_root, 'shared', 'lib', 'utils')
 if shared_utils_path not in sys.path:
     sys.path.insert(0, shared_utils_path)
 
-from  backend_host.src.lib.utils.appium_utils import AppiumUtils, AppiumElement, AppiumApp
+from  backend_host.src.lib.utils.appium_utils import (
+    AppiumUtils, AppiumElement, AppiumApp, redact_capabilities,
+)
 
 
 class AppiumRemoteController(RemoteControllerInterface):
@@ -125,7 +127,7 @@ class AppiumRemoteController(RemoteControllerInterface):
             
             # Build Appium capabilities
             capabilities = self._build_capabilities()
-            print(f"Remote[{self.device_type.upper()}]: Using capabilities: {capabilities}")
+            print(f"Remote[{self.device_type.upper()}]: Using capabilities: {redact_capabilities(capabilities)}")
             
             # For iOS, provide additional troubleshooting info
             if self.platform_name.lower() == 'ios':
@@ -185,7 +187,7 @@ class AppiumRemoteController(RemoteControllerInterface):
         elif self.platform_name.lower() == 'android':
             capabilities['automationName'] = 'UIAutomator2'
         
-        print(f"Remote[{self.device_type.upper()}]: Built capabilities: {capabilities}")
+        print(f"Remote[{self.device_type.upper()}]: Built capabilities: {redact_capabilities(capabilities)}")
         return capabilities
             
     def disconnect(self) -> bool:
@@ -411,6 +413,19 @@ class AppiumRemoteController(RemoteControllerInterface):
             
             if len(terms) > 1:
                 print(f"Remote[{self.device_type.upper()}]: Using fallback strategy with {len(terms)} terms: {terms}")
+            
+            # Dump first, exactly as the adb remote's click_element does. The three
+            # find_element_by_* helpers below read self.last_ui_elements, which only
+            # dump_elements ever fills — so without this a click on a freshly built
+            # controller searches an EMPTY list and reports "Element not found" for an
+            # element that is plainly on screen. A tree action never dumps first, and
+            # on a cloud farm device there is no adb path to fall back to, so every
+            # click_element in a navigation tree failed there. One dump per call, not
+            # one per term: the terms are fallbacks against the same screen.
+            dumped, _, dump_error = self.dump_elements()
+            if not dumped:
+                print(f"Remote[{self.device_type.upper()}]: WARNING - dump before click failed "
+                      f"({dump_error}); searching the previous dump instead")
             
             # Try each term until one succeeds
             last_error = None
@@ -648,6 +663,43 @@ class AppiumRemoteController(RemoteControllerInterface):
             print(f"Remote[{self.device_type.upper()}]: Tap error: {e}")
             return False
     
+    def swipe(self, from_x: int, from_y: int, to_x: int, to_y: int, duration: int = 300) -> bool:
+        """Swipe from one coordinate to another.
+
+        Same command name, params and defaults as AndroidMobileRemoteController's swipe
+        family, so an `android_mobile` navigation tree runs unchanged on an Appium
+        device — local or in a cloud farm (MODEL_FAMILIES treats them as one).
+        """
+        if not self.is_connected or not self.appium_utils:
+            print(f"Remote[{self.device_type.upper()}]: ERROR - Not connected to device")
+            return False
+
+        try:
+            print(f"Remote[{self.device_type.upper()}]: Swiping ({from_x}, {from_y}) -> ({to_x}, {to_y})")
+            success = self.appium_utils.swipe(self.appium_device_id, from_x, from_y, to_x, to_y, duration)
+            if not success:
+                print(f"Remote[{self.device_type.upper()}]: Failed to swipe")
+            return success
+        except Exception as e:
+            print(f"Remote[{self.device_type.upper()}]: Swipe error: {e}")
+            return False
+
+    def swipe_up(self, from_x: int = 500, from_y: int = 800, to_x: int = 500, to_y: int = 500, duration: int = 300) -> bool:
+        """Swipe up (content moves up)."""
+        return self.swipe(from_x, from_y, to_x, to_y, duration)
+
+    def swipe_down(self, from_x: int = 500, from_y: int = 500, to_x: int = 500, to_y: int = 1500, duration: int = 300) -> bool:
+        """Swipe down (content moves down)."""
+        return self.swipe(from_x, from_y, to_x, to_y, duration)
+
+    def swipe_left(self, from_x: int = 800, from_y: int = 1000, to_x: int = 200, to_y: int = 1000, duration: int = 300) -> bool:
+        """Swipe left."""
+        return self.swipe(from_x, from_y, to_x, to_y, duration)
+
+    def swipe_right(self, from_x: int = 200, from_y: int = 1000, to_x: int = 800, to_y: int = 1000, duration: int = 300) -> bool:
+        """Swipe right."""
+        return self.swipe(from_x, from_y, to_x, to_y, duration)
+
     def get_available_actions(self) -> Dict[str, Any]:
         """Get available actions for this Appium remote controller."""
         return {
@@ -674,6 +726,67 @@ class AppiumRemoteController(RemoteControllerInterface):
                     'requiresInput': True,
                     'inputLabel': 'Coordinates (x,y)',
                     'inputPlaceholder': '100,200'
+                },
+                {
+                    'id': 'click_element_by_id',
+                    'label': 'Click Element by ID',
+                    'command': 'click_element_by_id',
+                    'action_type': 'remote',
+                    'params': {'element_id': ''},
+                    'description': 'Click on UI element by exact ID (works with non-visible elements, always dumps UI first)',
+                    'requiresInput': True,
+                    'inputLabel': 'Element ID',
+                    'inputPlaceholder': '8',
+                    'inputParam': 'element_id'
+                },
+                # Swipe actions — same ids, labels and commands as android_mobile, so a
+                # tree recorded against a local Android phone replays on an Appium one
+                {
+                    'id': 'swipe',
+                    'label': 'Swipe (Custom)',
+                    'command': 'swipe',
+                    'action_type': 'remote',
+                    'params': {},
+                    'description': 'Swipe from one coordinate to another',
+                    'requiresInput': True,
+                    'inputLabel': 'From/To coordinates',
+                    'inputPlaceholder': 'from_x,from_y,to_x,to_y'
+                },
+                {
+                    'id': 'swipe_up',
+                    'label': 'Swipe Up',
+                    'command': 'swipe_up',
+                    'action_type': 'remote',
+                    'params': {},
+                    'description': 'Swipe up on screen (customizable distance)',
+                    'requiresInput': False
+                },
+                {
+                    'id': 'swipe_down',
+                    'label': 'Swipe Down',
+                    'command': 'swipe_down',
+                    'action_type': 'remote',
+                    'params': {},
+                    'description': 'Swipe down on screen (customizable distance)',
+                    'requiresInput': False
+                },
+                {
+                    'id': 'swipe_left',
+                    'label': 'Swipe Left',
+                    'command': 'swipe_left',
+                    'action_type': 'remote',
+                    'params': {},
+                    'description': 'Swipe left on screen (customizable distance)',
+                    'requiresInput': False
+                },
+                {
+                    'id': 'swipe_right',
+                    'label': 'Swipe Right',
+                    'command': 'swipe_right',
+                    'action_type': 'remote',
+                    'params': {},
+                    'description': 'Swipe right on screen (customizable distance)',
+                    'requiresInput': False
                 },
                 {
                     'id': 'press_key_up',
@@ -831,11 +944,52 @@ class AppiumRemoteController(RemoteControllerInterface):
             x, y = params.get('x'), params.get('y')
             success = self.tap_coordinates(int(x), int(y)) if x is not None and y is not None else False
 
+        elif command == 'swipe':
+            from_x, from_y = params.get('from_x'), params.get('from_y')
+            to_x, to_y = params.get('to_x'), params.get('to_y')
+            duration = params.get('duration', 300)
+            if all(v is not None for v in (from_x, from_y, to_x, to_y)):
+                success = self.swipe(int(from_x), int(from_y), int(to_x), int(to_y), int(duration))
+            else:
+                success = False
+
+        elif command == 'swipe_up':
+            # Keep X fixed so the gesture is vertical, exactly as android_mobile does
+            from_x = int(params.get('from_x', 500))
+            from_y = int(params.get('from_y', 1500))
+            to_y = int(params.get('to_y', 500))
+            success = self.swipe_up(from_x, from_y, from_x, to_y, int(params.get('duration', 300)))
+
+        elif command == 'swipe_down':
+            from_x = int(params.get('from_x', 500))
+            from_y = int(params.get('from_y', 500))
+            to_y = int(params.get('to_y', 1500))
+            success = self.swipe_down(from_x, from_y, from_x, to_y, int(params.get('duration', 300)))
+
+        elif command == 'swipe_left':
+            # Keep Y fixed so the gesture is horizontal
+            from_x = int(params.get('from_x', 800))
+            from_y = int(params.get('from_y', 1000))
+            to_x = int(params.get('to_x', 200))
+            success = self.swipe_left(from_x, from_y, to_x, from_y, int(params.get('duration', 300)))
+
+        elif command == 'swipe_right':
+            from_x = int(params.get('from_x', 200))
+            from_y = int(params.get('from_y', 1000))
+            to_x = int(params.get('to_x', 800))
+            success = self.swipe_right(from_x, from_y, to_x, from_y, int(params.get('duration', 300)))
+
         elif command == 'click_element_by_id':
-            # Appium specific - uses UI dump
+            # Resolves an id against the dump. Dump first, exactly as click_element and the
+            # adb remote do: a tree's action never dumps beforehand, so reading a stale (or
+            # on a fresh controller, empty) self.last_ui_elements would miss an element
+            # plainly on screen.
             element_id = params.get('element_id')
-            if element_id and self.last_ui_elements:
-                element = next((el for el in self.last_ui_elements if str(el.id) == str(element_id)), None)
+            if element_id:
+                dumped, _, _ = self.dump_elements()
+                element = next(
+                    (el for el in self.last_ui_elements if str(el.id) == str(element_id)),
+                    None) if dumped else None
                 success = self.click_element_by_id(element) if element else False
             else:
                 success = False

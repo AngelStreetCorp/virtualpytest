@@ -62,6 +62,12 @@ export const useTargetSelection = (): TargetSelectionResult => {
       } else {
         // Prevent selecting the same device_id on the same host under a different key
         const [hostName, deviceId] = key.split(':');
+        // A device the active workspace doesn't allow can never enter the
+        // selection — this also catches the sessionStorage restore on mount,
+        // which replays keys saved under a different workspace.
+        if (deviceId && !isDeviceAllowed(hostName, deviceId)) {
+          return prev;
+        }
         const alreadySelected = deviceId && Array.from(next.keys()).some((existingKey) => {
           const [existingHost, existingDeviceId] = existingKey.split(':');
           return existingHost === hostName && existingDeviceId === deviceId && existingKey !== key;
@@ -72,7 +78,7 @@ export const useTargetSelection = (): TargetSelectionResult => {
       }
       return next;
     });
-  }, []);
+  }, [isDeviceAllowed]);
 
   const updateDeviceUserinterface = useCallback((key: string, ui: string) => {
     setSelectedDevices(prev => {

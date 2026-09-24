@@ -47,7 +47,19 @@ export function buildScriptArgs(
   for (const param of parameters ?? []) {
     if (param.name === 'host' || param.name === 'device') continue;
     const value = (valueOf(param.name) || '').trim();
-    if (!value) continue;
+    // `variant` is the one parameter whose empty value is a decision rather than
+    // an absence: the caller resolves the device's DEVICE{i}_VARIANT default
+    // before we see it, so anything still empty here means the user picked base.
+    // Dropping it silently would hand the run back to that .env default on the
+    // host, which is how selecting base ran `variant1` instead (BUG-0152).
+    // `base` canonicalises to "no variant" everywhere downstream, so this is the
+    // same run — it just says so out loud.
+    if (!value) {
+      if (param.name === 'variant' && param.type !== 'positional') {
+        args.push('--variant base');
+      }
+      continue;
+    }
     args.push(
       param.type === 'positional' ? quoteIfNeeded(value) : `--${param.name} ${quoteIfNeeded(value)}`,
     );

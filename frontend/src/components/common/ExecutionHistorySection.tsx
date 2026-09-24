@@ -18,7 +18,7 @@ import ExecutionHistoryTable, {
   ExecutionHistoryRow,
   getExecutionHistoryStatusChip,
 } from './ExecutionHistoryTable';
-import type { RerunPayload } from '../../types/pages/RunTests_Types';
+import type { RerunPayload } from '../../types/common/Rerun_Types';
 
 interface ExecutionHistorySectionProps {
   title: string;

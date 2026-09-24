@@ -413,7 +413,11 @@ export function useHdmiStream({
 
   // Layout config based on device model
   const layoutConfig = useMemo(() => {
-    const isMobileModel = deviceModel === 'android_mobile' || deviceModel === 'ios_mobile';
+    const isMobileModel =
+      deviceModel === 'android_mobile' ||
+      deviceModel === 'ios_mobile' ||
+      deviceModel === 'cloud_android_mobile' ||
+      deviceModel === 'cloud_ios_mobile';
     return {
       width: 400,
       height: 800,

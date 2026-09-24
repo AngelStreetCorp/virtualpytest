@@ -22,7 +22,7 @@ Automated security analysis for VirtualPyTest backend components.
 source venv/bin/activate
 
 # Install Python tools (included in backend_server/requirements.txt)
-pip install bandit safety
+pip install bandit
 
 # Install Snyk CLI (optional but recommended)
 npm install -g snyk
@@ -57,8 +57,24 @@ Files generated in `docs/security/`:
 | **backend_server/src/** | Snyk Code | SAST (Path Traversal, CORS, etc.) |
 | **shared/src/** | Snyk Code | SAST (Path Traversal, CORS, etc.) |
 | **frontend/** | npm audit | Dependency CVEs |
-| **backend_host/requirements.txt** | Safety | Dependency CVEs |
-| **backend_server/requirements.txt** | Safety | Dependency CVEs |
+
+### Not scanned: Python dependency CVEs
+
+`backend_host/requirements.txt` and `backend_server/requirements.txt` are **not** checked against
+any vulnerability feed. This table used to claim they were, via Safety, and that was never true:
+the tool was declared in a requirements file the build host does not install, and on a machine
+that did have it the output went to a temp file no parser read and the run then deleted. The
+warning it printed on every build was the only trace it ever left (BUG-0148).
+
+Safety has been removed rather than repaired — it reports no severity, and 3.x is account-gated,
+which does not belong in an unattended build. `pip-audit` was evaluated as a replacement and
+**not adopted**: the frontend VM has no virtualenv, Debian 12 refuses system `pip` installs
+(PEP 668), and there is no `python3-pip-audit` package — so it could only be installed through
+pipx or a purpose-built venv, which is more machinery than this dashboard is worth right now.
+
+The gap is real and known: **a vulnerable pinned dependency will not show up here.** Bandit scans
+our own Python code, not what it imports; npm audit covers the frontend only. Until something
+fills it, Python dependency CVEs are checked by hand, off this page.
 
 ## Triage policy (`bandit.yaml` + `.snyk`)
 

@@ -17,6 +17,7 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   PlayArrow as ScriptIcon,
+  RestartAlt as RerunIcon,
 } from '@mui/icons-material';
 import {
   Autocomplete,
@@ -58,7 +59,9 @@ import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 import { formatToLocalTime } from '../utils/dateUtils';
 import { openR2Url } from '../utils/infrastructure/cloudflareUtils';
 import { StyledDialog } from '../components/common/StyledDialog';
-import { formatScriptLabel, ensureScriptIdentityMap } from '../utils/executionUtils';
+import { formatScriptLabel, ensureScriptIdentityMap, buildRerunPayloadFromResult } from '../utils/executionUtils';
+import { useRerun } from '../hooks/script/useRerun';
+import { useToast } from '../hooks/useToast';
 import { getEnv } from '../config/constants';
 
 // Target filter options are "<host_name> - <device_name>" so the dropdown
@@ -114,6 +117,8 @@ const TestReports: React.FC = () => {
   const { getAllHosts } = useHostData();
   const { selectedServer } = useServerManager();
   const { isDeviceAllowed, activeWorkspace } = useWorkspaceContext();
+  const { rerun, rerunningIds } = useRerun();
+  const { showInfo, showSuccess, showError } = useToast();
   const [rawScriptResults, setRawScriptResults] = useState<ScriptResult[]>([]);
   const [rawCampaignResults, setRawCampaignResults] = useState<CampaignResult[]>([]);
 
@@ -211,6 +216,7 @@ const TestReports: React.FC = () => {
     { key: 'started', initialWidth: 150, minWidth: 100 },
     { key: 'report', initialWidth: 55, minWidth: 45 },
     { key: 'logs', initialWidth: 55, minWidth: 45 },
+    { key: 'rerun', initialWidth: 55, minWidth: 45 },
     { key: 'checked', initialWidth: 60, minWidth: 50 },
     { key: 'discard', initialWidth: 60, minWidth: 50 },
     { key: 'analyzedBy', initialWidth: 80, minWidth: 60 },
@@ -232,7 +238,7 @@ const TestReports: React.FC = () => {
 
   // Column visibility — persisted to localStorage
   const COLUMN_VISIBILITY_KEY = 'test_reports_column_visibility_v1';
-  type ColumnId = 'uiName' | 'host' | 'device' | 'status' | 'duration' | 'started' | 'report' | 'logs';
+  type ColumnId = 'uiName' | 'host' | 'device' | 'status' | 'duration' | 'started' | 'report' | 'logs' | 'rerun';
   const ALL_COLUMNS: { id: ColumnId; label: string }[] = [
     { id: 'uiName', label: 'UI Name' },
     { id: 'host', label: 'Target' },
@@ -242,6 +248,7 @@ const TestReports: React.FC = () => {
     { id: 'started', label: 'Started' },
     { id: 'report', label: 'Report' },
     { id: 'logs', label: 'Logs' },
+    { id: 'rerun', label: 'Rerun' },
   ];
   const DEFAULT_HIDDEN: ColumnId[] = ['uiName', 'device'];
 
@@ -342,6 +349,30 @@ const TestReports: React.FC = () => {
       setLoading(false);
     }
   }, [getAllScriptResults]);
+
+  // Relaunch a stored run on its original target with its original config.
+  // The new run lands in script_results like any other, so the table just
+  // refetches rather than tracking it locally.
+  const handleRerun = useCallback(async (result: ScriptResult) => {
+    const payload = buildRerunPayloadFromResult(result);
+    if (!payload) return;
+
+    const label = getScriptLabel(result);
+    showInfo(`Rerunning "${label}" on ${formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}`);
+
+    const outcome = await rerun(payload, result.id);
+    if (!outcome.started) {
+      showError(`Rerun of "${label}" failed: ${outcome.error || 'unknown error'}`);
+      return;
+    }
+    showSuccess(`Rerun of "${label}" finished`);
+
+    const filters: ScriptResultFilters = {};
+    if (filterScript) filters.script_name = filterScript;
+    if (filterTarget) filters.host_name = parseTargetKey(filterTarget).hostName;
+    if (workspaceHostFilter) filters.host_filter = workspaceHostFilter;
+    void loadScriptResults(Object.keys(filters).length > 0 ? filters : undefined);
+  }, [rerun, showInfo, showError, showSuccess, filterScript, filterTarget, workspaceHostFilter, loadScriptResults]);
 
   useEffect(() => {
     const filters: ScriptResultFilters = {};
@@ -1171,6 +1202,34 @@ const TestReports: React.FC = () => {
                                           {script.execution_time_ms ? formatDuration(script.execution_time_ms) : '-'}
                                         </Typography>
                                         <Box sx={{ ml: 'auto', display: 'flex', flexShrink: 0 }}>
+                                          <Box sx={{ width: 78, px: 0.5, textAlign: 'center', boxSizing: 'border-box' }}>
+                                            {script.testrail_sync ? (
+                                              <Tooltip title={script.testrail_sync.status === 'published'
+                                                ? `Published to TestRail run ${script.testrail_sync.run_id}`
+                                                : script.testrail_sync.status === 'not_mapped'
+                                                  ? 'Link this VirtualPyTest case to a TestRail case to include future runs'
+                                                  : `TestRail sync ${script.testrail_sync.status}${script.testrail_sync.error ? `: ${script.testrail_sync.error}` : ''}`}>
+                                                {script.testrail_sync.url ? (
+                                                  <Chip
+                                                    component="a"
+                                                    href={script.testrail_sync.url}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    clickable
+                                                    label="TestRail"
+                                                    size="small"
+                                                    color={script.testrail_sync.status === 'published' ? 'success' : 'error'}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    sx={{ height: 20, fontSize: '0.65rem' }}
+                                                  />
+                                                ) : (
+                                                  <Chip label={script.testrail_sync.status === 'not_mapped' ? 'Needs link' : `TR ${script.testrail_sync.status}`} size="small"
+                                                    color={script.testrail_sync.status === 'publishing' ? 'info' : script.testrail_sync.status === 'not_mapped' ? 'default' : 'error'}
+                                                    sx={{ height: 20, fontSize: '0.65rem' }} />
+                                                )}
+                                              </Tooltip>
+                                            ) : null}
+                                          </Box>
                                           <Box sx={{ width: 55, px: 1, textAlign: 'center', boxSizing: 'border-box' }}>
                                             {script.html_report_r2_url ? (
                                               <Tooltip title="Open Report">
@@ -1355,6 +1414,12 @@ const TestReports: React.FC = () => {
                       <Box component="span" onMouseDown={resizeCols.onMouseDown('logs')} sx={resizeCols.resizeHandleSx} />
                     </TableCell>
                   )}
+                  {isColumnVisible('rerun') && (
+                    <TableCell sx={{ py: 0.5, ...resizeCols.headerCellSx('rerun') }}>
+                      <strong>Rerun</strong>
+                      <Box component="span" onMouseDown={resizeCols.onMouseDown('rerun')} sx={resizeCols.resizeHandleSx} />
+                    </TableCell>
+                  )}
                   {showDetailedColumns && (
                     <>
                       <TableCell sx={{ py: 0.5, ...resizeCols.headerCellSx('checked') }}>
@@ -1494,6 +1559,35 @@ const TestReports: React.FC = () => {
                           ) : (
                             <Typography variant="body2" color="text.disabled">-</Typography>
                           )}
+                        </TableCell>
+                      )}
+                      {isColumnVisible('rerun') && (
+                        <TableCell sx={{ py: 0.5, textAlign: 'center', ...resizeCols.bodyCellSx('rerun') }}>
+                          {(() => {
+                            const payload = buildRerunPayloadFromResult(result);
+                            // No payload = the run never recorded a launch config
+                            // (an unsaved testcase graph, or a row predating the
+                            // executor persisting one). Nothing to replay.
+                            if (!payload) {
+                              return <Typography variant="body2" color="text.disabled">-</Typography>;
+                            }
+                            const busy = rerunningIds.includes(result.id);
+                            return (
+                              <Tooltip title="Rerun on the same target with the same config">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    disabled={busy}
+                                    onClick={() => void handleRerun(result)}
+                                    sx={{ p: 0.5 }}
+                                  >
+                                    {busy ? <CircularProgress size={16} /> : <RerunIcon fontSize="small" />}
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            );
+                          })()}
                         </TableCell>
                       )}
                       {showDetailedColumns && (

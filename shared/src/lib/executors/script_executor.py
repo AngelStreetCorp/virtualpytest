@@ -828,7 +828,13 @@ class ScriptExecutor:
         # Manually-provided device info (per-device, from the run UI) — carried to
         # the child as VPT_DEVICE_INFO and merged into metadata.info.
         self.current_device_info = device_info if isinstance(device_info, dict) else None
-        
+
+        # Virtual-script DB row id (dev/test/prod) this run materializes from.
+        # Carried to the child as VPT_VIRTUAL_SCRIPT_ID so the subprocess can
+        # persist it on metadata — a rerun launched from a stored result has to
+        # replay the same row, or it would look for a disk script of that name.
+        self.current_virtual_script_id = virtual_script_id or None
+
         # Check if this is an AI test case - redirect to ai_testcase_executor.py
         # IMPORTANT: Exclude the executor script itself to prevent infinite recursion
         if script_name.startswith("ai_testcase_") and script_name != "ai_testcase_executor":
@@ -1153,6 +1159,9 @@ class ScriptExecutor:
         if current_device_info:
             import json
             child_env['VPT_DEVICE_INFO'] = json.dumps(current_device_info)
+        current_virtual_script_id = getattr(self, 'current_virtual_script_id', None)
+        if current_virtual_script_id:
+            child_env['VPT_VIRTUAL_SCRIPT_ID'] = str(current_virtual_script_id)
 
         # Virtual-script runs only: put project_root (for `from shared...`) and the
         # shared-libs temp dir (for `import <lib_name>`) on the child PYTHONPATH.
@@ -1637,10 +1646,22 @@ class ScriptExecutor:
             # run — not only DB-tracked ones — otherwise a chosen variant is
             # silently ignored and base data is used.
             nav_context = context.selected_device.navigation_context
-            variant_value = getattr(args, 'variant', None)
+            raw_arg_variant = getattr(args, 'variant', None)
+            variant_value = raw_arg_variant
             if isinstance(variant_value, str):
                 variant_value = variant_value.strip() or None
-            if hasattr(args, 'variant') and not _flag_in_argv('--variant') and not variant_value and pref_variant:
+            # An empty string is an explicit "base", not an absent value: a caller
+            # that reaches us without argv (scheduler, MCP, direct invocation) must
+            # still beat the device default exactly like a literal --variant flag
+            # does, otherwise DEVICE{i}_VARIANT silently wins (BUG-0152).
+            explicit_base = isinstance(raw_arg_variant, str) and not raw_arg_variant.strip()
+            if (
+                hasattr(args, 'variant')
+                and not _flag_in_argv('--variant')
+                and not variant_value
+                and not explicit_base
+                and pref_variant
+            ):
                 if pref_ui and effective_ui == pref_ui:
                     variant_value = pref_variant
                     print(f"🎭 [{self.script_name}] variant: {pref_variant} (device default from .env)")
@@ -1807,6 +1828,19 @@ class ScriptExecutor:
         if isinstance(variant_value, str):
             variant_value = variant_value.strip() or None
         metadata['variant'] = variant_value
+
+        # Launch config for a one-click rerun from a stored result (Test Reports).
+        # `deployments.rerun_payload` only exists for deployment-launched runs, so
+        # runs reaching the DB by any other route (campaign steps, direct API) have
+        # no payload to inherit — record the two fields a rerun needs right here.
+        #
+        # This runs INSIDE the script subprocess, so sys.argv is the resolved CLI
+        # the script was actually invoked with (--host/--device included, matching
+        # the string `deployments.parameters` stores).
+        metadata['parameters'] = ' '.join(sys.argv[1:])
+        virtual_script_id = os.getenv('VPT_VIRTUAL_SCRIPT_ID')
+        if virtual_script_id:
+            metadata['virtual_script_id'] = virtual_script_id
 
         trigger = getattr(self, 'current_trigger', None) or _normalize_trigger(None)
         metadata['trigger'] = trigger
@@ -1981,6 +2015,7 @@ class ScriptExecutor:
         lines.append('1. Check if the reported failure matches the final visual state in the HTML report screenshots.')
         lines.append('2. Cross-check the same moment in raw logs and confirm the failure marker appears before/after expected actions.')
         lines.append('3. Confirm action intent versus verification intent: wrong selector/timing is `SCRIPT_ISSUE`; real product break is `VALID_FAIL`.')
+        lines.append('3a. If an external service blocks the flow (CAPTCHA, rate limit, or policy page), classify as `EXTERNAL_BLOCK` and keep the run (`discard=false`).')
         lines.append('4. If the screen shows expected UI while logs say "not found", classify as `BUG` (framework mismatch, not app behavior).')
         lines.append('5. If infrastructure is broken (no signal, disconnected device, black/frozen stream), classify as `SYSTEM_ISSUE`.')
         lines.append('6. If script passed and visual + log evidence agree, classify as `VALID_PASS`.')
@@ -1996,7 +2031,7 @@ class ScriptExecutor:
             lines.append('')
 
         lines.append('## Suggested Classification Decision')
-        lines.append('- Keep (`discard=false`): `VALID_PASS`, `VALID_FAIL`, `BUG`')
+        lines.append('- Keep (`discard=false`): `VALID_PASS`, `VALID_FAIL`, `BUG`, `EXTERNAL_BLOCK`')
         lines.append('- Discard (`discard=true`): `SCRIPT_ISSUE`, `SYSTEM_ISSUE`')
         lines.append('')
 
@@ -2374,7 +2409,11 @@ class ScriptExecutor:
             # Ad-hoc single-step runs: bail out before the artifact tail. The device
             # is already powered-on + released above; the `finally` block below still
             # stops stdout capture and clears the device script context.
-            if not generate_report:
+            # Failed executions always retain their evidence.  Callers use
+            # generate_report=False for fast, ad-hoc runs, but applying that
+            # shortcut to a failure makes the result impossible to diagnose.
+            # Keep the lightweight path for successful runs only.
+            if not generate_report and context.overall_success is not False:
                 print(f"⚡ [{self.script_name}] Skipping report generation (generate_report=False)")
                 return {
                     'success': True,
@@ -2388,6 +2427,8 @@ class ScriptExecutor:
                         context, 'baseline_execution_time_ms', context.get_execution_time_ms()
                     ),
                 }
+            if not generate_report:
+                print(f"⚠️ [{self.script_name}] Failure detected; retaining execution evidence despite generate_report=False")
 
             if context.capture_artifacts and context.host and context.selected_device:
                 print(f"📸 [{self.script_name}] Capturing final state screenshot...")

@@ -12,6 +12,9 @@ What it derives, and from where (nothing is hard-coded per release):
 
 - **Database**: `.sql` files added under `setup/db/migrations/` (core) and `features/<name>/db/`
   (feature — skipped where the feature is disabled). No deploy script applies either kind.
+- **Dependencies**: packages added to `frontend/package.json` or either `requirements.txt`.
+  A deploy excludes `node_modules` and never installs, so a new package fails the build ON THE
+  VM and leaves the old bundle serving.
 - **Settings**: keys added to the `.env.example` files. A deploy never edits a VM's `.env`, so
   each new key has to be added by hand where it matters.
 - **Services**: which systemd units run code that changed. Core units come from the unit
@@ -238,12 +241,49 @@ def env_keys_added(frm: str, to: str) -> list[tuple[str, list[str]]]:
     return res
 
 
+DEP_MANIFESTS = (
+    ('frontend/package.json', 'frontend'),
+    ('backend_server/requirements.txt', 'server'),
+    ('backend_host/requirements.txt', 'every host'),
+)
+
+
+def deps_added(frm: str, to: str) -> list[tuple[str, str, list[str]]]:
+    """Dependencies added to a manifest since the last build.
+
+    A deploy rsyncs source and EXCLUDES node_modules (update_core.sh), and nothing in
+    the deploy path runs an install. So a release that adds a dependency builds fine
+    on a dev machine and fails on the VM with "Rollup failed to resolve import", which
+    is what happened when recharts arrived with the Analytics page: the build aborted
+    and the frontend kept serving a stale bundle.
+
+    Detected rather than remembered, for the same reason the .env keys are.
+    """
+    res = []
+    for f, where in DEP_MANIFESTS:
+        try:
+            diff = git('diff', f'{frm}..{to}', '--', f)
+        except subprocess.CalledProcessError:
+            continue
+        if f.endswith('package.json'):
+            # `    "recharts": "3.10.1",` — a dependency line, not a script or a field.
+            added = {m.group(1) for m in re.finditer(r'^\+\s*"([@A-Za-z0-9._/-]+)":\s*"[~^]?[0-9]', diff, re.M)}
+            removed = {m.group(1) for m in re.finditer(r'^-\s*"([@A-Za-z0-9._/-]+)":\s*"[~^]?[0-9]', diff, re.M)}
+        else:
+            added = {m.group(1) for m in re.finditer(r'^\+([A-Za-z][A-Za-z0-9._-]*)', diff, re.M)}
+            removed = {m.group(1) for m in re.finditer(r'^-([A-Za-z][A-Za-z0-9._-]*)', diff, re.M)}
+        names = sorted(added - removed)
+        if names:
+            res.append((f, where, names))
+    return res
+
+
 # ---- render ----------------------------------------------------------------------------------
 
 def render(frm: str, to: str, branch: str, nfiles: int, a: dict, env: list) -> str:
     v_from, v_to = version_at(frm), version_at(to)
     L: list[str] = []
-    L.append('### 🚚 Upgrade')
+    L.append('### Upgrade')
     L.append('')
     L.append(f'**Compared with** `{v_from}` → `{v_to}` ({nfiles} files changed).')
     L.append('')
@@ -278,6 +318,22 @@ def render(frm: str, to: str, branch: str, nfiles: int, a: dict, env: list) -> s
             L.append(f'- {where}: ' + ', '.join(f'`{k}`' for k in keys))
     else:
         L.append('**Settings** — no new key.')
+    L.append('')
+
+    # Dependencies. A deploy excludes node_modules and never installs, so a new package
+    # makes the build fail ON THE VM and leaves the old bundle serving.
+    if a['deps']:
+        L.append('**Dependencies** — install BEFORE building, on every machine of that kind:')
+        for f, where, names in a['deps']:
+            L.append(f'- {where} (`{f}`): ' + ', '.join(f'`{n}`' for n in names))
+        if any(f.endswith('package.json') for f, _, _ in a['deps']):
+            L.append('  ```')
+            L.append('  cd /opt/virtualpytest/frontend && sudo -u vpt_user npm install')
+            L.append('  ```')
+            L.append('  Skipping this fails the build with "Rollup failed to resolve import" and')
+            L.append('  the site keeps serving the previous bundle.')
+    else:
+        L.append('**Dependencies** — no new package.')
     L.append('')
 
     # Services — only what a deploy will not restart on its own. The rest was a table of our own
@@ -318,6 +374,7 @@ def main() -> int:
     changed = git('diff', '--name-only', rng).split()
     added = git('diff', '--name-only', '--diff-filter=A', rng).split()
     a = analyse(changed, added)
+    a['deps'] = deps_added(frm, to)
     env = env_keys_added(frm, to)
     sys.stdout.write(render(frm, to, args.branch, len(changed), a, env))
     return 0

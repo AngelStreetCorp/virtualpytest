@@ -31,7 +31,8 @@ from collections import Counter
 FORCE = "--regen-frontmatter" in sys.argv
 CHECK = "--check" in sys.argv
 
-DOCS = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "docs"))
+REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DOCS = os.path.join(REPO, "docs")
 AGENT = os.path.join(DOCS, "agent")
 BIG_KB = 25  # ⚠ threshold: above this, tell agents to grep/target sections
 
@@ -207,12 +208,48 @@ def doc_cell(e, link):
 
 
 # ---- collect candidates ----
+# Git-ignored docs are deliberately local-only: docs/agent/infra/ and friends describe one
+# private deployment and never reach the repo (the public snapshot is `git archive`, so
+# untracked cannot ship). Indexing them would route every other clone — and every public
+# reader — to a file they do not have. Ask git once, in bulk, rather than per file.
+def _internal_paths():
+    """Prefixes publish_public.sh strips from the export — tracked, but never public."""
+    f = os.path.join(REPO, "scripts", "security", "internal-paths.txt")
+    try:
+        return [l.strip() for l in open(f, encoding="utf-8")
+                if l.strip() and not l.lstrip().startswith("#")]
+    except OSError:
+        return []
+
+
+def _ignored(paths):
+    if not paths:
+        return set()
+    try:
+        r = subprocess.run(["git", "check-ignore", "--stdin", "-z"],
+                           input="\0".join(paths), capture_output=True, text=True, cwd=REPO)
+    except OSError:
+        return set()          # no git available: index everything, as before
+    if r.returncode not in (0, 1):
+        return set()          # 0 = some ignored, 1 = none ignored; anything else is an error
+    return {x for x in r.stdout.split("\0") if x}
+
 candidates = []
 for p in sorted(glob.glob(os.path.join(AGENT, "**", "*.md"), recursive=True)):
     bn = os.path.basename(p)
     if bn.lower() == "readme.md" or bn == "INDEX.md":
         continue
     candidates.append(p)
+
+_rels = [os.path.relpath(p, REPO) for p in candidates]
+_skipped = _ignored(_rels)
+# Same reasoning for internal-paths: those docs are tracked, so every internal clone has
+# them, but the public snapshot deletes them — routing a public reader there is a dead link.
+_deny = _internal_paths()
+_skipped |= {r for r in _rels if any(r.startswith(d) for d in _deny)}
+if _skipped:
+    candidates = [p for p in candidates if os.path.relpath(p, REPO) not in _skipped]
+    print(f"skipped {len(_skipped)} doc(s) not in the public snapshot (git-ignored or internal-path)")
 
 # ---- Pass 1: inject frontmatter where missing (skipped in --check) ----
 injected = 0

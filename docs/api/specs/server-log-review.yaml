@@ -1,0 +1,81 @@
+openapi: 3.0.3
+info:
+  title: Operator Log Review API
+  version: 1.0.0
+  description: Admin-only endpoints used by the frontend Logs page.
+paths:
+  /server/logs/agent:
+    get:
+      summary: List structured agent execution history
+      description: Returns metadata only. Error details and conversation log files are never returned.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: days, in: query, schema: { type: integer, minimum: 1, maximum: 90, default: 30 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+        - { name: offset, in: query, schema: { type: integer, minimum: 0, maximum: 10000, default: 0 } }
+      responses:
+        '200':
+          description: Bounded execution history for the server's configured team.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        session_id: { type: string, nullable: true }
+                        agent_id: { type: string, nullable: true }
+                        task_id: { type: string, nullable: true }
+                        event_type: { type: string }
+                        timestamp: { type: string, format: date-time, nullable: true }
+                        status: { type: string, nullable: true }
+                        tool_calls: { type: integer }
+                        error_summary: { type: string, nullable: true }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+  /server/logs/services:
+    get:
+      summary: List whitelisted services available for log review
+      security:
+        - bearerAuth: []
+      responses:
+        '200': { description: Available service names and active status }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+  /server/logs/view:
+    post:
+      summary: Read logs for a whitelisted service
+      security:
+        - bearerAuth: []
+      description: Service names are restricted to the backend whitelist. Line count is bounded to 500.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [service]
+              properties:
+                service: { type: string }
+                lines: { type: integer, minimum: 1, maximum: 500, default: 50 }
+                since: { type: string }
+                level: { type: string }
+                grep: { type: string }
+                host_name: { type: string }
+                device_id: { type: string }
+      responses:
+        '200': { description: Bounded log output }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

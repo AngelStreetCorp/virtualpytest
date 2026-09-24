@@ -279,7 +279,9 @@ def _get_remote_params(implementation: str, device_config: dict) -> dict:
     if implementation in ['android_mobile', 'android_tv']:
         params = {
             'device_ip': device_config.get('device_ip', '192.168.1.100'),
-            'device_port': device_config.get('device_port', 5555)
+            'device_port': device_config.get('device_port', 5555),
+            # USB serial (DEVICE<N>_ADB_SERIAL) takes priority over ip:port when set
+            'adb_serial': device_config.get('adb_serial')
         }
         # Android params configured
         return params
@@ -466,7 +468,8 @@ def _get_verification_params(implementation: str, device_config: dict) -> dict:
         # ADB verification controller needs device connection info
         return {
             'device_ip': device_config.get('device_ip', '192.168.1.100'),
-            'device_port': device_config.get('device_port', 5555)
+            'device_port': device_config.get('device_port', 5555),
+            'adb_serial': device_config.get('adb_serial')
         }
     elif implementation == 'appium':
         # Appium verification controller needs Appium server info

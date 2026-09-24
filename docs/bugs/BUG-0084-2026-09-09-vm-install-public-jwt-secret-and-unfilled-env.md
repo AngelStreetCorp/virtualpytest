@@ -21,13 +21,15 @@
 > is the canonical report for the security issue and tracks rotation on existing installs; what is
 > unique here is the second symptom, the install finishing with every `.env` unfilled.
 
+> **Redacted for publication.** This report is published at `/docs/bugs` and ships in customer bundles. The reproduction steps, the credential values and the inventory of which file held which secret have been removed: they are an attack recipe, not an engineering record. The full account is in this repository's history and in the internal task notes.
+
 ## Symptom
 
-1. **Security.** `install_supabase.sh` wrote `jwt_secret = "super-secret-jwt-token-with-at-least-32-characters-long"`
-   into `supabase/config.toml` — the Supabase CLI's documented default. Anyone who can reach
-   port 54321 of such an install can sign their own `service_role` JWT and read or write
-   every table, whatever the RLS policies say. The value was then copied into
-   `SUPABASE_JWT_SECRET`, so browser JWTs were forgeable too.
+1. **Security.** `install_supabase.sh` wrote the Supabase CLI's published local-dev default
+   into `supabase/config.toml` as the instance's `jwt_secret`. A signing secret anyone can
+   read from public documentation authenticates nothing: an install left on it cannot trust
+   any token it issues, whatever the RLS policies say. The value was then copied into
+   `SUPABASE_JWT_SECRET`, so browser JWTs were affected too.
 2. **Usability.** `install_all.sh` copied templates named `env.local.example` and
    `env.example` (no leading dot) under the root, `backend_host/src` and `frontend` — none of
    which exist (the files are `.env.example`) — so no

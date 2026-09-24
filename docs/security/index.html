@@ -177,7 +177,7 @@
 <body>
     <div class="header">
         <h1>🔒 Security Report</h1>
-        <span class="timestamp">2026-09-07 18:23</span>
+        <span class="timestamp">2026-09-17 18:24</span>
     </div>
 
     <!-- Summary -->
@@ -192,11 +192,11 @@
                 <div class="metric-label">Medium</div>
             </div>
             <div class="metric">
-                <div class="metric-value low">30</div>
+                <div class="metric-value low">12</div>
                 <div class="metric-label">Low</div>
             </div>
         </div>
-        <div class="summary-info">143,069 lines scanned</div>
+        <div class="summary-info">147,296 lines scanned</div>
     </div>
 
     <!-- Filters -->
@@ -231,7 +231,7 @@
                 <span class="issue-text">Chmod setting a permissive mask 0o660 on file (FIFO_PATH).</span>
             </div><div class="issue low" data-severity="low">
                 <span class="issue-id">B311</span>
-                <span class="issue-loc">src/controllers/web/playwright.py:521</span>
+                <span class="issue-loc">src/controllers/web/playwright.py:541</span>
                 <span class="issue-text">Standard pseudo-random generators are not suitable for security/cryptographic pu</span>
             </div><div class="issue low" data-severity="low">
                 <span class="issue-id">B405</span>
@@ -255,11 +255,11 @@
                 <span class="issue-text">Possible hardcoded password: 'any'</span>
             </div><div class="issue low" data-severity="low">
                 <span class="issue-id">B105</span>
-                <span class="issue-loc">src/services/verifications/verification_executor.py:1050</span>
+                <span class="issue-loc">src/services/verifications/verification_executor.py:1091</span>
                 <span class="issue-text">Possible hardcoded password: 'any'</span>
             </div><div class="issue low" data-severity="low">
                 <span class="issue-id">B105</span>
-                <span class="issue-loc">src/services/verifications/verification_executor.py:1052</span>
+                <span class="issue-loc">src/services/verifications/verification_executor.py:1093</span>
                 <span class="issue-text">Possible hardcoded password: 'any'</span>
             </div>
         </div>
@@ -309,11 +309,11 @@
                 <span class="issue-text">Standard pseudo-random generators are not suitable for security/cryptographic pu</span>
             </div><div class="issue low" data-severity="low">
                 <span class="issue-id">B105</span>
-                <span class="issue-loc">src/lib/utils/local_debug_browser_helpers.py:566</span>
+                <span class="issue-loc">src/lib/utils/local_debug_browser_helpers.py:568</span>
                 <span class="issue-text">Possible hardcoded password: '--local_debug'</span>
             </div><div class="issue low" data-severity="low">
                 <span class="issue-id">B105</span>
-                <span class="issue-loc">src/lib/utils/local_debug_browser_helpers.py:567</span>
+                <span class="issue-loc">src/lib/utils/local_debug_browser_helpers.py:569</span>
                 <span class="issue-text">Possible hardcoded password: '--local-debug'</span>
             </div>
         </div>
@@ -347,46 +347,14 @@
                 <div class="section-counts">
                     <span class="high">0</span> /
                     <span class="medium">0</span> /
-                    <span class="low">8</span>
-                    <span class="ignored" title="suppressed by .snyk">· 20 ignored</span>
+                    <span class="low">0</span>
+                    
                 </div>
             </div>
             <a class="json-link" href="snyk-host-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
         </div>
         <div class="issues">
-            <div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">controllers/remote/bluetooth/bluez-patches/apply_ccc_patch.py:379</span>
-                <span class="issue-text">Unsanitized input from a command line argument flows into open, where it is used</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">controllers/remote/bluetooth/bluez-patches/apply_ccc_patch.py:458</span>
-                <span class="issue-text">Unsanitized input from a command line argument flows into open, where it is used</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:168</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into json.dump, where it is</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:169</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into os.replace, where it i</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:214</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into open, where it is used</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:1627</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into os.unlink, where it is</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:1651</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into os.chmod, where it is </span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">controllers/remote/bluetooth/hid_remote.py:1655</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into os.chown, where it is </span>
-            </div>
+            <div class="no-issues">No issues (or Snyk not installed)</div>
         </div>
     </div>
 
@@ -399,38 +367,14 @@
                 <div class="section-counts">
                     <span class="high">0</span> /
                     <span class="medium">0</span> /
-                    <span class="low">6</span>
-                    <span class="ignored" title="suppressed by .snyk">· 81 ignored</span>
+                    <span class="low">0</span>
+                    
                 </div>
             </div>
             <a class="json-link" href="snyk-server-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
         </div>
         <div class="issues">
-            <div class="issue low" data-severity="low">
-                <span class="issue-id">NoHardcodedCredentials</span>
-                <span class="issue-loc">lib/auth_middleware.py:163</span>
-                <span class="issue-text">Do not hardcode credentials in code. Found hardcoded credential used in user_id.</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">NoHardcodedCredentials</span>
-                <span class="issue-loc">lib/auth_middleware.py:642</span>
-                <span class="issue-text">Do not hardcode credentials in code. Found hardcoded credential used in user_id.</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">NoHardcodedCredentials</span>
-                <span class="issue-loc">lib/auth_middleware.py:667</span>
-                <span class="issue-text">Do not hardcode credentials in code. Found hardcoded credential used in user_id.</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">routes/server_branding_routes.py:139</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into save, where it is used</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">routes/server_branding_routes.py:145</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into shutil.copy2, where it</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">test</span>
-                <span class="issue-loc">routes/server_api_testing_routes.py:612</span>
-                <span class="issue-text">Unsanitized input from an HTTP parameter flows into the return value of get_html</span>
-            </div>
+            <div class="no-issues">No issues (or Snyk not installed)</div>
         </div>
     </div>
 
@@ -443,30 +387,14 @@
                 <div class="section-counts">
                     <span class="high">0</span> /
                     <span class="medium">0</span> /
-                    <span class="low">4</span>
-                    <span class="ignored" title="suppressed by .snyk">· 5 ignored</span>
+                    <span class="low">0</span>
+                    
                 </div>
             </div>
             <a class="json-link" href="snyk-shared-report.json" target="_blank" onclick="event.stopPropagation()">JSON ↗</a>
         </div>
         <div class="issues">
-            <div class="issue low" data-severity="low">
-                <span class="issue-id">NoHardcodedCredentials</span>
-                <span class="issue-loc">lib/config/settings.py:16</span>
-                <span class="issue-text">Do not hardcode credentials in code. Found hardcoded credential used in here.</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">lib/utils/network_utils.py:109</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into open, where it is used</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">lib/utils/system_utils.py:276</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into open, where it is used</span>
-            </div><div class="issue low" data-severity="low">
-                <span class="issue-id">PT</span>
-                <span class="issue-loc">lib/utils/network_utils.py:138</span>
-                <span class="issue-text">Unsanitized input from an environment variable flows into json.dump, where it is</span>
-            </div>
+            <div class="no-issues">No issues (or Snyk not installed)</div>
         </div>
     </div>
 

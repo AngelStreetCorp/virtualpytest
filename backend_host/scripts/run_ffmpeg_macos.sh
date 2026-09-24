@@ -80,7 +80,7 @@ fi
 
 # Device grabbers (macOS cameras)
 echo "DEBUG: Checking device grabbers..."
-for i in 1 2 3 4 5; do
+for i in {1..30}; do
     video_var="DEVICE${i}_VIDEO"
     audio_var="DEVICE${i}_VIDEO_AUDIO"
     capture_var="DEVICE${i}_VIDEO_CAPTURE_PATH"

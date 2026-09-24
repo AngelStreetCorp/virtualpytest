@@ -90,3 +90,20 @@ bundle_inputs_hash() {
         "$FRONTEND_DIR/.env.production" \
         "$FRONTEND_DIR/VERSION.txt"
 }
+
+# [6/6] Project metrics — the Analytics page's Project tab. Reads the bug files,
+# the release note, VERSION.txt, and the source trees the line counter walks.
+# Deliberately NOT the whole repo: the counter walks the TRACKED set, so a change
+# to an untracked build artifact must not invalidate this step.
+project_metrics_inputs_hash() {
+    hash_paths \
+        "$REPO_ROOT/docs/bugs" \
+        "$REPO_ROOT/docs/release_note" \
+        "$REPO_ROOT/VERSION.txt" \
+        "$REPO_ROOT/scripts/count_lines.py" \
+        "$REPO_ROOT/scripts/docs/build_project_metrics.py" \
+        "$REPO_ROOT/backend_host/src" \
+        "$REPO_ROOT/backend_server/src" \
+        "$REPO_ROOT/shared/src" \
+        "$FRONTEND_DIR/src"
+}

@@ -94,16 +94,25 @@ last_reports_cleanup = {}  # capture_dir -> last cleanup time (per-channel)
 #
 # RAM Usage (HIGH QUALITY CAPTURES - Video content worst case):
 # - Segments: 150  38KB = 6MB (FFmpeg auto-deletes, 200 limit = safety net)
-# - Captures: 300  245KB = 74MB (60s buffer  deleted, R2 when needed)
+# - Captures: 900  245KB = 220MB (180s buffer  deleted, R2 when needed)
 # - Thumbnails: 100  28KB = 3MB (freeze detection  deleted)
 # - Metadata: 750  1KB = 0.75MB (150s buffer  grouped to cold)
 # - Transcripts: N/A (saved directly to cold by transcript_accumulator)
 # - Audio: N/A (extracted directly to COLD /audio/{hour}/)
-# Total: ~84MB per device (42% of 200MB budget - safe margin for RAM)
+# Total: ~230MB per device worst case (58% of the 400MB mount).
+# Measured on a real STB stream the frames are 24-81KB, i.e. ~21-70MB for the 900,
+# so the 245KB figure above is the video-heavy ceiling, not the normal case. tmpfs
+# allocates on demand, so the mount only costs what is actually written.
 #
 HOT_LIMITS = {
     'segments': 200,      # Safety limit > FFmpeg's 150 (only cleanup if FFmpeg fails)
-    'captures': 300,      # 60s buffer  deleted (R2 cloud when needed)
+    'captures': 900,      # 180s buffer  deleted (R2 cloud when needed)
+                          # 900 rather than 300 so a KPI window up to 3 minutes stays on
+                          # the live 5fps grid (+/-200ms). At 300 (60s) anything longer -
+                          # a reboot measurement, say - fell back to the 1-2fps archive
+                          # and was silently quantised to +/-500-1000ms.
+                          # Needs the 400M mount (ensure_hot_mounts.sh); 900 x 245KB
+                          # worst case does not fit the old 200M.
     'thumbnails': 100,    # For freeze detection  deleted
     'metadata': 750,      # 150s buffer  grouped to 10min chunks in cold
 }
@@ -114,10 +123,16 @@ HOT_LIMITS = {
 # OFF by default to preserve current behavior (captures are HOT-only → deleted).
 # Enable per-host via the archiver service flag `--keep-captures true` (mirrors
 # transcript.service) or the env var ARCHIVE_CAPTURES=true. Stills are sampled to
-# ARCHIVE_CAPTURES_FPS (default 1 = ~24KB × 5 × 86400 / 5 ≈ 2.1 GB/device/24h) and
+# ARCHIVE_CAPTURES_FPS (default 2 — measured ~7.5 GB/device/24h on a real host) and
 # COPIED into captures/{hour}/ with time-based names — same hour-folder + 24h
 # rolling-overwrite principle as segments/metadata. Cold cleanup is already done
 # by cleanup_cold_captures() (>26h). A min-free-% guard prevents a full SD wedge.
+#
+# ARCHIVE_CAPTURES_FPS defaults to 2, not 1: a KPI measured on archived frames is
+# quantised to their spacing, so 1 fps meant +/-1000ms with nothing on the report to
+# say so. 2 fps halves that. Cost measured on a real host: ~3.7GB and ~72k files per
+# device per 24h at 1 fps, so ~7.5GB and ~144k files at 2 fps. Check free space and
+# inodes on the target host before enabling captures archiving.
 def _env_bool(name: str, default: bool = False) -> bool:
     v = os.getenv(name)
     if v is None:
@@ -126,9 +141,9 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 ARCHIVE_CAPTURES = _env_bool('ARCHIVE_CAPTURES', False)
 try:
-    ARCHIVE_CAPTURES_FPS = float(os.getenv('ARCHIVE_CAPTURES_FPS', '1') or '1')
+    ARCHIVE_CAPTURES_FPS = float(os.getenv('ARCHIVE_CAPTURES_FPS', '2') or '2')
 except ValueError:
-    ARCHIVE_CAPTURES_FPS = 1.0
+    ARCHIVE_CAPTURES_FPS = 2.0
 try:
     ARCHIVE_CAPTURES_MIN_FREE_PCT = float(os.getenv('ARCHIVE_CAPTURES_MIN_FREE_PCT', '10') or '10')
 except ValueError:

@@ -255,30 +255,35 @@ const path = require('path');
 
 const DOCS_DIR = process.env.DOCS_OUT;
 
-// Section metadata with icons and order
+// Section metadata. Titles are plain text -- the navigator in Documentation.tsx
+// draws the icon, keyed by the section slug, so every row matches the rest of the app.
 const SECTION_META = {
-  'README': { icon: '📚', title: 'Documentation Home', order: 0 },
-  'get-started': { icon: '🚀', title: 'Getting Started', order: 1 },
-  'release_note': { icon: '📝', title: 'Release Note', order: 2.5 },
-  'features': { icon: '✨', title: 'Features', order: 3 },
-  'user-guide': { icon: '📖', title: 'User Guide', order: 4 },
-  'examples': { icon: '💡', title: 'Examples', order: 5 },
-  'integrations': { icon: '🔌', title: 'Integrations', order: 6 },
-  'faq': { icon: '❓', title: 'FAQ', order: 7 },
-  'technical': { icon: '🔧', title: 'Technical Docs', order: 8 },
-  'ai agent': { icon: '🤖', title: 'AI Agent', order: 9 },
-  'api': { icon: '📡', title: 'API Reference', order: 11 },
-  'screenshots': { icon: '📸', title: 'Screenshots', order: 12 },
-  'videos': { icon: '🎬', title: 'Videos', order: 13 },
+  'README': { title: 'Documentation Home', order: 0 },
+  'get-started': { title: 'Getting Started', order: 1 },
+  'release_note': { title: 'Release Note', order: 2.5 },
+  'features': { title: 'Features', order: 3 },
+  'user-guide': { title: 'User Guide', order: 4 },
+  'examples': { title: 'Examples', order: 5 },
+  'integrations': { title: 'Integrations', order: 6 },
+  'faq': { title: 'FAQ', order: 7 },
+  'technical': { title: 'Technical Docs', order: 8 },
+  'ai agent': { title: 'AI Agent', order: 9 },
+  'api': { title: 'API Reference', order: 11 },
+  'screenshots': { title: 'Screenshots', order: 12 },
+  'videos': { title: 'Videos', order: 13 },
+  // No order of their own: 99 keeps them where they already sit, after Videos. These two
+  // exist only so the title is not toTitle()'d into 'Mcp'.
+  'bugs': { title: 'Bugs', order: 99 },
+  'mcp': { title: 'MCP Tools', order: 99 },
 };
 
 // Subsection metadata for technical docs
 const TECH_SUBSECTION_META = {
-  'ai': { icon: '🤖', title: 'AI', order: 1 },
-  'architecture': { icon: '🏗️', title: 'Architecture', order: 2 },
-  'components': { icon: '📦', title: 'Components', order: 3 },
-  'mcp': { icon: '🔮', title: 'MCP Tools', order: 4 },
-  'dev': { icon: '🛠️', title: 'Dev', order: 5 },
+  'ai': { title: 'AI', order: 1 },
+  'architecture': { title: 'Architecture', order: 2 },
+  'components': { title: 'Components', order: 3 },
+  'mcp': { title: 'MCP Tools', order: 4 },
+  'dev': { title: 'Dev', order: 5 },
 };
 
 // Convert filename to readable title
@@ -342,7 +347,7 @@ function buildChildren(sectionPath, urlPrefix) {
     const subSubdirs = getSubdirs(subPath);
     
     if (subFiles.length > 0 || subSubdirs.length > 0) {
-      const meta = TECH_SUBSECTION_META[subdir] || { icon: '', title: toTitle(subdir), order: 99 };
+      const meta = TECH_SUBSECTION_META[subdir] || { title: toTitle(subdir), order: 99 };
       const subChildren = [];
       
       // Add subdir files (skip README - paths don't work with routing)
@@ -362,7 +367,7 @@ function buildChildren(sectionPath, urlPrefix) {
         const nestedFiles = getMdFiles(nestedPath);
         
         if (nestedFiles.length > 0) {
-          const nestedMeta = TECH_SUBSECTION_META[nestedDir] || { icon: '', title: toTitle(nestedDir), order: 99 };
+          const nestedMeta = TECH_SUBSECTION_META[nestedDir] || { title: toTitle(nestedDir), order: 99 };
           // Skip README files in deeply nested dirs
           const nestedChildren = nestedFiles
             .filter(file => file !== 'README.md')
@@ -374,7 +379,7 @@ function buildChildren(sectionPath, urlPrefix) {
           
           if (nestedChildren.length > 0) {
             subChildren.push({
-              title: (nestedMeta.icon ? nestedMeta.icon + ' ' : '') + nestedMeta.title,
+              title: nestedMeta.title,
               children: nestedChildren
             });
           }
@@ -383,7 +388,7 @@ function buildChildren(sectionPath, urlPrefix) {
       
       if (subChildren.length > 0) {
         children.push({
-          title: (meta.icon ? meta.icon + ' ' : '') + meta.title,
+          title: meta.title,
           children: subChildren
         });
       }
@@ -403,7 +408,7 @@ const sections = [];
 // Add root README if exists
 if (fs.existsSync(path.join(DOCS_DIR, 'README.md'))) {
   sections.push({
-    title: SECTION_META['README'].icon + ' ' + SECTION_META['README'].title,
+    title: SECTION_META['README'].title,
     path: '/docs/README',
     section: 'root',
     order: SECTION_META['README'].order
@@ -413,14 +418,14 @@ if (fs.existsSync(path.join(DOCS_DIR, 'README.md'))) {
 // Process each section
 topLevelDirs.forEach(dir => {
   const sectionPath = path.join(DOCS_DIR, dir);
-  const meta = SECTION_META[dir] || { icon: '📄', title: toTitle(dir), order: 99 };
+  const meta = SECTION_META[dir] || { title: toTitle(dir), order: 99 };
   const urlPrefix = '/docs/' + dir;
   
   const children = buildChildren(sectionPath, urlPrefix);
   
   if (children.length > 0) {
     sections.push({
-      title: meta.icon + ' ' + meta.title,
+      title: meta.title,
       path: urlPrefix,
       section: dir,
       order: meta.order,

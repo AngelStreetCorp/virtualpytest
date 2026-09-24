@@ -168,6 +168,10 @@ MINIO_SECRET_KEY=$MINIO_SECRET_KEY
 MINIO_BUCKET=virtualpytest
 MINIO_CONSOLE_URL=http://192.168.0.101:9001
 MINIO_PUBLIC_URL=$SERVER_URL/minio
+# Use the deployment's public MinIO proxy for SigV4 report URLs.  This must be
+# set separately from MINIO_ENDPOINT because cloned deployments share private
+# 192.168.0.x addresses.
+MINIO_PRESIGN_ENDPOINT=$SERVER_URL/minio
 REDIS_URL=redis://:$REDIS_PASSWORD@192.168.0.101:6379/0
 ENVIRONMENT=production
 SKIP_SPEEDTEST=true

@@ -57,9 +57,28 @@ fi
 echo "🔍 DEBUG: Loading .env file..."
 # Fix Windows line endings in .env file before sourcing
 sed -i 's/\r$//' "$ENV_FILE"
-set -a
-source <(grep -v '^#' "$ENV_FILE" | grep -v '^$' | grep -v '^x')
-set +a
+# Read KEY=VALUE literally instead of `source`-ing the file. To bash,
+# `DEVICE3_NAME=Sauce S23 FE` is an assignment followed by a COMMAND, so sourcing
+# both left the variable EMPTY and ran `S23 FE` ("S23: command not found" in the
+# journal). Every device whose name contains a space was affected — DEVICE2_NAME
+# on an ordinary phone slot was empty here too. A value is data: it is never
+# expanded and never executed.
+_load_env_file() {
+  local _line _k _v
+  while IFS= read -r _line; do
+    [[ "$_line" != *=* ]] && continue
+    _k="${_line%%=*}"; _v="${_line#*=}"
+    [[ "$_k" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+    _v="${_v%%[[:space:]]#*}"                 # drop a ' # inline comment', as source did
+    _v="${_v%"${_v##*[![:space:]]}"}"         # trim trailing whitespace
+    if [[ ${#_v} -ge 2 && ( ( "${_v:0:1}" == '"' && "${_v: -1}" == '"' ) \
+                         || ( "${_v:0:1}" == "'" && "${_v: -1}" == "'" ) ) ]]; then
+      _v="${_v:1:${#_v}-2}"                   # strip surrounding quotes, as source did
+    fi
+    export "$_k=$_v"
+  done < <(grep -v '^#' "$ENV_FILE" | grep -v '^$' | grep -v '^x')
+}
+_load_env_file
 echo "✅ .env loaded successfully"
 
 declare -A GRABBERS=()
@@ -80,7 +99,7 @@ if [ -n "$HOST_VIDEO_SOURCE" ] && { [ "$SINGLE_DEVICE_MODE" = false ] || [ "$TAR
     GRABBERS["host"]="$HOST_VIDEO_SOURCE|${HOST_VIDEO_AUDIO:-null}|${clean_capture_path}|${HOST_VIDEO_FPS:-5}"
 fi
 
-for i in {1..10}; do
+for i in {1..30}; do
     video_var="DEVICE${i}_VIDEO"
     audio_var="DEVICE${i}_VIDEO_AUDIO"
     capture_var="DEVICE${i}_VIDEO_CAPTURE_PATH"

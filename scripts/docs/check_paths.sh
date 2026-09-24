@@ -23,7 +23,7 @@ if [ ${#SCOPE[@]} -eq 0 ]; then
            setup/local/linux/launch_core.md setup/local/windows/README.md setup/local/macos/README.md)
 fi
 # Files that exist only at runtime (generated / git-ignored) but are legitimately documented.
-GENERATED='^(setup/docker/\.env|setup/docker/hetzner_custom/config\.env|backend_host/src/\.env|frontend/\.env|frontend/\.env\.local|frontend/\.env\.production|frontend/public/brand/.*|frontend/node_modules/?|frontend/dist/?|venv/?|\.env)$'
+GENERATED='^(setup/docker/\.env|setup/docker/hetzner_custom/config\.env|backend_host/src/\.env|frontend/\.env|frontend/\.env\.local|frontend/\.env\.production|frontend/public/brand/.*|frontend/public/analytics/.*|frontend/node_modules/?|frontend/dist/?|venv/?|\.env)$'
 
 PREFIXES='setup|docs|scripts|backend_server|backend_host|frontend|shared|infra|test_scripts|test_campaign|features'
 

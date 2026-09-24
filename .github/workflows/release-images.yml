@@ -17,7 +17,10 @@ name: Release artifacts
 
 on:
   push:
-    tags: ['release-*']
+    # `main-*` is what publish_public.sh pushes to the snapshot repo and what its release
+    # page hangs off; `release-*` is the customer pair tag. The BUNDLE attaches to either.
+    # The IMAGES do not: see the `if` on the image jobs.
+    tags: ['main-*', 'release-*']
   workflow_dispatch:
     inputs:
       tag:
@@ -33,9 +36,25 @@ env:
   REGISTRY: ghcr.io/angelstreetcorp
   PUBLIC_REPO: AngelStreetCorp/virtualpytest
 
+# IMAGES ARE PUBLISHED BY HAND, NOT BY EVERY TAG.
+#
+# Nothing depends on them: VPT_IMAGE_TAG defaults to `local`, so an install builds from its
+# own checkout and never contacts the registry, and when a pull does fail launch.sh falls
+# back to building ("pull failed for tag ... — falling back to building from this checkout").
+# A release with no image therefore costs a slower first run and nothing else, which does not
+# justify ~15 minutes of CI and three GB-scale images on every delivery tag.
+#
+# So they run on workflow_dispatch only: publish one for production, and a new one when a
+# release is big enough to be worth it. The moving `stable` tag exists so an install pins
+# VPT_IMAGE_TAG=stable once instead of chasing version numbers.
+#
+# The BUNDLE is the opposite and still runs on every tag -- it is ~0.5 MB, it is the front
+# door (`releases/latest/download/vpt-docker.tar.gz` in install.md, docker.md, add-a-host.md),
+# and if it goes stale a user gets config that does not match the code.
 jobs:
   build:
     name: Build ${{ matrix.image }}
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -104,7 +123,7 @@ jobs:
   verify:
     name: Published images bring the stack up
     needs: build
-    if: github.repository == 'AngelStreetCorp/virtualpytest'
+    if: github.event_name == 'workflow_dispatch' && github.repository == 'AngelStreetCorp/virtualpytest'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -228,8 +247,12 @@ jobs:
         run: |
           tag="${{ github.ref_name }}"
           gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes
-          gh release upload "$tag" "${{ steps.build.outputs.tarball }}" --clobber
+          gh release upload "$tag" "${{ steps.build.outputs.tarball }}" \
+                                    "${{ steps.build.outputs.tarball }}.sha256" --clobber
           # Also under a stable name, so the install doc can hand out one URL that keeps
           # working: releases/latest/download/vpt-docker.tar.gz
           cp "${{ steps.build.outputs.tarball }}" dist/vpt-docker.tar.gz
-          gh release upload "$tag" dist/vpt-docker.tar.gz --clobber
+          cp "${{ steps.build.outputs.tarball }}.sha256" dist/vpt-docker.tar.gz.sha256
+          # the checksum names the versioned file; make it name the one it sits beside
+          sed -i "s#  .*#  vpt-docker.tar.gz#" dist/vpt-docker.tar.gz.sha256
+          gh release upload "$tag" dist/vpt-docker.tar.gz dist/vpt-docker.tar.gz.sha256 --clobber

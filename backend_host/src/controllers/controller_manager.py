@@ -37,7 +37,7 @@ from backend_host.src.controllers.power.tapo_power import TapoPowerController
 from backend_host.src.controllers.web.playwright import PlaywrightWebController
 
 
-def create_host_from_environment(device_ids: List[str] = None) -> Host:
+def create_host_from_environment(device_ids: List[str] = None, host_ip: str = None) -> Host:
     """
     Create a Host with devices and controllers from environment variables.
 
@@ -53,7 +53,10 @@ def create_host_from_environment(device_ids: List[str] = None) -> Host:
     from backend_host.src.app import detect_host_ip
     
     host_name = os.getenv('HOST_NAME', 'unknown-host')
-    host_ip = detect_host_ip()  # Use detection function (handles HOST_IP env var internally)
+    # App startup already detects the address before route registration. Reuse it
+    # when supplied instead of repeating network probes during device setup.
+    if not host_ip:
+        host_ip = detect_host_ip()  # Use detection function (handles HOST_IP env var internally)
     host_port = int(os.getenv('HOST_PORT', '6109'))
 
     # Auto-construct host_url from HOST_NAME (or allow override)
@@ -155,7 +158,10 @@ def create_host_from_environment(device_ids: List[str] = None) -> Host:
         host.add_device(device)
         print(f"[@controller_manager:create_host_from_environment] Added device: {device.device_id} ({device.device_name})")
     
-    print(f"[@controller_manager:create_host_from_environment] Host created with {host.get_device_count()} devices")
+    device_count = host.get_device_count()
+    if device_count == 0:
+        print("[@controller_manager:create_host_from_environment] No devices or host VNC configured; creating an empty host")
+    print(f"[@controller_manager:create_host_from_environment] Host created with {device_count} devices")
     return host
 
 
@@ -168,8 +174,8 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
     """
     devices_config = []
     
-    # Look for DEVICE1, DEVICE2, DEVICE3, DEVICE4
-    for i in range(1, 13):
+    # Look for DEVICE1 .. DEVICE30 (cap shared with run_ffmpeg.sh / generate_env.sh)
+    for i in range(1, 31):
         device_name = os.getenv(f'DEVICE{i}_NAME')
         
         if device_name:
@@ -197,6 +203,9 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
             
             device_ip = os.getenv(f'DEVICE{i}_IP')
             device_port = os.getenv(f'DEVICE{i}_PORT')
+            # USB ADB serial (phone farm / USB hub). Shared with run_ffmpeg.sh for
+            # scrcpy capture; when set the Android controllers target it instead of ip:port.
+            adb_serial = os.getenv(f'DEVICE{i}_ADB_SERIAL')
             ir_path = os.getenv(f'DEVICE{i}_IR_PATH')
             ir_type = os.getenv(f'DEVICE{i}_IR_TYPE')
             # Networked IRTrans box (UDP). When IR_IP is set the device uses the
@@ -255,6 +264,7 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
                 # Device IP/Port (used by both Android ADB and Appium - mutually exclusive)
                 'device_ip': device_ip,
                 'device_port': device_port,
+                'adb_serial': adb_serial,
                 'ir_path': ir_path,
                 'ir_type': ir_type,
                 # IRTrans (networked) transport
@@ -610,7 +620,7 @@ _host_instance: Optional[Host] = None
 _host_creation_lock = threading.Lock()
 
 
-def get_host(device_ids: List[str] = None) -> Host:
+def get_host(device_ids: List[str] = None, host_ip: str = None) -> Host:
     """
     Get the global host instance, creating it if necessary.
     Thread-safe singleton pattern.
@@ -628,7 +638,7 @@ def get_host(device_ids: List[str] = None) -> Host:
             # Double-check pattern
             if _host_instance is None:
                 print("[@controller_manager:get_host] Creating new host instance")
-                _host_instance = create_host_from_environment(device_ids)
+                _host_instance = create_host_from_environment(device_ids, host_ip=host_ip)
             else:
                 print("[@controller_manager:get_host] Using existing host instance (race condition avoided)")
     

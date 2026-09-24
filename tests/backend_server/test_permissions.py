@@ -1,7 +1,7 @@
 """
 Permission System Tests
 
-Covers all use cases from docs/technical/permissions/PERMISSION_PLAN.md.
+Covers the permission model described in docs/agent/platform/USER_PERMISSION.md.
 
 Environment variables needed (on top of the base conftest ones):
   ADMIN_TEST_JWT    — Supabase-issued JWT for an admin user

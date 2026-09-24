@@ -373,6 +373,9 @@ export const RemotePanel = React.memo(
             />
           );
         case 'ios_mobile':
+        case 'appium': // what a device reports when its remote is an Appium one
+        case 'cloud_ios_mobile': // features/device-farm: same panel, session in the farm
+        case 'cloud_android_mobile':
           return (
             <AppiumRemote
               host={host}

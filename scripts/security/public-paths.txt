@@ -1,0 +1,57 @@
+# Public snapshot allow-list — default deny.
+#
+# A path is published only when it is under one of these entries. New private or
+# internal material must not become public merely because it was added to a new
+# directory. Add a deliberate entry here after reviewing its contents.
+
+# Public root files
+.dockerignore
+.env.example
+.gitattributes
+.gitignore
+.gitleaks.toml
+.snyk
+AGENTS.md
+CONTRIBUTING.md
+LICENSE
+README.md
+SECURITY.md
+VERSION.txt
+activate.sh
+bandit.yaml
+
+# Public source and runtime trees
+backend_host/
+backend_server/
+features/
+frontend/
+infra/
+scripts/
+setup/
+shared/
+test_agents/
+test_campaign/
+test_scripts/
+tests/
+.github/
+
+# Public documentation only; docs/agent/, docs/tasks/, docs/screenshots/, and
+# other unlisted documentation trees remain default-denied.
+docs/README.md
+docs/INDEX.md
+docs/SKILLS.md
+docs/ai/
+docs/android-emulator-troubleshooting.md
+docs/api/
+docs/bugs/
+docs/faq/
+docs/features/
+docs/get-started/
+docs/integrations/
+docs/mcp/
+docs/release_note/
+docs/security/
+docs/technical/
+docs/user-guide/
+docs/videos/
+docs/goals/

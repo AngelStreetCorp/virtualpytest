@@ -29,7 +29,7 @@ def _execute_script():
     # Optional manual device info merged into the run's metadata.info.
     device_info = data.get('device_info') if isinstance(data.get('device_info'), dict) else None
     # Build callback URL directly (always points to server)
-    from shared.src.lib.utils.build_url_utils import buildServerUrl
+    from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
     callback_url = buildServerUrl('server/script/taskComplete')
     task_id = data.get('task_id')
 
@@ -98,7 +98,10 @@ def _execute_script():
                     'result': slim_result,
                 }
 
-                response = requests.post(callback_url, json=callback_payload, timeout=30)
+                response = requests.post(
+                    callback_url, json=callback_payload,
+                    headers=server_auth_headers(), timeout=30,
+                )
                 callback_sent = True  # reached the server; lock release happens server-side
                 if response.ok:
                     print(f"[@route:host_script:_execute_script] Callback sent successfully (status={response.status_code})")
@@ -115,7 +118,10 @@ def _execute_script():
                 }
                 try:
                     import requests
-                    err_response = requests.post(callback_url, json=error_payload, timeout=30)
+                    err_response = requests.post(
+                        callback_url, json=error_payload,
+                        headers=server_auth_headers(), timeout=30,
+                    )
                     callback_sent = True
                     if not err_response.ok:
                         print(f"[@route:host_script:_execute_script] Error callback FAILED: status={err_response.status_code}")
@@ -134,6 +140,7 @@ def _execute_script():
                                 'task_id': task_id,
                                 'error': 'host completion callback recovered in finally — execution thread terminated abnormally',
                             },
+                            headers=server_auth_headers(),
                             timeout=30,
                         )
                         print(f"[@route:host_script:_execute_script] Recovery callback sent for task {task_id}")

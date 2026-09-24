@@ -94,6 +94,7 @@ CREATE TABLE execution_results (
     kpi_measurement_error text,  -- KPI: Error message if measurement failed
     kpi_report_url text,  -- KPI: URL to the R2-hosted KPI measurement report with thumbnail evidence
     kpi_display_label text,  -- KPI: run-level friendly name; distinguishes measurements that share one edge (e.g. standby modes)
+    kpi_measurement_meta jsonb,  -- KPI: measurement confidence — effective fps, frames missed, which storage served them, and the interval the change is provably inside (see shared/src/lib/utils/kpi_confidence.py)
     variant text,  -- Run scope: NULL = base, otherwise the variant name (lowercase) used for the run
     is_test boolean NOT NULL DEFAULT false,  -- true = interactive Editor run (Run / Goto / Edge Run); excluded from edge_metrics / node_metrics aggregates
     CONSTRAINT execution_results_variant_lowercase_check

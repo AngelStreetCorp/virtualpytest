@@ -976,11 +976,32 @@ def execute_script():
     # it's not already present in the parameters string. The script-side
     # argparser receives the same argument (validation script & friends declare
     # --variant in _script_args).
-    if variant_name and '--variant' not in (parameters_normalized or ''):
+    #
+    # A supplied variant that canonicalises to nothing ('', 'base', []) is still
+    # an explicit choice — "run base" — and must reach argv as `--variant base`.
+    # ScriptExecutor treats a literal --variant flag as the caller's decision and
+    # only falls back to the device's DEVICE{i}_VARIANT default when the flag is
+    # absent; without this the .env default silently overrides the base the user
+    # picked in Run Tests (BUG-0152).
+    variant_flag = variant_name or ('base' if raw_variant is not None else None)
+    if variant_flag and '--variant' not in (parameters_normalized or ''):
         if parameters_normalized:
-            parameters_normalized = f"{parameters_normalized} --variant {variant_name}"
+            parameters_normalized = f"{parameters_normalized} --variant {variant_flag}"
         else:
-            parameters_normalized = f"--variant {variant_name}"
+            parameters_normalized = f"--variant {variant_flag}"
+
+    # Append --device <device_id> to argv unless the caller already spelled it out.
+    # payload['device_id'] only drives the device lock and the report path; the
+    # script itself picks its device from --device, which ScriptExecutor defaults
+    # to 'device1' (shared/src/lib/executors/script_executor.py). Without this an
+    # API caller that omits the flag silently runs on device1 — or, when that id
+    # does not exist on the host, falls back to the host's own VNC device. The
+    # scheduler already appends the flag itself (backend_host deployment_scheduler).
+    if device_id and '--device' not in (parameters_normalized or ''):
+        if parameters_normalized:
+            parameters_normalized = f"{parameters_normalized} --device {device_id}"
+        else:
+            parameters_normalized = f"--device {device_id}"
 
     if parameters_normalized:
         payload['parameters'] = parameters_normalized

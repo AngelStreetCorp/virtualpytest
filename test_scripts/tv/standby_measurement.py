@@ -171,9 +171,24 @@ def _resolve_action_set_id(context, from_label: str, to_label: str) -> str:
     return ''
 
 
-def _resolve_node_display_name(context, node_label: str) -> str:
-    """Thin wrapper over the shared resolver (data.display_name across the
-    hierarchy). Falls back to '' so callers use the raw label."""
+def _resolve_node_display_name(context, device, node_label: str) -> str:
+    """Resolve the node name from the active graph, then fall back to the DB.
+
+    The runtime graph includes variant overrides, while the shared DB helper
+    reads the base hierarchy. Prefer the graph so the KPI label matches the
+    display name shown by the variant-aware node picker for this run.
+    """
+    graph = getattr(getattr(device, 'navigation_executor', None), 'unified_graph', None)
+    if graph is not None:
+        for _node_id, node_data in graph.nodes(data=True):
+            if (node_data.get('label') or '') != node_label:
+                continue
+            metadata = node_data.get('metadata')
+            if isinstance(metadata, dict):
+                display_name = (metadata.get('display_name') or '').strip()
+                if display_name:
+                    return display_name
+
     from shared.src.lib.database.navigation_trees_db import get_node_display_name
     return get_node_display_name(context.tree_id, context.team_id, node_label)
 
@@ -391,7 +406,7 @@ def _run_standby_measurement(context, args, device, state) -> bool:
     # identical for every mode, so the run is named by the mode node's
     # data.display_name (e.g. "[TC266] Eco (ColdStandby)"); fall back to the raw
     # node label when unset.
-    mode_display = _resolve_node_display_name(context, args.standby_mode_node)
+    mode_display = _resolve_node_display_name(context, device, args.standby_mode_node)
     mode_name = mode_display or args.standby_mode_node
     state['mode_name'] = mode_name
     if args.standby_mode_node:

@@ -32,6 +32,8 @@ from backend_server.src.routes.server_system_socket_routes import emit_system_up
 from shared.src.lib.utils.build_url_utils import buildServerUrl, call_host
 from shared.src.lib.utils.supabase_utils import get_supabase_client
 from backend_server.src.lib.utils.adhoc_execution import create_adhoc_execution, complete_adhoc_execution
+from backend_server.src.integrations import testrail_service
+from backend_server.src.integrations.testrail_client import TestRailConnectionError
 
 # Import database functions
 from shared.src.lib.database.campaign_executions_db import (
@@ -425,6 +427,23 @@ def campaign_execution_complete():
                     f"[@server_campaign:execution_complete] Device unlock for {host_name}:{device_id} failed: "
                     f"{release_result.get('error')}"
                 )
+
+    # A configured, explicitly enabled TestRail integration publishes the
+    # completed campaign as one batch. A TestRail outage must not turn a
+    # successful device execution into a failed campaign callback.
+    if team_id and campaign_id and status == 'completed':
+        try:
+            testrail_config = testrail_service.load_config(str(team_id))
+            if testrail_config.get('auto_publish'):
+                from shared.src.lib.database.campaign_db import get_campaign
+                campaign = get_campaign(str(campaign_id), str(team_id)) or {}
+                publication = testrail_service.publish_campaign(
+                    str(team_id), str(campaign_id), campaign.get('campaign_name') or str(campaign_id),
+                    str(execution_id), result, host_name or '', data.get('device_name') or device_id or '',
+                )
+                print(f"[@server_campaign:execution_complete] TestRail publication: {publication.get('status')}")
+        except Exception as testrail_error:
+            print(f"[@server_campaign:execution_complete] TestRail publication failed (non-fatal): {type(testrail_error).__name__}")
 
     # Per-script webhook fanout (optional). Keeps detailed parity with historical polling detail.
     if callback_url and callback_on_script_complete:

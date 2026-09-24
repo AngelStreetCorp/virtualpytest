@@ -6,7 +6,13 @@ import {
   Collapse,
   Typography,
 } from '@mui/material';
-import { ExpandMore } from '@mui/icons-material';
+import {
+  ExpandMore,
+  AutoAwesomeOutlined,
+  BugReportOutlined,
+  LockOutlined,
+  RocketLaunchOutlined,
+} from '@mui/icons-material';
 import React, { useMemo, useState } from 'react';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -292,6 +298,35 @@ const isListSubsection = (heading: string, body = '') =>
 const countBullets = (body: string) => extractBullets(body).length;
 
 /**
+ * The section mark, drawn rather than typed.
+ *
+ * These headings used to carry an emoji in the markdown itself (`### ✨ Features`), which set
+ * the tone of the whole page on whatever the reader's OS happened to render — and the compact
+ * per-build summary was built by stripping every letter out of the heading to recover that
+ * glyph. The emoji is gone from the source, so GitHub and the file view read as plain
+ * typography, and the icon is supplied here instead: monochrome, sized to the text, following
+ * the theme in both light and dark.
+ */
+const SECTION_ICONS: Array<[RegExp, React.ElementType]> = [
+  [/bug fixes|fixes/i, BugReportOutlined],
+  [/security/i, LockOutlined],
+  [/features/i, AutoAwesomeOutlined],
+  [/upgrade/i, RocketLaunchOutlined],
+];
+
+const SectionIcon: React.FC<{ heading: string }> = ({ heading }) => {
+  const match = SECTION_ICONS.find(([re]) => re.test(heading));
+  if (!match) return null;
+  const Icon = match[1];
+  return (
+    <Icon
+      sx={{ fontSize: '1.05rem', color: 'text.secondary', mr: 0.75, verticalAlign: '-2px' }}
+      aria-hidden
+    />
+  );
+};
+
+/**
  * Release notes get their own layout: one collapsible section per build (newest 2 open by
  * default) and, within Features/Bug fixes/Security, one collapsible bullet per entry (first
  * sentence shown, full write-up on click) — otherwise the changelog is an unreadable wall of text.
@@ -348,10 +383,7 @@ const ReleaseNotesView: React.FC<{ markdown: string; getCurrentDocPath: () => st
               <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.78rem' }}>
                 {section.subsections
                   .filter((sub) => isListSubsection(sub.heading, sub.body))
-                  .map((sub) => {
-                    const label = sub.heading.replace(/[A-Za-z ]+/g, '').trim() || sub.heading;
-                    return label ? `${countBullets(sub.body)} ${label}` : `${countBullets(sub.body)}`;
-                  })
+                  .map((sub) => `${countBullets(sub.body)} ${sub.heading}`)
                   .join(' · ')}
               </Typography>
             </Box>
@@ -361,6 +393,7 @@ const ReleaseNotesView: React.FC<{ markdown: string; getCurrentDocPath: () => st
               <Box key={subIdx} sx={{ mb: 2 }}>
                 {sub.heading && (
                 <Typography variant="h6" component="h3" sx={{ fontWeight: 600, fontSize: '1.1rem', mb: 1 }}>
+                  <SectionIcon heading={sub.heading} />
                   {sub.heading}
                   {isListSubsection(sub.heading, sub.body) && (
                     <Box component="span" sx={{ ml: 1, color: 'text.secondary', fontWeight: 500, fontSize: '0.95rem' }}>

@@ -24,6 +24,7 @@ export interface ScriptResult {
     [key: string]: unknown;
   } | null;
   error_msg: string | null;
+  testrail_sync?: { status: string; url?: string; run_id?: number; error?: string } | null;
   folder?: string;
   tags?: Array<{ name: string; color: string }>;
 }

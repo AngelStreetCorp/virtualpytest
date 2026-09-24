@@ -41,6 +41,7 @@ SERVER_DEPLOY_STATE_FILE = '/var/tmp/virtualpytest_server_deploy_state.json'
 SERVER_BACKUP_ROOT = '/var/tmp/virtualpytest_backups'
 SOURCE_UPLOAD_ROOT = '/var/tmp/vpt_source_uploads'
 DEFAULT_STORAGE_SOURCE_PATH = '/mnt/shared/code/virtualpytest'
+DEFAULT_GIT_SOURCE_ORGANIZATION = 'AngelStreetCorp'
 BACKUP_META_FILENAME = '.vpt-backup-meta.json'
 DEFAULT_FRONTEND_DEPLOY_HOST = '192.168.0.105'
 DEFAULT_FRONTEND_DEPLOY_USER = 'jndoye'
@@ -618,6 +619,92 @@ def _read_git_head_info(storage_path: str) -> dict:
     return result
 
 
+def _git_source_organization() -> str:
+    """Organization from which an admin may configure a deployment source."""
+    return (os.getenv('GIT_SOURCE_ALLOWED_ORG') or DEFAULT_GIT_SOURCE_ORGANIZATION).strip()
+
+
+def _is_allowed_git_source_repository(repository: str) -> bool:
+    """Keep source switching to the platform and customer-overlay repository family."""
+    normalized = repository.strip().lower()
+    return normalized.startswith('virtualpytest') or normalized.startswith('vpt-')
+
+
+def _parse_allowed_git_remote(remote_url: str) -> Optional[tuple[str, str]]:
+    """Return (organization, repository) only for a permitted GitHub origin URL.
+
+    The deployment checkout is operational infrastructure.  Do not accept arbitrary
+    remotes here: a typo otherwise silently turns a deployment into a different repo.
+    """
+    value = remote_url.strip()
+    https_prefix = 'https://github.com/'
+    ssh_prefix = 'git@github.com:'
+    if value.startswith(https_prefix):
+        path = value[len(https_prefix):]
+    elif value.startswith(ssh_prefix):
+        path = value[len(ssh_prefix):]
+    else:
+        return None
+    if path.endswith('.git'):
+        path = path[:-4]
+    pieces = path.split('/')
+    if len(pieces) != 2 or not all(pieces):
+        return None
+    organization, repository = pieces
+    if organization != _git_source_organization() or not _is_allowed_git_source_repository(repository):
+        return None
+    return organization, repository
+
+
+def _read_git_origin_url(storage_path: str) -> Optional[str]:
+    try:
+        proc = subprocess.run(
+            ['git', '-C', storage_path, 'remote', 'get-url', 'origin'],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        if proc.returncode == 0:
+            value = (proc.stdout or '').strip()
+            return value or None
+    except Exception:
+        pass
+    return None
+
+
+def _list_allowed_git_source_repositories() -> tuple[list[dict], Optional[str]]:
+    """List permitted organization repositories using GitHub's API when available."""
+    organization = _git_source_organization()
+    headers = {'Accept': 'application/vnd.github+json'}
+    token = (os.getenv('GITHUB_TOKEN') or '').strip()
+    if token:
+        headers['Authorization'] = f'Bearer {token}'
+    repositories = []
+    try:
+        response = requests.get(
+            f'https://api.github.com/orgs/{organization}/repos',
+            params={'type': 'all', 'per_page': 100, 'sort': 'full_name'},
+            headers=headers,
+            timeout=15,
+        )
+        if response.status_code != 200:
+            return [], f'GitHub repository listing failed ({response.status_code})'
+        payload = response.json()
+        if not isinstance(payload, list):
+            return [], 'GitHub returned an invalid repository listing'
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            name = str(entry.get('name') or '').strip()
+            clone_url = str(entry.get('clone_url') or '').strip()
+            if _is_allowed_git_source_repository(name) and _parse_allowed_git_remote(clone_url):
+                repositories.append({'name': name, 'url': clone_url})
+    except requests.RequestException as exc:
+        return [], f'Could not reach GitHub: {exc}'
+    return sorted(repositories, key=lambda entry: entry['name'].lower()), None
+
+
 def _list_git_branches(storage_path: str) -> list[str]:
     if not os.path.isdir(storage_path) or not os.path.isdir(os.path.join(storage_path, '.git')):
         return []
@@ -887,7 +974,92 @@ def source_detect():
         'storage_path': storage_path,
         'path_exists': exists,
         'branches': _list_git_branches(storage_path) if git_info.get('is_git_repo') else [],
+        'origin_url': _read_git_origin_url(storage_path) if git_info.get('is_git_repo') else None,
+        'allowed_git_organization': _git_source_organization(),
         **git_info,
+    }), 200
+
+
+@server_system_bp.route('/source/git/repositories', methods=['POST'])
+@require_user_auth
+@require_role('admin')
+@handle_route_exceptions('server_system:source_git_repositories')
+def source_git_repositories():
+    """List deployment repositories permitted by the server-side allow-list."""
+    repositories, warning = _list_allowed_git_source_repositories()
+    return jsonify({
+        'success': True,
+        'organization': _git_source_organization(),
+        'repositories': repositories,
+        'warning': warning,
+    }), 200
+
+
+@server_system_bp.route('/source/git/remote', methods=['POST'])
+@require_user_auth
+@require_role('admin')
+@handle_route_exceptions('server_system:source_git_remote')
+def source_git_remote():
+    """Reconfigure origin for an existing checkout, then prove it can fetch.
+
+    This deliberately does not clone or replace the source directory.  It only repairs
+    an existing checkout's origin, and accepts GitHub URLs in the approved org/repo family.
+    """
+    data = request.get_json() or {}
+    storage_path = _resolve_storage_path(data.get('storage_path'))
+    remote_url = str(data.get('remote_url', '')).strip()
+    if not os.path.isdir(storage_path):
+        return jsonify({'success': False, 'error': f'Storage path not found: {storage_path}'}), 404
+    if not _read_git_head_info(storage_path).get('is_git_repo'):
+        return jsonify({'success': False, 'error': f'No .git repo found at: {storage_path}'}), 400
+    if not _parse_allowed_git_remote(remote_url):
+        return jsonify({
+            'success': False,
+            'error': (
+                f'Remote must be github.com/{_git_source_organization()}/virtualpytest* '
+                f'or a repository beginning with vpt-'
+            ),
+        }), 400
+
+    before_url = _read_git_origin_url(storage_path)
+    command_log = []
+    remote_changed = False
+    try:
+        for command in (
+            (
+                ['git', '-C', storage_path, 'remote', 'set-url', 'origin', remote_url]
+                if before_url else ['git', '-C', storage_path, 'remote', 'add', 'origin', remote_url]
+            ),
+            ['git', '-C', storage_path, 'fetch', 'origin', '--prune'],
+        ):
+            proc = subprocess.run(command, capture_output=True, text=True, check=False, timeout=180)
+            command_log.append({'cmd': ' '.join(command[:6]), 'returncode': proc.returncode})
+            if proc.returncode != 0:
+                raise RuntimeError((proc.stderr or proc.stdout or 'git command failed')[-400:])
+            remote_changed = True
+    except Exception as exc:
+        if remote_changed:
+            restore_command = (
+                ['git', '-C', storage_path, 'remote', 'set-url', 'origin', before_url]
+                if before_url else ['git', '-C', storage_path, 'remote', 'remove', 'origin']
+            )
+            subprocess.run(restore_command, capture_output=True, text=True, check=False, timeout=30)
+        return jsonify({
+            'success': False,
+            'error': f'Remote update failed: {exc}',
+            'storage_path': storage_path,
+            'origin_url_before': before_url,
+            'origin_url': _read_git_origin_url(storage_path),
+            'commands': command_log,
+        }), 500
+
+    return jsonify({
+        'success': True,
+        'storage_path': storage_path,
+        'origin_url_before': before_url,
+        'origin_url': _read_git_origin_url(storage_path),
+        'branches': _list_git_branches(storage_path),
+        'message': 'Origin updated and fetched',
     }), 200
 
 
@@ -921,28 +1093,15 @@ def source_git_prepare():
     data = request.get_json() or {}
     storage_path = _resolve_storage_path(data.get('storage_path'))
     git_ref = str(data.get('git_ref', '')).strip()
-    pull_latest = _coerce_bool(data.get('pull_latest', True), default=True)
+    force_reset = _coerce_bool(data.get('force_reset', False), default=False)
 
     if not os.path.isdir(storage_path):
         return jsonify({'success': False, 'error': f'Storage path not found: {storage_path}'}), 404
     git_info_before = _read_git_head_info(storage_path)
     if not git_info_before.get('is_git_repo'):
         return jsonify({'success': False, 'error': f'No .git repo found at: {storage_path}'}), 400
-
-    status_proc = subprocess.run(
-        ['git', '-C', storage_path, 'status', '--porcelain'],
-        capture_output=True,
-        text=True,
-        check=False,
-        timeout=20,
-    )
-    dirty = bool((status_proc.stdout or '').strip())
-    if dirty:
-        return jsonify({
-            'success': False,
-            'error': 'Storage git repo has local changes. Commit/stash/reset before prepare.',
-            'storage_path': storage_path,
-        }), 409
+    if not git_ref:
+        return jsonify({'success': False, 'error': 'Select a remote branch before preparing Git source'}), 400
 
     command_log = []
 
@@ -974,28 +1133,32 @@ def source_git_prepare():
 
     try:
         _fix_permissions()
-        _run(['git', '-C', storage_path, 'fetch', '--all', '--prune'], timeout=180)
-        if git_ref:
+        _run(['git', '-C', storage_path, 'fetch', 'origin', '--prune'], timeout=180)
+        remote_ref = f'origin/{git_ref}'
+        available_refs = _list_git_branches(storage_path)
+        if git_ref not in available_refs:
+            raise RuntimeError(f'Branch is not available from origin: {git_ref}')
+        if force_reset:
+            # Destructive recovery is opt-in. It is useful after a failed normal pull,
+            # but must never silently discard a local edit during ordinary updates.
+            _run(['git', '-C', storage_path, 'checkout', '--force', '-B', git_ref, remote_ref], timeout=120)
+            _run(['git', '-C', storage_path, 'reset', '--hard', remote_ref], timeout=120)
+        else:
             _run(['git', '-C', storage_path, 'checkout', git_ref], timeout=120)
-        if pull_latest:
-            current_branch = git_ref or git_info_before.get('branch') or 'HEAD'
-            pull_cmd = ['git', '-C', storage_path, 'pull', '--ff-only']
-            if current_branch not in {'HEAD', 'detached'}:
-                pull_cmd += ['origin', current_branch]
-            try:
-                _run(pull_cmd, timeout=180)
-            except RuntimeError:
-                # Permission denied on new/changed files — fix and retry once
-                print(f'[@server_system:source_git_prepare] Pull failed, fixing permissions and retrying...')
-                _fix_permissions()
-                _run(pull_cmd, timeout=180)
+            _run(['git', '-C', storage_path, 'pull', '--ff-only', 'origin', git_ref], timeout=180)
     except Exception as exc:
         print(f'[@server_system:source_git_prepare] failed: {exc}')
+        reset_required = any(
+            f' {entry.get("cmd", "")} '.find(' checkout ') >= 0
+            or f' {entry.get("cmd", "")} '.find(' pull ') >= 0
+            for entry in command_log
+        )
         return jsonify({
             'success': False,
             'error': 'Git prepare failed (see server log)',
             'storage_path': storage_path,
             'before': git_info_before,
+            'reset_required': reset_required,
             'commands': command_log[-5:],
         }), 500
 
@@ -1022,7 +1185,10 @@ def source_git_prepare():
         'pull_output': pull_output or ('Already up to date.' if already_up_to_date else ''),
         'diff_files': diff_files,
         'commands': command_log[-5:],
-        'message': 'Storage source prepared from git',
+        'message': (
+            'Storage source hard-reset from selected git branch'
+            if force_reset else 'Storage source fetched and fast-forwarded from selected git branch'
+        ),
     }), 200
 
 
@@ -1225,6 +1391,7 @@ def register_host():
             'video': device.get('video'),
             'preferred_userinterface': device.get('preferred_userinterface'),
             'preferred_variant': device.get('preferred_variant'),
+            'device_farm_provider': device.get('device_farm_provider'),
             'device_capabilities': device_capabilities,
             'device_verification_types': device_verification_types,
             'device_action_types': device_action_types
@@ -1482,6 +1649,7 @@ def getAllHosts():
                         'video_capture_path': device.get('video_capture_path'),
                         'preferred_userinterface': device.get('preferred_userinterface'),
                         'preferred_variant': device.get('preferred_variant'),
+                        'device_farm_provider': device.get('device_farm_provider'),
                         'has_running_deployment': device.get('has_running_deployment', False),
                     })
                 valid_hosts.append(lightweight_host)
@@ -1526,6 +1694,7 @@ def getAllHosts():
                         'preferred_variant': device.get('preferred_variant'),
                         'has_running_deployment': device.get('has_running_deployment', False),
                         'ir_type': device.get('ir_type'),
+                        'device_farm_provider': device.get('device_farm_provider'),
                     })
                 valid_hosts.append(dashboard_host)
             else:
@@ -1813,12 +1982,19 @@ class Host(TypedDict):
 # =============================================================================
 
 @server_system_bp.route('/restartServerService', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('server_system:restartServerService')
 def restart_server_service():
-    """Restart vpt-server systemd service on server"""
-    from shared.src.lib.utils.system_utils import restart_systemd_service
-    result = restart_systemd_service('vpt-server')
-    return jsonify(result), 200 if result['success'] else 500
+    """Schedule a restart of vpt-server on this machine.
+
+    Detached (see _schedule_server_restart) rather than a synchronous
+    `systemctl restart`, which would SIGTERM this very process before the
+    HTTP response could go out — the same pattern the rollback flow already
+    relies on below.
+    """
+    _schedule_server_restart()
+    return jsonify({'success': True, 'message': 'vpt-server restart scheduled'}), 200
 
 
 @server_system_bp.route('/rebootServer', methods=['POST'])

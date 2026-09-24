@@ -79,15 +79,27 @@ const Footer: React.FC = () => {
     >
       <Box display="flex" justifyContent="space-between" alignItems="center" minHeight={16}>
         <Box display="flex" alignItems="center" gap={1}>
-          {branding.logoUrl ? (
-            <Box
-              component="img"
-              src={branding.logoUrl}
-              alt={`${branding.name} logo`}
-              sx={{ height: 18, width: 'auto', maxWidth: 120, objectFit: 'contain' }}
-            />
-          ) : null}
-          <Typography variant="body2" color="text.secondary">
+          {/* TASK-23 footer-logo follow-up: tenant-specific logo wins over
+              the deployment-level logo. The alt text follows the same
+              precedence: tenant alt > `${name} logo`. */}
+          {(() => {
+            const logoUrl = branding.tenantFooterLogoUrl || branding.logoUrl;
+            if (!logoUrl) return null;
+            const altText = branding.tenantFooterLogoAlt || `${branding.name} logo`;
+            return (
+              <Box
+                component="img"
+                src={logoUrl}
+                alt={altText}
+                sx={{ height: 18, width: 'auto', maxWidth: 120, objectFit: 'contain' }}
+              />
+            );
+          })()}
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={branding.tenantFooterTextColor ? { color: branding.tenantFooterTextColor } : undefined}
+          >
             © {year} {[branding.showProjectName ? branding.name : '', branding.tagline]
               .filter(Boolean)
               .join(' - ')}

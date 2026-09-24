@@ -6,7 +6,7 @@
 |-----------|------------------------------------------------------------------------------|
 | ID        | BUG-0107                                                                     |
 | Reported  | 2026-09-15 (noticed from a shared preview URL containing `?password=`)        |
-| Status    | FIXED — network gate (2026-09-15) + application auth gate (2026-09-16)       |
+| Status    | FIXED — network gate (2026-09-15) + application auth gate (2026-09-16, **regressed off the proxy and re-deployed 2026-09-20** — see Step 4) |
 | Severity  | **Critical** — unauthenticated remote desktop on every VNC host               |
 | Area      | `proxy` nginx (`snippets/vpt-app-locations.conf` locations), `controller_manager.py`, `build_url_utils.py` |
 | Fixed in  | build 9151                                                                   |
@@ -15,12 +15,14 @@
 
 ---
 
+> **Redacted for publication.** This report is published at `/docs/bugs` and ships in customer bundles. The credential values, the reproduction URL and the current state of the affected hosts have been removed: they are an attack recipe, not an engineering record. The full account is in this repository's history and in the internal task notes.
+
 ## Symptom
 
 A device preview URL looked like this, with the VNC password in plain sight:
 
 ```
-https://virtualpytest.angelstreet.io/host/host-clone-1/vnc_lite.html?password=admin1234
+https://<deployment>/host/<host-name>/vnc_lite.html?password=<the-default>
 ```
 
 The password in the address bar is what got noticed. It was the least of it.
@@ -41,15 +43,14 @@ Access-Control-Allow-Origin: *
 <0x..>RFB 003.008
 ```
 
-That is a live VNC server greeting an anonymous caller. Five hosts answered:
-`host-clone-1`, `labox-web`, `labox-dongle`, `labox-mobile`, `labox-tablet`.
+That is a live VNC server greeting an anonymous caller. Five hosts answered.
 
 **2. Removing the query parameter would have fixed nothing.** The `vnc_lite.html` the hosts
 actually serve (`/usr/share/novnc/vnc_lite.html`, from `websockify --web /usr/share/novnc`)
 hardcodes the fallback:
 
 ```js
-const password = readQueryVariable('password', 'admin1234');
+const password = readQueryVariable('password', '<hardcoded default>');
 ```
 
 So the page auto-submits the default whether or not the URL carries one. The repo's own
@@ -58,8 +59,8 @@ So the page auto-submits the default whether or not the URL carries one. The rep
 
 **3. The password was the only barrier, and it was the documented default.** RFB offered
 `VeNCrypt, VNC Auth`, so a credential *was* required — and `vncpasswd -f` is deterministic,
-so hashing `admin1234` and comparing against each host's `.vnc/passwd` confirmed (not
-guessed) that all five still used it. It is printed in this repo's own docs.
+so hashing the shipped default and comparing against each host's `.vnc/passwd` confirmed
+(not guessed) that all five still used it.
 
 Taken together: anyone who guessed a host name got a desktop. `Access-Control-Allow-Origin: *`
 plus websockify's missing origin check means any web page an operator visited could script
@@ -94,8 +95,8 @@ map $http_cf_connecting_ip $vnc_client_allowed {
 map "$vnc_is_gated_path:$vnc_client_allowed" $vnc_denied { default 0; "1:0" 1; }
 ```
 
-**Password out of the URL.** `HOST_VNC_STREAM_PATH` on `host-clone-1` and `labox-web` carried
-`?password=admin1234`; both are now `/vnc_lite.html` (single-line edit, `.env` backed up).
+**Password out of the URL.** `HOST_VNC_STREAM_PATH` on two hosts carried the password as a
+query parameter; both are now `/vnc_lite.html` (single-line edit, `.env` backed up).
 The two code paths that rebuilt it are gone: `controller_manager.py` no longer appends the
 password when auto-constructing the path, and `build_url_utils.py` no longer appends it in
 direct mode. The console still connects because the page supplies the credential itself.
@@ -186,17 +187,102 @@ Full design, the deployment-template gap this surfaced (five of six shipped ngin
 had **no** VNC protection at all, let alone the stream gate), and how to verify it:
 [docs/security/STREAM_ACCESS_GATE.md](../security/STREAM_ACCESS_GATE.md).
 
+## Step 4 — the gate was not live on the proxy (regression found 2026-09-20)
+
+Step 2 and Step 3 above are accurate about what was built and what was deployed on
+2026-09-16. They are wrong about what was still running four days later.
+
+On 2026-09-20 the live `sites-enabled/virtualpytest` contained **no `auth_request` anywhere**.
+The only thing gating a VNC console was Step 1's `if ($vnc_denied) { return 403; }`; the four
+shadow locations Step 2 added, and the generalization Step 3 made, were simply absent from the
+file. The application half had never broken — `/server/host-session/authorize` answered
+correctly, the signing secret resolved via the `FLASK_SECRET_KEY` fallback, and the live
+frontend bundle still called `ensureHostSession` — so every check that looks at the *code*
+said the gate was fine. Only nginx had lost it.
+
+**How it went unnoticed.** With the cookie gate gone the allowlist was doing all the work, and
+the allowlist admits exactly two egress IPs plus the LAN. From an allowlisted network nothing
+looked wrong; from anywhere else every console answered a bare nginx `403` with no explanation.
+That reads as "the host is broken", not "you are not allowed" — it was first reported as a
+*random* 403, random being the operator moving between networks. The status table in this very
+report said the gate shipped, which made the nginx config the last place anyone looked.
+
+**Why the file could lose it.** `sites-enabled/virtualpytest` is a **regular file** of mode
+`-rw-rw-rw-`, not a symlink to `sites-available` like its neighbours, and it carries a crowd of
+`.bak`/`.backup-<date>` siblings. Any restore-from-backup silently reverts the vhost to whatever
+gate that copy predates, and nothing fails loudly when it does. Worth fixing independently of
+this bug: make it a root-owned symlink and keep backups out of `sites-enabled/`.
+
+**Re-deployed at server level, not as shadow locations.** Both `virtualpytest` and
+`virtualpytest-demo` now carry one directive and one internal location:
+
+```nginx
+auth_request /__vnc_authz;
+
+location = /__vnc_authz {
+    internal;
+    proxy_pass http://backend_server/server/host-session/authorize;
+    proxy_pass_request_body off;
+    proxy_set_header Content-Length "";
+    proxy_set_header X-Original-URI $request_uri;
+    proxy_set_header Host $host;          # the Step 2 gotcha above — still required
+}
+```
+
+Server level is correct here rather than lazy: `authorize` reads `X-Original-URI` and decides
+for itself whether a path is gated, returning `200` for everything that is not. That is exactly
+why the endpoint takes the URI as a header. The payoff is that the gate no longer lives in
+`snippets/vpt-app-locations.conf` at all, so a snippet redeploy cannot remove it the way
+something removed the Step 2 wiring. The cost is one subrequest per request on non-gated
+traffic, which matters most for HLS segment fetches and should be watched.
+
+The `$vnc_client_allowed` / `$vnc_denied` maps are deliberately left in the file, now
+unreferenced: restoring the single `if ($vnc_denied) { return 403; }` line reverts to the IP
+allowlist in one edit.
+
+**Verified 2026-09-20 from an egress IP that is _not_ in `$vnc_client_allowed`** — i.e. the
+case that was previously a flat `403`:
+
+| Request | Before | After |
+|---|---|---|
+| `/host/host-clone-1/vnc_lite.html`, no session | `403` | **`401`** |
+| `/host/host-clone-2/websockify`, no session | `403` | **`401`** |
+| `/host/host-clone-1/core/rfb.js`, no session | `403` | **`401`** |
+| same, with service `X-API-Key` | `403` | **`200`** |
+| `/` and `/assets/*` | `200` | `200` |
+| `virtualpytest-demo`, same three | — | `401` / `200` / `200` |
+
+**Two deploy hazards worth recording**, both of which cost a cycle here:
+
+- A backup written to `sites-enabled/virtualpytest.bak-*` is picked up by the `sites-enabled/*`
+  glob and loaded as a second copy of the vhost — `nginx: [emerg] duplicate upstream
+  "rpitest_origin"`. Backups belong anywhere but that directory.
+- In a plain `root` shell on the proxy, `/usr/sbin` is not on `PATH`, so a bare `nginx -t`
+  exits `127 command not found`. Chained behind `&&` that reads as a failed config test and
+  triggers a rollback of a change that was never actually tested. Use `/usr/sbin/nginx -t`
+  (`sudo` works because its `secure_path` includes `/usr/sbin`).
+
 ## Follow-ups
 
-- **Roaming operators still need the IP allowlist for now.** Any new egress IP must be added
-  to the `$vnc_client_allowed` map on the proxy — Step 2 adds a second, independent gate, it
-  does not yet remove the first one.
-- **Loosen or remove the IP allowlist when onboarding public customers.** It cannot be widened
-  to arbitrary customer IPs without becoming `allow all`; the cookie gate is designed to carry
-  that weight alone once it does.
-- **`admin1234` is unchanged on all five hosts**, by explicit decision — it is gated now, but
-  it is still the published default and still hardcoded in the stale page each host serves.
-  Rotating it and deploying the corrected `vnc.lite.example` remains outstanding
-  (TASK-14 item A6).
+- ~~**Roaming operators still need the IP allowlist for now.**~~ Resolved by Step 4: the
+  allowlist is no longer referenced, so a roaming operator needs only to be signed in. Adding an
+  egress IP to `$vnc_client_allowed` now has no effect unless the `if ($vnc_denied)` line is
+  restored with it.
+- **The IP allowlist is no longer a second gate.** Step 2 described it as defense in depth
+  underneath the cookie; Step 4 removed it from the request path rather than loosening it,
+  because it had spent four days being the *only* gate and was refusing legitimate operators.
+  The cookie gate now carries this alone — which was always the design, but it is now load
+  bearing with nothing under it.
+- **The second environment (node 3) has no gate at all.** `virtualpytest.qualiai.io` serves the
+  same `/host/<name>/...` surface from a different proxy, and on 2026-09-20
+  `/host/host-clone-2/vnc_lite.html` answered **`200` with no credential of any kind** — five
+  hosts, including the Android emulators. This is the deployment-template gap
+  [STREAM_ACCESS_GATE.md](../security/STREAM_ACCESS_GATE.md) already warns about, observed live.
+  It needs its own bug id and cannot simply be copied across: QualiAi embeds those streams with
+  a bare `<iframe src=…>` and never mints a host session, so enabling the gate there breaks its
+  Devices page until QualiAi either mints a cookie or proxies the stream server-side with the
+  service key it already holds.
+- Credential rotation and redeploying the corrected `vnc.lite.example` are tracked in the
+  internal task notes.
 - `Access-Control-Allow-Origin: *` on the websockify block is now moot for outsiders, but
   should still be narrowed.

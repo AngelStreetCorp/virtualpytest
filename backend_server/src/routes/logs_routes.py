@@ -6,6 +6,7 @@ Provides access to systemd service logs via journalctl and host log files.
 
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
+from backend_server.src.lib.auth_middleware import require_user_auth, require_role
 import subprocess
 
 # Create blueprint
@@ -39,6 +40,8 @@ HOST_FILE_LOGS = {
 
 
 @logs_bp.route('/view', methods=['POST'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('logs:view_logs')
 def view_logs():
     """
@@ -57,7 +60,10 @@ def view_logs():
     data = request.get_json() or {}
 
     service = data.get('service')
-    lines = data.get('lines', 50)
+    try:
+        lines = max(1, min(500, int(data.get('lines', 50))))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'lines must be an integer between 1 and 500'}), 400
     follow = data.get('follow', False)
     since = data.get('since')
     level = data.get('level')
@@ -167,7 +173,7 @@ def view_logs():
                 host_info,
                 '/host/system/logs/journal',
                 method='POST',
-                data={'service': service, 'lines': lines, 'since': since, 'grep': grep_pattern},
+                data={'service': service, 'lines': lines, 'since': since, 'grep': grep_pattern, 'level': level},
                 timeout=10,
             )
             return jsonify(resp_data), status_code
@@ -188,6 +194,8 @@ def view_logs():
     return jsonify(result), 200 if result.get('success') else 500
     
 @logs_bp.route('/services', methods=['GET'])
+@require_user_auth
+@require_role('admin')
 @handle_route_exceptions('logs:list_services')
 def list_services():
     """List available VirtualPyTest services"""
@@ -217,4 +225,50 @@ def list_services():
         'services': available,
         'count': len(available)
     })
-    
+
+
+@logs_bp.route('/agent', methods=['GET'])
+@require_user_auth
+@require_role('admin')
+@handle_route_exceptions('logs:agent_history')
+def agent_history():
+    """Return bounded, structured agent execution history for this server team.
+
+    GET /server/logs/agent?days=30&limit=100&offset=0
+    """
+    from datetime import datetime, timedelta, timezone
+    from shared.src.lib.utils.app_utils import get_team_id
+    from shared.src.lib.utils.supabase_utils import get_supabase_client
+
+    try:
+        days = max(1, min(90, int(request.args.get('days', 30))))
+        limit = max(1, min(200, int(request.args.get('limit', 100))))
+        offset = max(0, min(10000, int(request.args.get('offset', 0))))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'days, limit, and offset must be integers'}), 400
+    team_id = get_team_id()
+    if not team_id:
+        return jsonify({'success': True, 'events': [], 'count': 0, 'days': days}), 200
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    sb = get_supabase_client()
+    if not sb:
+        return jsonify({'success': False, 'error': 'Agent history is unavailable'}), 503
+    result = (sb.table('agent_execution_history')
+              .select('id,instance_id,agent_id,task_id,event_type,started_at,completed_at,duration_seconds,status,tool_calls,error_message,team_id')
+              .eq('team_id', team_id).gte('started_at', since)
+              .order('started_at', desc=True).range(offset, offset + limit - 1).execute())
+    events = []
+    for row in (result.data or []):
+        # Error summaries can contain credentials or user supplied content. Keep
+        # this endpoint limited to a generic failure indicator; raw details stay server side.
+        events.append({
+            'id': str(row.get('id') or ''), 'session_id': row.get('instance_id'),
+            'agent_id': row.get('agent_id'), 'task_id': row.get('task_id'),
+            'event_type': row.get('event_type') or 'agent_execution',
+            'timestamp': row.get('started_at'), 'completed_at': row.get('completed_at'),
+            'duration_seconds': row.get('duration_seconds'), 'status': row.get('status'),
+            'tool_calls': row.get('tool_calls') or 0,
+            'error_summary': 'Execution failed' if row.get('error_message') else None,
+        })
+    return jsonify({'success': True, 'events': events, 'count': len(events), 'days': days,
+                    'limit': limit, 'offset': offset}), 200

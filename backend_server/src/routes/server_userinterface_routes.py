@@ -12,6 +12,7 @@ from flask import Blueprint, request, jsonify, send_file
 
 # Import database functions from src/lib/supabase (uses absolute import)
 import re
+from shared.src.lib.config.device_capabilities import get_compatible_models
 from shared.src.lib.database.userinterface_db import (
     get_all_userinterfaces,
     get_userinterface,
@@ -192,13 +193,14 @@ def get_compatible_interfaces():
     # Get all interfaces for the team
     all_interfaces = get_all_userinterfaces(team_id)
         
-    # Map host_vnc to also be compatible with web and desktop interfaces
-    compatible_models = [device_model]
-    if device_model == 'host_vnc':
-        compatible_models.extend(['web', 'desktop'])
-        print(f"[@server_userinterface] host_vnc device - also checking for web and desktop interfaces")
-        
-    # Filter to compatible ones (where device_model OR mapped models are in the models array)
+    # Every model name this device should match — the model itself plus the rest of its
+    # family (an Android phone is one whether it is reached by adb, by the paired app or
+    # by a cloud farm). MODEL_FAMILIES in shared/src/lib/config/device_capabilities.py.
+    compatible_models = get_compatible_models(device_model)
+    if len(compatible_models) > 1:
+        print(f"[@server_userinterface] {device_model} also matches {compatible_models[1:]}")
+
+    # Filter to compatible ones (where device_model OR a family sibling is in the models array)
     compatible_interfaces = [
         interface for interface in all_interfaces
         if any(model in (interface.get('models') or []) for model in compatible_models)

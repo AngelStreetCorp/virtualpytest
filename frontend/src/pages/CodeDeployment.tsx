@@ -12,11 +12,12 @@ import {
   MenuItem,
   Select,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
-import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 
 import { useServerManager } from '../hooks/useServerManager';
 import { buildServerUrl } from '../utils/buildUrlUtils';
@@ -59,6 +60,17 @@ interface SourceDiffEntry {
   deleted: string;
 }
 
+interface GitRepositoryOption {
+  name: string;
+  url: string;
+}
+
+const gitRepositoryName = (url: string | null): string => {
+  if (!url) return 'Current origin';
+  const path = url.replace(/\.git$/, '').split(/[/:]/).filter(Boolean);
+  return path[path.length - 1] || 'Current origin';
+};
+
 const CodeDeployment: React.FC = () => {
   const { serverHostsData, refreshServerData } = useServerManager();
   const [selectedHosts, setSelectedHosts] = useState<string[]>([]);
@@ -66,6 +78,8 @@ const CodeDeployment: React.FC = () => {
   const [sourcePath, setSourcePath] = useState('/mnt/shared/code/virtualpytest');
 
   const [gitRef, setGitRef] = useState('debug');
+  const [activeGitBranch, setActiveGitBranch] = useState<string | null>(null);
+  const [sourceMode, setSourceMode] = useState<'git' | 'zip'>('zip');
   const [detectedGit, setDetectedGit] = useState<boolean | null>(null);
   const [pathExists, setPathExists] = useState(false);
   const [sourceReady, setSourceReady] = useState(false);
@@ -79,8 +93,11 @@ const CodeDeployment: React.FC = () => {
     after: null,
     commit: null,
   });
-  const [sourcePullMessage, setSourcePullMessage] = useState<string | null>(null);
   const [sourceDiffEntries, setSourceDiffEntries] = useState<SourceDiffEntry[]>([]);
+  const [originUrl, setOriginUrl] = useState<string | null>(null);
+  const [remoteUrlDraft, setRemoteUrlDraft] = useState('');
+  const [gitRepositories, setGitRepositories] = useState<GitRepositoryOption[]>([]);
+  const [needsGitReset, setNeedsGitReset] = useState(false);
 
   const [rollbackCandidates, setRollbackCandidates] = useState<ExecutionTarget[]>([]);
   const [rollbackOptions, setRollbackOptions] = useState<RollbackOption[]>([
@@ -157,6 +174,13 @@ const CodeDeployment: React.FC = () => {
   }, [serverHostsData]);
 
   const serverInfo = serverHostsData[0]?.server_info;
+  const originOptions = useMemo(() => {
+    const options = [...gitRepositories];
+    if (originUrl && !options.some((repository) => repository.url === originUrl)) {
+      options.unshift({ name: gitRepositoryName(originUrl), url: originUrl });
+    }
+    return options;
+  }, [gitRepositories, originUrl]);
   const allHostsSelected = allHosts.length > 0 && selectedHosts.length === allHosts.length;
   const allTargetsSelected =
     selectedLocalTargets.includes('server') &&
@@ -244,14 +268,18 @@ const CodeDeployment: React.FC = () => {
 
   const resetSourceState = () => {
     setPathExists(false);
+    setActiveGitBranch(null);
     setSourceReady(false);
     setGitBranches([]);
     setUploadId(null);
     setUploadFilename(null);
     setZipValidated(false);
     setSourceVersionInfo({ current: null, before: null, after: null, commit: null });
-    setSourcePullMessage(null);
     setSourceDiffEntries([]);
+    setNeedsGitReset(false);
+    setOriginUrl(null);
+    setRemoteUrlDraft('');
+    setGitRepositories([]);
   };
 
   const readSourceVersion = (payload: Record<string, unknown> | null | undefined) => {
@@ -291,6 +319,10 @@ const CodeDeployment: React.FC = () => {
         return;
       }
       setDetectedGit(Boolean(data.is_git_repo));
+      setSourceMode(data.is_git_repo ? 'git' : 'zip');
+      const currentOrigin = typeof data.origin_url === 'string' ? data.origin_url : null;
+      setOriginUrl(currentOrigin);
+      setRemoteUrlDraft(currentOrigin || '');
       const branches = Array.isArray(data.branches)
         ? data.branches.filter((entry: unknown): entry is string => typeof entry === 'string' && entry.trim().length > 0)
         : [];
@@ -305,11 +337,35 @@ const CodeDeployment: React.FC = () => {
       setSourceReady(false);
       if (typeof data.branch === 'string' && data.branch.trim()) {
         setGitRef(data.branch.trim());
+        setActiveGitBranch(data.branch.trim());
       } else if (branches.length > 0) {
         setGitRef(branches[0]);
       }
       setInfo(null);
       setError(null);
+      if (data.is_git_repo) {
+        const repoResponse = await apiClient(buildServerUrl('/server/system/source/git/repositories'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const repoData = await repoResponse.json();
+        if (repoResponse.ok && repoData.success && Array.isArray(repoData.repositories)) {
+          const repositories: GitRepositoryOption[] = (repoData.repositories as unknown[]).filter(
+              (entry: unknown): entry is GitRepositoryOption =>
+                Boolean(entry) &&
+                typeof entry === 'object' &&
+                typeof (entry as GitRepositoryOption).name === 'string' &&
+                typeof (entry as GitRepositoryOption).url === 'string'
+            );
+          const currentName = gitRepositoryName(currentOrigin);
+          setGitRepositories(repositories.map((repository) =>
+            repository.name === currentName && currentOrigin
+              ? { ...repository, url: currentOrigin }
+              : repository
+          ));
+        }
+      }
     } catch (requestError) {
       setMessage(
         `Detect failed: ${requestError instanceof Error ? requestError.message : 'Unknown error'}`,
@@ -320,7 +376,45 @@ const CodeDeployment: React.FC = () => {
     }
   };
 
-  const prepareGitSource = async () => {
+  const reconfigureGitRemote = async () => {
+    if (!remoteUrlDraft.trim()) {
+      setMessage('Select or enter an approved repository URL first.', true);
+      return;
+    }
+    setIsSubmitting(true);
+    setMessage(null);
+    setSourceReady(false);
+    try {
+      const response = await apiClient(buildServerUrl('/server/system/source/git/remote'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storage_path: sourcePath, remote_url: remoteUrlDraft.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        setMessage(data.error || 'Remote reconfiguration failed', true);
+        return;
+      }
+      const updatedOrigin = typeof data.origin_url === 'string' ? data.origin_url : remoteUrlDraft.trim();
+      setOriginUrl(updatedOrigin);
+      setRemoteUrlDraft(updatedOrigin);
+      const branches = Array.isArray(data.branches)
+        ? data.branches.filter((entry: unknown): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+        : [];
+      setGitBranches(branches);
+      if (branches.length > 0 && !branches.includes(gitRef)) setGitRef(branches[0]);
+      setMessage('Origin updated and fetched. Select a branch, then pull it into the deployment source.');
+    } catch (requestError) {
+      setMessage(
+        `Remote reconfiguration failed: ${requestError instanceof Error ? requestError.message : 'Unknown error'}`,
+        true
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const prepareGitSource = async (forceReset = false) => {
     setIsSubmitting(true);
     setMessage(null);
     setSourceReady(false);
@@ -331,11 +425,12 @@ const CodeDeployment: React.FC = () => {
         body: JSON.stringify({
           storage_path: sourcePath,
           git_ref: gitRef.trim(),
-          pull_latest: true,
+          force_reset: forceReset,
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) {
+        setNeedsGitReset(!forceReset && Boolean(data.reset_required));
         setMessage(data.error || 'Git source prepare failed', true);
         return;
       }
@@ -343,10 +438,10 @@ const CodeDeployment: React.FC = () => {
       const branch = data.after?.branch || gitRef;
       if (branch) {
         setGitRef(branch);
+        setActiveGitBranch(branch);
       }
       const beforeVersion = readSourceVersion(data.before);
       const afterVersion = readSourceVersion(data.after);
-      const alreadyUpToDate = Boolean(data.already_up_to_date);
       const diffEntries = Array.isArray(data.diff_files)
         ? data.diff_files.filter(
             (entry: unknown): entry is SourceDiffEntry =>
@@ -363,17 +458,9 @@ const CodeDeployment: React.FC = () => {
         after: afterVersion,
         commit: commitHash,
       });
-      const rawPullMsg =
-        !alreadyUpToDate && typeof data.pull_output === 'string' && data.pull_output.trim()
-          ? data.pull_output.trim().split('\n').slice(-1)[0]
-          : null;
-      // Strip "-> FETCH_HEAD" from git pull output noise
-      const cleanPullMsg = rawPullMsg
-        ? rawPullMsg.replace(/\s*->\s*FETCH_HEAD/g, '').trim()
-        : alreadyUpToDate ? 'Already up to date.' : null;
-      setSourcePullMessage(cleanPullMsg);
       setSourceDiffEntries(diffEntries);
       setSourceReady(true);
+      setNeedsGitReset(false);
       setInfo(null);
       setError(null);
       void refreshServerData(true);
@@ -472,7 +559,6 @@ const CodeDeployment: React.FC = () => {
       }
       setSourcePath(data.storage_path || sourcePath);
       setSourceReady(true);
-      setSourcePullMessage('ZIP source ready.');
       setSourceDiffEntries([]);
       setMessage('ZIP source applied to storage and ready for deployment');
     } catch (requestError) {
@@ -780,7 +866,23 @@ const CodeDeployment: React.FC = () => {
 
       <Accordion defaultExpanded sx={sectionAccordionSx}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography sx={{ fontWeight: 600 }}>1. Source Preparation</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', width: '100%', gap: 1 }}>
+            <Typography sx={{ fontWeight: 600 }}>1. Source</Typography>
+            {pathExists ? (
+              <Box sx={{ ml: 'auto' }} onClick={(event) => event.stopPropagation()}>
+                <ToggleButtonGroup
+                  exclusive
+                  size="small"
+                  value={sourceMode}
+                  onChange={(_, nextMode: 'git' | 'zip' | null) => nextMode && setSourceMode(nextMode)}
+                  aria-label="Deployment source type"
+                >
+                  {detectedGit ? <ToggleButton value="git">Git</ToggleButton> : null}
+                  <ToggleButton value="zip">ZIP</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+            ) : null}
+          </Box>
         </AccordionSummary>
         <AccordionDetails sx={{ pt: 0.25, pb: 0.75, px: 1.5 }}>
           {!pathExists && !isSubmitting ? (
@@ -789,20 +891,52 @@ const CodeDeployment: React.FC = () => {
             </Typography>
           ) : null}
 
-          {pathExists && detectedGit ? (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, mb: 0.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 150 }}>
-                  <CheckCircleOutlineIcon fontSize="small" color="success" />
-                  <Typography variant="body2">Source Git detected</Typography>
-                </Box>
+          {pathExists && detectedGit && sourceMode === 'git' ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
+              <Typography variant="caption" color="success.main" sx={{ whiteSpace: 'nowrap' }}>
+                {`Current: ${gitRepositoryName(originUrl)} · ${activeGitBranch || 'unknown'} · ${sourceVersionInfo.current || 'unknown'}`}
+              </Typography>
+              <TextField
+                select
+                label="Origin"
+                size="small"
+                value={remoteUrlDraft}
+                onChange={(event) => setRemoteUrlDraft(event.target.value)}
+                sx={{ minWidth: 190 }}
+                disabled={isSubmitting || originOptions.length === 0}
+                SelectProps={{
+                  renderValue: (value) => {
+                    const repository = originOptions.find((entry) => entry.url === value);
+                    return repository
+                      ? `${repository.url === originUrl ? '✓ ' : ''}${repository.name}`
+                      : 'Select origin';
+                  },
+                }}
+              >
+                <MenuItem value="" disabled>
+                  Select an approved repository
+                </MenuItem>
+                {originOptions.map((repository) => (
+                  <MenuItem key={repository.url} value={repository.url}>
+                    {repository.url === originUrl ? '✓ ' : ''}{repository.name}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={reconfigureGitRemote}
+                disabled={isSubmitting || !remoteUrlDraft.trim() || remoteUrlDraft.trim() === originUrl}
+              >
+                {isSubmitting ? <CircularProgress size={16} color="inherit" /> : 'Reconfigure'}
+              </Button>
                 <TextField
                   select
                   label="Branch"
                   size="small"
                   value={gitRef}
                   onChange={(event) => setGitRef(event.target.value)}
-                  sx={{ minWidth: 220 }}
+                  sx={{ minWidth: 150 }}
                 >
                   {(gitBranches.length > 0 ? gitBranches : [gitRef]).map((branch) => (
                     <MenuItem key={branch} value={branch}>
@@ -810,30 +944,23 @@ const CodeDeployment: React.FC = () => {
                     </MenuItem>
                   ))}
                 </TextField>
-                <Button variant="contained" size="small" onClick={prepareGitSource} disabled={isSubmitting || !gitRef.trim()}>
-                  Pull
+                <Button variant="contained" size="small" onClick={() => prepareGitSource()} disabled={isSubmitting || !gitRef.trim()}>
+                  {isSubmitting ? <CircularProgress size={16} color="inherit" /> : 'Fetch & pull'}
                 </Button>
-                <Typography
-                  variant="caption"
-                  color={sourceVersionInfo.current ? 'success.main' : 'text.secondary'}
-                  sx={{ whiteSpace: 'nowrap' }}
-                >
-                  {`Source : ${sourceVersionInfo.current ?? 'unknown'}`}
-                </Typography>
-              </Box>
-              {(sourcePullMessage || sourceVersionInfo.commit) && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', pl: 0.5 }}
-                >
-                  {`Target : ${sourcePullMessage ?? ''}${sourceVersionInfo.commit ? ` • ${sourceVersionInfo.commit.slice(0, 7)}` : ''}`}
-                </Typography>
-              )}
+                {activeGitBranch && gitRef !== activeGitBranch ? (
+                  <Typography variant="caption" color="error.main" sx={{ whiteSpace: 'nowrap' }}>
+                    {`Target: ${gitRef}`}
+                  </Typography>
+                ) : null}
+              {needsGitReset ? (
+                <Button color="warning" size="small" onClick={() => prepareGitSource(true)} disabled={isSubmitting || !gitRef.trim()}>
+                  Force reset
+                </Button>
+              ) : null}
             </Box>
           ) : null}
 
-          {pathExists && detectedGit === false ? (
+          {pathExists && sourceMode === 'zip' ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
               <input
                 ref={fileInputRef}

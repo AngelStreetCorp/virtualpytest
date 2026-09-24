@@ -55,6 +55,9 @@ const CampaignBuilder = React.lazy(() => import('./pages/CampaignBuilder'));
 const TestReports = React.lazy(() => import('./pages/TestReports'));
 const ModelReports = React.lazy(() => import('./pages/ModelReports'));
 const DependencyReport = React.lazy(() => import('./pages/DependencyReport'));
+// Lazy is what keeps recharts out of the main bundle — it loads only when
+// someone opens Analytics.
+const MonitoringAnalytics = React.lazy(() => import('./pages/MonitoringAnalytics'));
 const MonitoringIncidents = React.lazy(() => import('./pages/MonitoringIncidents'));
 const Heatmap = React.lazy(() => import('./pages/Heatmap'));
 const UserInterface = React.lazy(() => import('./pages/UserInterface'));
@@ -77,13 +80,16 @@ const SecurityReports = React.lazy(() => import('./pages/SecurityReports'));
 const UserApiWorkspaces = React.lazy(() => import('./pages/UserApiWorkspaces'));
 const UserApiWorkspaceDetail = React.lazy(() => import('./pages/UserApiWorkspaceDetail'));
 const JiraIntegration = React.lazy(() => import('./pages/JiraIntegration'));
+const TestRailIntegration = React.lazy(() => import('./pages/TestRailIntegration'));
 const Teams = React.lazy(() => import('./pages/Teams'));
+const Tenants = React.lazy(() => import('./pages/Tenants'));
 const Users = React.lazy(() => import('./pages/Users'));
 const Workspaces = React.lazy(() => import('./pages/Workspaces'));
 const DeviceInfoOverrides = React.lazy(() => import('./pages/DeviceInfoOverrides'));
 const AgentChat = React.lazy(() => import('./pages/AgentChat'));
 const AgentDashboard = React.lazy(() => import('./pages/AgentDashboard'));
 const Status = React.lazy(() => import('./pages/Status'));
+const Logs = React.lazy(() => import('./pages/Logs'));
 
 const isRunTestsPath = (pathname: string) =>
   pathname.startsWith('/run/tests') ||
@@ -457,8 +463,11 @@ const App: React.FC = () => {
   // run against the deployed app rather than the built PR. Found by running tsc by hand.
   return (
         <Router basename={getBasename()}>
-      <BrandingProvider>
-        <AuthProvider>
+      {/* AuthProvider must be the OUTER provider: BrandingProvider now reads
+          the caller's user via useTenantBranding → useAuthContext, and the
+          AuthContext throws if no provider is in the tree. */}
+      <AuthProvider>
+        <BrandingProvider>
           <PermissionProvider>
             <WorkspaceProvider>
             <ToastProvider>
@@ -532,6 +541,7 @@ const App: React.FC = () => {
 
                   {/* Monitoring Routes */}
                   <Route path="/monitoring/system" element={<GrafanaDashboard />} />
+                  <Route path="/monitoring/analytics" element={<MonitoringAnalytics />} />
                   <Route path="/monitoring/incidents" element={<MonitoringIncidents />} />
                   <Route path="/monitoring/heatmap" element={<Heatmap />} />
                   <Route path="/monitoring/ai-queue" element={<AIQueueMonitor />} />
@@ -571,6 +581,15 @@ const App: React.FC = () => {
                   <Route element={<ProtectedRoute requiredPermission="plugins.jira:view" />}>
                     <Route path="/integrations/jira" element={<JiraIntegration />} />
                   </Route>
+                  <Route element={<ProtectedRoute requiredPermission="plugins.testrail:view" />}>
+                    <Route path="/integrations/testrail" element={<TestRailIntegration />} />
+                  </Route>
+
+                  {/* TASK-23: Tenants — super admin only. Sits beside the admin
+                      surface but its own gate so regular admins never see it. */}
+                  <Route element={<ProtectedRoute requiredPlatformAdmin />}>
+                    <Route path="/tenants" element={<Tenants />} />
+                  </Route>
 
                   {/* Teams, Users & Workspaces Management - Admin only */}
                   <Route element={<ProtectedRoute requiredRole="admin" />}>
@@ -592,6 +611,7 @@ const App: React.FC = () => {
                   {/* Admin-only configuration routes */}
                   <Route element={<ProtectedRoute requiredRole="admin" />}>
                     <Route path="/configuration/models" element={<Models />} />
+                    <Route path="/configuration/logs" element={<Logs />} />
                     <Route path="/configuration/settings" element={<Settings />} />
                     <Route path="/configuration/code-deployment" element={<CodeDeployment />} />
                     <Route path="/configuration/run-command" element={<RunCommand />} />
@@ -653,8 +673,8 @@ const App: React.FC = () => {
           </ToastProvider>
             </WorkspaceProvider>
         </PermissionProvider>
-      </AuthProvider>
       </BrandingProvider>
+      </AuthProvider>
     </Router>
   );
 };

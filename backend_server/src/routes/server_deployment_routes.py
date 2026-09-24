@@ -979,8 +979,11 @@ def execution_complete():
     supabase = get_supabase_client()
     deployment = None
     try:
+        # rerun_payload carries queued_task_id — the task a /server/script/execute
+        # caller is still polling when its run was queued behind a locked device.
+        # Leaving it out of the select left that task open forever (BUG-0137).
         dep_res = supabase.table('deployments').select(
-            'id, team_id, name, host_name, device_id, script_name'
+            'id, team_id, name, host_name, device_id, script_name, rerun_payload'
         ).eq('id', deployment_id).single().execute()
         deployment = dep_res.data
     except Exception:

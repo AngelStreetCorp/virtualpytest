@@ -10,6 +10,8 @@ from backend_host.src.lib.utils.route_request import get_json_payload, require_f
 from backend_host.src.lib.utils.route_response import controller_not_found
 import threading
 import requests
+
+from shared.src.lib.utils.build_url_utils import server_auth_headers
 import time
 import asyncio
 
@@ -80,9 +82,10 @@ def execute_command():
                         print(f"[@route:host_web:execute_command] Callback data: {callback_data}")
                         
                         callback_response = requests.post(
-                            callback_url, 
-                            json=callback_data, 
-                            timeout=30, 
+                            callback_url,
+                            json=callback_data,
+                            headers=server_auth_headers(),
+                            timeout=30,
                             allow_redirects=False  # Prevent POST->GET redirects
                         )
                         
@@ -104,7 +107,10 @@ def execute_command():
                     }
                     
                     try:
-                        requests.post(callback_url, json=callback_data, timeout=30)
+                        requests.post(
+                            callback_url, json=callback_data,
+                            headers=server_auth_headers(), timeout=30,
+                        )
                     except:
                         pass  # Ignore callback errors when already handling an error
             

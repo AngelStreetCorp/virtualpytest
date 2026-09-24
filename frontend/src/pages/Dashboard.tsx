@@ -57,6 +57,7 @@ import { useToast } from '../hooks/useToast';
 import { usePersistedState } from '../hooks/usePersistedState';
 import { STORAGE_KEYS } from '../config/constants';
 import { Host } from '../types/common/Host_Types';
+import { api } from '../utils/apiClient';
 
 const Dashboard: React.FC = () => {
   const { isMobile, isTablet } = useResponsiveMode();
@@ -220,6 +221,21 @@ const Dashboard: React.FC = () => {
     );
     return count;
   }, [attributeFilteredServerHostsData, hostHasError]);
+
+  // The "errors only" toggle is persisted, so it outlives the errors that
+  // justified it — once every host recovers it would leave the page empty with
+  // no cards and no obvious way back. Drop it automatically instead. Only once
+  // hosts have actually loaded and the attribute-filtered scope is non-empty,
+  // so an empty scope (still loading, or narrowed away by the other filters)
+  // isn't mistaken for "all clear".
+  useEffect(() => {
+    if (loading) return;
+    if (!errorOnly) return;
+    const hasHostsInScope = attributeFilteredServerHostsData.some((sd) => sd.hosts.length > 0);
+    if (hasHostsInScope && errorHostCount === 0) {
+      setErrorOnly(false);
+    }
+  }, [loading, errorOnly, attributeFilteredServerHostsData, errorHostCount]);
 
   // Final dashboard data: optionally narrowed to only the hosts in error.
   const filteredServerHostsData = useMemo(() => {
@@ -666,13 +682,9 @@ const Dashboard: React.FC = () => {
     
     setIsRestartingServerService(true);
     try {
-      const response = await fetch(buildServerUrlForServer(serverUrl, '/server/system/restartServerService'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-      
-      const result = await response.json();
+      // Admin-gated server-side (server_system_routes.py) — must go through the
+      // authenticated client so the JWT reaches whichever server VM answers this.
+      const result = await api.post(buildServerUrlForServer(serverUrl, '/server/system/restartServerService'), {});
       if (result.success) {
         console.log(`Successfully restarted vpt-server service on server ${serverUrl}`);
       } else {

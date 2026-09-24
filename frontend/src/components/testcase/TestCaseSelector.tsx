@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, forwardRef, useImperativeHandle } from 'react';
 import {
   Box, Chip, Typography, CircularProgress, Paper,
-  List, ListItem, ListItemButton, IconButton, Tooltip, Alert,
+  List, ListItem, ListItemButton, IconButton, Tooltip, Alert, Button,
+  Autocomplete, Dialog, DialogTitle, DialogContent, DialogActions, TextField, Checkbox,
 } from '@mui/material';
 import {
   Delete as DeleteIcon,
@@ -13,7 +14,7 @@ import {
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { getCachedTestCaseList, invalidateTestCaseListCache } from '../../utils/testcaseCache';
 import { invalidateExecutableListCache } from '../../utils/executionListCache';
-import { api } from '../../utils/apiClient';
+import { api, apiClient } from '../../utils/apiClient';
 import { useResponsiveMode } from '../../hooks/useResponsiveMode';
 import { useIdentityMap } from '../../hooks/useIdentityMap';
 import { useToast } from '../../hooks/useToast';
@@ -104,6 +105,16 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
   >(null);
   const [identitySaving, setIdentitySaving] = useState(false);
   const [identityWarning, setIdentityWarning] = useState<string | null>(null);
+  const [testrailTarget, setTestrailTarget] = useState<ExecutableItem | null>(null);
+  const [testrailCases, setTestrailCases] = useState<Array<{ id: number; title: string; suite_id: number; suite_name?: string }>>([]);
+  const [testrailMappings, setTestrailMappings] = useState<Record<string, { case_id: number; title: string; suite_id: number }>>({});
+  const [testrailCaseSelection, setTestrailCaseSelection] = useState<{ id: number; title: string; suite_id: number; suite_name?: string } | null>(null);
+  const [testrailLoading, setTestrailLoading] = useState(false);
+  const [testrailSaving, setTestrailSaving] = useState(false);
+  const [testrailBulkSelected, setTestrailBulkSelected] = useState<Set<string>>(new Set());
+  const [testrailBulkTargets, setTestrailBulkTargets] = useState<ExecutableItem[]>([]);
+  const [testrailBulkAssignments, setTestrailBulkAssignments] = useState<Record<string, { id: number; title: string; suite_id: number; suite_name?: string } | null>>({});
+  const [testrailBulkOpen, setTestrailBulkOpen] = useState(false);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -134,6 +145,14 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
     
     console.log('[@TestCaseSelector] Loading test cases and scripts...');
     loadAll();
+  }, []);
+
+  useEffect(() => {
+    void api.get<{ success: boolean; mappings: Record<string, { case_id: number; title: string; suite_id: number }> }>(
+      buildServerUrl('/server/integrations/testrail/mappings'),
+    ).then((data) => setTestrailMappings(data.mappings || {})).catch(() => {
+      // The row action remains available to route the user through setup/permissions.
+    });
   }, []);
 
   useEffect(() => {
@@ -271,6 +290,143 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
   // the same namespace as script_results.script_name, so a converted disk script
   // keeps its prefix under its new virtual-script name.
   const identityRef = (item: ExecutableItem) => normalizeRef(itemLabel(item) || '');
+
+  const testrailKey = (value: string) => value.trim().replace(/\s+/g, ' ').toLocaleLowerCase();
+  const openTestrailMapping = async (item: ExecutableItem) => {
+    setTestrailTarget(item);
+    setTestrailCaseSelection(null);
+    setTestrailLoading(true);
+    try {
+      const [caseData, mappingData] = await Promise.all([
+        api.get<{ success: boolean; cases: Array<{ id: number; title: string; suite_id: number; suite_name?: string }> }>(buildServerUrl('/server/integrations/testrail/cases')),
+        api.get<{ success: boolean; mappings: Record<string, { case_id: number; title: string; suite_id: number }> }>(buildServerUrl('/server/integrations/testrail/mappings')),
+      ]);
+      setTestrailCases(caseData.cases || []);
+      setTestrailMappings(mappingData.mappings || {});
+      const key = testrailKey(itemLabel(item));
+      const existing = mappingData.mappings?.[key];
+      if (existing) {
+        setTestrailCaseSelection(caseData.cases?.find((c) => c.id === existing.case_id) || {
+          id: existing.case_id, title: existing.title, suite_id: existing.suite_id,
+        });
+      }
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Could not load TestRail cases. Check the integration connection and permissions.');
+      setTestrailTarget(null);
+    } finally {
+      setTestrailLoading(false);
+    }
+  };
+
+  const saveTestrailMapping = async () => {
+    if (!testrailTarget || !testrailCaseSelection) return;
+    const key = testrailKey(itemLabel(testrailTarget));
+    setTestrailSaving(true);
+    try {
+      const response = await api.post<{ success: boolean; mapping: { case_id: number; title: string; suite_id: number } }>(
+        buildServerUrl('/server/integrations/testrail/mappings'),
+        { vpt_key: itemLabel(testrailTarget), case_id: testrailCaseSelection.id },
+      );
+      setTestrailMappings((current) => ({ ...current, [key]: response.mapping }));
+      showSuccess(`Linked to TestRail case C${response.mapping.case_id}.`);
+      setTestrailTarget(null);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Could not save the TestRail mapping.');
+    } finally {
+      setTestrailSaving(false);
+    }
+  };
+
+  const removeTestrailMapping = async () => {
+    if (!testrailTarget) return;
+    const key = testrailKey(itemLabel(testrailTarget));
+    setTestrailSaving(true);
+    try {
+      await apiClient(buildServerUrl(`/server/integrations/testrail/mappings?vpt_key=${encodeURIComponent(itemLabel(testrailTarget))}`), { method: 'DELETE' });
+      setTestrailMappings((current) => { const next = { ...current }; delete next[key]; return next; });
+      setTestrailCaseSelection(null);
+      showSuccess('TestRail case link removed.');
+      setTestrailTarget(null);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Could not remove the TestRail mapping.');
+    } finally {
+      setTestrailSaving(false);
+    }
+  };
+
+  const toggleTestrailBulkSelection = (item: ExecutableItem) => {
+    const key = itemKey(item);
+    setTestrailBulkSelected((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+
+  const selectVisibleForTestrailBulk = (checked: boolean) => {
+    setTestrailBulkSelected((current) => {
+      const next = new Set(current);
+      filteredItems.forEach((item) => checked ? next.add(itemKey(item)) : next.delete(itemKey(item)));
+      return next;
+    });
+  };
+
+  const openTestrailBulkMapping = async () => {
+    const targets = allItems.filter((item) => testrailBulkSelected.has(itemKey(item)));
+    if (!targets.length) return;
+    setTestrailBulkTargets(targets);
+    setTestrailBulkOpen(true);
+    setTestrailLoading(true);
+    try {
+      const [caseData, mappingData] = await Promise.all([
+        api.get<{ cases: Array<{ id: number; title: string; suite_id: number; suite_name?: string }> }>(buildServerUrl('/server/integrations/testrail/cases')),
+        api.get<{ mappings: Record<string, { case_id: number; title: string; suite_id: number }> }>(buildServerUrl('/server/integrations/testrail/mappings')),
+      ]);
+      const cases = caseData.cases || [];
+      const mappings = mappingData.mappings || {};
+      setTestrailCases(cases);
+      setTestrailMappings(mappings);
+      const assignments: typeof testrailBulkAssignments = {};
+      targets.forEach((item) => {
+        const existing = mappings[testrailKey(itemLabel(item))];
+        assignments[itemKey(item)] = existing
+          ? cases.find((testCase) => testCase.id === existing.case_id) || { id: existing.case_id, title: existing.title, suite_id: existing.suite_id }
+          : cases.find((testCase) => testrailKey(testCase.title) === testrailKey(itemLabel(item))) || null;
+      });
+      setTestrailBulkAssignments(assignments);
+    } catch (error) {
+      setTestrailBulkOpen(false);
+      showError(error instanceof Error ? error.message : 'Could not load TestRail cases for bulk linking.');
+    } finally {
+      setTestrailLoading(false);
+    }
+  };
+
+  const saveTestrailBulkMappings = async () => {
+    const mappings = testrailBulkTargets.flatMap((item) => {
+      const testCase = testrailBulkAssignments[itemKey(item)];
+      return testCase ? [{ vpt_key: itemLabel(item), case_id: testCase.id }] : [];
+    });
+    if (!mappings.length) return;
+    setTestrailSaving(true);
+    try {
+      const response = await api.post<{ mappings: Array<{ vpt_key: string; case_id: number; title: string; suite_id: number }> }>(
+        buildServerUrl('/server/integrations/testrail/mappings'), { mappings },
+      );
+      setTestrailMappings((current) => {
+        const next = { ...current };
+        response.mappings.forEach((mapping) => { next[testrailKey(mapping.vpt_key)] = mapping; });
+        return next;
+      });
+      showSuccess(`Linked ${response.mappings.length} VirtualPyTest case${response.mappings.length === 1 ? '' : 's'} to TestRail.`);
+      setTestrailBulkSelected(new Set());
+      setTestrailBulkOpen(false);
+    } catch (error) {
+      showError(error instanceof Error ? error.message : 'Could not save the bulk TestRail mappings.');
+    } finally {
+      setTestrailSaving(false);
+    }
+  };
 
   const getVisibilityKey = (item: ExecutableItem) =>
     item.type === 'testcase' ? item.testcase_id
@@ -517,6 +673,24 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
         ) : undefined}
       />
 
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.5, py: 0.5 }}>
+        <Checkbox
+          size="small"
+          checked={filteredItems.length > 0 && filteredItems.every((item) => testrailBulkSelected.has(itemKey(item)))}
+          indeterminate={filteredItems.some((item) => testrailBulkSelected.has(itemKey(item))) && !filteredItems.every((item) => testrailBulkSelected.has(itemKey(item)))}
+          onChange={(_event, checked) => selectVisibleForTestrailBulk(checked)}
+          inputProps={{ 'aria-label': 'Select visible cases for TestRail bulk linking' }}
+        />
+        <Typography variant="caption" color="text.secondary">Select visible</Typography>
+        {testrailBulkSelected.size > 0 && <>
+          <Typography variant="caption" color="text.secondary">{testrailBulkSelected.size} selected</Typography>
+          <Button size="small" onClick={() => void openTestrailBulkMapping()} disabled={testrailLoading}>
+            Link selected to TestRail
+          </Button>
+          <Button size="small" onClick={() => setTestrailBulkSelected(new Set())}>Clear</Button>
+        </>}
+      </Box>
+
       {/* Item List - Compact format for test cases and scripts */}
       <Box>
         <Paper variant="outlined" sx={{ maxHeight: 400, overflow: 'auto' }}>
@@ -553,6 +727,13 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                       borderLeftColor: isSelected ? 'primary.light' : undefined,
                     }}
                   >
+                    <Checkbox
+                      size="small"
+                      checked={testrailBulkSelected.has(itemId)}
+                      onClick={(event) => event.stopPropagation()}
+                      onChange={() => toggleTestrailBulkSelection(item)}
+                      inputProps={{ 'aria-label': `Select ${itemLabel(item)} for TestRail bulk linking` }}
+                    />
                     <ListItemButton
                       onClick={() => handleItemSelect(item)}
                       selected={isSelected}
@@ -716,6 +897,23 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                             have no `script_name` for the convert call to send. Also gated
                             on the feature, since /server/virtual-script/* is not registered
                             on a deploy with DISABLED_FEATURES=virtual-scripts. */}
+                        <Box sx={{ width: 82, flex: '0 0 82px', display: 'flex', justifyContent: 'flex-end', mr: 0.25 }}>
+                          <Tooltip title={testrailMappings[testrailKey(itemLabel(item))] ? 'Change TestRail case link' : 'Link this case to TestRail'}>
+                            <Button
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                void openTestrailMapping(item);
+                              }}
+                              sx={{ minWidth: 78, px: 0.5, py: 0, fontSize: '0.65rem', lineHeight: 1.5, whiteSpace: 'nowrap' }}
+                            >
+                              {testrailMappings[testrailKey(itemLabel(item))]
+                                ? `TR C${testrailMappings[testrailKey(itemLabel(item))].case_id}`
+                                : '+ TestRail'}
+                            </Button>
+                          </Tooltip>
+                        </Box>
+
                         {item.type === 'script' && virtualScriptsEnabled && (
                           <Tooltip title="Save this disk script as a virtual script (editable in-app, no redeploy). Creates/updates its dev version.">
                             <span>
@@ -812,6 +1010,76 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
           </Typography>
         )}
       </Box>
+
+      <Dialog open={Boolean(testrailTarget)} onClose={() => !testrailSaving && setTestrailTarget(null)} fullWidth maxWidth="sm">
+        <DialogTitle>Link to a TestRail case</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            {testrailTarget ? itemLabel(testrailTarget) : ''}
+          </Typography>
+          {testrailLoading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box> : (
+            <Autocomplete
+              options={testrailCases}
+              value={testrailCaseSelection}
+              onChange={(_event, value) => setTestrailCaseSelection(value)}
+              getOptionLabel={(option) => `C${option.id} · ${option.title}${option.suite_name ? ` · ${option.suite_name}` : ''}`}
+              isOptionEqualToValue={(option, value) => option.id === value.id}
+              renderInput={(params) => <TextField {...params} autoFocus label="TestRail case" placeholder="Search by case ID or title" />}
+              noOptionsText="No cases found in the connected TestRail project"
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          {testrailTarget && testrailMappings[testrailKey(itemLabel(testrailTarget))] && (
+            <Button color="error" onClick={() => void removeTestrailMapping()} disabled={testrailSaving}>Remove link</Button>
+          )}
+          <Box sx={{ flex: 1 }} />
+          <Button onClick={() => setTestrailTarget(null)} disabled={testrailSaving}>Cancel</Button>
+          <Button variant="contained" onClick={() => void saveTestrailMapping()} disabled={testrailSaving || testrailLoading || !testrailCaseSelection}>
+            {testrailSaving ? <CircularProgress size={18} /> : 'Link case'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={testrailBulkOpen} onClose={() => !testrailSaving && setTestrailBulkOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>Review TestRail links · {testrailBulkTargets.length} selected</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+            Exact title matches are preselected. Review each row; only rows with a TestRail case selected will be linked.
+          </Typography>
+          {testrailLoading ? <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}><CircularProgress size={24} /></Box> : (
+            <Box sx={{ maxHeight: '55vh', overflowY: 'auto' }}>
+              {testrailBulkTargets.map((item) => {
+                const key = itemKey(item);
+                return (
+                  <Box key={key} sx={{ display: 'grid', gridTemplateColumns: 'minmax(180px, 0.8fr) minmax(280px, 1.2fr)', alignItems: 'center', gap: 1, py: 0.75, borderBottom: 1, borderColor: 'divider' }}>
+                    <Typography variant="body2" title={itemLabel(item)} sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{itemLabel(item)}</Typography>
+                    <Autocomplete
+                      size="small"
+                      options={testrailCases}
+                      value={testrailBulkAssignments[key] || null}
+                      onChange={(_event, value) => setTestrailBulkAssignments((current) => ({ ...current, [key]: value }))}
+                      getOptionLabel={(option) => `C${option.id} · ${option.title}${option.suite_name ? ` · ${option.suite_name}` : ''}`}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      renderInput={(params) => <TextField {...params} placeholder="Choose TestRail case" />}
+                      noOptionsText="No cases found in the connected TestRail project"
+                    />
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Typography variant="caption" color="text.secondary" sx={{ mr: 'auto', ml: 2 }}>
+            {Object.values(testrailBulkAssignments).filter(Boolean).length} mappings ready
+          </Typography>
+          <Button onClick={() => setTestrailBulkOpen(false)} disabled={testrailSaving}>Cancel</Button>
+          <Button variant="contained" onClick={() => void saveTestrailBulkMappings()} disabled={testrailSaving || testrailLoading || !Object.values(testrailBulkAssignments).some(Boolean)}>
+            {testrailSaving ? <CircularProgress size={18} /> : `Link ${Object.values(testrailBulkAssignments).filter(Boolean).length} cases`}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {identityTarget && (() => {
         const current = resolveScript(identityTarget.scriptRef);

@@ -10,7 +10,7 @@ A workspace narrows what a user sees to a subset of the fleet. It is **three all
 
 > **There is no "give me the filtered scripts" endpoint.** The list APIs return everything, exactly as they do without workspaces. The client fetches the workspace once and filters the responses itself. One endpoint is the exception — see [Execution history](#execution-history-the-one-server-side-filter).
 
-> **This is scoping, not authorization.** Team isolation is `team_id` + RLS on the server. Workspace filters shape what a user is *shown*. The workspace's `permissions` / `denied_permissions` fields are a separate mechanism — see `technical/permissions/PERMISSION_PLAN.md`.
+> **This is scoping, not authorization.** Team isolation is `team_id` + RLS on the server. Workspace filters shape what a user is *shown*. The workspace's `permissions` / `denied_permissions` fields are a separate mechanism — see `agent/platform/USER_PERMISSION.md` §5.
 
 ---
 

@@ -216,6 +216,7 @@ def _apply_auto_sign_context() -> None:
     request.user_role = _get_auto_sign_role()
     request.user_metadata = {'auto_sign': True}
     request.user_permissions = []
+    request.user_team_permissions = []
     request.user_denied_permissions = []
 
 
@@ -433,13 +434,26 @@ def require_user_auth(f: Callable) -> Callable:
             request.user_email = payload.get('email')
             meta = payload.get('user_metadata', {})
             app_meta = payload.get('app_metadata', {})
-            # Role lives in app_metadata (server-controlled, synced from
-            # profiles.role by the on_profile_role_sync trigger). Fall back to
-            # user_metadata for tokens minted before the sync existed.
-            request.user_role = app_meta.get('role') or meta.get('role', 'viewer')
+            # Role AND permissions live in app_metadata — server-controlled, written
+            # only by the SECURITY DEFINER on_profile_role_sync trigger from the
+            # profiles row. user_metadata is writable by the user themselves
+            # (signUp({options:{data}}), PUT /auth/v1/user), so reading either from
+            # there let any account grant itself permissions, and let a token with no
+            # app_metadata.role assert its own. No fallback: a missing claim means
+            # 'viewer' and an empty grant list, which is fail-closed. Tokens minted
+            # before the sync existed get the real values on their next refresh.
+            request.user_role = app_meta.get('role', 'viewer')
             request.user_metadata = meta
-            request.user_permissions = meta.get('permissions', [])
-            request.user_denied_permissions = meta.get('denied_permissions', [])
+            request.user_app_metadata = app_meta
+            request.user_permissions = app_meta.get('permissions', [])
+            request.user_team_permissions = app_meta.get('team_permissions', [])
+            request.user_denied_permissions = app_meta.get('denied_permissions', [])
+            # TASK-23: tenant_ids + is_platform_admin land in app_metadata via the
+            # sync_user_claims_to_auth() trigger. Read them here so route code and
+            # decorators can gate without a second DB round trip. Fallbacks land in
+            # _caller_tenant_ids() / _caller_is_platform_admin() below.
+            request.user_tenant_ids = app_meta.get('tenant_ids', []) or []
+            request.user_is_platform_admin = bool(app_meta.get('is_platform_admin', False))
             
             # Log successful authentication
             print(f"[@auth_middleware] ✅ User authenticated: {request.user_email} (role: {request.user_role})")
@@ -474,6 +488,385 @@ def require_user_auth(f: Callable) -> Callable:
         return f(*args, **kwargs)
     
     return decorated_function
+
+
+# HTTP methods that cannot change server state. Everything else counts as a write,
+# regardless of what the handler actually does — this codebase POSTs for plenty of
+# reads, and the exceptions are listed below rather than inferred.
+READ_ONLY_METHODS = frozenset({'GET', 'HEAD', 'OPTIONS'})
+
+# Read-shaped POST endpoints a 'viewer' still needs, as exact paths or path prefixes.
+#
+# The viewer role is meant to be read-only, so the rule is default-deny and every entry
+# here earns its line by being walked in the UI and confirmed non-mutating — never by
+# looking at a route name, which would put /executeBatch and /upload next to /getStatus.
+#
+# Populated from a Playwright walk of every viewer-visible page (TASK-22 test 2): the
+# whole UI produced exactly three distinct 403s, and only these two are reads. Both
+# hand back a pre-signed URL for *reading* a private object and write nothing; they are
+# POST only because the object path travels in a JSON body. Without them the Heatmap
+# page cannot fetch its captures.
+VIEWER_WRITE_EXEMPT_PREFIXES: tuple = (
+    '/server/storage/signed-url',
+    '/server/storage/signed-urls-batch',
+    # Mints the short-lived HttpOnly cookie scoped to /host/<name>/ that the stream
+    # player needs (BUG-0107). It signs a JWT and sets a cookie — it writes nothing.
+    # Without it every device tile sits on "Loading stream..." forever for a viewer.
+    '/server/host-session/session',
+)
+
+
+def _requested_team_id() -> str:
+    """The team_id the caller is asking for, from the query string or a JSON body."""
+    tid = (request.args.get('team_id') or '').strip()
+    if tid:
+        return tid
+    if request.method in READ_ONLY_METHODS:
+        return ''
+    data = request.get_json(silent=True) or {}
+    value = data.get('team_id')
+    return str(value).strip() if value else ''
+
+
+def _caller_team_ids() -> set:
+    """
+    Teams the authenticated caller belongs to: home team + every team_members row.
+
+    From the `team_ids` claim in app_metadata (written only by the database trigger),
+    with a database lookup as fallback so tokens minted before the claim existed keep
+    working for their remaining lifetime instead of locking the user out for an hour.
+    Cached on the request — this runs in a before_request on every /server/* call.
+    """
+    cached = getattr(request, '_vpt_team_ids', None)
+    if cached is not None:
+        return cached
+
+    claim = (getattr(request, 'user_app_metadata', None) or {}).get('team_ids')
+    if isinstance(claim, list):
+        ids = {str(t) for t in claim if t}
+    else:
+        ids = _team_ids_from_db(getattr(request, 'user_id', None))
+
+    request._vpt_team_ids = ids
+    return ids
+
+
+def _team_ids_from_db(user_id: Optional[str]) -> set:
+    """Fallback lookup for a token with no team_ids claim. Empty set on any failure — deny."""
+    if not user_id:
+        return set()
+    try:
+        from shared.src.lib.utils.supabase_utils import get_supabase_admin
+        sb = get_supabase_admin()
+        if sb is None:
+            return set()
+        ids = set()
+        profile = sb.table('profiles').select('team_id').eq('id', user_id).limit(1).execute()
+        for row in (profile.data or []):
+            if row.get('team_id'):
+                ids.add(str(row['team_id']))
+        members = sb.table('team_members').select('team_id').eq('user_id', user_id).execute()
+        for row in (members.data or []):
+            if row.get('team_id'):
+                ids.add(str(row['team_id']))
+        return ids
+    except Exception as e:
+        print(f"[@auth_middleware] team_ids lookup failed for {user_id}: {e}")
+        return set()
+
+
+def _caller_tenant_ids() -> set:
+    """
+    Tenants the authenticated caller belongs to.
+
+    From the `tenant_ids` claim in app_metadata (written only by the database
+    trigger from the `user_tenants` junction), with a database fallback so
+    tokens minted before TASK-23 (or before a recent refresh) keep working for
+    their remaining lifetime. Cached on the request — the JWT decode block
+    already populates `request.user_tenant_ids`, this just hydrates the set
+    form and handles the no-claim case.
+
+    Returns an empty set on any failure, so the caller fails closed (every
+    team-scoped route will deny).
+    """
+    cached = getattr(request, '_vpt_tenant_ids', None)
+    if cached is not None:
+        return cached
+
+    claim = getattr(request, 'user_tenant_ids', None)
+    if isinstance(claim, list) and claim:
+        ids = {str(t) for t in claim if t}
+    else:
+        ids = _tenant_ids_from_db(getattr(request, 'user_id', None))
+
+    request._vpt_tenant_ids = ids
+    return ids
+
+
+def _tenant_ids_from_db(user_id: Optional[str]) -> set:
+    """Fallback lookup for a token with no tenant_ids claim. Empty set on any failure — deny."""
+    if not user_id:
+        return set()
+    try:
+        from shared.src.lib.utils.supabase_utils import get_supabase_admin
+        sb = get_supabase_admin()
+        if sb is None:
+            return set()
+        rows = (
+            sb.table('user_tenants')
+            .select('tenant_id')
+            .eq('user_id', user_id)
+            .execute()
+        ).data or []
+        return {str(r['tenant_id']) for r in rows if r.get('tenant_id')}
+    except Exception as e:
+        print(f"[@auth_middleware] tenant_ids lookup failed for {user_id}: {e}")
+        return set()
+
+
+def _caller_is_platform_admin() -> bool:
+    """
+    Whether the authenticated caller is a platform super admin.
+
+    From the `is_platform_admin` claim in app_metadata, with a database
+    fallback for tokens minted before the claim existed. Cached per request.
+    A platform admin is exempt from the tenant boundary check — they see
+    every tenant's teams, like the existing `role = 'admin'` exemption in
+    enforce_team_scope().
+    """
+    cached = getattr(request, '_vpt_is_platform_admin', None)
+    if cached is not None:
+        return cached
+
+    claim = getattr(request, 'user_is_platform_admin', None)
+    if isinstance(claim, bool):
+        is_pa = claim
+    else:
+        is_pa = _is_platform_admin_from_db(getattr(request, 'user_id', None))
+
+    request._vpt_is_platform_admin = is_pa
+    return is_pa
+
+
+def _is_platform_admin_from_db(user_id: Optional[str]) -> bool:
+    """Fallback lookup for the is_platform_admin flag. False on any failure — deny."""
+    if not user_id:
+        return False
+    try:
+        from shared.src.lib.utils.supabase_utils import get_supabase_admin
+        sb = get_supabase_admin()
+        if sb is None:
+            return False
+        row = (
+            sb.table('profiles')
+            .select('is_platform_admin')
+            .eq('id', user_id)
+            .limit(1)
+            .execute()
+        ).data or []
+        if not row:
+            return False
+        return bool(row[0].get('is_platform_admin', False))
+    except Exception as e:
+        print(f"[@auth_middleware] is_platform_admin lookup failed for {user_id}: {e}")
+        return False
+
+
+def enforce_team_scope():
+    """
+    Refuse a request that names a team the caller does not belong to.
+
+    `team_id` is the multi-tenancy boundary for ~45 tables, but 140 `/server/*` routes
+    read it straight from `request.args` and nothing validated it. Proven on the live
+    system 2026-09-17: a viewer belonging only to Default Team read another team's
+    script_results by changing one query parameter, HTTP 200. That is a cross-tenant
+    read for any logged-in account, and a write for anyone above viewer.
+
+    Enforced here rather than in 140 routes, for the same reason as the viewer floor:
+    a per-route check is a rule with 140 chances to be forgotten.
+
+    Exempt:
+      * `service` — the shared X-API-Key principal (host callbacks, CI, provisioning)
+        legitimately acts across teams; it is not a browser user.
+      * `admin` — platform administrators manage every team, matching how
+        require_permission() already treats them.
+      * requests naming no team — the route's own `team_id is required` check applies.
+
+    Returns a 403 response tuple, or None to continue.
+    """
+    role = getattr(request, 'user_role', None)
+    if role in (None, 'service', 'admin'):
+        return None
+    # TASK-23: a platform admin (super admin) is exempt from the tenant boundary
+    # check — they see every tenant's teams, like a regular admin. The
+    # is_platform_admin flag is JWT-sourced with a DB fallback for stale tokens.
+    if _caller_is_platform_admin():
+        return None
+
+    requested = _requested_team_id()
+    if not requested:
+        return None
+
+    if requested in _caller_team_ids():
+        return None
+
+    print(f"[@auth_middleware] \u26d4 team scope: {getattr(request, 'user_email', '?')} "
+          f"asked for team {requested} on {request.method} {request.path}")
+    return jsonify({
+        'error': 'Forbidden',
+        'message': 'You do not belong to the team this request names.',
+    }), 403
+
+
+def enforce_viewer_read_only():
+    """
+    Block state-changing requests from a 'viewer' principal.
+
+    Runs in the global /server/* guard (app.py), after a principal has been
+    established — so it covers every route, including the ~234 write routes that
+    carry no @require_permission of their own. Per-route decorators stay in force;
+    this is the floor under them, not a replacement.
+
+    Returns a 403 response tuple for a denied write, or None to continue.
+    """
+    if request.method in READ_ONLY_METHODS:
+        return None
+
+    # Missing attribute = the request never reached the auth branches (an
+    # unauthenticated-prefix route such as a host callback). Those are exempt by
+    # construction and are not a viewer's requests.
+    if getattr(request, 'user_role', None) != 'viewer':
+        return None
+
+    path = request.path or ''
+    if any(path == prefix or path.startswith(f'{prefix}/')
+           for prefix in VIEWER_WRITE_EXEMPT_PREFIXES):
+        return None
+
+    print(f"[@auth_middleware] ⛔ viewer blocked from {request.method} {path}")
+    return jsonify({
+        'error': 'Forbidden',
+        'message': 'The viewer role is read-only; this request changes state.',
+        'user_role': 'viewer'
+    }), 403
+
+
+def principal_from_jwt_claims(payload: dict) -> dict:
+    """Turn a verified Supabase JWT payload into a principal dict.
+
+    Role and grants come from `app_metadata` ONLY — it is written by the SECURITY DEFINER
+    `on_profile_role_sync` trigger from the profiles row. `user_metadata` is writable by the
+    user themselves, so reading authorization out of it lets any account grant itself
+    anything. A missing claim means 'viewer' with no grants, which is fail-closed.
+    """
+    app_meta = payload.get('app_metadata', {}) or {}
+    return {
+        'user_id': payload.get('sub'),
+        'user_email': payload.get('email'),
+        'user_role': app_meta.get('role', 'viewer'),
+        'user_metadata': payload.get('user_metadata', {}) or {},
+        'user_app_metadata': app_meta,
+        'user_permissions': app_meta.get('permissions', []),
+        'user_team_permissions': app_meta.get('team_permissions', []),
+        'user_denied_permissions': app_meta.get('denied_permissions', []),
+    }
+
+
+def _shared_principal(user_id: str, email: str, role: str, marker: str) -> dict:
+    """A principal that is not one person: the service key, open mode, a public key."""
+    return {
+        'user_id': user_id,
+        'user_email': email,
+        'user_role': role,
+        'user_metadata': {marker: True},
+        'user_app_metadata': {},
+        'user_permissions': [],
+        'user_team_permissions': [],
+        'user_denied_permissions': [],
+        'shared': True,
+    }
+
+
+def _handshake_auto_signed(auth: dict) -> bool:
+    """Auto-sign token presented in the socket handshake payload instead of a header/query."""
+    if not _is_auto_sign_enabled():
+        return False
+    expected = _get_auto_sign_token()
+    provided = (auth.get('auto_sign') or '').strip()
+    if not expected or not provided or provided != expected:
+        return False
+    _log_auto_sign_enabled_once()
+    _apply_auto_sign_context()
+    return True
+
+
+def _handshake_server_key(auth: dict) -> bool:
+    """SERVER_PUBLIC_KEY presented in the socket handshake payload instead of X-Server-Key."""
+    if not is_server_public_key_configured():
+        return False
+    provided = (auth.get('server_key') or '').strip()
+    return bool(provided) and provided == (os.getenv('SERVER_PUBLIC_KEY') or '').strip()
+
+
+def authorize_socket_connection(auth: Optional[dict]) -> Optional[dict]:
+    """Authorize a Socket.IO handshake. Returns a principal dict, or None to refuse.
+
+    Socket.IO connects over its own handshake at /socket.io/, which never passes through the
+    global /server/* guard in app.py — so every namespace was reachable by anyone who could
+    open a socket, whatever the HTTP posture. This is that guard's decision, for sockets, and
+    it deliberately mirrors it axis for axis so a deployment cannot be closed over HTTP and
+    open over WebSocket:
+
+        X-API-Key (handshake header) -> auto-sign -> open mode -> user JWT -> public key -> refuse
+
+    Credentials arrive in the handshake `auth` payload (`io(url, { auth: {...} })`) rather
+    than in headers, because a browser WebSocket cannot set them. The payload mirrors what
+    installFetchAuth.ts puts on every HTTP request — `token`, `server_key`, `auto_sign` —
+    and headers are still honoured for non-browser clients (python-socketio, CI) that can
+    send them.
+
+    Returning None makes the connect handler return False, which socket.io reports to the
+    client as a connection error — it does not silently half-connect.
+    """
+    auth = auth or {}
+
+    # Same order as enforce_user_auth_if_enabled_for_request(). A *present* key is validated
+    # strictly and never falls through to a weaker branch.
+    if request.headers.get('X-API-Key') is not None:
+        if not _is_valid_service_api_key():
+            return None
+        return _shared_principal('service_api_key', 'service@local', 'service', 'service_api_key')
+
+    if _is_request_auto_signed() or _handshake_auto_signed(auth):
+        return _shared_principal('auto_sign', 'auto@local', _get_auto_sign_role(), 'auto_signed')
+
+    if is_server_open_mode():
+        _log_open_mode_warning_once()
+        return _shared_principal('open_mode', 'open@local', _get_server_public_role(), 'server_open_mode')
+
+    jwt_secret = _get_supabase_jwt_secret()
+    if jwt_secret:
+        token = (auth.get('token') or '').strip()
+        if not token:
+            header = request.headers.get('Authorization', '')
+            if header.startswith('Bearer '):
+                token = header[len('Bearer '):].strip()
+        if not token:
+            print("[@auth_middleware:socket] ⛔ refused: no token in handshake")
+            return None
+        try:
+            return principal_from_jwt_claims(_decode_supabase_jwt(token, jwt_secret))
+        except jwt.InvalidTokenError as e:
+            print(f"[@auth_middleware:socket] ⛔ refused: invalid token ({e})")
+            return None
+
+    # The no-Supabase posture. A browser socket cannot set X-Server-Key, so the SPA puts the
+    # same published key in the handshake payload; the cookie path still covers navigations.
+    if _is_valid_server_public_key() or _handshake_server_key(auth):
+        return _shared_principal('public_key', 'public@local', _get_server_public_role(), 'server_public_key')
+
+    print("[@auth_middleware:socket] ⛔ refused: no credential and no open-mode posture")
+    return None
 
 
 def require_role(*allowed_roles: str) -> Callable:
@@ -524,15 +917,75 @@ def require_role(*allowed_roles: str) -> Callable:
     return decorator
 
 
+ROLE_DEFAULT_PERMISSIONS: dict = {
+    'tester': {
+        'dashboard:view',
+        'device_control:view', 'device_control:execute',
+        'testcases:view', 'testcases:create', 'testcases:edit', 'testcases:hide',
+        'campaigns:view', 'campaigns:create', 'campaigns:edit', 'campaigns:execute',
+        'builder.test:view', 'builder.test:use',
+        'builder.campaign:view', 'builder.campaign:use',
+        'execution.run:view', 'execution.run:run_test', 'execution.run:run_campaign',
+        'execution.monitor:view',
+        'reports.tests:view', 'reports.campaigns:view',
+        'reports.models:view', 'reports.dependency:view',
+        'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
+        'interface:view',
+        'ai_agent:view', 'ai_agent:use',
+        'plugins.jira:view', 'plugins.jira:manage', 'plugins.testrail:view',
+        'settings.status:view',
+    },
+    'viewer': {
+        'dashboard:view',
+        'testcases:view', 'campaigns:view',
+        'reports.tests:view', 'reports.campaigns:view',
+        'reports.models:view', 'reports.dependency:view',
+        'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
+        'settings.status:view',
+    },
+}
+
+# 'admin' is deliberately absent: it never consults this table (principal_holds_permission
+# answers True before reaching it), and spelling out every permission here would be a fourth
+# copy of the vocabulary to keep in step with frontend/src/types/auth.ts.
+
+
+def principal_holds_permission(permission: str) -> bool:
+    """Does the current request's principal hold `permission`?
+
+    The one implementation of the resolution order, shared by @require_permission and by the
+    routes that need the same answer mid-handler rather than as a gate:
+
+      1. admin / service  -> always true, denials never consulted
+      2. explicit denial  -> false
+      3. role defaults | team grants | individual grants -> membership
+
+    One implementation on purpose. This arithmetic had already been written out three times
+    (here, the matrix API, the frontend PermissionContext) and the copies disagreed - see
+    BUG-0154. Call this instead of re-deriving it.
+    """
+    user_role = getattr(request, 'user_role', None)
+    if user_role in ADMIN_ROLES:
+        return True
+
+    if permission in set(getattr(request, 'user_denied_permissions', []) or []):
+        return False
+
+    allowed = (
+        ROLE_DEFAULT_PERMISSIONS.get(user_role, set())
+        | set(getattr(request, 'user_team_permissions', []) or [])
+        | set(getattr(request, 'user_permissions', []) or [])
+    )
+    return permission in allowed
+
+
 def require_permission(permission: str) -> Callable:
     """
     Decorator to require a specific fine-grained permission (resource:action format).
-    Must be used AFTER @require_user_auth.
+    Must be used AFTER @require_user_auth, or after the global /server/* guard that sets
+    request.user_role.
 
-    Permission resolution order:
-      1. Admin role → always allowed
-      2. Denied permissions on request → reject
-      3. Role defaults + individual grants → check membership
+    Resolution lives in principal_holds_permission(); this only turns a False into a 403.
 
     Args:
         permission: e.g. 'testcases:hide', 'execution.run:run_test'
@@ -548,59 +1001,13 @@ def require_permission(permission: str) -> Callable:
 
             user_role = request.user_role
 
-            # Admin has all permissions (denials do not apply to admin)
-            if user_role == 'admin':
-                print(f"[@auth_middleware] ✅ Admin has permission: {permission}")
-                return f(*args, **kwargs)
-
-            # The shared X-API-Key principal (host->server callbacks, provisioning, CI,
-            # backend->backend). It has no entry in the role matrix, so without this it
-            # would fail every permission check and break host callbacks. Same rationale
-            # as ADMIN_ROLES above: the key already drives /host/* directly.
-            if user_role == 'service':
-                return f(*args, **kwargs)
-
-            denied = set(getattr(request, 'user_denied_permissions', []))
-            if permission in denied:
-                return jsonify({
-                    'error': 'Forbidden',
-                    'message': f'Permission explicitly denied: {permission}',
-                    'user_role': user_role
-                }), 403
-
-            # Role defaults (resource:action format)
-            role_defaults: dict = {
-                'tester': {
-                    'dashboard:view',
-                    'device_control:view', 'device_control:execute',
-                    'testcases:view', 'testcases:create', 'testcases:edit', 'testcases:hide',
-                    'campaigns:view', 'campaigns:create', 'campaigns:edit', 'campaigns:execute',
-                    'builder.test:view', 'builder.test:use',
-                    'builder.campaign:view', 'builder.campaign:use',
-                    'execution.run:view', 'execution.run:run_test', 'execution.run:run_campaign',
-                    'execution.monitor:view',
-                    'reports.tests:view', 'reports.campaigns:view',
-                    'reports.models:view', 'reports.dependency:view',
-                    'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
-                    'interface:view',
-                    'ai_agent:view', 'ai_agent:use',
-                    'plugins.jira:view', 'plugins.jira:manage',
-                    'settings.status:view',
-                },
-                'viewer': {
-                    'dashboard:view',
-                    'testcases:view', 'campaigns:view',
-                    'reports.tests:view', 'reports.campaigns:view',
-                    'reports.models:view', 'reports.dependency:view',
-                    'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
-                    'settings.status:view',
-                },
-            }
-
-            individual_grants = set(getattr(request, 'user_permissions', []))
-            allowed = role_defaults.get(user_role, set()) | individual_grants
-
-            if permission not in allowed:
+            if not principal_holds_permission(permission):
+                if permission in set(getattr(request, 'user_denied_permissions', []) or []):
+                    return jsonify({
+                        'error': 'Forbidden',
+                        'message': f'Permission explicitly denied: {permission}',
+                        'user_role': user_role
+                    }), 403
                 return jsonify({
                     'error': 'Forbidden',
                     'message': f'This endpoint requires permission: {permission}',
@@ -672,11 +1079,15 @@ def optional_user_auth(f: Callable) -> Callable:
                 app_meta = payload.get('app_metadata', {})
                 request.user_id = payload.get('sub')
                 request.user_email = payload.get('email')
-                # See require_user_auth: role comes from app_metadata.
-                request.user_role = app_meta.get('role') or meta.get('role', 'viewer')
+                # See require_user_auth: role AND permissions come from app_metadata,
+                # which only the database trigger writes. Never user_metadata — the
+                # user writes that themselves.
+                request.user_role = app_meta.get('role', 'viewer')
                 request.user_metadata = meta
-                request.user_permissions = meta.get('permissions', [])
-                request.user_denied_permissions = meta.get('denied_permissions', [])
+                request.user_app_metadata = app_meta
+                request.user_permissions = app_meta.get('permissions', [])
+                request.user_team_permissions = app_meta.get('team_permissions', [])
+                request.user_denied_permissions = app_meta.get('denied_permissions', [])
 
             except Exception as e:
                 # Invalid token, but we don't reject - just continue without auth
@@ -760,6 +1171,7 @@ def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
         request.user_role = 'service'
         request.user_metadata = {'service_api_key': True}
         request.user_permissions = []
+        request.user_team_permissions = []
         request.user_denied_permissions = []
         return None
 
@@ -789,6 +1201,7 @@ def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
         request.user_role = _get_server_public_role()
         request.user_metadata = {'server_open_mode': True}
         request.user_permissions = []
+        request.user_team_permissions = []
         request.user_denied_permissions = []
         return None
 
@@ -811,6 +1224,7 @@ def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
         request.user_role = _get_server_public_role()
         request.user_metadata = {'server_public_key': True}
         request.user_permissions = []
+        request.user_team_permissions = []
         request.user_denied_permissions = []
         return None
 
@@ -840,7 +1254,7 @@ def require_admin_role(f: Callable) -> Callable:
     """Restrict a route to admin users and the service key.
 
     Use on user/team/workspace/permission administration, where a tester or viewer JWT
-    must get 403 (docs/technical/permissions/PERMISSION_PLAN.md). Runs after the global
+    must get 403 (docs/agent/platform/USER_PERMISSION.md). Runs after the global
     guard in app.py, which is what sets request.user_role, so it needs no @require_user_auth
     of its own.
     """
@@ -850,3 +1264,129 @@ def require_admin_role(f: Callable) -> Callable:
 # Aliases for common usage patterns
 require_auth = require_user_auth
 require_admin = require_role('admin')
+
+
+# ============================================================================
+# TASK-23 — Tenant decorators
+# ============================================================================
+
+
+def require_platform_admin(f: Callable) -> Callable:
+    """
+    Restrict a route to the platform super admin only.
+
+    Use for tenant CRUD (`/server/tenants/*`) and tenant grant / revoke
+    (`/server/users/:id/tenants`). The role='admin' decorator is **not** enough:
+    the maintainer's intent (Q3) is that regular admins are unaware tenants
+    exist at all, so even `role='admin'` users get 403 here.
+
+    Runs after the global guard in app.py, which sets request.user_role and
+    hydrates the is_platform_admin claim (with DB fallback). No additional
+    decorator chain needed.
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not hasattr(request, 'user_role'):
+            return jsonify({
+                'error': 'Configuration error',
+                'message': '@require_platform_admin needs request.user_role; '
+                'ensure the /server/* guard has run.'
+            }), 500
+
+        # service / X-API-Key callers legitimately act as super admin
+        # (host callbacks, CI ingest, provisioning). Same convention as require_admin_role.
+        if getattr(request, 'user_role', None) == 'service':
+            return f(*args, **kwargs)
+
+        if not _caller_is_platform_admin():
+            return jsonify({
+                'error': 'Forbidden',
+                'message': 'This endpoint requires platform-admin (super admin) access.',
+            }), 403
+
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+def require_team_in_tenant(f: Callable) -> Callable:
+    """
+    Per-route decorator: refuse if the `team_id` named by the request does not
+    belong to a tenant the caller has membership in.
+
+    Use on the ~140 team-scoped routes that read `team_id` straight from
+    `request.args` / `request.json` / URL kwargs and otherwise trust the
+    caller. Stacking this on top of `@require_user_auth` (or the global
+    /server/* guard) makes the tenant filter per-route rather than per-handler:
+
+        @server_teams_bp.route('/<team_id>', methods=['GET'])
+        @require_user_auth
+        @require_team_in_tenant
+        def get_team(team_id): ...
+
+    Mechanism:
+      * Pull `team_id` from URL kwargs, query string, or JSON body (in that order).
+      * Resolve `team.tenant_id` from the DB (one round trip per call — the
+        callers are already paying an auth round trip in their route).
+      * Platform admins / service callers are exempt (same convention as
+        enforce_team_scope()).
+      * Otherwise, the team's tenant_id must be in the caller's
+        `_caller_tenant_ids()` set.
+
+    Returns a 403 response tuple on mismatch, or None to continue (the
+    decorator returns the wrapped function's result via the JSON 403 path).
+    """
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        requested = (
+            kwargs.get('team_id')
+            or request.args.get('team_id')
+            or ((request.get_json(silent=True) or {}).get('team_id'))
+        )
+        if not requested:
+            # No team named — the route's own `team_id is required` validation applies.
+            return f(*args, **kwargs)
+
+        if _caller_is_platform_admin():
+            return f(*args, **kwargs)
+
+        if getattr(request, 'user_role', None) == 'service':
+            return f(*args, **kwargs)
+
+        team_tenant_id = _team_tenant_id_from_db(requested)
+        if team_tenant_id is None:
+            # Team doesn't exist or lookup failed. Defer to the route's own
+            # 404 logic — the decorator is about scope, not existence.
+            return f(*args, **kwargs)
+
+        if team_tenant_id in _caller_tenant_ids():
+            return f(*args, **kwargs)
+
+        print(f"[@auth_middleware] \u26d4 tenant scope: {getattr(request, 'user_email', '?')} "
+              f"asked for team {requested} (tenant {team_tenant_id}) on {request.method} {request.path}")
+        return jsonify({
+            'error': 'Forbidden',
+            'message': 'You do not belong to the tenant that owns this team.',
+        }), 403
+    return decorated_function
+
+
+def _team_tenant_id_from_db(team_id: str) -> Optional[str]:
+    """Resolve a team's tenant_id. None if the team is missing or lookup fails."""
+    try:
+        from shared.src.lib.utils.supabase_utils import get_supabase_admin
+        sb = get_supabase_admin()
+        if sb is None:
+            return None
+        rows = (
+            sb.table('teams')
+            .select('tenant_id')
+            .eq('id', team_id)
+            .limit(1)
+            .execute()
+        ).data or []
+        if not rows:
+            return None
+        return str(rows[0].get('tenant_id') or '') or None
+    except Exception as e:
+        print(f"[@auth_middleware] team.tenant_id lookup failed for {team_id}: {e}")
+        return None

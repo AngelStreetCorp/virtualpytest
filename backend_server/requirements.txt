@@ -131,4 +131,3 @@ python-multipart>=0.0.6 # FastAPI file upload support
 
 # Security scanning tools (for development/CI)
 bandit>=1.7.0
-safety>=3.0.0

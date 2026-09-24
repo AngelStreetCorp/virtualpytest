@@ -8,6 +8,7 @@ from flask import Blueprint, send_from_directory, request, current_app, jsonify
 from werkzeug.utils import secure_filename
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
 from shared.src.lib.utils.storage_path_utils import get_capture_folder, get_capture_storage_path, get_stream_base_path, sanitize_folder_name
+from shared.src.lib.utils.app_utils import cors_allowed_origins
 
 
 def _is_under(base_path: str, file_path: str) -> bool:
@@ -33,8 +34,24 @@ def _add_stream_cors_headers(response):
 
     `setdefault` so a handler that already set a header (or a future stricter
     origin) is never duplicated or overridden.
+
+    The origin is echoed, not `*`, whenever the caller sends one we allow. These
+    paths now sit behind the host-session cookie gate (BUG-0107 step 2), and a
+    cross-origin caller that must send that cookie fetches with credentials — for
+    which the browser rejects a wildcard `Access-Control-Allow-Origin` outright,
+    whatever the status code. That is the mobile app: a Capacitor shell on its own
+    `https://localhost` origin, so every stream request it makes is cross-origin.
+    `*` is kept for callers that send no Origin or an unlisted one, so a plain
+    uncredentialed fetch of a public stream keeps working exactly as before.
     """
-    response.headers.setdefault('Access-Control-Allow-Origin', '*')
+    origin = request.headers.get('Origin')
+    if origin and origin.rstrip('/') in (cors_allowed_origins() or []):
+        response.headers.setdefault('Access-Control-Allow-Origin', origin)
+        response.headers.setdefault('Access-Control-Allow-Credentials', 'true')
+        # The cached response for one origin must not be replayed to another.
+        response.headers.add('Vary', 'Origin')
+    else:
+        response.headers.setdefault('Access-Control-Allow-Origin', '*')
     response.headers.setdefault('Access-Control-Allow-Methods', 'GET, OPTIONS')
     response.headers.setdefault('Access-Control-Allow-Headers', 'Content-Type, Range')
     response.headers.setdefault('Access-Control-Expose-Headers', 'Content-Length, Content-Range')

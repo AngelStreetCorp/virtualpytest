@@ -9,6 +9,19 @@ tmp/
 frontend/vite.config.local.json
 frontend/public/branding.json
 docs/agent/leak-terms.local.txt
+docs/agent/agent-env.local.sh
+
+# Agent docs that describe THIS deployment rather than the software: private IPs, VM
+# inventory, ssh aliases, per-host runbooks, and one point-in-time validation report.
+# Untracked on purpose — the public snapshot is `git archive`, so untracked never ships.
+# Anything internal that must stay IN the repo goes in scripts/security/internal-paths.txt
+# instead (tracked, stripped only at publish) — e.g. docs/agent/release/.
+docs/agent/infra/
+docs/agent/TROUBLESHOOT.md
+docs/agent/devices/EMULATOR.md
+docs/agent/devices/ANDROID_EMULATOR_TROUBLESHOOT.md
+docs/agent/validation/AGENT_API_TESTING.md
+docs/agent/validation/validation_stb_tv/
 __pycache__/
 .claude
 .codex
@@ -46,6 +59,7 @@ backend_server/scripts/backup_grafana_db.sh
 
 # Integration credentials (JIRA API tokens, Slack bot tokens, etc.)
 backend_server/config/integrations/jira_instances.json
+backend_server/config/integrations/testrail.json
 backend_server/config/integrations/slack_config.json
 backend_server/config/integrations/slack_threads.json
 
@@ -102,6 +116,11 @@ setup/proxmox/node/update_core.sh
 # Generated API docs assets copied at frontend prebuild/runtime
 frontend/public/docs/api/specs/
 frontend/public/docs/api/interactive.html
+
+# Analytics Project tab, written by prebuild step 6. Not committed: the build
+# number in it bumps on EVERY commit (the pre-commit hook bumps VERSION.txt), so
+# tracking it would put a churning diff in every single changeset.
+frontend/public/analytics/
 
 # Playwright generated test artifacts
 tests/e2e/playwright/test-results/
@@ -161,10 +180,7 @@ docs/_archive/
 docs/.obsidian/
 pitch-deck/
 docs/tasks/images/intruth-debate-factcheck-reference.png
-docs/agent/infra/INFRA.md
-docs/agent/infra/DISASTER_RECOVERY.md
 docs/tasks/TASK-12-disaster-recovery-offsite-backup.md
-docs/agent/infra/NEW_HOST_VM.md
 vitest-results.json
 # vitest's own cache dir, created by a local test run
 tests/frontend/.vite/

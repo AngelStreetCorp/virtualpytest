@@ -182,7 +182,7 @@ def get_verification_review_markdown_route(script_result_id):
             '## How To Verify False Positives',
             '1. Validate screenshot/report evidence against failure logs.',
             '2. Distinguish script timing/selector issues from real product regressions.',
-            '3. Mark `discard=true` only for `SCRIPT_ISSUE` or `SYSTEM_ISSUE`.',
+            '3. Mark `discard=true` only for `SCRIPT_ISSUE` or `SYSTEM_ISSUE`; keep external blocks as `EXTERNAL_BLOCK` with `discard=false`.',
         ])
 
     return jsonify({

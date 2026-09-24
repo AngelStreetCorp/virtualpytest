@@ -69,7 +69,7 @@ PIN="$(sed -n 's/^PIN=//p' "${OVERLAY_DIR}/customer.conf" | head -1)"; PIN="${PI
 
 # Self-check: a note missing a section means the generator failed quietly, and an empty roll-out
 # means we are about to tell a customer there is nothing to do.
-for want in '## Roll it out' '✨ Features' '| Platform |'; do
+for want in '## Roll it out' 'Features' '| Platform |'; do
   grep -q "${want}" "${NOTE}" || { echo "delivery note has no '${want}' -- not publishing" >&2; exit 1; }
 done
 

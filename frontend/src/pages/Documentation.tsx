@@ -7,7 +7,22 @@ import {
   ListSubheader,
   SelectChangeEvent,
 } from '@mui/material';
-import { ChevronRight } from '@mui/icons-material';
+import {
+  ApiOutlined,
+  ArticleOutlined,
+  AutoAwesomeOutlined,
+  BugReportOutlined,
+  BuildOutlined,
+  ChevronRight,
+  ExtensionOutlined,
+  HelpOutlineOutlined,
+  HubOutlined,
+  MenuBookOutlined,
+  NewReleasesOutlined,
+  PhotoLibraryOutlined,
+  RocketLaunchOutlined,
+  MovieOutlined,
+} from '@mui/icons-material';
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
@@ -15,6 +30,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { createDocsMarkdownComponents } from '../components/docs/markdownComponents';
 import ReleaseNotesView from '../components/docs/ReleaseNotesView';
+import IntegrationsGridView from '../components/docs/IntegrationsGridView';
 
 // Types for docs manifest
 interface DocItem {
@@ -34,12 +50,35 @@ interface DocsManifest {
   docs: DocSection[];
 }
 
+// One icon per docs section, keyed by the manifest's `section` slug. The manifest used to
+// carry an emoji inside each title string; the navigator now draws these instead, so the
+// dropdown matches the icons the rest of the app uses. A section with no entry here gets the
+// generic article icon rather than nothing, so every row keeps the same left margin.
+const SECTION_ICONS: Record<string, React.ElementType> = {
+  root: MenuBookOutlined,
+  'get-started': RocketLaunchOutlined,
+  release_note: NewReleasesOutlined,
+  features: AutoAwesomeOutlined,
+  bugs: BugReportOutlined,
+  integrations: ExtensionOutlined,
+  'user-guide': MenuBookOutlined,
+  technical: BuildOutlined,
+  faq: HelpOutlineOutlined,
+  api: ApiOutlined,
+  mcp: HubOutlined,
+  screenshots: PhotoLibraryOutlined,
+  videos: MovieOutlined,
+};
+
 // Meta/process H2 sections that are useful for contributors editing the file in-repo
 // but are noise for the in-app reader. Keyed by route `section`, stripped before render
 // so the page shows only the shipped changelog / the bug index.
 const STRIP_SECTIONS: Record<string, string[]> = {
   release_note: ['When to update this file'],
   bugs: ['How to log a bug'],
+  // The grid at the top of /docs/integrations is these two lists, so rendering them
+  // again below it would say everything twice. The README keeps them for GitHub.
+  integrations: ['Available Integrations', 'Planned'],
 };
 
 /**
@@ -128,6 +167,7 @@ const DocsNavigator: React.FC<{ currentPath: string }> = ({ currentPath }) => {
       if (!section.children || !hasFiles(section.children)) return;
       
       // Add section header
+      const SectionIcon = SECTION_ICONS[section.section] || ArticleOutlined;
       items.push(
         <ListSubheader 
           key={`section-${section.section}`}
@@ -140,8 +180,12 @@ const DocsNavigator: React.FC<{ currentPath: string }> = ({ currentPath }) => {
             py: 0.25,
             borderTop: visibleSectionIdx > 0 ? 1 : 0,
             borderColor: 'divider',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.75,
           }}
         >
+          <SectionIcon sx={{ fontSize: 16 }} />
           {section.title}
         </ListSubheader>
       );
@@ -230,11 +274,11 @@ const DocsNavigator: React.FC<{ currentPath: string }> = ({ currentPath }) => {
       if (section.path === currentPath) return section.title;
       if (section.children) {
         for (const child of section.children) {
-          if (child.path === currentPath) return `${section.title.replace(/^[^\s]+\s/, '')} › ${child.title}`;
+          if (child.path === currentPath) return `${section.title} › ${child.title}`;
           if (child.children) {
             for (const subChild of child.children) {
               if (subChild.path === currentPath) {
-                return `${child.title.replace(/^[^\s]+\s/, '')} › ${subChild.title}`;
+                return `${child.title} › ${subChild.title}`;
               }
             }
           }
@@ -419,6 +463,8 @@ const Documentation: React.FC = () => {
         <Box sx={{ width: '100%', maxWidth: '900px', mx: 'auto' }}>
           {(section === 'release_note' || section === 'bugs') && !subsection && !category && page === 'README' ? (
             <ReleaseNotesView markdown={markdown} getCurrentDocPath={getCurrentDocPath} page={page} />
+          ) : section === 'integrations' && !subsection && !category && page === 'README' ? (
+            <IntegrationsGridView markdown={markdown} getCurrentDocPath={getCurrentDocPath} page={page} />
           ) : (
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}

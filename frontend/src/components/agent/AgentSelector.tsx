@@ -5,7 +5,8 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { createServerSocket } from '../../utils/serverSocket';
 import { 
   ErrorOutline as AlertCircle, 
   AutoMode as Activity, 
@@ -61,7 +62,7 @@ export const AgentSelector: React.FC<AgentSelectorProps> = ({
     const socket: Socket = // The server, not the page. These are the same host on the web, but the mobile app serves
     // the bundle from its own https://localhost, where a socket aimed at the page origin is
     // refused forever (net::ERR_CONNECTION_REFUSED) and the app never learns any device state.
-    io(`${getServerBaseUrl()}/system`, {
+    createServerSocket(getServerBaseUrl(), '/system', {
       transports: ['websocket'],
       reconnection: true,
     });

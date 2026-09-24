@@ -4,7 +4,7 @@ Handles user profile management and team assignments
 """
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from backend_server.src.lib.auth_middleware import require_admin_role
+from backend_server.src.lib.auth_middleware import require_admin_role, _caller_is_platform_admin
 from typing import Optional
 import logging
 
@@ -54,7 +54,12 @@ def _mirror_grafana_delete(email):
 
 
 def _provision_upsert(email, data):
-    """Shared create/edit upsert + optional Grafana mirror. Returns (json, status)."""
+    """Shared create/edit upsert + optional Grafana mirror. Returns (json, status).
+
+    TASK-23: when the caller supplies `tenant` (slug or UUID) and is a platform
+    super admin, the user is created in that tenant (Q7 explicit only). The
+    caller-side check is on the route — _provision_upsert just forwards.
+    """
     try:
         result = users_db.upsert_user(
             email=email,
@@ -63,6 +68,7 @@ def _provision_upsert(email, data):
             group=data.get('group'),
             default_role=_default_role(),
             provider_type=data.get('provider_type'),
+            tenant=data.get('tenant'),
         )
     except ValueError as e:
         return {"status": "error", "error": "invalid_payload", "detail": str(e)}, 400
@@ -78,6 +84,10 @@ def _provision_upsert(email, data):
                      "full_name": result["full_name"],
                      "provider_type": result["provider_type"]},
     }
+    if data.get('tenant'):
+        # Echo back the resolved tenant so the caller knows which one was used.
+        # Only present when the caller sent `tenant` — never leaks to regular admins.
+        resp["platform"]["tenant"] = result.get("tenant") or data.get('tenant')
     if _grafana_requested():
         try:
             resp["grafana"] = _mirror_grafana_upsert(
@@ -100,6 +110,15 @@ def create_user():
     if not email:
         return jsonify({"status": "error", "error": "invalid_payload",
                         "detail": "email is required"}), 400
+    # TASK-23: `tenant` is super-admin only. Regular admins (role='admin',
+    # is_platform_admin=false) cannot scope a user into a specific tenant —
+    # they don't even know tenants exist.
+    if data.get('tenant') and not _caller_is_platform_admin():
+        return jsonify({
+            "status": "error",
+            "error": "forbidden",
+            "detail": "tenant scoping requires platform-admin (super admin) access",
+        }), 403
     body, status = _provision_upsert(email, data)
     return jsonify(body), status
 

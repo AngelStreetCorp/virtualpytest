@@ -548,8 +548,13 @@ class KPIExecutorService:
             kpi_ms = int((request.kpi_timestamp - request.action_timestamp) * 1000)
             logger.info(f"⚡ KPI already calculated during verification: {kpi_ms}ms")
             logger.info(f"   • Skipping post-processing scan")
+            # This value never opened a capture, so it carries no frame evidence and
+            # cannot be re-checked later. Record that explicitly — until now it was
+            # indistinguishable in the DB from a scanned measurement.
+            from shared.src.lib.utils.kpi_confidence import no_frame_evidence
             self._update_result(request.execution_result_id, request.team_id, True, kpi_ms, None,
-                                display_label=request.kpi_display_label)
+                                display_label=request.kpi_display_label,
+                                confidence=no_frame_evidence('live_verifier'))
             return
 
         # Live-verifier short-circuit. When the navigation step's destination
@@ -730,10 +735,32 @@ class KPIExecutorService:
                 kpi_endpoint_ts = match_result.get('kpi_endpoint_timestamp', match_result['timestamp'])
                 kpi_ms = int((kpi_endpoint_ts - request.action_timestamp) * 1000)
                 algorithm = match_result.get('algorithm', 'unknown')
+
+                # How precisely this number could have been measured: the frames are
+                # spaced 200 ms apart in hot storage and up to 1 s apart in the cold
+                # archive, and nothing used to record which of the two produced the
+                # value. Uses the FULL probe map (self._probe_outcomes), not the
+                # report-capped copy on match_result, so the bracket is exact.
+                from shared.src.lib.utils.kpi_confidence import measurement_confidence, format_precision
+                confidence = measurement_confidence(
+                    all_captures=match_result.get('all_captures') or [],
+                    match_index=match_result.get('disappear_index')
+                    if match_result.get('kpi_endpoint_timestamp') is not None
+                    else match_result.get('capture_index'),
+                    action_timestamp=request.action_timestamp,
+                    probe_outcomes=self._probe_outcomes,
+                    algorithm=algorithm,
+                    captures_scanned=match_result.get('captures_scanned', 0),
+                )
+                match_result['confidence'] = confidence
+
                 logger.info(f"✅ KPI match found!")
-                logger.info(f"   • KPI duration: {kpi_ms}ms")
+                logger.info(f"   • KPI duration: {kpi_ms}ms {format_precision(confidence)}")
                 logger.info(f"   • Algorithm: {algorithm}")
                 logger.info(f"   • Captures scanned: {match_result['captures_scanned']}")
+                logger.info(f"   • Frames: {confidence.get('fps_effective')} fps effective, "
+                            f"{confidence.get('frames_missed')} missed, "
+                            f"source={confidence.get('source')}")
 
                 # The scan IS the authoritative source for the report's
                 # "Verification (N)" cards: kpi_executor ran every reference
@@ -767,7 +794,8 @@ class KPIExecutorService:
                 report_url = generate_kpi_success_report(request, match_result, kpi_ms, working_dir, extra_before_filename)
                 
                 self._update_result(request.execution_result_id, request.team_id, True, kpi_ms, None, report_url,
-                                    display_label=request.kpi_display_label)
+                                    display_label=request.kpi_display_label,
+                                    confidence=match_result.get('confidence'))
             else:
                 algorithm = match_result.get('algorithm', 'unknown')
                 logger.error(f"❌ KPI measurement failed: {match_result['error']}")
@@ -1854,7 +1882,7 @@ class KPIExecutorService:
                     f"({captures_scanned} frames after appear) — no disappear")
         return None
 
-    def _update_result(self, execution_result_id: str, team_id: str, success: bool, kpi_ms: int, error: str, report_url: str = None, display_label: str = None):
+    def _update_result(self, execution_result_id: str, team_id: str, success: bool, kpi_ms: int, error: str, report_url: str = None, display_label: str = None, confidence: dict = None):
         """Update execution_results with KPI measurement.
 
         `display_label` is the run-level friendly name carried on the request
@@ -1872,7 +1900,8 @@ class KPIExecutorService:
                 kpi_measurement_ms=kpi_ms,
                 kpi_measurement_error=error,
                 kpi_report_url=report_url,
-                kpi_display_label=display_label
+                kpi_display_label=display_label,
+                kpi_measurement_meta=confidence,
             )
             
             if result:

@@ -75,19 +75,39 @@ def get_team(team_id: str) -> Optional[Dict]:
         return None
 
 def create_team(team_data: Dict, creator_id: str = None) -> Optional[Dict]:
-    """Create a new team."""
+    """Create a new team.
+
+    The default tenant UUID (`0000…000`) is used when `tenant_id` is not
+    provided — the same fallback as `_ensure_team` and the historical behavior.
+    TASK-23 made `teams.tenant_id` an FK to `tenants.id`; if the caller passes a
+    custom tenant_id we validate it exists first so the route can return a
+    clean 400 instead of a Postgres FK violation.
+    """
     supabase = get_supabase()
     try:
+        tenant_id = team_data.get('tenant_id')
+        if not tenant_id:
+            # Legacy callers don't pass tenant_id; the default tenant is seeded
+            # by migration 20260923a so the FK target exists.
+            tenant_id = '00000000-0000-0000-0000-000000000000'
+        else:
+            # The caller named a tenant explicitly — confirm it exists. We don't
+            # require the caller to be a super admin here; the route layer does.
+            from shared.src.lib.database.tenants_db import get_tenant
+            if not get_tenant(tenant_id):
+                print(f"[@db:teams_db:create_team] tenant_id={tenant_id} does not exist")
+                return None
+
         insert_data = {
             'name': team_data['name'],
             'description': team_data.get('description', ''),
-            'tenant_id': team_data.get('tenant_id', '00000000-0000-0000-0000-000000000000'),
+            'tenant_id': tenant_id,
             'created_by': creator_id,
             'is_default': team_data.get('is_default', False),
             'created_at': datetime.now(timezone.utc).isoformat(),
             'updated_at': datetime.now(timezone.utc).isoformat()
         }
-        
+
         if 'permissions' in team_data:
             insert_data['permissions'] = team_data['permissions']
 

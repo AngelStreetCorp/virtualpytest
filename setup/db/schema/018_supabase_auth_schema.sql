@@ -30,6 +30,13 @@ ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_provider_type_not
 ALTER TABLE public.profiles
   ADD CONSTRAINT profiles_provider_type_not_blank CHECK (length(btrim(provider_type)) > 0);
 
+-- is_platform_admin: TASK-23. Marks the user as a super admin — the only role
+-- that can see / manage tenants. Default false so no existing account is auto-
+-- promoted. Promotion is DB-only in v1:
+--   UPDATE public.profiles SET is_platform_admin = true WHERE email = …;
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS is_platform_admin BOOLEAN NOT NULL DEFAULT false;
+
 -- Enable Row Level Security
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 

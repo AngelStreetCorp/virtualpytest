@@ -61,6 +61,7 @@ export const HDMIStream = React.memo(
     // Stream state
     const [isExpanded, setIsExpanded] = useState<boolean>(false);
     const [isMinimized, setIsMinimized] = useState<boolean>(false);
+    const [isVerificationEditorMaximized, setIsVerificationEditorMaximized] = useState(false);
     const [isScreenshotLoading, setIsScreenshotLoading] = useState<boolean>(false);
     // Active verification reference type — text references don't use a fuzzy area,
     // so we disable Shift+drag fuzzy selection on the capture overlay for them.
@@ -368,12 +369,13 @@ export const HDMIStream = React.memo(
           {/* Inner content container - uses appropriate size for state */}
           <Box
             sx={{
-              width: getPanelWidth(),
-              height: getPanelHeight(),
-              position: 'absolute',
+              width: isVerificationEditorMaximized ? '62vw' : getPanelWidth(),
+              height: isVerificationEditorMaximized ? 'calc(100vh - 32px)' : getPanelHeight(),
+              position: isVerificationEditorMaximized ? 'fixed' : 'absolute',
               // Simple positioning - bottom and left anchored
-              bottom: 0,
-              left: 0,
+              bottom: isVerificationEditorMaximized ? '16px' : 0,
+              top: isVerificationEditorMaximized ? '16px' : 'auto',
+              left: isVerificationEditorMaximized ? '16px' : 0,
               backgroundColor: '#1E1E1E',
               // Default discreet white border for all HDMI panels
               border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -605,17 +607,20 @@ export const HDMIStream = React.memo(
         {isVerificationVisible && isExpanded && !isMinimized && (
           <Box
             sx={{
-              position: useAbsolutePositioning ? 'absolute' : 'fixed',
+              position: isVerificationEditorMaximized ? 'fixed' : useAbsolutePositioning ? 'absolute' : 'fixed',
               zIndex: getZIndex('VERIFICATION_EDITOR'),
+              ...(isVerificationEditorMaximized
+                ? { top: '16px', right: '16px', bottom: '16px', left: 'auto', width: 'calc(38vw - 32px)', height: 'auto' }
+                : {}),
               // Position right next to the main panel - must match main panel's positioning logic
-              bottom: useAbsolutePositioning
+              bottom: isVerificationEditorMaximized ? '16px' : useAbsolutePositioning
                 ? positionBottom || '50px'
                 : panelLayout.collapsed.position.bottom || '20px',
-              left: useAbsolutePositioning
+              left: isVerificationEditorMaximized ? 'auto' : useAbsolutePositioning
                 ? `calc(${positionLeft || '10px'} + ${getPanelWidth()})`
                 : `calc(${panelLayout.collapsed.position.left || '20px'} + ${getPanelWidth()})`,
-              width: '400px', // Fixed width for verification editor
-              height: getPanelHeight(),
+              width: isVerificationEditorMaximized ? undefined : '400px', // Fixed width for normal editor
+              height: isVerificationEditorMaximized ? undefined : getPanelHeight(),
               backgroundColor: '#1E1E1E',
               border: '2px solid #1E1E1E',
               borderLeft: 'none', // No border between panels to make them appear connected
@@ -637,6 +642,8 @@ export const HDMIStream = React.memo(
               isControlActive={isControlActive}
               userinterfaceName={userinterfaceName} // Pass userinterfaceName for reference saving
               onReferenceTypeChange={setVerificationReferenceType}
+              isMaximized={isVerificationEditorMaximized}
+              onToggleMaximized={() => setIsVerificationEditorMaximized((current) => !current)}
               sx={{
                 width: '100%',
                 height: '100%',

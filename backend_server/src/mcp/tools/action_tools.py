@@ -395,7 +395,12 @@ class ActionTools:
             execution_time = result.get('execution_time_ms', 0)
 
             if passed == total:
-                msg = f"✅ {passed}/{total} passed ({execution_time}ms)"
+                # An action result only proves that the command was accepted by
+                # the controller. It does not prove that the device reached the
+                # intended state (for example, a page script can cancel a click).
+                # Keep the tool successful for callers, but do not present an
+                # unverified action as a passing assertion.
+                msg = f"⚠️ {passed}/{total} action commands completed; state change not verified ({execution_time}ms)"
                 msg = self._append_action_output(msg, result)
             else:
                 details = self._format_failure_details(result)
@@ -403,7 +408,11 @@ class ActionTools:
                 if details:
                     msg += f": {details}"
                 msg = self._append_action_output(msg, result)
-            response = {"content": [{"type": "text", "text": msg}], "isError": failed > 0}
+            response = {
+                "content": [{"type": "text", "text": msg}],
+                "isError": failed > 0,
+                "action_state_verified": False,
+            }
             if include_screenshot:
                 self._attach_screenshot(response, device_id, host_name, team_id, fast=fast_screenshot)
             return response
@@ -528,10 +537,14 @@ class ActionTools:
                     print(f"[@MCP:poll_action] {msg[:200]}")
                     response = {"content": [{"type": "text", "text": msg}], "isError": True}
                 else:
-                    msg = f"✅ {passed}/{total} passed ({execution_time}ms)"
+                    msg = f"⚠️ {passed}/{total} action commands completed; state change not verified ({execution_time}ms)"
                     msg = self._append_action_output(msg, result)
                     print(f"[@MCP:poll_action] {msg[:100]}")
-                    response = {"content": [{"type": "text", "text": msg}], "isError": False}
+                    response = {
+                        "content": [{"type": "text", "text": msg}],
+                        "isError": False,
+                        "action_state_verified": False,
+                    }
 
                 # Attach a screenshot on both pass and fail so the resulting screen is visible
                 if include_screenshot:

@@ -203,6 +203,9 @@ export const getConfigurableRemotePanelLayout = (
         showScreenshotInExpanded: false,
       };
     case 'ios_mobile':
+    case 'appium':
+    case 'cloud_ios_mobile':
+    case 'cloud_android_mobile':
       return {
         collapsed: {
           width: '200px',
@@ -344,6 +347,9 @@ export const loadRemoteConfig = (deviceModel: string, irType?: string): any => {
         config = bluetoothRemoteConfig;
         break;
       case 'ios_mobile':
+      case 'appium':
+      case 'cloud_ios_mobile':
+      case 'cloud_android_mobile':
         config = appiumRemoteConfig;
         break;
       case 'host_vnc':

@@ -132,73 +132,9 @@ PLATFORM_MOVED=true
 # its bug id and migration marker, so the section scans as a list and opens where it matters.
 # <details> renders on the GitHub release page and in the repo file view alike.
 format_changes() {
-  printf '%s' "${1}" | python3 -c '
-import re, sys
-
-# A delivery can span several builds, each with its own Features / Bug fixes / Security
-# subsections. Kept per build, the same three headings repeat and the reader has to stitch them
-# together to answer "what security work is in this?". Merged into three groups instead, each a
-# collapsed section over collapsed items.
-GROUPS = [("features", "✨ Features"), ("bugs", "🐛 Bug fixes"), ("security", "🔒 Security")]
-buckets = {k: [] for k, _ in GROUPS}
-group, cur = "features", None
-
-def flush():
-    global cur
-    if not cur: return
-    title, body = cur[0], cur[1].strip()
-    bug = commit = task = None
-    kept = []
-    for seg in body.split(" · "):
-        t = seg.strip()
-        m = re.fullmatch(r"\[(BUG-\d+)\]\([^)]*\)", t)
-        if m: bug = bug or m.group(1); continue
-        if re.fullmatch(r"`[0-9a-f]{7,40}`", t) or t == "`this commit`":
-            commit = commit or t.strip("`"); continue
-        m = re.fullmatch(r"(TASK-\d+)", t)
-        if m: task = task or m.group(1); continue
-        kept.append(seg)
-    body = " · ".join(kept).strip()
-    badges = [b for b in (task, "🗄 migration" if "DB migration" in body else None) if b]
-    head = "<b>%s</b>" % title
-    if bug: head = "<b>%s</b> — %s" % (bug, title)
-    if commit and commit != "this commit": head += " — <code>%s</code>" % commit
-    if badges: head += " — <sub>%s</sub>" % " · ".join(badges)
-    if body:
-        buckets[group].extend(["<details>", "<summary>%s</summary>" % head, "", body, "", "</details>", ""])
-    else:
-        buckets[group].append("- %s" % head)
-    cur = None
-
-for line in sys.stdin.read().splitlines():
-    if line.startswith("#"):
-        flush()
-        h = line.lstrip("# ").strip()
-        if "security" in h.lower(): group = "security"
-        elif "bug" in h.lower(): group = "bugs"
-        elif "feature" in h.lower(): group = "features"
-        continue
-    m = re.match(r"^\s*-\s+\*\*(.+?)\*\*\s*[—-]?\s*(.*)$", line)
-    if m:
-        flush(); cur = [m.group(1), m.group(2)]
-    elif re.match(r"^\s*-\s+\S", line):
-        flush(); cur = [re.sub(r"^\s*-\s+", "", line)[:80], ""]
-    elif not line.strip():
-        flush()
-    elif cur is not None:
-        cur[1] += " " + line.strip()
-flush()
-
-out = []
-for key, label in GROUPS:
-    items = [x for x in buckets[key] if x.strip()]
-    n = sum(1 for x in buckets[key] if x.startswith("<summary>") or x.startswith("- "))
-    if not n: continue
-    out += ["<details>", "<summary><h2>%s — %d</h2></summary>" % (label, n), ""]
-    out += buckets[key]
-    out += ["</details>", ""]
-print("\n".join(out))
-' 2>/dev/null || printf '%s' "${1}"
+  # Shared with platform_release_note.sh -- one renderer, so the customer note and the
+  # platform release page cannot drift apart.
+  printf '%s' "${1}" | python3 "$(dirname "${BASH_SOURCE[0]}")/format_changes.py" 2>/dev/null || printf '%s' "${1}"
 }
 
 # Overlay commits the same way: subject collapsed, commit body on expand.
@@ -238,7 +174,7 @@ if [[ -n "${OVERLAY_DIR}" && -n "${PREV_TAG}" ]]; then
   ov_log="$(git -C "${OVERLAY_DIR}" log --no-merges --pretty=format:'%x00%s%x01%b' "${PREV_TAG}..HEAD" 2>/dev/null | format_commits)"
   if [[ -n "${ov_log}" ]]; then
     n_ov="$(git -C "${OVERLAY_DIR}" log --no-merges --oneline "${PREV_TAG}..HEAD" 2>/dev/null | grep -c . || true)"
-    printf '<details>\n<summary><h2>🎛 Your dashboards &amp; scripts — %s</h2></summary>\n\n%s\n</details>\n\n' "${n_ov}" "${ov_log}"
+    printf '<details>\n<summary><h2>Your dashboards &amp; scripts — %s</h2></summary>\n\n%s\n</details>\n\n' "${n_ov}" "${ov_log}"
   fi
 fi
 

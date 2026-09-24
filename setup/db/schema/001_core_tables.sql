@@ -75,7 +75,7 @@ CREATE TABLE campaign_executions (
     userinterface_name character varying,
     host_name character varying NOT NULL,
     device_name character varying NOT NULL,
-    status character varying DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying, 'cancelled'::character varying]::text[])),  -- UPDATED: Added enum constraint
+    status character varying DEFAULT 'pending'::character varying CHECK (status::text = ANY (ARRAY['pending'::character varying, 'running'::character varying, 'completed'::character varying, 'failed'::character varying, 'cancelled'::character varying, 'aborted'::character varying]::text[])),  -- UPDATED: Added enum constraint
     started_at timestamp with time zone NOT NULL,
     completed_at timestamp with time zone,
     execution_time_ms integer,

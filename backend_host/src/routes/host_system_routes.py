@@ -29,6 +29,96 @@ DEPLOY_STATE_FILE = '/var/tmp/virtualpytest_deploy_state.json'
 BACKUP_META_FILENAME = '.vpt-backup-meta.json'
 
 
+def _host_env_path() -> Path:
+    return Path(_project_root()) / 'backend_host' / 'src' / '.env'
+
+
+def _parse_env_text(text: str) -> dict[str, str]:
+    values = {}
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith('#') or '=' not in stripped:
+            continue
+        key, value = stripped.split('=', 1)
+        if key and key.replace('_', '').isalnum():
+            values[key] = value.strip().strip('"').strip("'")
+    return values
+
+
+def _host_env_config():
+    import re
+    path = _host_env_path()
+    values = _parse_env_text(path.read_text(encoding='utf-8') if path.exists() else '')
+    host = {key: value for key, value in values.items() if not re.match(r'^DEVICE\d+_', key)}
+    devices = {}
+    for key, value in values.items():
+        match = re.match(r'^(DEVICE\d+)_(.+)$', key)
+        if match:
+            devices.setdefault(match.group(1), {})[f'DEVICE_{match.group(2)}'] = value
+    return host, devices
+
+
+def _save_host_env_config(host, devices):
+    import re
+    path = _host_env_path()
+    if not isinstance(host, dict) or not isinstance(devices, dict):
+        raise ValueError('host and devices must be objects')
+    updates = {}
+    for key, value in host.items():
+        if not isinstance(key, str) or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', key) or key.startswith('DEVICE'):
+            raise ValueError(f'Invalid host setting: {key}')
+        if not isinstance(value, str):
+            raise ValueError(f'Host setting {key} must be a string')
+        updates[key] = value
+    device_updates = {}
+    for device_key, fields in devices.items():
+        if not isinstance(device_key, str) or not re.fullmatch(r'DEVICE\d+', device_key) or not isinstance(fields, dict):
+            raise ValueError(f'Invalid device entry: {device_key}')
+        for field, value in fields.items():
+            if not isinstance(field, str) or not re.fullmatch(r'DEVICE_[A-Za-z0-9_]+', field) or not isinstance(value, str):
+                raise ValueError(f'Invalid field for {device_key}: {field}')
+            device_updates[f'{device_key}_{field[7:]}'] = value
+
+    old_text = path.read_text(encoding='utf-8') if path.exists() else ''
+    kept_devices = set(devices)
+    lines = []
+    for line in old_text.splitlines():
+        stripped = line.strip()
+        match = re.match(r'^(DEVICE\d+)_', stripped)
+        if match and match.group(1) not in kept_devices:
+            continue
+        if '=' in stripped and not stripped.startswith('#'):
+            key = stripped.split('=', 1)[0]
+            if key in updates:
+                continue
+            if key.startswith('DEVICE') and key in device_updates:
+                continue
+        lines.append(line)
+    for key, value in {**updates, **device_updates}.items():
+        lines.append(f'{key}={value}')
+    if path.exists():
+        import shutil
+        from datetime import datetime
+        shutil.copy2(path, f'{path}.backup.{datetime.now().strftime("%Y%m%d_%H%M%S_%f")}')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text('\n'.join(lines).rstrip() + '\n', encoding='utf-8')
+
+
+@host_system_bp.route('/config', methods=['GET', 'POST'])
+@route_exception_handler()
+def host_config():
+    """Read or update this host's own .env host and DEVICE<N> settings."""
+    if request.method == 'GET':
+        host, devices = _host_env_config()
+        return jsonify({'host': host, 'devices': devices}), 200
+    data = request.get_json() or {}
+    try:
+        _save_host_env_config(data.get('host', {}), data.get('devices', {}))
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    return jsonify({'success': True, 'message': 'Host configuration saved'}), 200
+
+
 def _project_root() -> str:
     """Resolve /opt/virtualpytest style project root from this route file."""
     return str(Path(__file__).resolve().parents[3])

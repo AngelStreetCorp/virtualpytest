@@ -110,5 +110,13 @@ TARBALL="$OUT_DIR/$NAME.tar.gz"
 rm -f "$TARBALL"
 tar -czf "$TARBALL" -C "$STAGE" "$NAME"
 
+# A checksum beside the archive, the way build_customer_bundle.sh has always shipped one.
+# Without it a release page can state no sha256 at all -- GitHub's own "Source code (zip)" is
+# generated on demand and is not guaranteed byte-stable, so it is not a substitute.
+if command -v sha256sum >/dev/null 2>&1; then SUM="$(sha256sum "$TARBALL" | awk '{print $1}')"
+else SUM="$(shasum -a 256 "$TARBALL" | awk '{print $1}')"; fi
+printf '%s  %s\n' "$SUM" "$NAME.tar.gz" > "$TARBALL.sha256"
+
 echo "✅ $TARBALL"
 echo "   $(du -h "$TARBALL" | cut -f1) · $(find "$ROOT" -type f | wc -l | tr -d ' ') files"
+echo "   sha256 $SUM"

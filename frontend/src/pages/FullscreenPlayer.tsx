@@ -2,6 +2,9 @@ import { Box, Typography } from '@mui/material';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { useHostSession } from '../hooks/useHostSession';
+import { isGatedHostPath } from '../utils/buildUrlUtils';
+
 /**
  * FullscreenPlayer — dedicated "watch in best quality" page (opens in its own tab).
  *
@@ -17,7 +20,11 @@ import { useSearchParams } from 'react-router-dom';
  *
  * Query params:
  *   src   — encoded HLS manifest URL (live output.m3u8). Same-origin relative
- *           proxy paths (/host/<name>/stream/...) resolve fine in the new tab.
+ *           proxy paths (/host/<name>/stream/...) resolve fine in the new tab, but
+ *           they are behind the host-session gate, so this page mints its own
+ *           session before loading — a new tab does not inherit one, and inside the
+ *           mobile app the stream is cross-origin and needs the cookie sent
+ *           explicitly (BUG-0107 step 2, BUG-0143).
  *   name  — device/host label for the document title + overlay.
  *   muted — "1" to start muted (default unmuted; this is a deliberate watch view).
  */
@@ -32,12 +39,21 @@ export default function FullscreenPlayer() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
+  // This page opens in a tab of its own, and a `/host/<name>/stream/...` URL is gated
+  // (BUG-0107 step 2). Nothing here inherits a session from the tab that opened it, so
+  // it mints its own and withholds `src` until that lands — the same contract
+  // HLSVideoPlayer has. `keepAlive: true`: this is the "leave it running" watch page,
+  // so it outlives the 10-minute cookie by design and must re-mint.
+  const srcIsGated = isGatedHostPath(src);
+  const hostSessionReady = useHostSession(src, true);
+  const gatedSrc = hostSessionReady ? src : null;
+
   useEffect(() => {
     document.title = `${name} — Fullscreen`;
   }, [name]);
 
   useEffect(() => {
-    if (!src || !videoRef.current) return;
+    if (!gatedSrc || !videoRef.current) return;
     const video = videoRef.current;
     let cancelled = false;
 
@@ -59,6 +75,12 @@ export default function FullscreenPlayer() {
       fragLoadingTimeOut: 20000,
       manifestLoadingTimeOut: 10000,
       liveDurationInfinity: true,
+      // Send the gate's cookie with the manifest AND every segment derived from it.
+      // Same-origin on the web this is a no-op; inside the mobile app the stream is
+      // cross-origin and hls.js would otherwise omit the cookie entirely (BUG-0143).
+      ...(srcIsGated
+        ? { xhrSetup: (xhr: XMLHttpRequest) => { xhr.withCredentials = true; } }
+        : {}),
     };
 
     const setup = async () => {
@@ -69,7 +91,7 @@ export default function FullscreenPlayer() {
       // Safari / native HLS path
       if (!HLS.isSupported()) {
         if (video.canPlayType('application/vnd.apple.mpegurl')) {
-          video.src = src;
+          video.src = gatedSrc;
           video.addEventListener('loadeddata', () => setLoaded(true), { once: true });
           video.addEventListener('error', () => setError('Stream playback error'), { once: true });
           return;
@@ -102,7 +124,7 @@ export default function FullscreenPlayer() {
         }
       });
 
-      hls.loadSource(src);
+      hls.loadSource(gatedSrc);
       hls.attachMedia(video);
     };
 
@@ -119,7 +141,7 @@ export default function FullscreenPlayer() {
         hlsRef.current = null;
       }
     };
-  }, [src]);
+  }, [gatedSrc, srcIsGated]);
 
   if (!src) {
     return (
@@ -169,7 +191,7 @@ export default function FullscreenPlayer() {
         autoPlay
         playsInline
         muted={startMuted}
-        crossOrigin="anonymous"
+        crossOrigin={srcIsGated ? 'use-credentials' : 'anonymous'}
       />
 
       {/* Label */}

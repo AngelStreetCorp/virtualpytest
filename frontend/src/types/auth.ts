@@ -57,6 +57,8 @@ export type Permission =
   | 'plugins.postman:view'
   | 'plugins.jira:view'
   | 'plugins.jira:manage'
+  | 'plugins.testrail:view'
+  | 'plugins.testrail:manage'
   | 'plugins.slack:view'
   // Settings
   | 'settings.general:view'
@@ -94,6 +96,10 @@ export interface UserProfile {
   permissions: Permission[];
   denied_permissions: Permission[];
   team_permissions: Permission[];
+  // TASK-23: super-admin flag. Only true for the platform owner; regular
+  // admins stay false. Surfaced in the profile dropdown and used to gate the
+  // Tenants UI.
+  is_platform_admin?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -142,6 +148,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[] | ['*']> = {
     'ai_agent:use',
     'plugins.jira:view',
     'plugins.jira:manage',
+    'plugins.testrail:view',
     'settings.status:view',
   ],
   viewer: [
@@ -175,7 +182,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'interface:view', 'interface:create', 'interface:edit', 'interface:delete',
   'ai_agent:view', 'ai_agent:use',
   'plugins.grafana:view', 'plugins.langfuse:view', 'plugins.postman:view',
-  'plugins.jira:view', 'plugins.jira:manage', 'plugins.slack:view',
+  'plugins.jira:view', 'plugins.jira:manage', 'plugins.testrail:view', 'plugins.testrail:manage', 'plugins.slack:view',
   'settings.general:view', 'settings.general:edit',
   'settings.models:view', 'settings.models:edit',
   'settings.code_deploy:view', 'settings.code_deploy:use',
@@ -200,6 +207,7 @@ export const PAGE_PERMISSIONS: Record<string, Permission | null> = {
   '/configuration/models': 'settings.models:view',
   '/api/workspaces': 'plugins.postman:view',
   '/integrations/jira': 'plugins.jira:view',
+  '/integrations/testrail': 'plugins.testrail:view',
   '/test-execution/run-tests': 'execution.run:view',
   '/test-plan/test-cases': 'testcases:view',
   '/test-plan/campaigns': 'campaigns:view',
@@ -207,4 +215,3 @@ export const PAGE_PERMISSIONS: Record<string, Permission | null> = {
   '/builder/campaign-builder': 'builder.campaign:view',
   '/status': 'settings.status:view',
 };
-

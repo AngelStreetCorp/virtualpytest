@@ -284,14 +284,21 @@ def assess_device(host: dict, device: dict, latest: dict | None, latest_err: str
 def db_insert_rows(rows: list[dict]) -> str:
     """Insert one row per device into fleet_health via Supabase REST.
 
-    Uses SUPABASE_URL + SUPABASE_ANON_KEY from env (present on the server VM;
-    RLS policy is public). Best-effort: returns a status string, never raises —
-    a DB outage must not break report generation/upload.
+    Writes with SUPABASE_SERVICE_ROLE_KEY. This used to use the anon key on the
+    grounds that "the RLS policy is public" — true when it was written, false since
+    the service_role lockdown (TASK-10) closed anon. Every run from 2026-09-08 to
+    2026-09-17 generated and uploaded its report, then logged one WARNING line and
+    exited 0 while writing nothing, so the table silently stopped nine days before
+    anyone looked at it.
+
+    Falls back to the anon key for an install that has not been locked down.
+    Best-effort: returns a status string, never raises — a DB outage must not lose
+    the report, which is uploaded before this runs.
     """
     base = os.environ.get("SUPABASE_URL", "").rstrip("/")
-    key = os.environ.get("SUPABASE_ANON_KEY", "")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "") or os.environ.get("SUPABASE_ANON_KEY", "")
     if not base or not key:
-        return "skipped (SUPABASE_URL / SUPABASE_ANON_KEY not in env)"
+        return "skipped (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not in env)"
     try:
         req = urllib.request.Request(
             f"{base}/rest/v1/fleet_health",
@@ -527,8 +534,16 @@ def main() -> int:
         for row in db_rows:
             row["report_url"] = report_url
         status = db_insert_rows(db_rows)
-        prefix = "" if status.startswith("OK") else "WARNING: "
-        print(f"{prefix}DB insert: {status}")
+        if status.startswith("OK"):
+            print(f"DB insert: {status}")
+        else:
+            # Exit non-zero so systemd marks the unit failed. Printing a WARNING and
+            # returning 0 is exactly how this went unnoticed for nine days: the timer
+            # kept reporting success while the table stopped growing. The report is
+            # already written and uploaded by this point, so failing here costs
+            # nothing except the visibility it should have had all along.
+            print(f"ERROR: DB insert: {status}", file=sys.stderr)
+            return 1
     return 0
 
 

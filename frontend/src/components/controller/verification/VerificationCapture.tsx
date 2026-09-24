@@ -769,19 +769,23 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
           {/* 6. Reference Name + Action Buttons */}
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-end', mb: 0.5 }}>
             {/* Reference Name Input */}
-            <TextField
-              size="small"
-              placeholder="Reference name"
-              value={referenceName}
-              autoComplete="off"
-              onChange={(e) => setReferenceName(e.target.value)}
-              sx={{
-                flex: 1,
-                '& .MuiInputBase-input': {
-                  fontSize: '0.75rem',
-                },
-              }}
-            />
+            <Tooltip title="Reference names cannot contain dots (.). Use underscores instead.">
+              <TextField
+                size="small"
+                placeholder="Reference name"
+                value={referenceName}
+                autoComplete="off"
+                error={referenceName.includes('.')}
+                helperText={referenceName.includes('.') ? 'Dots are not allowed; use underscores.' : undefined}
+                onChange={(e) => setReferenceName(e.target.value)}
+                sx={{
+                  flex: 1,
+                  '& .MuiInputBase-input': {
+                    fontSize: '0.75rem',
+                  },
+                }}
+              />
+            </Tooltip>
 
             {/* Action Buttons */}
             {referenceType === 'image' && (

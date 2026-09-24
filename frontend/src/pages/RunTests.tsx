@@ -67,7 +67,7 @@ import {
   TargetRules,
 } from '../utils/targetCompatibility';
 import { CampaignConfig, ScriptConfiguration } from '../types/pages/Campaign_Types';
-import type { RerunPayload } from '../types/pages/RunTests_Types';
+import type { RerunPayload } from '../types/common/Rerun_Types';
 import { RunWithInputsDialog } from '../components/testcase/RunWithInputsDialog';
 import { stampInputValues } from '../utils/testcase/scriptInputUtils';
 import { validateCronExpression } from '../utils/cronUtils';
@@ -2586,13 +2586,19 @@ const RunTests: React.FC = () => {
             device.hostName,
             configuredUserinterface,
             testcaseName,
+            // Persisted onto metadata by the testcase executor. testcase_id +
+            // testcase_inputs are what lets a rerun launched from a stored
+            // result (Test Reports) reload this graph and replay the same
+            // user-supplied values without re-prompting.
             (versionNumber ?? testcaseVersionNumber)
               ? {
                   testcase_id: testcaseId,
                   testcase_version: versionNumber ?? testcaseVersionNumber,
+                  testcase_inputs: testcaseInputValues || {},
                 }
               : {
                   testcase_id: testcaseId,
+                  testcase_inputs: testcaseInputValues || {},
                 },
           );
           
@@ -3606,20 +3612,38 @@ const RunTests: React.FC = () => {
       return;
     }
     if (payload.type === 'testcase') {
+      // Rows launched in this session embed the graph. A payload restored from
+      // the DB carries only the testcase id, so load the graph before running.
+      let executionGraph = payload.executionGraph;
+      let scriptInputs = payload.scriptInputs;
+      let scriptVariables = payload.scriptVariables;
+
+      if (!executionGraph) {
+        if (!payload.testcaseId) {
+          showError(`Cannot rerun "${payload.scriptName}": no saved testcase definition`);
+          return;
+        }
+        const loaded = await loadTestCaseGraph(payload.testcaseId);
+        if (!loaded) return; // loadTestCaseGraph already surfaced the error
+        executionGraph = loaded.graph;
+        scriptInputs = loaded.scriptConfig?.inputs || [];
+        scriptVariables = loaded.scriptConfig?.variables || [];
+      }
+
       await executeTestCaseOnDevices(
         [{ hostName: payload.hostName, deviceId: payload.deviceId, deviceModel: payload.deviceModel }],
         payload.testcaseVersionNumber,
         {
-          executionGraph: payload.executionGraph,
-          scriptInputs: payload.scriptInputs,
-          scriptVariables: payload.scriptVariables,
+          executionGraph,
+          scriptInputs: scriptInputs || [],
+          scriptVariables: scriptVariables || [],
           scriptConfigForExecution: {
-            inputs: payload.scriptInputs,
-            variables: payload.scriptVariables,
+            inputs: scriptInputs || [],
+            variables: scriptVariables || [],
           },
           versionNumber: payload.testcaseVersionNumber,
           testcaseName: payload.scriptName,
-          testcaseId: payload.scriptName,
+          testcaseId: payload.testcaseId || payload.scriptName,
         },
         // Replay the original run's input values verbatim — no dialog re-prompt.
         // {} (not undefined) when none were collected, so the prompt is skipped.

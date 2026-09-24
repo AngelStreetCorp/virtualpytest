@@ -520,8 +520,11 @@ def public_ask_stats():
     Query: days (default 30), limit (default 50). Use it to decide what goes into the
     website FAQ: a question asked often and answered slowly is the first candidate.
     """
-    days = max(1, int(request.args.get('days', 30)))
-    limit = max(1, min(500, int(request.args.get('limit', 50))))
+    try:
+        days = max(1, min(90, int(request.args.get('days', 30))))
+        limit = max(1, min(500, int(request.args.get('limit', 50))))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'days and limit must be integers'}), 400
     since = time.time() - days * 86400
     entries = [e for e in _read_log()
                if time.mktime(time.strptime(e.get('ts', '1970-01-01T00:00:00Z'), '%Y-%m-%dT%H:%M:%SZ')) - time.timezone >= since]

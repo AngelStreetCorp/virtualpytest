@@ -685,7 +685,8 @@ class VerificationExecutor:
                                     for fr in (details.get('frames') or []) if fr.get('full_path')]
                     if len(analyzed) >= 5:
                         import tempfile, shutil as _shutil
-                        from shared.src.lib.utils.scan_mosaic import build_mosaic_pages, render_mosaic_section, format_offset
+                        from shared.src.lib.utils.scan_mosaic import (build_mosaic_pages, render_mosaic_section,
+                                                                      format_offset, format_clock)
                         from shared.src.lib.utils.cloudflare_utils import upload_kpi_thumbnails as _upload
                         base_ts = analyzed[0].get('mtime') or 0
                         frames_in = []
@@ -693,11 +694,12 @@ class VerificationExecutor:
                             pth = fr.get('path')
                             if not pth:
                                 continue
-                            off = (fr.get('mtime') or base_ts) - base_ts
+                            mtime = fr.get('mtime') or base_ts
+                            off = mtime - base_ts
                             frames_in.append({
                                 'path': pth,
-                                'label': os.path.basename(pth).replace('capture_', '').replace('.jpg', ''),
-                                'sublabel': format_offset(off),
+                                'clock': format_clock(mtime) if mtime else '',
+                                'duration': format_offset(off),
                                 'border': None,
                             })
                         mosaic_ts = time.strftime('%Y%m%d%H%M%S')

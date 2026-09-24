@@ -5,6 +5,7 @@
  * based on exact model matches or device capabilities.
  */
 
+import { modelMatchesAny } from '../../config/deviceModelFamilies';
 import { Device } from '../../types/common/Host_Types';
 
 export interface UserInterface {
@@ -19,7 +20,10 @@ export interface UserInterface {
  * Check if a device is compatible with a user interface.
  * 
  * Compatibility is determined by:
- * 1. Exact model match: device.device_model is in userInterface.models
+ * 1. Model-family match: device.device_model, or any model in the same family, is in
+ *    userInterface.models — an Android phone is one whether it is reached by adb
+ *    (`android_mobile`), by the paired app (`phone_agent`) or through a cloud farm
+ *    (`cloud_android_mobile`). See config/deviceModelFamilies.ts.
  * 2. Capability match: device has a capability matching one of the userInterface.models
  *    (e.g., userInterface with model 'desktop' matches device with desktop: true capability)
  * 
@@ -38,8 +42,8 @@ export const isDeviceCompatibleWithInterface = (
   const deviceModel = device.device_model;
   const deviceCapabilities = device.device_capabilities;
 
-  // Check exact model match first
-  if (userInterface.models.includes(deviceModel)) {
+  // Check model-family match first
+  if (modelMatchesAny(deviceModel, userInterface.models)) {
     return true;
   }
 

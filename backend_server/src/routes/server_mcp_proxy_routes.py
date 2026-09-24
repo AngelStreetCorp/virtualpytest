@@ -261,6 +261,14 @@ Note: Based on device model:
             result = json.loads(result_text)
         except json.JSONDecodeError:
             result = {'message': result_text}
+
+        # Preserve structured MCP metadata when the human-readable content is
+        # plain text.  Action tools deliberately report command completion
+        # separately from device-state verification; dropping this field here
+        # made the proxy turn an unverified action back into a generic success.
+        for metadata_key in ('action_state_verified',):
+            if metadata_key in mcp_result and metadata_key not in result:
+                result[metadata_key] = mcp_result[metadata_key]
         
         # Add tool result to conversation
         messages.append({
@@ -286,7 +294,9 @@ Note: Based on device model:
         
         # Add reasoning about what the tool did
         tool_description = f"[Tool {len(all_tool_calls)}] Executed {function_name}"
-        if execution_success:
+        if execution_success and result.get('action_state_verified') is False:
+            tool_description += " ⚠️ COMMANDS COMPLETED; DEVICE STATE UNVERIFIED"
+        elif execution_success:
             tool_description += " ✅ SUCCESS"
         else:
             tool_description += f" ❌ FAILED: {result.get('error', 'Unknown error')}"

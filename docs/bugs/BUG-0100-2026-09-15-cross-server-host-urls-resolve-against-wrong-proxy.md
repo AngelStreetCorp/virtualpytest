@@ -33,7 +33,7 @@ the *main* proxy for them.
 A host registers a **relative** `host_url`, e.g.
 
 ```
-host-android-mobile   host_url='/host/host-android-mobile'   host_api_url='http://192.168.0.180:6109'
+host-android-mobile   host_url='/host/host-android-mobile'   host_api_url='http://192.168.x.180:6109'
 ```
 
 which is correct as long as the frontend and that host's proxy are the same origin.

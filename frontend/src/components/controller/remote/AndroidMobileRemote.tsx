@@ -117,6 +117,9 @@ export const AndroidMobileRemote = React.memo(
       session,
     } = hookResult;
 
+    // Keeps the app-launcher menu the width of its Select instead of the longest package name
+    const appSelectRef = React.useRef<HTMLDivElement>(null);
+
     // Local state for element interaction
     const [elementActionType, setElementActionType] = React.useState<'click_id' | 'click_text' | 'find'>('click_id');
     const [elementActionInput, setElementActionInput] = React.useState('');
@@ -444,7 +447,7 @@ export const AndroidMobileRemote = React.memo(
               </Typography>
 
               <Box sx={{ mb: 1, mt: 0 }}>
-                <FormControl fullWidth size="small">
+                <FormControl fullWidth size="small" ref={appSelectRef}>
                   <InputLabel>Select an app...</InputLabel>
                   <Select
                     value={selectedApp}
@@ -461,11 +464,13 @@ export const AndroidMobileRemote = React.memo(
                       PaperProps: {
                         style: {
                           maxHeight: 200,
-                          width: 'auto',
-                          maxWidth: '100%',
+                          width: appSelectRef.current?.offsetWidth,
                         },
                       },
                     }}
+                    renderValue={(value) =>
+                      androidApps.find((app) => app.packageName === value)?.label || value
+                    }
                   >
                     {androidApps.map((app) => (
                       <MenuItem
@@ -475,12 +480,40 @@ export const AndroidMobileRemote = React.memo(
                           fontSize: '0.875rem',
                           py: 1,
                           px: 2,
+                          gap: 1,
+                          display: 'flex',
+                          alignItems: 'baseline',
+                          justifyContent: 'space-between',
                           whiteSpace: 'nowrap',
                           overflow: 'hidden',
-                          textOverflow: 'ellipsis',
                         }}
                       >
-                        {app.label}
+                        <Box
+                          component="span"
+                          sx={{
+                            flex: '1 1 auto',
+                            minWidth: 0,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                          }}
+                        >
+                          {app.label}
+                        </Box>
+                        {app.label !== app.packageName && (
+                          <Box
+                            component="span"
+                            sx={{
+                              flex: '0 1 auto',
+                              minWidth: 0,
+                              fontSize: '0.65rem',
+                              opacity: 0.6,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                            }}
+                          >
+                            {app.packageName}
+                          </Box>
+                        )}
                       </MenuItem>
                     ))}
                   </Select>

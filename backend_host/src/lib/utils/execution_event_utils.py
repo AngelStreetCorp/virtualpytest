@@ -12,7 +12,7 @@ import threading
 import time
 import requests
 
-from shared.src.lib.utils.build_url_utils import buildServerUrl
+from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
 from backend_host.src.lib.utils.host_utils import get_host_instance
 
 
@@ -21,15 +21,31 @@ _EMIT_RETRY_BACKOFF_SECONDS = 0.5
 
 
 def _post_with_retry(url: str, payload: Dict[str, Any]) -> None:
+    # /server/* requires a credential, exactly as register/ping/unregister do in
+    # host_utils.py. Without it the server answers 401, and because that is a
+    # response rather than an exception it used to be swallowed here: the event
+    # never reached the socket and every async execution silently fell back to
+    # the frontend's 120s poll timeout.
     last_exc: Optional[BaseException] = None
     for attempt in (1, 2):
         try:
-            requests.post(url, json=payload, timeout=_EMIT_TIMEOUT_SECONDS)
-            return
+            response = requests.post(
+                url,
+                json=payload,
+                headers=server_auth_headers(),
+                timeout=_EMIT_TIMEOUT_SECONDS,
+            )
+            if response.status_code < 400:
+                return
+            # A rejected POST is not an exception; surface it or the next
+            # credential change degrades every execution again, invisibly.
+            last_exc = RuntimeError(
+                f"server answered {response.status_code}: {response.text[:200]}"
+            )
         except Exception as exc:
             last_exc = exc
-            if attempt == 1:
-                time.sleep(_EMIT_RETRY_BACKOFF_SECONDS)
+        if attempt == 1:
+            time.sleep(_EMIT_RETRY_BACKOFF_SECONDS)
     print(f"[@execution_event_utils] Failed to emit execution event after retry: {last_exc}")
 
 

@@ -14,20 +14,14 @@
 
 ---
 
+> **Redacted for publication.** This report is published at `/docs/bugs` and ships in customer bundles. The reproduction steps, the credential values and the inventory of which file held which secret have been removed: they are an attack recipe, not an engineering record. The full account is in this repository's history and in the internal task notes.
+
 ## Symptom
 
-Signed a `service_role` JWT locally using the string
-`super-secret-jwt-token-with-at-least-32-characters-long` — the Supabase CLI's publicly
-documented local-dev default — and sent it to the production Supabase's REST API
-(`192.168.x.102:54321`, LAN-only, reachable by anything on that network or the jump host):
-
-```
-GET /rest/v1/device?select=*&limit=1
-Authorization: Bearer <forged service_role JWT>
-```
-
-→ `200 []`. Full admin access, RLS bypassed entirely, no credential ever stolen — the "secret"
-is a string copied straight from Supabase's own docs.
+A `service_role` JWT signed with the Supabase CLI's publicly documented local-dev default
+secret was accepted by the production Supabase REST API: full admin access with RLS
+bypassed, without any credential ever being stolen — the installer had baked that
+well-known string in as the instance's real signing secret.
 
 Confirmed root cause on the live host: SHA-256 of the deployed `GOTRUE_JWT_SECRET` equals the
 SHA-256 of that known default string.
@@ -35,7 +29,7 @@ SHA-256 of that known default string.
 ## Root cause
 
 `setup/local/linux/database/install_supabase.sh` generates `supabase/config.toml` from a
-heredoc that hard-codes `jwt_secret = "super-secret-jwt-token-with-at-least-32-characters-long"`
+heredoc that hard-codes `jwt_secret` to the Supabase CLI's published local-dev default
 verbatim (this is *not* a Supabase CLI limitation — the CLI reads whatever `config.toml` says).
 `extract_supabase_config()` then compounded it: rather than reading the secret the install
 actually produced, it independently hard-coded the same default string as a fallback ("JWT
@@ -63,10 +57,8 @@ identical, publicly-known secret unless someone thought to rotate it by hand aft
 - `install_grafana.sh`: the datasource-provisioning step now warns when it's about to write a
   `postgres`/`postgres` datasource — every Grafana Editor+ user gets full SQL through it.
 
-**Not fixed by this change:** every *existing* install (including the customer DB and `.102`)
-is still running the old secret until someone rotates it by hand — this only stops new installs
-from shipping it. Rotation is tracked with the rest of TASK-08 §4's credential list, deliberately
-deferred to just before the repo goes public.
+**Scope of this change:** it stops new installs from shipping the well-known secret. Rotating
+any install created before it is tracked in the internal task notes.
 
 ## Verification
 

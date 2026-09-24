@@ -58,6 +58,17 @@ required.
 
 ---
 
+### 📱 Cloud device farms (Sauce Labs, BrowserStack)
+
+Lease a phone from a vendor's cloud and drive it exactly like one on a desk — same remote
+panel, same navigation trees, same scripts, same reports. Sauce Labs is complete;
+BrowserStack runs sessions against an uploaded build. LambdaTest sits behind the same
+provider seam but has not been run against a real account.
+
+**Guide:** [device-farms.md](device-farms.md)
+
+---
+
 ### ☁️ Cloudflare R2 (capture storage)
 
 Screenshots and videos upload to Cloudflare R2 (S3-compatible), configured at deploy time.
@@ -73,6 +84,8 @@ call it as a shell step (`python test_scripts/validation.py`) without a dedicate
 entries below mean a first-class, dedicated integration (like the JIRA/Slack/GitHub Actions ones
 above), not "can be scripted around."
 
+**Device farms:** LambdaTest (session half written, never run against an account)
+
 **Test Management:** TestRail · Zephyr · qTest · PractiTest
 
 **CI/CD:** Jenkins · GitLab CI · Azure DevOps · CircleCI
@@ -87,43 +100,6 @@ Want one of these sooner? [Open a feature request](https://github.com/AngelStree
 
 ---
 
-## Integration Patterns
-
-### REST API
-
-There's no dedicated integration SDK — build against the same REST API the frontend uses.
-Full endpoint reference (grouped by area, with an interactive Swagger UI to try requests
-in-browser): **[API Reference](../api/README.md)**.
-
-```bash
-curl -X POST http://localhost:5109/server/script/execute \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{"script_name": "validation.py", "device_id": "device1"}'
-```
-
----
-
-## Request an Integration
-
-Want to integrate VirtualPyTest with a tool not listed here?
-
-1. 📝 [Open a feature request](https://github.com/AngelStreetCorp/virtualpytest/issues/new?labels=integration)
-2. Describe the tool and use case
-3. We'll help you build it or add it to our roadmap!
-
----
-
-## Build Your Own Integration
-
-Nothing shipped here yet is a plugin system — building a new integration today means writing it
-against the REST API (see above) and, if it needs its own UI, adding a page under
-`frontend/src/pages/` the way JIRA and Slack do.
-
-**[Technical Docs - Architecture](../technical/README.md)**
-
----
-
 ## Related Documentation
 
 - **[Features - Integrations](../features/integrations.md)** - Integration capabilities
@@ -132,9 +108,10 @@ against the REST API (see above) and, if it needs its own UI, adding a page unde
 
 ---
 
-**Ready to connect VirtualPyTest?**  
-➡️ [User Provisioning Guide](user-provisioning.md)  
-➡️ [JIRA Integration Guide](jira-setup.md)  
-➡️ [Slack Integration Guide](slack-setup.md)  
-➡️ [API Reference](../api/README.md)
+**Ready to connect VirtualPyTest?**
+
+- [Cloud Device Farms Guide](device-farms.md)
+- [User Provisioning Guide](user-provisioning.md) — the one integration with no card on the grid, because it is an API rather than a product
+- [JIRA Integration Guide](jira-setup.md)
+- [Slack Integration Guide](slack-setup.md)
 

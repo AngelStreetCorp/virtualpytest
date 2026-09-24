@@ -41,9 +41,19 @@ else
     echo "   using HOST_VNC_PASSWORD"
 fi
 mkdir -p /home/vpt_user/.vnc
-printf '%s\n' "$VNC_PASS" | vncpasswd -f > /home/vpt_user/.vnc/passwd
+# Debian/Raspberry Pi OS ship tigervnc-tools' binary as `tigervncpasswd`, others as `vncpasswd`.
+VNCPASSWD_BIN="$(command -v vncpasswd || command -v tigervncpasswd || true)"
+if [ -z "$VNCPASSWD_BIN" ]; then
+    echo "❌ neither vncpasswd nor tigervncpasswd found — install tigervnc-tools"
+    exit 1
+fi
+printf '%s\n' "$VNC_PASS" | "$VNCPASSWD_BIN" -f > /home/vpt_user/.vnc/passwd
 chown vpt_user:vpt_user /home/vpt_user/.vnc/passwd
 chmod 600 /home/vpt_user/.vnc/passwd
+if [ ! -s /home/vpt_user/.vnc/passwd ]; then
+    echo "❌ /home/vpt_user/.vnc/passwd is empty — $VNCPASSWD_BIN produced nothing"
+    exit 1
+fi
 
 echo ""
 echo "📁 Initializing storage directories..."
@@ -56,8 +66,8 @@ if [ -n "$HOST_CAPTURE_PATH" ]; then
     echo "   ✓ Found host: HOST -> $HOST_CAPTURE_PATH"
 fi
 
-# Check for regular devices (dynamically detect up to 14)
-for i in {1..14}; do
+# Check for regular devices (dynamically detect up to 30)
+for i in {1..30}; do
     DEVICE_CAPTURE_PATH=$(env_value "DEVICE${i}_VIDEO_CAPTURE_PATH")
 
     if [ -n "$DEVICE_CAPTURE_PATH" ]; then

@@ -19,6 +19,7 @@ if shared_utils_path not in sys.path:
 
 from  backend_host.src.lib.utils.appium_utils import AppiumUtils, AppiumElement
 from ..base_controller import VerificationControllerInterface
+from . import element_watch
 
 
 class AppiumVerificationController(VerificationControllerInterface):
@@ -671,6 +672,44 @@ class AppiumVerificationController(VerificationControllerInterface):
             }
         ]
 
+    # ---- watching one element's label over time -----------------------------------------
+    # Shared with ADBVerificationController and the mobile-app feature's phone controller
+    # via element_watch, so a navigation tree that uses these runs unchanged on an adb
+    # device, on a paired phone and on an Appium one (local or cloud farm).
+
+    @staticmethod
+    def _adb_shaped(element: Dict[str, Any]) -> Dict[str, Any]:
+        """An AppiumElement dict under the attribute names element_watch searches.
+
+        AppiumElement.to_dict() spells these `contentDesc` and `className`, while adb_utils
+        and the phone agent spell them `content_desc` and `class_name`. element_watch matches
+        on the latter, so translate rather than teach it a third vocabulary.
+        """
+        shaped = dict(element)
+        shaped.setdefault('content_desc', element.get('contentDesc', ''))
+        shaped.setdefault('class_name', element.get('className', ''))
+        return shaped
+
+    def _element_label(self, term: str) -> Tuple[bool, str, Dict[str, Any], str]:
+        """What element_watch needs: the label of the first element matching `term`."""
+        ok, elements, error = self.getElementLists()
+        if not ok:
+            return False, '', {}, error
+        return element_watch.first_labelled_match(
+            [self._adb_shaped(e) for e in elements], term)
+
+    def waitForElementToChange(self, search_term: str, timeout: float = 0.0):
+        """Pass as soon as the element's label differs from the first reading."""
+        return element_watch.wait_for_change(self._element_label, search_term, timeout,
+                                             '[@controller:AppiumVerification]')
+
+    def waitForElementToStopChanging(self, search_term: str,
+                                     duration: float = element_watch.DEFAULT_STABLE_S,
+                                     timeout: float = 0.0):
+        """Pass once the element's label has held the same value for `duration` seconds."""
+        return element_watch.wait_for_stable(self._element_label, search_term, duration,
+                                             timeout, '[@controller:AppiumVerification]')
+
     def execute_verification(self, verification_config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Unified verification execution interface for centralized controller.
@@ -740,6 +779,16 @@ class AppiumVerificationController(VerificationControllerInterface):
                     timeout=timeout,
                     check_interval=check_interval
                 )
+            elif command == 'waitForElementToChange':
+                success, message, details = self.waitForElementToChange(search_term, timeout)
+            elif command == 'waitForElementToStopChanging':
+                # `duration` is seconds, matching DetectMotion, while `timeout` stays
+                # milliseconds like every other verification a tree records — the same
+                # unit split ADBVerificationController carries, kept so saved trees work.
+                duration = float(params.get('duration', element_watch.DEFAULT_STABLE_S)
+                                 or element_watch.DEFAULT_STABLE_S)
+                success, message, details = self.waitForElementToStopChanging(
+                    search_term, duration, timeout)
             else:
                 return {
                     'success': False,

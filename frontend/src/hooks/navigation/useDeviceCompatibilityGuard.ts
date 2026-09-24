@@ -1,18 +1,8 @@
 import { useEffect } from 'react';
 
-/**
- * Device-to-Interface Compatibility Mapping
- * Defines which device models can work with which interface models
- */
-const LOG_PREFIX = '[@useDeviceCompatibilityGuard]';
+import { getCompatibleModels } from '../../config/deviceModelFamilies';
 
-const COMPATIBILITY_MAP: Record<string, string[]> = {
-  'android_mobile': ['android_mobile'],
-  'android_tv': ['android_tv'],
-  'fire_tv': ['android_tv', 'fire_tv'],
-  'host_vnc': ['host_vnc', 'web'], // host_vnc devices support both host_vnc and web interfaces
-  'web': ['web'],
-};
+const LOG_PREFIX = '[@useDeviceCompatibilityGuard]';
 
 interface UseDeviceCompatibilityGuardProps {
   userInterface: { name: string; models?: string[] } | null;
@@ -54,8 +44,10 @@ export const useDeviceCompatibilityGuard = ({
     const interfaceModels = userInterface.models || [];
     const deviceModel = selectedDevice.device_model;
     
-    // Get compatible interface models for this device
-    const compatibleInterfaceModels = COMPATIBILITY_MAP[deviceModel] || [deviceModel];
+    // Get compatible interface models for this device — its whole family, so a paired
+    // phone or a cloud farm phone keeps an `android_mobile` interface selected
+    // (config/deviceModelFamilies.ts, the one table every matcher reads)
+    const compatibleInterfaceModels = getCompatibleModels(deviceModel);
     
     // Check if device is compatible with any of the interface's models
     const isCompatible = interfaceModels.some((model: string) => 

@@ -20,6 +20,7 @@ This guide covers everything you need to know to get the most out of VirtualPyTe
 ### Configuration
 - **[Configuration reference](../get-started/configuration.md)** - Every variable and port
 - **[Supabase and authentication](../get-started/supabase.md)** - Open mode vs login, cloud vs self-hosted
+- **[Who can do what](./permissions.md)** - Roles, teams and workspaces, with worked examples
 
 ### Best Practices
 - **[Test Case Naming](../technical/testcase/testcase-naming.md)** - Naming conventions

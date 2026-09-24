@@ -56,25 +56,28 @@ class AndroidTVRemoteController(RemoteControllerInterface):
         except Exception as e:
             raise RuntimeError(f"Error loading Android TV remote config from file: {e}")
     
-    def __init__(self, device_ip: str, device_port: int = 5555, **kwargs):
+    def __init__(self, device_ip: str = None, device_port: int = 5555, adb_serial: str = None, **kwargs):
         """
         Initialize the Android TV remote controller.
-        
+
         Args:
-            device_ip: Android TV device IP address (required)
+            device_ip: Android TV device IP address (ADB over TCP, DEVICE<N>_IP)
             device_port: ADB port (default: 5555)
+            adb_serial: USB ADB serial (DEVICE<N>_ADB_SERIAL). When set it is used as
+                        the `adb -s` target instead of ip:port (USB hub / phone farm).
         """
         super().__init__("Android TV", "android_tv")
-        
+
         # Android TV device parameters
         self.device_ip = device_ip
         self.device_port = device_port
-        
+        self.adb_serial = adb_serial
+
         # Validate required parameters
-        if not self.device_ip:
-            raise ValueError("device_ip is required for AndroidTVRemoteController")
-            
-        self.android_device_id = f"{self.device_ip}:{self.device_port}"
+        if not self.device_ip and not self.adb_serial:
+            raise ValueError("device_ip or adb_serial is required for AndroidTVRemoteController")
+
+        self.android_device_id = self.adb_serial or f"{self.device_ip}:{self.device_port}"
         self.adb_utils = None
         self.device_resolution = None
         
@@ -416,7 +419,7 @@ class AndroidTVRemoteController(RemoteControllerInterface):
             }
             
             # Check ADB device connectivity if we have device IP and are connected
-            if self.device_ip and self.is_connected:
+            if self.android_device_id and self.is_connected:
                 import subprocess
                 
                 # Run adb devices to check connectivity

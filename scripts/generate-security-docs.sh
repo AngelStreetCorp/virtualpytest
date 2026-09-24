@@ -2,7 +2,8 @@
 
 # Generate security reports directly in docs/security/
 # Run this manually when you want to update security documentation
-# Requirements: bandit, safety (install in venv from backend_server/requirements.txt)
+# Requirements: bandit (python3-bandit on Debian). Optional: snyk CLI for SAST.
+# NOTE: nothing here scans Python DEPENDENCIES for CVEs — see docs/security/README.md.
 
 set -e
 
@@ -29,15 +30,12 @@ mkdir -p "$TEMP_DIR"
 HOST_BANDIT_JSON="$TEMP_DIR/host_bandit.json"
 SERVER_BANDIT_JSON="$TEMP_DIR/server_bandit.json"
 SHARED_BANDIT_JSON="$TEMP_DIR/shared_bandit.json"
-HOST_SAFETY_TXT="$TEMP_DIR/host_safety.txt"
-SERVER_SAFETY_TXT="$TEMP_DIR/server_safety.txt"
 FRONTEND_AUDIT_JSON="$TEMP_DIR/frontend_audit.json"
 
 # ==================== CHECK TOOLS ====================
 echo -e "${YELLOW}→${NC} Checking security tools..."
 
 BANDIT_AVAILABLE=false
-SAFETY_AVAILABLE=false
 
 if command -v bandit &> /dev/null; then
     BANDIT_AVAILABLE=true
@@ -45,14 +43,6 @@ if command -v bandit &> /dev/null; then
 else
     echo -e "${RED}  ✗ Bandit not found${NC}"
     echo -e "${YELLOW}     Install: pip install bandit (from backend_server/requirements.txt)${NC}"
-fi
-
-if command -v safety &> /dev/null; then
-    SAFETY_AVAILABLE=true
-    echo -e "${GREEN}  ✓ Safety available${NC}"
-else
-    echo -e "${YELLOW}  ⚠ Safety not found${NC}"
-    echo -e "${YELLOW}     Install: pip install safety (from backend_server/requirements.txt)${NC}"
 fi
 
 if [ "$BANDIT_AVAILABLE" = false ]; then
@@ -93,32 +83,6 @@ else
 fi
 
 echo ""
-
-# ==================== SAFETY SCANS ====================
-if [ "$SAFETY_AVAILABLE" = true ]; then
-    echo -e "${YELLOW}→${NC} Running Safety dependency scans..."
-
-    # Scan backend_host requirements
-    if [ -f "backend_host/requirements.txt" ]; then
-        echo -e "${BLUE}  • Scanning host dependencies...${NC}"
-        safety check -r backend_host/requirements.txt > "$HOST_SAFETY_TXT" 2>&1 || true
-        echo -e "${GREEN}  ✓ Host dependencies scanned${NC}"
-    fi
-
-    # Scan backend_server requirements
-    if [ -f "backend_server/requirements.txt" ]; then
-        echo -e "${BLUE}  • Scanning server dependencies...${NC}"
-        safety check -r backend_server/requirements.txt > "$SERVER_SAFETY_TXT" 2>&1 || true
-        echo -e "${GREEN}  ✓ Server dependencies scanned${NC}"
-    fi
-
-    echo ""
-else
-    echo -e "${YELLOW}⚠ Skipping Safety scans - tool not installed${NC}"
-    echo "Safety tool not installed" > "$HOST_SAFETY_TXT"
-    echo "Safety tool not installed" > "$SERVER_SAFETY_TXT"
-    echo ""
-fi
 
 # ==================== NPM AUDIT ====================
 if command -v npm &> /dev/null; then

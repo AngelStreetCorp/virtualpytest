@@ -4,6 +4,7 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 import { StreamViewerLayoutConfig } from '../../config/layoutConfig';
 import { useHostSession } from '../../hooks/useHostSession';
+import { isGatedHostPath } from '../../utils/buildUrlUtils';
 
 // Proxy for Hls.isSupported() usable before the dynamic hls.js import. When MSE is
 // available, hls.js is the ONLY valid engine for .m3u8: Chromium answers
@@ -70,6 +71,17 @@ export function HLSVideoPlayer({
   // delay) for any URL the gate doesn't cover.
   const hostSessionReady = useHostSession(rawStreamUrl, true);
   const streamUrl = hostSessionReady ? rawStreamUrl : undefined;
+
+  // Minting the cookie is only half the job: the browser also has to SEND it. On the web
+  // that is automatic — the stream is same-origin with the page. Inside the mobile app it
+  // is not: the Capacitor shell serves this bundle from `https://localhost`, so every
+  // stream request is cross-origin, and a cross-origin fetch omits cookies unless it opts
+  // in. hls.js defaults `withCredentials` to false and `crossOrigin="anonymous"` means
+  // "CORS, no credentials" outright — so the APK minted a cookie it then never presented,
+  // and every manifest and segment came back 401. Opt in, but only for URLs the gate
+  // actually covers: a credentialed request also forbids a wildcard
+  // `Access-Control-Allow-Origin`, which is still what ungated public assets serve.
+  const streamIsGated = isGatedHostPath(rawStreamUrl);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<any>(null);
@@ -563,7 +575,17 @@ export function HLSVideoPlayer({
         liveDurationInfinity: true,    // Allow infinite live duration
       };
 
-      const hls = new HLS(hlsConfig);
+      const hls = new HLS(
+        streamIsGated
+          ? {
+              ...hlsConfig,
+              // Applies to the manifest AND every segment hls.js derives from it.
+              xhrSetup: (xhr: XMLHttpRequest) => {
+                xhr.withCredentials = true;
+              },
+            }
+          : hlsConfig,
+      );
 
       hlsRef.current = hls;
 
@@ -761,7 +783,7 @@ export function HLSVideoPlayer({
     } finally {
       initInFlightRef.current = false;
     }
-  }, [streamUrl, retryCount, useNativePlayer, currentStreamUrl, cleanupStream, tryNativePlayback, ffmpegStuck, supportsNativeHLS, isStreamActive]);
+  }, [streamUrl, streamIsGated, retryCount, useNativePlayer, currentStreamUrl, cleanupStream, tryNativePlayback, ffmpegStuck, supportsNativeHLS, isStreamActive]);
 
   // Manual restart handler - clears all errors and reinitializes stream
   const handleManualRestart = useCallback(() => {
@@ -1096,7 +1118,7 @@ export function HLSVideoPlayer({
         muted={muted}
         draggable={false}
         preload="none"
-        crossOrigin="anonymous"
+        crossOrigin={streamIsGated ? 'use-credentials' : 'anonymous'}
       />
 
       {visibleError && (

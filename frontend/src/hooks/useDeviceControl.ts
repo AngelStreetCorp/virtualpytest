@@ -212,16 +212,25 @@ export const useDeviceControl = ({
 
   // Sync control state with HostManager lock status
   useEffect(() => {
-    if (host) {
-      const effectiveDeviceId = device_id || 'device1';
-      const hasLock = hasActiveLock(`${host.host_name}:${effectiveDeviceId}`);
-      if (hasLock !== isControlActive) {
-        console.log(
-          `[useDeviceControl] Syncing control state for ${host.host_name}:${effectiveDeviceId}: ${hasLock}`,
-        );
-        setIsControlActive(hasLock);
-        needsCleanupRef.current = hasLock;
+    // No host means nothing is under this hook's control — e.g. the selection
+    // was cleared because the active workspace stopped allowing that device.
+    // The captured cleanup params stay put so the unmount release still fires
+    // (the server no-ops a release this session no longer owns).
+    if (!host) {
+      if (isControlActive) {
+        setIsControlActive(false);
       }
+      return;
+    }
+
+    const effectiveDeviceId = device_id || 'device1';
+    const hasLock = hasActiveLock(`${host.host_name}:${effectiveDeviceId}`);
+    if (hasLock !== isControlActive) {
+      console.log(
+        `[useDeviceControl] Syncing control state for ${host.host_name}:${effectiveDeviceId}: ${hasLock}`,
+      );
+      setIsControlActive(hasLock);
+      needsCleanupRef.current = hasLock;
     }
   }, [host, device_id, hasActiveLock, isControlActive]);
 

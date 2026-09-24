@@ -97,6 +97,29 @@ for p in "${DENY[@]}"; do
     rm -rf "$hit"
   done
 done
+# TASK-14 invariant: agent documentation is internal-only. Keep this explicit even though
+# docs/agent/ is also present in internal-paths.txt, so a future deny-list/parser regression
+# fails closed instead of publishing maintainer runbooks.
+[[ ! -e "$EXPORT/docs/agent" ]] || die "internal docs/agent survived the export"
+# Default-deny publication policy: every surviving path must match an explicit
+# public-paths.txt entry. This prevents new internal directories from publishing
+# accidentally when nobody remembered to extend the old deny-list.
+ALLOW_FILE="$EXPORT/scripts/security/public-paths.txt"
+[[ -f "$ALLOW_FILE" ]] || die "public allow-list missing from export: scripts/security/public-paths.txt"
+while IFS= read -r f; do
+  rel="${f#"$EXPORT/"}"
+  allowed=0
+  while IFS= read -r p; do
+    p="${p%%#*}"; p="${p#"${p%%[![:space:]]*}"}"; p="${p%"${p##*[![:space:]]}"}"
+    [[ -n "$p" ]] || continue
+    if [[ "$p" == */ ]]; then
+      [[ "$rel" == "${p%/}"/* ]] && { allowed=1; break; }
+    else
+      [[ "$rel" == "$p" ]] && { allowed=1; break; }
+    fi
+  done < "$ALLOW_FILE"
+  [[ $allowed -eq 1 ]] || die "path is not in the public allow-list: $rel"
+done < <(find "$EXPORT" -type f -print)
 # real env files never travel (templates *.example do)
 while IFS= read -r f; do rm -f "$f"; removed=$((removed+1)); done < <(find "$EXPORT" -type f -name '.env' -o -type f -name '.env.*' ! -name '*.example' 2>/dev/null | grep -v '\.example$' || true)
 [[ ! -f "$EXPORT/BUNDLE_MANIFEST.txt" ]] || die "BUNDLE_MANIFEST.txt in the export: this is a staged customer tree, not a platform tag"
@@ -181,11 +204,13 @@ cp -a "$EXPORT/." .
 git add -A -f     # -f: see the gate step — ignored-but-tracked files are part of the release
 { printf 'release: %s\n\n' "$TAG"; cat "$BODY"; } > "$WORK/commit.txt"
 git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" commit -q -F "$WORK/commit.txt"
+# ${tagf[@]+...} not "${tagf[@]}": bash 3.2 (macOS) calls an empty array unbound under
+# set -u, so the plain form aborts the publish on any run that is not a reseed.
 tagf=(); [[ $RESEED -eq 1 ]] && tagf=(-f)
-git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" tag -a "${tagf[@]}" "$TAG" -F "$BODY"
+git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" tag -a ${tagf[@]+"${tagf[@]}"} "$TAG" -F "$BODY"
 extra_tags=()
 while IFS= read -r t; do [[ -n "$t" && "$t" != "$TAG" ]] && extra_tags+=("$t"); done <<<"$SAME_COMMIT_TAGS"
-for t in "${extra_tags[@]:-}"; do [[ -n "$t" ]] && git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" tag -a "${tagf[@]}" "$t" -F "$BODY"; done
+for t in "${extra_tags[@]:-}"; do [[ -n "$t" ]] && git -c user.name="${PUBLISH_GIT_NAME:-VirtualPyTest release}" -c user.email="${PUBLISH_GIT_EMAIL:-release@virtualpytest.com}" tag -a ${tagf[@]+"${tagf[@]}"} "$t" -F "$BODY"; done
 PUB_SHA="$(git rev-parse --short=10 HEAD)"
 echo "public commit ${PUB_SHA}  tags: ${TAG} ${extra_tags[*]:-}"
 echo "history in the public clone: $(git rev-list --count HEAD) commit(s)"
@@ -204,3 +229,38 @@ else
   for t in "${extra_tags[@]:-}"; do [[ -n "$t" ]] && git push -q origin "refs/tags/$t"; done
 fi
 echo "${GREEN}✓ published ${TAG} → ${TARGET} (${PUB_SHA}, ${n_files} files)${NC}"
+
+# ------------------------------------------------------------------ 9. the release page
+# A pushed tag renders as GitHub's bare "Source code (zip)"; the release note only becomes a
+# page if something creates one, and nothing here ever did — so the public repo had zero
+# releases for every build it had ever received, while the internal one got a page by hand.
+#
+# This is safe to automate precisely because it publishes nothing new: the commit and the tag
+# are already pushed and already through both gates, and this only renders what they contain.
+# The DECISION to publish stays where RELEASING.md puts it ("Publish (only when asked)") —
+# this runs after that decision has been made, never in place of it.
+slug="$(printf '%s' "$TARGET" | sed -e 's#^git@github.com:#-#' -e 's#^https://github.com/##' \
+                                    -e 's#^-##' -e 's#\.git$##')"
+if ! command -v gh >/dev/null 2>&1; then
+  echo "${YELLOW}note: gh not installed — no release page. Create it with:${NC}"
+  echo "  scripts/release/platform_release_note.sh ${TAG} --out /tmp/body.md"
+  echo "  gh release create ${TAG} --repo ${slug} --notes-file /tmp/body.md"
+elif [[ "$TARGET" != *github.com* ]]; then
+  echo "${YELLOW}note: ${TARGET} is not a GitHub remote — no release page.${NC}"
+else
+  note="$WORK/release-body.md"
+  if "${REPO_ROOT:-.}/scripts/release/platform_release_note.sh" "$TAG" --commit "$PUB_SHA" --out "$note" >/dev/null 2>&1; then
+    :
+  else
+    cp "$BODY" "$note"      # the build section alone still beats no page at all
+  fi
+  title="Build ${TAG##*-} — $(date -u +%Y-%m-%d)"
+  if gh release view "$TAG" --repo "$slug" >/dev/null 2>&1; then
+    gh release edit "$TAG" --repo "$slug" --notes-file "$note" >/dev/null \
+      && echo "${GREEN}✓ release page updated${NC} https://github.com/${slug}/releases/tag/${TAG}"
+  else
+    gh release create "$TAG" --repo "$slug" --title "$title" --notes-file "$note" >/dev/null \
+      && echo "${GREEN}✓ release page created${NC} https://github.com/${slug}/releases/tag/${TAG}" \
+      || echo "${YELLOW}note: could not create the release page (permissions?) — the push itself succeeded.${NC}"
+  fi
+fi

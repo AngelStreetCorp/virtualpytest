@@ -562,7 +562,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
           {!isMobile && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minHeight: 40, flexWrap: 'wrap' }}>
               <Typography variant="h4" component="h1" sx={{ mb: 0 }}>
-                Device
+                Device ({filteredDevices.length})
               </Typography>
               <Tooltip title="Device info">
                 <IconButton size="small" onClick={() => navigate('/device-info')} sx={{ color: 'text.secondary' }}>

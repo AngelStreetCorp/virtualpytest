@@ -27,9 +27,11 @@ permissions:
 # while an older commit's run is in flight just spends the fleet on checks of stale code —
 # cancel the older one instead of running it to completion once a newer commit supersedes it.
 # workflow_dispatch runs get a run_id-unique group so manual dispatches never cancel each other
-# (e.g. one deliberately running 'white' while another runs 'grey').
+# (e.g. one deliberately running 'white' while another runs 'grey'). Push runs use SHA as
+# the group key so that duplicate triggers on the same SHA don't cancel each other (fixes
+# the case where rapid pushes or duplicate events fire the workflow multiple times for one commit).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || '' }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.sha }}
   cancel-in-progress: true
 
 env:
@@ -183,11 +185,26 @@ jobs:
   # docs/get-started/docker.md gives a user. TASK-15 §4.1.
   docker-build:
     name: Docker stack builds and starts
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'white' }}
     timeout-minutes: 45
+    env:
+      # env_file in compose resolves relative to compose file location
+      # (setup/docker/), not CWD. The seed step copies .env there; set
+      # COMPOSE_ENV_FILE to match so all compose commands (pre-pull, launch,
+      # smoke, teardown) use the same path.
+      COMPOSE_ENV_FILE: setup/docker/.env
     steps:
       - uses: actions/checkout@v7
+
+      - name: "Seed .env in workdir so include: env_file: .env finds it"
+        run: |
+          # The docker-compose.yml include block has env_file: .env which resolves
+          # env_file in compose resolves relative to compose file location
+          # (setup/docker/), not CWD. launch.sh creates setup/docker/.env with real
+          # secrets; pre-pull and smoke run before launch.sh, so seed the correct
+          # path from .env.example so compose finds it.
+          cp setup/docker/.env.example setup/docker/.env
 
       - name: Free disk space (images total ~9 GB)
         run: |
@@ -198,10 +215,18 @@ jobs:
       - name: Pre-pull images (registries time out; a red run for a slow quay.io is noise)
         run: |
           for attempt in 1 2 3; do
-            docker compose -f setup/docker/docker-compose.yml -f setup/docker/docker-compose.linux.yml pull --quiet && exit 0
+            docker compose -f setup/docker/docker-compose.yml -f setup/docker/docker-compose.linux.yml --env-file setup/docker/.env pull --quiet && exit 0
             echo "pull attempt ${attempt} failed; retrying in 30s"; sleep 30
           done
           echo "::warning::image pre-pull failed three times — launch.sh will try once more"
+      - name: Clean up stale containers and networks from previous runs
+        run: |
+          # Remove vpt-* containers (leftover from previous CI runs)
+          docker ps -a --format '{{.Names}}' | grep '^vpt-' | xargs -r docker rm -f 2>/dev/null || true
+          # Remove orphaned/duplicate virtualpytest_default networks (ambiguous network error
+          # happens when two networks with the same name exist — remove all of them so
+          # docker-compose can recreate a clean one)
+          docker network ls --filter name=virtualpytest_default --format '{{.ID}}' | xargs -r docker network rm 2>/dev/null || true
       - name: Launch the stack exactly like a user
         run: ./setup/docker/launch.sh
 
@@ -229,7 +254,7 @@ jobs:
   # Scope = the folders already brought up to date; it grows with TASK-15 §5.
   docs-paths:
     name: Docs reference existing paths
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.runner == 'github-hosted' && 'ubuntu-latest' || fromJSON('["self-hosted","Linux","X64"]') }}
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.suite == 'all' || inputs.suite == 'white' }}
     timeout-minutes: 5
     steps:

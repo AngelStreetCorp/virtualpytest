@@ -202,7 +202,15 @@ def run(args) -> int:
         done.set()
 
     try:
-        sio.connect(server, namespaces=['/agent'], wait_timeout=20)
+        # The /agent namespace authenticates its handshake now (BUG-0156). This script's
+        # REST calls already carry the service key or the auto-sign token; the socket has to
+        # present the same, or the connect is refused. python-socketio can set headers, so
+        # the header form works here even though a browser has to use the auth payload.
+        sio.connect(
+            server, namespaces=['/agent'], wait_timeout=20,
+            headers=_service_headers(),
+            auth={'auto_sign': args.auto_sign} if args.auto_sign else None,
+        )
     except Exception as e:
         print(f"[ERROR] socket connect failed: {e}", file=sys.stderr)
         return 2

@@ -1,7 +1,9 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { createServerSocket } from '../utils/serverSocket';
 import { useLocation } from 'react-router-dom';
 
+import { expandModels } from '../config/deviceModelFamilies';
 import { useUserSession } from '../hooks/useUserSession';
 import { useServerManager } from '../hooks/useServerManager';
 import { Host, Device } from '../types/common/Host_Types';
@@ -16,6 +18,7 @@ import { useIdleLockMonitor } from '../hooks/useIdleLockMonitor';
 import { HostDataContext } from './HostDataContext';
 import { HostControlContext } from './HostControlContext';
 import { useAuthContext } from './auth';
+import { useWorkspaceContext } from './workspace/WorkspaceContext';
 
 const log = (..._args: unknown[]): void => {};
 
@@ -61,6 +64,9 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
   
   // Toast notifications
   const { showWarning, showError } = useToast();
+
+  // Active workspace scope — a workspace switch narrows the allowed device set.
+  const { isDeviceAllowed } = useWorkspaceContext();
 
   // Extract hosts from server data, filtering by selected server only
   // This ensures we only show hosts from the currently selected server
@@ -243,12 +249,14 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
   // Get hosts filtered by device models or capabilities
   const getHostsByModel = useCallback(
     (models: string[]): Host[] => {
+      const accepted = expandModels(models);
       const filtered = availableHosts
         .map((host) => ({
           ...host,
           devices: (host.devices || []).filter((device) => {
-            // Check exact model match first
-            if (models.includes(device.device_model)) {
+            // Check model-family match first: a userinterface built for `android_mobile`
+            // also fits a paired phone and a cloud farm phone (config/deviceModelFamilies.ts)
+            if (accepted.includes(device.device_model)) {
               return true;
             }
             // Check capability match - if model is 'web' or 'desktop', 
@@ -868,6 +876,40 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
   // EFFECTS
   // ========================================
 
+  // Workspace scope: switching workspace narrows the allowed device set. Any
+  // page that needs a target (QuickTest, NavigationEditor, TestCaseBuilder,
+  // device control) keeps its selection here, so drop a selected device the new
+  // workspace does not contain — and release its manual lock first, otherwise
+  // control stays held on a device the user can no longer see.
+  useEffect(() => {
+    if (!selectedHost || !selectedDeviceId) return;
+    if (isDeviceAllowed(selectedHost.host_name, selectedDeviceId)) return;
+
+    const staleHost = selectedHost;
+    const staleDeviceId = selectedDeviceId;
+    const wasControlActive = isControlActive;
+
+    log(
+      `[@context:HostManagerProvider] Workspace no longer allows ${staleHost.host_name}:${staleDeviceId} - releasing and clearing selection`,
+    );
+
+    setSelectedHost(null);
+    setSelectedDeviceId(null);
+    setIsControlActive(false);
+    setShowRemotePanel(false);
+    setShowAVPanel(false);
+    setIsRemotePanelOpen(false);
+
+    // Release whenever this session could be holding the lock — the local map
+    // isn't populated on a rehydrated lock, and the server no-ops a release
+    // this session doesn't own.
+    if (wasControlActive || activeLocksRef.current.has(`${staleHost.host_name}:${staleDeviceId}`)) {
+      releaseControlRef.current?.(staleHost, staleDeviceId).catch((err) => {
+        console.error('[@context:HostManagerProvider] Failed to release out-of-workspace device:', err);
+      });
+    }
+  }, [isDeviceAllowed, selectedHost, selectedDeviceId, isControlActive]);
+
   // Initialize lock reclaim on mount (skip for incidents and AI queue pages)
   useEffect(() => {
     if (!initializedRef.current && !isIncidentsPage && !isAIQueuePage) {
@@ -930,6 +972,13 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
       return;
     }
 
+    // Never rehydrate a device the active workspace doesn't allow — the release
+    // triggered by the workspace switch is async, so the lock maps can still
+    // name it for a tick.
+    if (!isDeviceAllowed(parsed.hostName, parsed.deviceId)) {
+      return;
+    }
+
     const alreadySelected =
       selectedHost?.host_name === parsed.hostName && selectedDeviceId === parsed.deviceId;
     if (!alreadySelected) {
@@ -975,6 +1024,7 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
     showAVPanel,
     isRemotePanelOpen,
     loadDeviceSchemas,
+    isDeviceAllowed,
   ]);
 
   useEffect(() => {
@@ -985,7 +1035,7 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
     const socket = // The server, not the page. These are the same host on the web, but the mobile app serves
     // the bundle from its own https://localhost, where a socket aimed at the page origin is
     // refused forever (net::ERR_CONNECTION_REFUSED) and the app never learns any device state.
-    io(`${getServerBaseUrl()}/system`, {
+    createServerSocket(getServerBaseUrl(), '/system', {
       transports: ['websocket'],
       path: '/socket.io',
       reconnection: true,

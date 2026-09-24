@@ -20,6 +20,7 @@ import { getLockTimingLines } from '../../utils/recUtils';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { DeviceInfoTooltipIcon } from '../common/DeviceInfoTooltipIcon';
 import LocalizeButton from '../navigation/Navigation_LocalizeButton';
+import { DeviceFarmBadge } from './DeviceFarmBadge';
 import { DeviceStatusChip } from './DeviceStatusChip';
 import { RunningScriptNameBadge } from './RunningScriptNameBadge';
 
@@ -492,6 +493,7 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                   </Box>
                 )}
                 {scriptNameBadge}
+                <DeviceFarmBadge provider={device?.device_farm_provider} />
                 {/* Click overlay to open full modal */}
                 <Box
                   onClick={handleOpenStreamModal}
@@ -553,6 +555,7 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                   </Box>
                 )}
                 {scriptNameBadge}
+                <DeviceFarmBadge provider={device?.device_farm_provider} />
                 {/* Click overlay to open full modal */}
                 <Box
                   onClick={handleOpenStreamModal}

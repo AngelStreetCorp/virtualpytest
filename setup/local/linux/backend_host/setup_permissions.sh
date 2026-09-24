@@ -97,7 +97,7 @@ if [ -f "$ENV_FILE" ]; then
     if [ -n "$HOST_CAPTURE_PATH" ]; then
         DEVICE_FOLDERS+=("$(basename "$HOST_CAPTURE_PATH")")
     fi
-    for i in {1..14}; do
+    for i in {1..30}; do
         VIDEO_CAPTURE_PATH=$(grep "^DEVICE${i}_VIDEO_CAPTURE_PATH=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f 2- | tr -d '"' | tr -d "'" | sed 's/[[:space:]]*#.*$//' | xargs)
         if [ -n "$VIDEO_CAPTURE_PATH" ]; then
             DEVICE_FOLDERS+=("$(basename "$VIDEO_CAPTURE_PATH")")

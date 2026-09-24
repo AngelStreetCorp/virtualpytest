@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { createServerSocket } from '../utils/serverSocket';
 import { ServerManagerContext } from './ServerManagerContext';
 import { ServerHostData } from '../types/common/Server_Types';
 import { Host } from '../types/common/Host_Types';
@@ -456,7 +457,7 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
     }
 
     const serverBaseUrl = selectedServer || window.location.origin;
-    const socket = io(`${serverBaseUrl}/system`, {
+    const socket = createServerSocket(serverBaseUrl, '/system', {
       transports: ['websocket'],
       reconnection: true,
       reconnectionAttempts: 10,

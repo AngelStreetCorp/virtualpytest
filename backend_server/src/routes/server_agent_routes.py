@@ -14,6 +14,8 @@ from datetime import datetime
 
 import requests
 from flask import Blueprint, request, jsonify
+from backend_server.src.lib import socket_auth
+from backend_server.src.lib.auth_middleware import authorize_socket_connection
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 from backend_server.src.routes.server_settings_routes import get_env_paths, write_env_file
 
@@ -298,9 +300,18 @@ def save_api_key():
 @server_agent_bp.route('/sessions', methods=['POST'])
 @handle_route_exceptions('server_agent:create_session')
 def create_session():
-    """Create a new chat session"""
+    """Create a new chat session.
+
+    The caller is recorded as the owner so the socket handlers can tell whose conversation a
+    session_id names. Sessions are in-memory, so anything created before this — or on a
+    deployment with a shared principal, where every caller is the same 'user' — has no owner
+    and stays usable by any authenticated caller (see _may_use_session).
+    """
     session_mgr = get_session_manager()
     session = session_mgr.create_session()
+    owner = getattr(request, 'user_id', None)
+    if owner and owner not in SHARED_PRINCIPAL_IDS:
+        session.set_context(SESSION_OWNER_KEY, owner)
     
     return jsonify({
         "success": True,
@@ -400,6 +411,45 @@ def approve_action(session_id: str):
 # SocketIO Handlers
 # =============================================================================
 
+SESSION_OWNER_KEY = 'owner_user_id'
+
+# Principals that are not one person: everybody on such a deployment shares the id, so an
+# ownership comparison against them would either pass for everyone or fail for everyone.
+SHARED_PRINCIPAL_IDS = frozenset({
+    'service_api_key', 'open_mode', 'auto_sign', 'public_key',
+})
+
+# Rooms that are broadcasts rather than conversations. Every client joins these.
+PUBLIC_ROOMS = frozenset({'background_tasks'})
+
+
+def _may_use_session(session_id: str) -> bool:
+    """May the calling socket read or drive this session?
+
+    Ownership is only meaningful when both sides name a person. A shared principal (service
+    key, open mode, auto-sign, public key) and a session with no recorded owner both fall
+    back to "any authenticated caller", which is what this namespace has always been — the
+    connection itself is now authenticated, which is the part that was missing.
+    """
+    if session_id in PUBLIC_ROOMS:
+        return True
+    if socket_auth.is_shared_principal():
+        return True
+
+    caller = socket_auth.current_user_id()
+    if not caller:
+        return False
+
+    session = get_session_manager().get_session(session_id)
+    if session is None:
+        # An unknown id is not someone else's session. The handlers answer their own
+        # "session not found"; refusing here would turn that into a confusing auth error.
+        return True
+
+    owner = session.get_context(SESSION_OWNER_KEY)
+    return owner is None or owner == caller
+
+
 def register_agent_socketio_handlers(socketio):
     """
     Register SocketIO event handlers for /agent namespace
@@ -408,23 +458,57 @@ def register_agent_socketio_handlers(socketio):
     """
     
     @socketio.on('connect', namespace='/agent')
-    def handle_connect():
-        logger.info("Client connected to /agent namespace")
-        socketio.emit('connected', {'status': 'ok'}, namespace='/agent')
-    
+    def handle_connect(auth=None):
+        """Authenticate the handshake, or refuse the connection.
+
+        The socket.io handshake never passes through the global /server/* guard, so before
+        this every event on this namespace — send_message, approve, clear_session — was
+        reachable by anyone who could open a socket to the server.
+
+        Returning False refuses the connection; the client sees a connect_error.
+        """
+        principal = authorize_socket_connection(auth)
+        if principal is None:
+            logger.warning("Refused unauthenticated connection to /agent namespace")
+            return False
+
+        socket_auth.remember(request.sid, principal)
+        logger.info(
+            "Client connected to /agent namespace as %s (role: %s)",
+            principal.get('user_email'), principal.get('user_role'),
+        )
+        socketio.emit('connected', {'status': 'ok'}, namespace='/agent', to=request.sid)
+        return None
+
     @socketio.on('disconnect', namespace='/agent')
     def handle_disconnect():
+        socket_auth.forget(request.sid)
         logger.info("Client disconnected from /agent namespace")
     
     @socketio.on('join_session', namespace='/agent')
     def handle_join_session(data):
-        """Join a session room"""
+        """Join a session room.
+
+        The room is the delivery channel for a conversation, so joining someone else's is
+        reading their chat. session_id came straight off the wire and was joined unchecked.
+        """
         session_id = data.get('session_id')
-        if session_id:
-            from flask_socketio import join_room
-            join_room(session_id)
-            logger.info(f"Client joined session: {session_id}")
-            socketio.emit('joined', {'session_id': session_id}, namespace='/agent')
+        if not session_id:
+            return
+
+        if not _may_use_session(session_id):
+            logger.warning("Refused join_session for %s: not the caller's session", session_id)
+            socketio.emit(
+                'error',
+                {'message': 'Not your session'},
+                namespace='/agent', to=request.sid,
+            )
+            return
+
+        from flask_socketio import join_room
+        join_room(session_id)
+        logger.info(f"Client joined session: {session_id}")
+        socketio.emit('joined', {'session_id': session_id}, namespace='/agent', to=request.sid)
     
     @socketio.on('leave_session', namespace='/agent')
     def handle_leave_session(data):
@@ -470,6 +554,11 @@ def register_agent_socketio_handlers(socketio):
             socketio.emit('error', {
                 'error': 'session_id and message required'
             }, namespace='/agent')
+            return
+
+        if not _may_use_session(session_id):
+            logger.warning("Refused send_message for session %s: not the caller's session", session_id)
+            socketio.emit('error', {'message': 'Not your session'}, namespace='/agent', to=request.sid)
             return
 
         # Sending a message IS an implicit room join: put the sender in the
@@ -697,6 +786,11 @@ def register_agent_socketio_handlers(socketio):
         session_id = data.get('session_id')
         approved = data.get('approved', False)
         modifications = data.get('modifications', {})
+
+        if session_id and not _may_use_session(session_id):
+            logger.warning("Refused approve for session %s: not the caller's session", session_id)
+            socketio.emit('error', {'message': 'Not your session'}, namespace='/agent', to=request.sid)
+            return
         
         session_mgr = get_session_manager()
         session = session_mgr.get_session(session_id)
@@ -744,7 +838,12 @@ def register_agent_socketio_handlers(socketio):
         """Handle stop request"""
         session_id = data.get('session_id')
         print(f"[SOCKET DEBUG] ⛔ stop_generation received for session: {session_id}")
-        
+
+        if session_id and not _may_use_session(session_id):
+            logger.warning("Refused stop_generation for session %s: not the caller's session", session_id)
+            socketio.emit('error', {'message': 'Not your session'}, namespace='/agent', to=request.sid)
+            return
+
         if session_id:
             session_mgr = get_session_manager()
             session = session_mgr.get_session(session_id)
@@ -763,6 +862,10 @@ def register_agent_socketio_handlers(socketio):
     def handle_clear_session(data):
         """Clear session messages for conversation isolation (preserves tool context)"""
         session_id = data.get('session_id')
+        if session_id and not _may_use_session(session_id):
+            logger.warning("Refused clear_session for session %s: not the caller's session", session_id)
+            socketio.emit('error', {'message': 'Not your session'}, namespace='/agent', to=request.sid)
+            return
         if session_id:
             session_mgr = get_session_manager()
             session = session_mgr.get_session(session_id)

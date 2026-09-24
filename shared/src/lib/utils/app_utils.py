@@ -217,7 +217,7 @@ DEFAULT_CORS_ALLOWED_ORIGINS = (
 )
 
 
-def _cors_allowed_origins():
+def cors_allowed_origins():
     """CORS_ALLOWED_ORIGINS, comma-separated (same convention as PUBLIC_ASK_ALLOWED_ORIGINS in
     server_public_ask_routes.py), else DEFAULT_CORS_ALLOWED_ORIGINS above. Never '*' — BUG-0092."""
     raw = os.getenv('CORS_ALLOWED_ORIGINS', DEFAULT_CORS_ALLOWED_ORIGINS)
@@ -284,7 +284,7 @@ def setup_flask_app(app_name="VirtualPyTest"):
     # (24 h); set 86400 and let each browser apply its cap. Without this, every cross-origin
     # fetch fires its own OPTIONS round-trip and all those OPTIONS calls queue on the single
     # Gunicorn worker — turning ~30 page-load XHRs into ~60 server hits.
-    cors_origins = _cors_allowed_origins()
+    cors_origins = cors_allowed_origins()
     CORS(app, origins=cors_origins, supports_credentials=True, max_age=86400)
 
     # SocketIO: same allowlist as the HTTP CORS above (BUG-0092) — not a separate wildcard.

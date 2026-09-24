@@ -407,6 +407,11 @@ export const useVerificationEditor = ({
       return;
     }
 
+    if (referenceName.includes('.')) {
+      showError('Reference names cannot contain dots. Use underscores instead.');
+      return;
+    }
+
     const roundedArea = roundArea(selectedArea);
     setPendingSave(true);
 

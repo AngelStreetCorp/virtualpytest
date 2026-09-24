@@ -52,21 +52,28 @@ If `install_docker.sh` just added your user to the `docker` group, log out and b
 
 ### Skip the build (prebuilt images)
 
-Step 3 is the slow part. CI publishes the two backend images for every release, so you can
-pull them instead of building them. Before the first `launch.sh`, or any time afterwards,
-set the tag you checked out in `setup/docker/.env`:
+Step 3 is the slow part. Prebuilt backend images are published to GHCR so you can pull them
+instead of building them. Before the first `launch.sh`, or any time afterwards, set the tag in
+`setup/docker/.env`:
 
 ```bash
-VPT_IMAGE_TAG=release-2026.09.15      # default is `local` = build from this checkout
+VPT_IMAGE_TAG=latest                  # the most recently published images
+VPT_IMAGE_TAG=main-2026.09.17-9151    # or a specific release, to freeze it
+# default is `local` = build from this checkout
 ```
+
+**Images are published on purpose, not on every release.** They are big and slow to build, and
+nothing depends on them — the default builds from your checkout, and a pull that finds no such
+tag falls back to building. So a given release may not have an image, and `latest` is the last
+one that was published rather than the newest release. If you need the images to match a
+specific release exactly, build it: `VPT_IMAGE_TAG=local`.
 
 `launch.sh` then pulls all three images — `virtualpytest-server`, `-host` and
 `-frontend` from `ghcr.io/angelstreetcorp` — and **nothing compiles on your machine**: a
 first run in about two minutes instead of fifteen. If the pull fails (no network, or a tag
 that was never published) it falls back to building, so the command always works.
 
-**Use the tag you checked out.** A prebuilt image is the code of *its* release, not of your
-working tree. If you edit anything under `backend_server/`, `backend_host/` or `frontend/`,
+**A prebuilt image is the code of *its* build, not of your working tree.** If you edit anything under `backend_server/`, `backend_host/` or `frontend/`,
 set `VPT_IMAGE_TAG=local` (or run `./setup/docker/launch.sh --rebuild`) or your change will
 not be in the running container.
 

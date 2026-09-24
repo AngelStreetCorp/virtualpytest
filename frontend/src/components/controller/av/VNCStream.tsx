@@ -149,6 +149,7 @@ export const VNCStream = React.memo(
     
     // Stream state
     const [isMinimized, setIsMinimized] = useState<boolean>(false);
+    const [isVerificationEditorMaximized, setIsVerificationEditorMaximized] = useState(false);
     const [isScreenshotLoading, setIsScreenshotLoading] = useState<boolean>(false);
     // Active verification reference type — text references don't use a fuzzy area,
     // so we disable Shift+drag fuzzy selection on the capture overlay for them.
@@ -392,11 +393,12 @@ export const VNCStream = React.memo(
         <Box sx={positionStyles}>
           <Box
             sx={{
-              width: getPanelWidth(),
-              height: getPanelHeight(),
-              position: 'absolute',
-              bottom: 0,
-              left: 0,
+              width: isVerificationEditorMaximized ? '62vw' : getPanelWidth(),
+              height: isVerificationEditorMaximized ? 'calc(100vh - 32px)' : getPanelHeight(),
+              position: isVerificationEditorMaximized ? 'fixed' : 'absolute',
+              bottom: isVerificationEditorMaximized ? '16px' : 0,
+              top: isVerificationEditorMaximized ? '16px' : 'auto',
+              left: isVerificationEditorMaximized ? '16px' : 0,
               backgroundColor: '#2A2A2A', // Slightly different from HDMI
               // Default discreet white border for all VNC panels (consistent with HDMI)
               border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -626,10 +628,14 @@ export const VNCStream = React.memo(
             sx={{
               position: 'fixed',
               zIndex: getZIndex('VERIFICATION_EDITOR'),
-              bottom: panelLayout.collapsed.position.bottom || '20px',
-              left: `calc(${panelLayout.collapsed.position.left || '370px'} + ${getPanelWidth()})`,
-              width: '400px',
-              height: getPanelHeight(),
+              ...(isVerificationEditorMaximized
+                ? { top: '16px', right: '16px', bottom: '16px', width: 'calc(38vw - 32px)', height: 'auto' }
+                : {
+                    bottom: panelLayout.collapsed.position.bottom || '20px',
+                    left: `calc(${panelLayout.collapsed.position.left || '370px'} + ${getPanelWidth()})`,
+                    width: '400px',
+                    height: getPanelHeight(),
+                  }),
               backgroundColor: '#2A2A2A',
               border: '2px solid #2A2A2A',
               borderLeft: 'none',
@@ -651,6 +657,8 @@ export const VNCStream = React.memo(
               isControlActive={isControlActive}
               userinterfaceName={userinterfaceName} // Pass userinterfaceName for reference saving
               onReferenceTypeChange={setVerificationReferenceType}
+              isMaximized={isVerificationEditorMaximized}
+              onToggleMaximized={() => setIsVerificationEditorMaximized((current) => !current)}
               sx={{
                 width: '100%',
                 height: '100%',

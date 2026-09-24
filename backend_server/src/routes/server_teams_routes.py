@@ -6,13 +6,35 @@ from flask import Blueprint, request, jsonify
 from typing import Optional
 import logging
 
-from shared.src.lib.database import teams_db
+from shared.src.lib.database import teams_db, tenants_db
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from backend_server.src.lib.auth_middleware import require_admin_role
+from backend_server.src.lib.auth_middleware import (
+    require_admin_role, _caller_is_platform_admin,
+)
 
 logger = logging.getLogger(__name__)
 
 server_teams_bp = Blueprint('server_teams', __name__, url_prefix='/server/teams')
+
+
+def _enrich_team_with_tenant(team: Optional[dict]) -> Optional[dict]:
+    """TASK-23: when the caller is a platform admin, attach the tenant object
+    `{id, name, slug, is_default}` to the team dict. Non-super-admin callers
+    see the same shape as before TASK-23 — just `tenant_id` (the UUID)."""
+    if team is None:
+        return None
+    if not _caller_is_platform_admin():
+        return team
+    tenant = tenants_db.get_tenant(team.get('tenant_id', ''))
+    if tenant:
+        team = dict(team)
+        team['tenant'] = {
+            'id': tenant['id'],
+            'name': tenant['name'],
+            'slug': tenant['slug'],
+            'is_default': tenant.get('is_default', False),
+        }
+    return team
 
 
 @server_teams_bp.route('', methods=['GET'])
@@ -23,8 +45,13 @@ def get_teams():
     Get all teams
     Admin: sees all teams
     Regular user: sees only their teams
+
+    TASK-23: response is enriched with `tenant: {id, name, slug}` for platform
+    admins only. Non-super-admin callers see the same fields as before TASK-23.
     """
     teams = teams_db.get_all_teams()
+    if _caller_is_platform_admin():
+        teams = [_enrich_team_with_tenant(t) for t in teams]
     return jsonify(teams), 200
 
 
@@ -32,10 +59,11 @@ def get_teams():
 @require_admin_role
 @handle_route_exceptions('server_teams:get_team')
 def get_team(team_id: str):
-    """Get a specific team by ID"""
+    """Get a specific team by ID. Same tenant enrichment as get_teams."""
     team = teams_db.get_team(team_id)
     if not team:
         return jsonify({"error": "Team not found"}), 404
+    team = _enrich_team_with_tenant(team)
     return jsonify(team), 200
 
 

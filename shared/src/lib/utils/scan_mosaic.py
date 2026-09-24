@@ -16,8 +16,11 @@ Design (agreed 2026-06-18):
   representative while every distinct frame and every transition survives.
 - Paginate at cols x rows tiles per page; overflow spills to `<prefix>_scan_2`,
   `_scan_3`, … so nothing is ever silently dropped.
-- Each tile carries a label (capture name) + sublabel (offset from action) and a
-  border whose colour the caller chooses per frame (match / fail / probe / none).
+- Each tile carries its wall-clock time (top-right), its offset from the action
+  (bottom-right), an optional legend pill (top-left: ✓ MATCH / ACTION / BEFORE
+  MATCH / AFTER MATCH) and a border whose colour the caller chooses per frame
+  (match / fail / probe / anchor / none). All four are drawn AFTER the border so
+  a thick green/orange frame never clips them.
 
 Pure: PIL only, no network, no numpy. Callers upload the returned page files and
 embed `render_mosaic_section()` in their report HTML (both report templates use
@@ -128,12 +131,50 @@ def _collapse_near_duplicates(frames: List[Dict], dedup_hamming: int) -> List[Di
     return kept
 
 
+def format_clock(epoch_seconds: float) -> str:
+    """Wall-clock time of a frame, e.g. 1758095021.791 -> '09:40:21.791'.
+    Shown top-right of every tile so a reviewer can line a frame up with the
+    report header's Measurement Start/End and with host logs."""
+    import time as _time
+    ms = int((epoch_seconds - int(epoch_seconds)) * 1000)
+    return _time.strftime('%H:%M:%S', _time.localtime(epoch_seconds)) + f'.{ms:03d}'
+
+
 def _font():
     from PIL import ImageFont
     try:
         return ImageFont.truetype("DejaVuSans.ttf", 11)
     except Exception:
         return ImageFont.load_default()
+
+
+def _text_w(draw, text: str, font) -> int:
+    try:
+        return int(draw.textlength(text, font=font))
+    except Exception:
+        box = font.getbbox(text)
+        return int(box[2] - box[0])
+
+
+_CHIP_H = 15
+
+
+def _chip(draw, text: str, font, bg, fg, right: int = None, left: int = None,
+          top: int = None, bottom: int = None):
+    """Draw a small filled label pill anchored to a tile corner.
+
+    Always painted with its own opaque background, and always drawn AFTER the
+    tile border, so a thick green/orange frame (or a bright frame underneath)
+    can never swallow the text — that overlap was the whole reason the old
+    full-width header/footer strips were replaced.
+    """
+    if not text:
+        return
+    w = _text_w(draw, text, font) + 6
+    x = left if left is not None else (right - w)
+    y = top if top is not None else (bottom - _CHIP_H)
+    draw.rectangle([x, y, x + w, y + _CHIP_H], fill=bg)
+    draw.text((x + 3, y + 1), text, fill=fg, font=font)
 
 
 def _render_tile(fr: Dict, tile_w: int, tile_h: int):
@@ -152,42 +193,38 @@ def _render_tile(fr: Dict, tile_w: int, tile_h: int):
 
     draw = ImageDraw.Draw(cell)
     font = _font()
-    is_match = fr.get('border') == 'match'
-    is_anchor = fr.get('border') == 'anchor'
+    border = fr.get('border')
+    is_match = border == 'match'
+    accent = _BORDER_COLORS.get(border) or _BORDER_COLORS[None]
+
+    # Border FIRST, chips on top of it — the tile frame is thick for flagged
+    # frames, so drawing it last used to clip the corner labels.
+    if is_match:
+        border_w = 6
+        accent = (0, 230, 0)
+    elif border in ('fail', 'probe', 'anchor'):
+        border_w = 4
+    else:
+        border_w = 1
+    draw.rectangle([0, 0, tile_w - 1, tile_h - 1], outline=accent, width=border_w)
+
+    pad = border_w + 1
+    # Top-left: the legend — why this frame is flagged (✓ MATCH / ACTION /
+    # BEFORE MATCH / AFTER MATCH). Coloured pill, dark text.
     tag = fr.get('tag')
-    label = str(fr.get('label', ''))
-    sublabel = str(fr.get('sublabel', ''))
-
-    # Header (capture name) + footer (offset) strips. The matched frame gets bright
-    # green strips with dark text and a "✓ MATCH" header so it's unmistakable among
-    # otherwise similar-looking frames; an anchor frame (action / before-match /
-    # after-match — always kept, never collapsed) gets its tag as a prefix instead;
-    # everything else uses subtle dark strips.
-    strip_bg = (0, 200, 0) if is_match else ((255, 165, 0) if is_anchor else (0, 0, 0))
-    name_fg = (0, 0, 0) if (is_match or is_anchor) else (230, 230, 230)
-    sub_fg = (0, 0, 0) if (is_match or is_anchor) else (180, 220, 255)
-    if is_match:
-        header = '✓ MATCH  ' + label
-    elif tag:
-        header = f'{tag}  {label}'
-    else:
-        header = label
-    if header:
-        draw.rectangle([0, 0, tile_w, 15], fill=strip_bg)
-        draw.text((3, 1), header[:46], fill=name_fg, font=font)
-    if sublabel:
-        draw.rectangle([0, tile_h - 15, tile_w, tile_h], fill=strip_bg)
-        draw.text((3, tile_h - 14), sublabel[:46], fill=sub_fg, font=font)
-
-    # Border last so it frames the tile (and the strips) cleanly. Thick bright green
-    # for the matched frame; thinner accent for other flags; hairline otherwise.
-    if is_match:
-        border_color, border_w = (0, 230, 0), 6
-    elif fr.get('border') in ('fail', 'probe', 'anchor'):
-        border_color, border_w = _BORDER_COLORS[fr.get('border')], 4
-    else:
-        border_color, border_w = _BORDER_COLORS[None], 1
-    draw.rectangle([0, 0, tile_w - 1, tile_h - 1], outline=border_color, width=border_w)
+    legend = '✓ MATCH' if is_match else (str(tag) if tag else '')
+    if legend:
+        _chip(draw, legend, font, accent, (0, 0, 0), left=pad, top=pad)
+    # Top-right: the frame's wall-clock timestamp (replaces the capture id —
+    # the id meant nothing to a reviewer, the time lines up with the report
+    # header and the host logs).
+    _chip(draw, str(fr.get('clock', '')), font, (0, 0, 0), (235, 235, 235),
+          right=tile_w - pad, top=pad)
+    # Bottom-right: offset from the action.
+    duration = str(fr.get('duration', ''))
+    dur_fg = accent if border else (180, 220, 255)
+    _chip(draw, duration, font, (0, 0, 0), dur_fg,
+          right=tile_w - pad, bottom=tile_h - pad)
     return cell
 
 
@@ -203,7 +240,10 @@ def build_mosaic_pages(
     """Render the analysed window into paginated mosaic JPEGs.
 
     Args:
-        frames: ordered list of {'path', 'label', 'sublabel', 'border'} dicts.
+        frames: ordered list of {'path', 'clock', 'duration', 'border', 'tag'} dicts
+            — 'clock' is the frame's wall-clock time (see format_clock), 'duration'
+            its offset from the action (see format_offset), 'tag' an optional
+            top-left legend.
         out_dir: directory to write the page JPEGs into (e.g. the /tmp working dir).
         prefix: filename prefix; pages are `<prefix>_scan_1.jpg`, `_scan_2.jpg`, …
 
@@ -241,7 +281,9 @@ def build_mosaic_pages(
             page.save(dest, 'JPEG', quality=80)
             page_paths.append(dest)
     except Exception as e:
-        logger.warning(f"⚠️  Scan mosaic render failed: {e}")
+        # exc_info: a render failure drops the WHOLE mosaic from the report, so the
+        # traceback is the only way to tell which tile field or PIL call broke.
+        logger.warning(f"⚠️  Scan mosaic render failed: {e}", exc_info=True)
 
     stats = {'analyzed': analyzed, 'shown': len(kept),
              'pages': len(page_paths), 'truncated': truncated}
@@ -294,7 +336,9 @@ def render_mosaic_section(page_urls: List[str], stats: Dict) -> str:
         '<span style="color:#3c8cff;">■</span> verified (pass), '
         '<span style="color:#d22d2d;">■</span> verified (fail), '
         '<span style="color:#ffa500;">■</span> action / frame-before-match / frame-after-match. '
-        '<span style="color:#3c3c3c;">■</span> plain border = context frame (duplicates of it were hidden).'
+        '<span style="color:#3c3c3c;">■</span> plain border = context frame (duplicates of it were hidden). '
+        'Each tile shows its <strong>capture time top-right</strong> and its '
+        '<strong>offset from the action bottom-right</strong>.'
         '</div>'
     )
     thumbs = ''.join(

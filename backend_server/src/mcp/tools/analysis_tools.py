@@ -13,6 +13,12 @@ from shared.src.lib.utils.supabase_utils import get_supabase_client
 
 class AnalysisTools:
     """Tools for analyzing execution results"""
+
+    CLASSIFICATIONS = {
+        'VALID_PASS', 'VALID_FAIL', 'BUG', 'SCRIPT_ISSUE',
+        'SYSTEM_ISSUE', 'EXTERNAL_BLOCK',
+    }
+    DISCARD_CLASSIFICATIONS = {'SCRIPT_ISSUE', 'SYSTEM_ISSUE'}
     
     def __init__(self):
         self.supabase = None
@@ -186,7 +192,7 @@ class AnalysisTools:
             params: {
                 'script_result_id': str (REQUIRED - ID of script result to update),
                 'discard': bool (OPTIONAL - true if false positive),
-                'classification': str (REQUIRED - BUG SCRIPT_ISSUE SYSTEM_ISSUE VALID_PASS VALID_FAIL),
+                'classification': str (REQUIRED - BUG SCRIPT_ISSUE SYSTEM_ISSUE EXTERNAL_BLOCK VALID_PASS VALID_FAIL),
                 'explanation': str (REQUIRED - brief analysis explanation)
             }
         
@@ -218,10 +224,29 @@ class AnalysisTools:
                     "content": [{"type": "text", "text": "Error: classification is required"}],
                     "isError": True
                 }
+
+            classification = str(classification).strip().upper()
+            if classification not in self.CLASSIFICATIONS:
+                return {
+                    "content": [{"type": "text", "text": (
+                        "Error: classification must be one of "
+                        f"{', '.join(sorted(self.CLASSIFICATIONS))}"
+                    )}],
+                    "isError": True
+                }
             
             if not explanation:
                 return {
                     "content": [{"type": "text", "text": "Error: explanation is required"}],
+                    "isError": True
+                }
+
+            expected_discard = classification in self.DISCARD_CLASSIFICATIONS
+            if bool(discard) != expected_discard:
+                return {
+                    "content": [{"type": "text", "text": (
+                        f"Error: {classification} requires discard={str(expected_discard).lower()}"
+                    )}],
                     "isError": True
                 }
             

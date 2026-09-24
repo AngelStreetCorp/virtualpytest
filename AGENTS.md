@@ -13,8 +13,9 @@ Dedicated agent docs in `docs/agent/` — self-sufficient, no prior knowledge ne
 3. **[docs/agent/validation/CONTRACTS.md](docs/agent/validation/CONTRACTS.md)** — Hidden rules that cause bugs if violated. Read before writing code.
 4. **[docs/agent/navigation/PATTERNS.md](docs/agent/navigation/PATTERNS.md)** — Canonical files to copy when adding routes, DB modules, hooks, etc.
 5. **[docs/agent/validation/TESTING.md](docs/agent/validation/TESTING.md)** — How to test: auto-sign bypass, agent-browser, Playwright E2E, CI/CD reports.
-6. **[docs/agent/infra/CICD.md](docs/agent/infra/CICD.md)** — CI/CD pipeline: job graph, runners, report storage, email notifications, improvements.
-7. **[docs/agent/infra/DEPLOY.md](docs/agent/infra/DEPLOY.md)** — Exact deploy workflow for debug VMs via proxmox `update_core.sh`, including frontend-only deploys and post-deploy verification.
+6. **`docs/agent/infra/CICD.md` _(internal-only — not in the public snapshot)_** — CI/CD pipeline: job graph, runners, report storage, email notifications, improvements.
+7. **`docs/agent/infra/DEPLOY.md` _(internal-only — not in the public snapshot)_** — Exact deploy workflow for debug VMs via proxmox `update_core.sh`, including frontend-only deploys and post-deploy verification.
+8. **`docs/agent/infra/PARALLEL_AGENTS.md` _(internal-only — not in the public snapshot)_** — Splitting one task across several agents: worktrees, which files may never be owned by two slices, the merge order, and what "shipped" means. Read before fanning work out.
 
 ### Finding a doc fast
 
@@ -53,7 +54,7 @@ https://virtualpytest.angelstreet.io/?auto_signed=<AUTO_SIGN_TOKEN>
 
 ## Deploying To Debug
 
-- Use **[docs/agent/infra/DEPLOY.md](docs/agent/infra/DEPLOY.md)** for the canonical deploy process.
+- Use **`docs/agent/infra/DEPLOY.md` _(internal-only — not in the public snapshot)_** for the canonical deploy process.
 - Standard frontend-only deploy to debug:
   - `git push origin debug`
   - `ssh proxmox "bash update_core.sh debug --frontend"`
@@ -71,9 +72,12 @@ https://virtualpytest.angelstreet.io/?auto_signed=<AUTO_SIGN_TOKEN>
 - All database queries must filter by `team_id`
 - Never access device controllers directly from routes — use executors
 - Server-to-Host calls must use `call_host()` from `shared/src/lib/utils/build_url_utils.py`
-- For frontend verification during normal AI work, prefer `cd frontend && npm run build:dev`
-- Use `cd frontend && npm run build` only when the docs/security prebuild pipeline is actually required or for release-style verification
-- Use `cd frontend && npm run validate` for a quick frontend sanity check
+- For frontend verification during normal AI work, use `cd frontend && ./node_modules/.bin/tsc --noEmit`
+  (types only, fastest) or `./node_modules/.bin/vite build` (full bundle). There is no `build:dev`
+  and no `validate` script — `frontend/package.json` has only `dev`, `prebuild`, `build`, `start`,
+  `preview`, `lint`
+- Use `cd frontend && npm run build` only when the docs/security prebuild pipeline is actually required or for release-style verification (it runs `prebuild` first)
+- Use `cd frontend && npm run lint` for a quick frontend sanity check
 
 ## Script Test + AI Analyzer
 - CLI script examples: `docs/user-guide/running-tests.md`

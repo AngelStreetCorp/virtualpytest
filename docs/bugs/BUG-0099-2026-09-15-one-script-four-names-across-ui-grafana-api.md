@@ -21,14 +21,13 @@ network-assessment script the four names in circulation were:
 
 | Where | Name shown |
 |---|---|
-| The file / `script_results.script_name` | `windows_networkassessmenttools` |
-| Run Tests, Test Cases, reports | `[TC015] Windows Network Assessment` |
-| That script's Grafana dashboard | `Microsoft Teams Network Assessment` |
-| `GET /server/script/list` | `gw/windows_networkassessmenttools` (no name at all) |
+| The file / `script_results.script_name` | the script's filename |
+| Run Tests, Test Cases, reports | its `[TC0xx]`-prefixed label from the identity map |
+| That script's Grafana dashboard | a third title, written by hand when the panel was built |
+| `GET /server/script/list` | the path only — no name at all |
 
-It was not one dashboard: **9 of 11** single-script dashboards on that install disagreed with the
-identity map — `Gateway Information` vs `[TC001] Get System Information`, `DNS Lookup Time` vs
-`[TC002] DNS Response Time`, `Email IMAP` vs `[TC048] Receive Email`, and so on.
+It was not one dashboard: **9 of 11** single-script dashboards on that install carried a
+hand-written title that disagreed with the identity map's label for the same script.
 
 ## Root cause
 
@@ -67,7 +66,7 @@ without anything noticing.
   `invalidate_script_list_cache()`; without it a rename on the Test Cases page would keep serving
   the old label for the cached response's TTL.
 - **Dashboard titles made consistent** — all 10 single-script dashboards on the affected install
-  retitled to their canonical label (`[TC015] Windows Network Assessment` etc.). `uid`s and file
+  retitled to their canonical label from the identity map. `uid`s and file
   names are untouched, so existing links and bookmarks keep working.
 - **Drift prevention.** `infra/monitoring/grafana/check_dashboard_titles.py` derives the rule
   generically: a dashboard whose SQL filters on exactly one `script_name` must be titled with that
@@ -79,12 +78,12 @@ without anything noticing.
 ```bash
 # Labels resolve, and an unmapped script falls back to its own name
 python3 -c "from shared.src.lib.utils.script_identity_utils import format_script_label as f; \
-  print(f('gw/x','TC015','Windows Network Assessment'), '|', f('gw/x',None,None))"
-# -> [TC015] Windows Network Assessment | gw/x
+  print(f('gw/x','TC0xx','Display Name'), '|', f('gw/x',None,None))"
+# -> [TC0xx] Display Name | gw/x
 
 # The list endpoint now answers with names
 curl -s "$SERVER/server/script/list?team_id=$TEAM_ID" | jq '.items[0]'
-# -> {"script_ref":"gw/...","prefix":"TC015","display_name":"...","label":"[TC015] ..."}
+# -> {"script_ref":"gw/...","prefix":"TC0xx","display_name":"...","label":"[TC0xx] ..."}
 
 # Dashboard titles agree with the identity map (exit 0)
 python3 infra/monitoring/grafana/check_dashboard_titles.py

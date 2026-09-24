@@ -9,10 +9,12 @@
 import {
   AccountTree as TreeIcon,
   Api as ApiIcon,
+  Apps as AllIntegrationsIcon,
   Assessment as ReportsIcon,
   Assignment as RequirementIcon,
   Build as BuildIcon,
   BugReport as TestingIcon,
+  BarChart as AnalyticsIcon,
   Campaign as CampaignIcon,
   CloudUpload as CodeDeployIcon,
   Dashboard as DashboardIcon,
@@ -164,6 +166,11 @@ export const TEST_GROUPS: NavGroup[] = [
 
 export const MONITORING_ITEMS: NavItem[] = [
   {
+    label: 'Analytics',
+    path: '/monitoring/analytics',
+    icon: <AnalyticsIcon fontSize="small" />,
+  },
+  {
     label: 'Incidents',
     path: '/monitoring/incidents',
     icon: <IncidentIcon fontSize="small" />,
@@ -208,6 +215,11 @@ export const DOCS_ITEMS: NavItem[] = [
     label: 'Bugs',
     path: '/docs/bugs',
     icon: <BugIcon fontSize="small" />,
+  },
+  {
+    label: 'Integrations',
+    path: '/docs/integrations',
+    icon: <IntegrationIcon fontSize="small" />,
   },
   {
     label: 'User Guide',
@@ -269,10 +281,29 @@ export const INTEGRATIONS_ITEMS: NavItem[] = [
     icon: <IntegrationIcon fontSize="small" />,
   },
   {
+    label: 'TestRail',
+    path: '/integrations/testrail',
+    icon: <IntegrationIcon fontSize="small" />,
+  },
+  {
+    label: 'Open TestRail',
+    path: '/integrations/testrail',
+    icon: <IntegrationIcon fontSize="small" />,
+    external: true,
+  },
+  {
     label: 'Slack',
     path: '/integrations/slack',
     icon: <IntegrationIcon fontSize="small" />,
     external: true,
+  },
+  // The map of everything VirtualPyTest connects to, live and planned. The entries
+  // above deep-link into one tool each; this one is the way in for a tool that has no
+  // page of its own (the device farms, Appium, Playwright, the storage backends).
+  {
+    label: 'All integrations',
+    path: '/docs/integrations',
+    icon: <AllIntegrationsIcon fontSize="small" />,
   },
 ];
 
@@ -283,17 +314,23 @@ export const INTEGRATIONS_ITEMS: NavItem[] = [
  * - Slack is always external; its `href` is injected from the backend config.
  * - Langfuse becomes external only when `VITE_LANGFUSE_URL` is set; otherwise
  *   it stays as an internal link to `/langfuse-dashboard` (the config page).
+ * - Open TestRail appears only for a configured project and opens that project
+ *   in a separate tab.
  */
 export function buildIntegrationsItems(params: {
   slackUrl: string;
   langfuseUrl?: string;
+  testrailProjectUrl?: string;
 }): NavItem[] {
-  return INTEGRATIONS_ITEMS.map((item) => {
+  return INTEGRATIONS_ITEMS.filter((item) => item.label !== 'Open TestRail' || Boolean(params.testrailProjectUrl)).map((item) => {
     if (item.label === 'Slack') {
       return { ...item, href: params.slackUrl };
     }
     if (item.label === 'Langfuse' && params.langfuseUrl) {
       return { ...item, external: true, href: params.langfuseUrl };
+    }
+    if (item.label === 'Open TestRail' && params.testrailProjectUrl) {
+      return { ...item, href: params.testrailProjectUrl };
     }
     return item;
   });
@@ -302,6 +339,11 @@ export function buildIntegrationsItems(params: {
 // ─── Configuration (Settings dropdown) ────────────────────────────────────────
 
 export const CONFIGURATION_ITEMS: NavItem[] = [
+  {
+    label: 'Logs',
+    path: '/configuration/logs',
+    icon: <TerminalIcon fontSize="small" />,
+  },
   {
     label: 'Models',
     path: '/configuration/models',

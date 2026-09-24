@@ -459,7 +459,7 @@ def main():
         try:
             from backend_host.src.controllers.controller_manager import get_host
 
-            host = get_host()
+            host = get_host(host_ip=detected_host_ip)
 
             # Create device registry for routes to access
             app.host_devices = {}

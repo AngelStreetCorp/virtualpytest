@@ -17,6 +17,30 @@ Testing without metrics is flying blind:
 
 ---
 
+## Two places to look
+
+There are two answers to "how is it going", and they are for different questions:
+
+| | **Monitoring → Analytics** (in the app) | **Grafana** |
+|---|---|---|
+| For | the dozen basics, at a glance | anything more |
+| Shape | 7 tabs of bars, donuts, one treemap | ~30 dashboards |
+| Filters | none in v1 | full |
+| Drill-down | no — it links out to Grafana | yes |
+| Cost to open | one cached section, < 150 ms | a separate login and warm-up |
+
+The in-app page exists because opening Grafana to ask "how many devices are up" was too much
+ceremony for the question. It answers: how many robots and devices, how many are up, down or
+having service issues; incidents and alerts over time and by type; test pass rate and busiest
+scripts; disk, memory and CPU per machine; and — from the repository rather than the database
+— lines of code, bugs by severity, and features and fixes per release.
+
+It is not a Grafana replacement and does not try to be. Every tab carries a "Grafana ↗" link
+to the dashboard that goes deeper. Design notes, the measurements behind the caching, and the
+deploy steps are in [TASK-20](../tasks/TASK-20-monitoring-analytics.md).
+
+---
+
 ## How It Works
 
 - Test executions land in the `test_executions` table (`setup/db/schema/003_test_execution_tables.sql`).
@@ -28,6 +52,12 @@ Testing without metrics is flying blind:
 - ~30 pre-built dashboards ship under `infra/monitoring/grafana/dashboards/` (e.g.
   `campaign-results.json`, `device-occupancy.json`, `navigation-metrics.json`,
   `system-server-monitoring.json`, `vpt-fleet-health.json`).
+- The in-app **Monitoring → Analytics** page reads six aggregate views created by
+  `setup/db/schema/048_analytics_views.sql` through `GET /server/analytics/<section>`, one
+  route per tab. Two of those views are materialized and refreshed every 15 minutes by
+  `pg_cron`, because the capture-availability rollup costs 1382 ms computed live. The Project
+  tab reads no database at all — `frontend/public/analytics/project.json`, written by frontend
+  prebuild step 6.
 
 ---
 

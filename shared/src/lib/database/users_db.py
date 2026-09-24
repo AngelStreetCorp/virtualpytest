@@ -310,22 +310,31 @@ def _is_unique_violation(e: Exception) -> bool:
     return '23505' in str(e)
 
 
-def _ensure_team(admin, group: str) -> str:
+def _ensure_team(admin, group: str, tenant_id: Optional[str] = None) -> str:
     """Idempotently ensure a team named `group` exists; return its id.
+
+    When `tenant_id` is provided (TASK-23 path), the team is created in that
+    tenant. When it is not (legacy call sites), the team lands in the default
+    tenant (`0000…000`). The team lookup is name-scoped, not tenant-scoped,
+    so the existing-team short-circuit returns the first team named `group`
+    regardless of tenant — fine because provisioning callers always name a
+    unique group per customer.
 
     Raises RuntimeError if the team cannot be resolved or created. It must NOT
     return None on failure: the caller cannot distinguish that from "no team", so
     a failure used to be reported to the client as a 200 with "team": null and the
     caller's `group` silently discarded (BUG-0077 hid behind exactly that).
     """
+    tenant_id = tenant_id or '00000000-0000-0000-0000-000000000000'
     try:
         existing = admin.table('teams').select('id').eq('name', group).limit(1).execute()
         if existing.data:
             return existing.data[0]['id']
-        # tenant_id is NOT NULL with no SQL default; same default as teams_db.create_team.
+        # tenant_id is NOT NULL; FK on teams.tenant_id -> tenants.id. Default
+        # tenant is seeded by migration 20260923a so the FK target exists.
         created = admin.table('teams').insert({
             'name': group,
-            'tenant_id': '00000000-0000-0000-0000-000000000000',
+            'tenant_id': tenant_id,
         }).execute()
     except Exception as e:
         # A concurrent provisioning call may have created the same team between the
@@ -363,7 +372,8 @@ def _clean_provider_type(provider_type: Optional[str]) -> Optional[str]:
 
 def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[str] = None,
                 group: Optional[str] = None, default_role: str = 'viewer',
-                provider_type: Optional[str] = None) -> Dict:
+                provider_type: Optional[str] = None,
+                tenant: Optional[str] = None) -> Dict:
     """Create-or-update a user (external provisioning).
 
     - Create: auth.admin.create_user(email, password, email_confirm=True); on the
@@ -371,6 +381,12 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
     - Update: optionally reset password; update full_name only.
       NEVER touch role / permissions on update (VirtualPyTest owns them).
     - group -> team auto-created by name (idempotent) + team_members membership.
+    - tenant -> user_tenants grant (TASK-23 Q7: explicit only; no implicit grant
+      of the default tenant). When `group` is given without `tenant`, the team
+      lands in the default tenant — the legacy behaviour. When `tenant` is
+      given, the team (whether newly created or pre-existing) is placed in the
+      named tenant, and the user gets a user_tenants row there.
+      Tenant can be the UUID or the slug; both resolve via tenants_db.
     - full_name defaults to the email's local part (see default_full_name).
     - provider_type records which platform administers the account; it defaults to
       'virtualpytest' on create and is only rewritten when a caller sends one, so a
@@ -449,9 +465,26 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
         role = existing['role']  # untouched — VirtualPyTest owns role
 
     team_name = existing['team'] if existing else _team_name(admin, created_team_id)
+    # TASK-23: resolve the caller's `tenant` (slug or UUID) into an id we can pass
+    # to _ensure_team and into user_tenants. None means "use the default tenant",
+    # which keeps the legacy call paths working without code changes elsewhere.
+    tenant_id_for_grant: Optional[str] = None
+    if tenant:
+        from shared.src.lib.database.tenants_db import get_all_tenants
+        # get_all_tenants returns the list with slug + id; try slug match first,
+        # then exact-UUID match. Both should converge.
+        all_tenants = get_all_tenants()
+        match = next(
+            (t for t in all_tenants
+             if t.get('slug') == tenant or t.get('id') == tenant),
+            None,
+        )
+        if not match:
+            raise RuntimeError(f"Tenant '{tenant}' does not exist")
+        tenant_id_for_grant = match['id']
     if group:
         # Raises on failure rather than silently dropping the caller's `group`.
-        team_id = _ensure_team(admin, group)
+        team_id = _ensure_team(admin, group, tenant_id=tenant_id_for_grant)
         admin.table('profiles').update({'team_id': team_id}).eq('id', uid).execute()
         try:
             admin.table('team_members').insert({
@@ -470,8 +503,31 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
                 ) from e
         team_name = group
 
+    # TASK-23 Q7: explicit tenant grant — never implicit. Without `tenant` we do
+    # nothing here; the trigger-backed user_tenants row from signup covers the
+    # default-tenant case (only for new users; for existing users there is no
+    # implicit grant of any tenant).
+    if tenant_id_for_grant:
+        try:
+            admin.table('user_tenants').upsert(
+                {
+                    'user_id': uid,
+                    'tenant_id': tenant_id_for_grant,
+                    'role': 'member',
+                    'updated_at': datetime.now(timezone.utc).isoformat(),
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                },
+                on_conflict='user_id,tenant_id',
+            ).execute()
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not grant {email} to tenant '{tenant_id_for_grant}': {e}"
+            ) from e
+
     return {'action': action, 'user_id': uid, 'email': email, 'role': role, 'team': team_name,
-            'full_name': resolved_full_name, 'provider_type': resolved_provider}
+            'full_name': resolved_full_name, 'provider_type': resolved_provider,
+            'tenant': tenant_id_for_grant}  # TASK-23: echo back the resolved tenant
+                                              # so the route can confirm the grant.
 
 
 def delete_user_by_email(email: str) -> bool:

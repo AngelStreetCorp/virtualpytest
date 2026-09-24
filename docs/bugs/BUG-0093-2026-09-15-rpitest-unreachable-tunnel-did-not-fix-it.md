@@ -54,8 +54,8 @@ Everything else was eliminated with evidence:
 
 | Hypothesis | Verdict |
 |---|---|
-| The origin / the Pi | **Innocent.** 10/10 from a Mac and 20/20 sequential + 20/20 parallel from Hetzner, direct to `77.56.53.130:443` via `curl --resolve`, all 30–80 ms. |
-| DNS / the `*.angelstreet.io` wildcard | **Innocent.** One A record, `rpitest -> 77.56.53.130`, proxied. The wildcard points at `65.108.14.251`, and that host answers a `Host: rpitest…` request with a **fast 403**, not a hang — so falling through to it would look nothing like this. An exact record beats a wildcard anyway. |
+| The origin / the Pi | **Innocent.** 10/10 from a Mac and 20/20 sequential + 20/20 parallel from Hetzner, direct to `<origin-ip>:443` via `curl --resolve`, all 30–80 ms. |
+| DNS / the `*.angelstreet.io` wildcard | **Innocent.** One A record, `rpitest -> <origin-ip>`, proxied. The wildcard points at `<node-ip>`, and that host answers a `Host: rpitest…` request with a **fast 403**, not a hang — so falling through to it would look nothing like this. An exact record beats a wildcard anyway. |
 | CORS (incl. BUG-0092) | **Impossible.** 522 is connection-level; no HTTP header logic is ever reached. |
 | nginx | **Innocent.** `/etc/nginx/sites-enabled/rpitest.conf` unchanged since Jun 24, and it never saw the packets. The older `connect() failed (111: Connection refused)` entries to `127.0.0.1:5109` are a *different* thing — nginx→vpt-server during deploy restarts, which surface as 502. |
 | The Supabase key rotation | **Innocent.** Only node3/QualiAI was rotated; node1's key is untouched. The failures appear in the nginx log at 00:19, 00:27, 00:45, 07:33 and 08:52, hours before the only change made to this Pi (a `.env` append at 10:29). |
@@ -284,8 +284,8 @@ stream count grew it crossed the router's NAT session limit.
 
 ### The measurement
 
-On vpt-pi1, sockets to `65.108.14.251` (the Proxmox host, NAT egress for the whole
-`192.168.0.0/24` LAN):
+On vpt-pi1, sockets to `<node-ip>` (the Proxmox host, NAT egress for the whole
+`192.168.x.0/24` LAN):
 
 ```
 1366 sockets total  ->  1356 TIME-WAIT, 6 ESTAB
@@ -315,7 +315,7 @@ is a 1:1 ratio, i.e. **zero connection reuse**.
 
 ```nginx
 location / {
-    proxy_pass https://77.56.53.130;      # literal address — no upstream block
+    proxy_pass https://<origin-ip>;      # literal address — no upstream block
     proxy_http_version 1.1;
     proxy_set_header Connection "upgrade"; # hardcoded, on EVERY request
 }
@@ -349,7 +349,7 @@ inbound half.
 
 ```nginx
 upstream rpitest_origin {
-    server 77.56.53.130:443;
+    server <origin-ip>:443;
     keepalive 32;
     keepalive_timeout 300s;
     keepalive_requests 10000;
@@ -388,7 +388,7 @@ traffic does not use the `rpitest.angelstreet.io` vhost at all — it comes thro
 
 ```nginx
 location ~ ^/host/(vpt-pi[0-9]+)/stream/(.+)$ {
-    proxy_pass https://77.56.53.130/host/$pi_name/stream/$stream_path;  # literal IP
+    proxy_pass https://<origin-ip>/host/$pi_name/stream/$stream_path;  # literal IP
     proxy_http_version 1.1;
     # no Connection header at all -> nginx sends "close"
 }
@@ -463,7 +463,7 @@ load-bearing.
   file and looks like "zero packets", which is a trap.
 - Direct SSH to the Pi needs `IPQoS throughput` (now set in `~/.ssh/config`); without it
   the connection opens then stalls and the Pi looks dead when it is healthy.
-- The Pi is `vpt-pi1`; `sunri1` is retired naming.
+- The Pi is `vpt-pi1`; older notes use a retired hostname for it.
 - Unrelated and still open on this Pi: the S21x is adb **`unauthorized`**. `vpt_user` was
   added to `plugdev` and given an adb key, which moved it from `no permissions` to
   `unauthorized`; finishing it needs someone to physically tap **Allow USB debugging** on
@@ -476,5 +476,5 @@ load-bearing.
   Cloudflare and can be deleted — it is already out of the tunnel ingress.
 - The router's inbound 443 port-forward is now unused and could be closed.
 - Reverting the tunnel, if ever needed: point `rpitest.angelstreet.io` back to an A
-  record for `77.56.53.130` and `systemctl disable --now cloudflared`. That restores the
+  record for `<origin-ip>` and `systemctl disable --now cloudflared`. That restores the
   ~50% 522 behaviour, so only do it if the tunnel itself is implicated.

@@ -19,7 +19,14 @@ from shared.src.lib.utils.cloudflare_utils import fetch_text_from_storage
 from shared.src.lib.utils.supabase_utils import get_supabase_client
 
 
-CLASSIFICATIONS = {"VALID_PASS", "VALID_FAIL", "BUG", "SCRIPT_ISSUE", "SYSTEM_ISSUE"}
+CLASSIFICATIONS = {
+    "VALID_PASS",
+    "VALID_FAIL",
+    "BUG",
+    "SCRIPT_ISSUE",
+    "SYSTEM_ISSUE",
+    "EXTERNAL_BLOCK",
+}
 DISCARD_CLASSIFICATIONS = {"SCRIPT_ISSUE", "SYSTEM_ISSUE"}
 
 
@@ -202,14 +209,14 @@ class SherlockHandler:
         prompt = f"""You are classifying automated test executions for false positives.
 Return ONLY JSON:
 {{
-  "classification": "VALID_PASS|VALID_FAIL|BUG|SCRIPT_ISSUE|SYSTEM_ISSUE",
+  "classification": "VALID_PASS|VALID_FAIL|BUG|SCRIPT_ISSUE|SYSTEM_ISSUE|EXTERNAL_BLOCK",
   "discard": true_or_false,
   "explanation": "max 240 chars, concrete reason from evidence"
 }}
 
 Rules:
 - discard=true only for SCRIPT_ISSUE or SYSTEM_ISSUE
-- discard=false for VALID_PASS, VALID_FAIL, BUG
+- discard=false for VALID_PASS, VALID_FAIL, BUG, EXTERNAL_BLOCK
 - BUG means report says fail but visual/log evidence suggests real element/state exists
 
 Execution:
@@ -335,7 +342,8 @@ CLASSIFICATIONS:
 - VALID_FAIL: Test failed, real bug detected (discard=false)
 - BUG: Screenshot shows element BUT error says "not found" (discard=false)
 - SCRIPT_ISSUE: Test automation problem - bad selector/timing/expected value (discard=true)
-- SYSTEM_ISSUE: Infrastructure problem - black screen/no signal/device disconnected (discard=true)"""
+- SYSTEM_ISSUE: Infrastructure problem - black screen/no signal/device disconnected (discard=true)
+- EXTERNAL_BLOCK: External service or policy prevented the test, such as CAPTCHA or rate limiting (discard=false)"""
 
             return msg
 

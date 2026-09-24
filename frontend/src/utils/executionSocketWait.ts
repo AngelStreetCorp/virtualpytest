@@ -1,4 +1,5 @@
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { createServerSocket } from '../utils/serverSocket';
 import { getServerBaseUrl } from './buildUrlUtils';
 
 export interface ExecutionSocketEvent {
@@ -57,7 +58,7 @@ export const waitForExecutionSocketEvent = (
     }, timeoutMs);
 
     const serverBaseUrl = getServerBaseUrl() || window.location.origin;
-    socket = io(`${serverBaseUrl}/system`, {
+    socket = createServerSocket(serverBaseUrl, '/system', {
       transports: ['polling', 'websocket'],
       reconnection: true,
       reconnectionAttempts: 5,

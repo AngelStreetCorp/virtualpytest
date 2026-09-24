@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { useAuth } from '../../hooks/auth/useAuth';
 import { usePermissions } from '../../hooks/auth/usePermissions';
+import { useProfile } from '../../hooks/auth/useProfile';
 import { Permission, Role } from '../../types/auth';
 import { isAuthEnabled } from '../../lib/supabase';
 
@@ -10,6 +11,10 @@ interface ProtectedRouteProps {
   children?: React.ReactNode;
   requiredRole?: Role | Role[];
   requiredPermission?: Permission | Permission[];
+  // TASK-23: super-admin gate. When true, only users with
+    // profile.is_platform_admin === true get through — even role='admin' is not
+    // enough. Use for tenant-related routes that regular admins must not see.
+  requiredPlatformAdmin?: boolean;
   fallbackPath?: string;
 }
 
@@ -39,6 +44,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   children,
   requiredRole,
   requiredPermission,
+  requiredPlatformAdmin,
   fallbackPath = '/login',
 }) => {
   // If auth is disabled, allow access to everything - skip auth hooks entirely
@@ -49,6 +55,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   // Auth is enabled - now we need to check authentication state
   const { isAuthenticated, isLoading } = useAuth();
   const { hasRole, canAccess } = usePermissions();
+  const { isPlatformAdmin } = useProfile();
   const location = useLocation();
   const [showLoading, setShowLoading] = useState(false);
 
@@ -114,6 +121,31 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Required role: {Array.isArray(requiredRole) ? requiredRole.join(' or ') : requiredRole}
+        </Typography>
+      </Box>
+    );
+  }
+
+  // TASK-23: platform-admin gate. Refuses role='admin' too — Q3 says regular
+  // admins must not even see this route exists.
+  if (requiredPlatformAdmin && !isPlatformAdmin) {
+    return (
+      <Box
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '60vh',
+          gap: 2,
+          textAlign: 'center',
+        }}
+      >
+        <Typography variant="h4" color="error.main">
+          Access Denied
+        </Typography>
+        <Typography variant="body1" color="text.secondary">
+          This page requires platform-admin (super admin) access.
         </Typography>
       </Box>
     );

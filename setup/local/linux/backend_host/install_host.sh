@@ -554,10 +554,22 @@ sudo chown -R vpt_user:vpt_user "$VNC_HOME/.config"
 # Clear any stale VNC pid files to avoid startup warnings
 sudo rm -f "$VNC_HOME/.vnc/"*.pid 2>/dev/null || true
 
-# Create VNC password file (vncpasswd from tigervnc-tools)
-echo "$HOST_VNC_PASSWORD" | vncpasswd -f | sudo tee "$VNC_HOME/.vnc/passwd" > /dev/null
+# Create VNC password file. tigervnc-tools installs the binary as `tigervncpasswd`
+# on Debian/Raspberry Pi OS and as `vncpasswd` elsewhere, so resolve whichever exists.
+VNCPASSWD_BIN="$(command -v vncpasswd || command -v tigervncpasswd || true)"
+if [ -z "$VNCPASSWD_BIN" ]; then
+    echo "❌ neither vncpasswd nor tigervncpasswd found — install tigervnc-tools"
+    exit 1
+fi
+echo "$HOST_VNC_PASSWORD" | "$VNCPASSWD_BIN" -f | sudo tee "$VNC_HOME/.vnc/passwd" > /dev/null
 sudo chmod 600 "$VNC_HOME/.vnc/passwd"
 sudo chown -R vpt_user:vpt_user "$VNC_HOME/.vnc"
+# The write above is piped into tee, so a failing vncpasswd still exits 0 and leaves a
+# 0-byte file. VNC then rejects every connection with no hint as to why, so check it.
+if [ ! -s "$VNC_HOME/.vnc/passwd" ]; then
+    echo "❌ $VNC_HOME/.vnc/passwd is empty — $VNCPASSWD_BIN produced nothing"
+    exit 1
+fi
 echo "✅ VNC password set to: $HOST_VNC_PASSWORD"
 
 sudo mkdir -p /usr/share/xsessions

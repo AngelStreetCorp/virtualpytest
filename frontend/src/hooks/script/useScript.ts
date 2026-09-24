@@ -59,6 +59,11 @@ interface UseScriptReturn {
       deviceId: string;
       parameters?: string;
       callbackUrl?: string;
+      forceUnlock?: boolean;
+      // false = fail with 423 on a locked device instead of being queued server-side
+      queueIfLocked?: boolean;
+      environment?: 'dev' | 'test' | 'prod';
+      virtualScriptId?: string;
     }>,
     onExecutionComplete?: (executionId: string, result: ScriptExecutionResult) => void,
     onTaskStarted?: (executionId: string, taskId: string) => void,

@@ -78,6 +78,18 @@ def sections_of(text: str) -> dict:
     return out
 
 
+# Section headings carried a decorative emoji until 2026-09-17 (`### ✨ Features`). Dropping it
+# was a presentation change across every build at once, and comparing raw text would have called
+# each shipped section falsified. This check exists to catch a changed CLAIM, not a changed
+# glyph, so headings are normalized on both sides. Anything inside a bullet is untouched, so a
+# reworded entry still fails.
+HEADING = re.compile(r'^(#{2,3})\s*[^\w\s#]*\s*', re.M)
+
+
+def comparable(text: str) -> str:
+    return HEADING.sub(r'\1 ', text or '').strip()
+
+
 def cited(sections: dict) -> dict:
     """{BUG-nnnn: earliest build citing it, or None for Unreleased}."""
     out = {}
@@ -161,7 +173,7 @@ def main() -> int:
         if was is None:
             errors.append(f'release note: "## build {build}" did not exist at tag {tag}, but the '
                           f'section is there now — it was written after the build shipped')
-        elif was.strip() != sections[build].strip():
+        elif comparable(was) != comparable(sections[build]):
             errors.append(f'release note: "## build {build}" differs from what tag {tag} carries. '
                           f'A shipped section is the record of what was said at the time; put the '
                           f'change in the current build instead.')

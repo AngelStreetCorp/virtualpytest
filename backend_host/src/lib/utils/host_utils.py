@@ -42,6 +42,7 @@ try:
 except ImportError as e:
     # No fallback - fail with detailed error message
     raise ImportError(f"Failed to import controller_manager: {e}. Check your Python path and environment setup.")
+from shared.src.lib.config.device_capabilities import expand_models
 from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
 
 # Disable SSL warnings for self-signed certificates
@@ -133,12 +134,19 @@ class HostManager:
             return list(self._hosts.values())
     
     def get_hosts_by_model(self, models: List[str]) -> List[Dict[str, Any]]:
-        """Get hosts that have devices with specified models"""
+        """Get hosts that have devices with specified models.
+
+        `models` is typically a userinterface's models[], so it is expanded into the
+        whole family first: a tree built for `android_mobile` also runs on a paired
+        phone and on a cloud farm phone (MODEL_FAMILIES in
+        shared/src/lib/config/device_capabilities.py).
+        """
+        accepted = set(expand_models(models))
         with self._lock:
             filtered_hosts = []
             for host_data in self._hosts.values():
                 devices = host_data.get('devices', [])
-                if any(device.get('device_model') in models for device in devices):
+                if any(device.get('device_model') in accepted for device in devices):
                     filtered_hosts.append(host_data)
             return filtered_hosts
     

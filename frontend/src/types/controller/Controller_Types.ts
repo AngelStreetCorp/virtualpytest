@@ -14,10 +14,21 @@
  */
 export const DEVICE_MODEL_CONTROLLER_MAPPING = {
   android_mobile: ['image', 'audio', 'text', 'video', 'adb'],
+  // features/mobile-app backs 'adb' with the phone's accessibility tree, so a paired
+  // phone verifies exactly like a cabled one.
+  phone_agent: ['image', 'audio', 'text', 'video', 'adb'],
+  android_tablet: ['image', 'audio', 'text', 'video', 'adb'],
   android_tv: ['image', 'audio', 'text', 'video'],
   fire_tv: ['image', 'audio', 'text', 'video'],
   ios_phone: ['image', 'text', 'appium'],
   ios_mobile: ['image', 'text', 'appium'],
+  // features/device-farm: a cloud device has the same verification surface as its
+  // local twin — the frame pump feeds the ordinary captures folder, and 'appium'
+  // runs against the leased farm session.
+  // 'adb' as well as 'appium': features/device-farm backs both with the one leased farm
+  // session, so an android_mobile tree's adb screen checks run on a farm phone.
+  cloud_android_mobile: ['image', 'audio', 'text', 'video', 'appium', 'adb'],
+  cloud_ios_mobile: ['image', 'text', 'appium'],
   stb: ['image', 'audio', 'text', 'video'],
 } as const;
 

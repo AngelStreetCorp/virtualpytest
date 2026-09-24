@@ -29,9 +29,10 @@ if [ -n "$HOST_VIDEO_SOURCE" ]; then
     HOST_VIDEO_COUNT=1
 fi
 
-for i in {1..10}; do
+for i in {1..30}; do
     var_name="DEVICE${i}_VIDEO"
-    if [ -n "${!var_name}" ]; then
+    serial_name="DEVICE${i}_ADB_SERIAL"
+    if [ -n "${!var_name}" ] || [ -n "${!serial_name}" ]; then
         ((DEVICE_COUNT++))
     fi
 done

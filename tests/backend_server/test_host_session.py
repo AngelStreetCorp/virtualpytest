@@ -15,6 +15,14 @@ Minting (`POST /server/host-session/session`) is `@require_user_auth`; the share
 satisfies it through the global guard's principal, so nothing here needs a user JWT and nothing
 here is conditionally skipped except when the suite is pointed at a server with no proxy
 in front of it (a local run) — where the gate does not exist to be tested.
+
+The last two tests cover the cross-origin client the gate broke on arrival: the mobile app is a
+Capacitor shell serving the bundled frontend from its own `https://localhost` origin, so every
+request it makes to a deployment is cross-SITE. A `SameSite=Strict` cookie is neither stored nor
+replayed there, and a credentialed request rejects a wildcard `Access-Control-Allow-Origin` — so
+the APK minted a session, got a 200, and then 401'd on every manifest and segment. Both
+properties are invisible from a browser on the deployment's own domain, which is why the gate
+shipped looking healthy.
 """
 
 import pytest
@@ -105,4 +113,60 @@ def test_minted_cookie_opens_its_own_host_and_no_other(
     assert other_host.status_code == 403, (
         f"a session minted for {device_host} was accepted on another host's path "
         f"({other_host.status_code}) — the cookie is not host-scoped"
+    )
+
+
+def test_minted_cookie_can_cross_sites(post, api_headers: dict, device_host: str):
+    """`SameSite=None`, or the mobile app cannot hold this cookie at all.
+
+    Asserted on the raw `Set-Cookie` header rather than the parsed jar: `requests` keeps a
+    Strict cookie quite happily, so a jar-level check passes while a real WebView drops it.
+    """
+    minted = post(MINT_PATH, json={"host_name": device_host}, headers=api_headers)
+    assert minted.status_code == 200, f"could not mint a session for {device_host}"
+
+    set_cookie = minted.headers.get("Set-Cookie", "")
+    assert COOKIE_NAME in set_cookie, f"{MINT_PATH} returned no {COOKIE_NAME} cookie"
+    lowered = set_cookie.lower()
+    assert "samesite=none" in lowered, (
+        f"{COOKIE_NAME} is not SameSite=None ({set_cookie!r}) — the mobile app serves the "
+        "frontend from its own https://localhost origin, so every call it makes is "
+        "cross-site and a Strict/Lax cookie is silently dropped: no stream in the app"
+    )
+    # SameSite=None is only honoured on a Secure cookie; without it browsers reject the pair.
+    assert "secure" in lowered, f"{COOKIE_NAME} is SameSite=None but not Secure ({set_cookie!r})"
+
+
+def test_gated_stream_answers_a_cross_origin_caller_without_a_wildcard(
+    gate_status, post, get, api_headers: dict, device_host: str, gated_url: str
+):
+    """A credentialed cross-origin fetch forbids `Access-Control-Allow-Origin: *`.
+
+    The mobile app must send the cookie, which makes its stream requests credentialed, and
+    the browser then discards any response whose allow-origin is the wildcard — including a
+    perfectly good 200. So the stream path has to echo the caller's origin and allow
+    credentials for an origin on the allowlist.
+    """
+    minted = post(MINT_PATH, json={"host_name": device_host}, headers=api_headers)
+    token = minted.cookies.get(COOKIE_NAME)
+    assert token, f"{MINT_PATH} returned no {COOKIE_NAME} cookie"
+
+    app_origin = "https://localhost"  # the Capacitor shell's fixed origin
+    response = get(
+        gated_url,
+        headers={"Cookie": f"{COOKIE_NAME}={token}", "Origin": app_origin},
+    )
+    assert response.status_code not in (401, 403), (
+        f"a minted session was refused on its own host ({response.status_code})"
+    )
+
+    allow_origin = response.headers.get("Access-Control-Allow-Origin")
+    assert allow_origin == app_origin, (
+        f"gated stream answered Access-Control-Allow-Origin={allow_origin!r} to a caller from "
+        f"{app_origin}; a credentialed request needs that origin echoed back, and a browser "
+        "drops the response outright on '*'"
+    )
+    assert response.headers.get("Access-Control-Allow-Credentials") == "true", (
+        "gated stream did not allow credentials — the browser will not attach the host-session "
+        "cookie to the manifest or to any segment derived from it"
     )

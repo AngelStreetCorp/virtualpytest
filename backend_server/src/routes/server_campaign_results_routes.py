@@ -16,6 +16,8 @@ from shared.src.lib.database.campaign_executions_db import (
 
 from shared.src.lib.utils.app_utils import check_supabase
 from backend_server.src.lib.utils.server_utils import get_host_manager
+from backend_server.src.integrations import testrail_service
+from backend_server.src.integrations.testrail_service import publication_statuses_by_source
 
 # Create blueprint
 server_campaign_results_bp = Blueprint('server_campaign_results', __name__, url_prefix='/server/campaign-results')
@@ -51,6 +53,16 @@ def get_all_campaign_results():
     )
     
     if result['success']:
+        statuses = publication_statuses_by_source(team_id)
+        testrail_config = testrail_service.load_config(team_id)
+        for campaign in result['data']:
+            for script in campaign.get('script_results') or []:
+                status = statuses.get(str(script.get('id')))
+                if (not status and testrail_config.get('auto_publish')
+                        and script.get('success') is not None
+                        and not testrail_service.has_mapping(team_id, script.get('script_name', ''))):
+                    status = {'status': 'not_mapped'}
+                script['testrail_sync'] = status
         return jsonify(result['data'])
     else:
         return jsonify({'error': result.get('error', 'Failed to fetch campaign results')}), 500

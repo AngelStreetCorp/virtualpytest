@@ -9,6 +9,7 @@ Extracted from kpi_executor.py to reduce file size and improve maintainability.
 import os
 import json
 import time
+import html as _html
 import shutil
 import logging
 from typing import Dict, List, Optional
@@ -246,6 +247,90 @@ def make_thumbnail_from_full(full_path: str, dest_path: str) -> bool:
         return False
 
 
+def _last_action_label(request) -> str:
+    """What the header's "Last Action" should say.
+
+    It used to read `request.last_action`, which is forwarded from
+    `step.get('last_action')` in navigation_executor — a key **nothing ever sets**,
+    so the header has always read N/A. The action that was actually executed is
+    right beside it in `action_details` (the same dict the "Last Action Executed"
+    section renders), so build the label from that and keep `last_action` as the
+    preferred source in case a caller ever populates it.
+
+    Renders as `press_key OK`, falling back to the bare command, then N/A.
+    """
+    explicit = (getattr(request, 'last_action', '') or '').strip()
+    if explicit:
+        return explicit
+    details = getattr(request, 'action_details', None) or {}
+    command = (details.get('command') or '').strip()
+    if not command:
+        return 'N/A'
+    params = details.get('params') or {}
+    # The key is what a reader actually wants to see for a remote press; for other
+    # action types fall back to whichever single param identifies the target.
+    target = params.get('key') or params.get('text') or params.get('element_id') or params.get('package')
+    return f'{command} {target}'.strip() if target else command
+
+
+def _build_confidence_strings(confidence: Optional[Dict]) -> tuple:
+    """Render the measurement-confidence bits of the header.
+
+    Returns (precision_suffix, meta_line, warning_banner) — all plain strings, '' when
+    there is nothing to say, following the same pattern as late_scan_banner.
+
+    The point is that a KPI is quantised to the spacing of the frames around the
+    transition (200 ms from the live buffer, up to 1 s from the archive), and showing
+    the bare number let two very different measurements look identical.
+    """
+    if not confidence:
+        return '', '', ''
+    from shared.src.lib.utils.kpi_confidence import format_precision, confidence_warnings
+
+    precision = format_precision(confidence)
+    suffix = f'&nbsp;{_html.escape(precision)}' if precision else ''
+
+    bits = []
+    if confidence.get('fps_effective') is not None:
+        bits.append(f"<strong>Capture:</strong> {confidence['fps_effective']} fps effective")
+    if confidence.get('frames_in_window'):
+        bits.append(f"<strong>Frames:</strong> {confidence['frames_in_window']} in window")
+    missed = confidence.get('frames_missed') or 0
+    bits.append(f"<strong>Dropped:</strong> {missed}")
+    if confidence.get('source') and confidence['source'] != 'unknown':
+        bits.append(f"<strong>Source:</strong> {confidence['source']}")
+    bracket = confidence.get('verified_bracket_ms')
+    if bracket:
+        bits.append(f"<strong>Change proven within:</strong> {bracket}ms")
+    line = ('<div class="meta-line">' + ' &nbsp;|&nbsp; '.join(bits) + '</div>') if bits else ''
+
+    warnings = confidence_warnings(confidence)
+    banner = ''
+    if warnings:
+        items = ''.join(f'<li>{_html.escape(w)}</li>' for w in warnings)
+        banner = (
+            '<div class="meta-line" style="margin-top:6px;padding:6px 10px;'
+            'background:#fff4e5;border-left:4px solid #ed6c02;color:#663c00;">'
+            '<strong>Read this number with care</strong>'
+            f'<ul style="margin:4px 0 0 18px;padding:0;">{items}</ul></div>'
+        )
+    return suffix, line, banner
+
+
+def _mosaic_unavailable(reason: str) -> str:
+    """A visible note in place of the mosaic when it could not be built.
+
+    The build is wrapped in a catch-all (a debugging aid must never break report
+    generation), and it used to return '' — so a mosaic lost to a stale process
+    or a missing frame looked exactly like a report that never had one, and the
+    only trace was a WARNING on the host. Say it in the report instead.
+    """
+    return ('<div style="margin:14px 0;padding:8px 10px;font-size:12px;color:#8a6d3b;'
+            'background:#fcf8e3;border:1px solid #faebcc;border-radius:6px;">'
+            '🧩 <strong>Scan mosaic unavailable</strong> — '
+            f'{_html.escape(reason)}</div>')
+
+
 def _build_scan_mosaic_section(working_dir, all_captures, request, timestamp,
                                match_index=None, probe_outcomes=None) -> str:
     """Build + upload the analysed-window mosaic and return its report HTML block.
@@ -258,7 +343,8 @@ def _build_scan_mosaic_section(working_dir, all_captures, request, timestamp,
     try:
         if not all_captures or not working_dir or not os.path.isdir(working_dir):
             return ''
-        from shared.src.lib.utils.scan_mosaic import build_mosaic_pages, render_mosaic_section, format_offset
+        from shared.src.lib.utils.scan_mosaic import (build_mosaic_pages, render_mosaic_section,
+                                                      format_offset, format_clock)
         from shared.src.lib.utils.cloudflare_utils import upload_kpi_thumbnails
 
         # Border each tile: green 'match' for the matched frame, else (when we
@@ -290,7 +376,6 @@ def _build_scan_mosaic_section(working_dir, all_captures, request, timestamp,
         frames = []
         for idx, cap in enumerate(all_captures):
             local = os.path.join(working_dir, os.path.basename(cap['path']))
-            name = os.path.basename(cap['path']).replace('capture_', '').replace('.jpg', '')
             offset = cap['timestamp'] - request.action_timestamp
             tag = '+'.join(anchor_tags.get(idx, [])) or None
             if match_index is not None and idx == match_index:
@@ -303,23 +388,27 @@ def _build_scan_mosaic_section(working_dir, all_captures, request, timestamp,
                 border = None
             frames.append({
                 'path': local,
-                'label': name,
-                'sublabel': format_offset(offset),
+                # Wall-clock time of the frame, not the capture id — the id told a
+                # reviewer nothing, the time lines up with the report header's
+                # Measurement Start/End and with the host logs.
+                'clock': format_clock(cap['timestamp']),
+                'duration': format_offset(offset),
                 'border': border,
                 'tag': tag,
             })
 
         page_paths, stats = build_mosaic_pages(frames, working_dir, request.execution_result_id[:8])
         if not page_paths:
-            return ''
+            return _mosaic_unavailable('no page rendered from '
+                                       f'{len(frames)} frame(s) — see host log')
 
         uploads = {f'scan_{i + 1}': p for i, p in enumerate(page_paths)}
         urls = upload_kpi_thumbnails(uploads, request.execution_result_id, timestamp) or {}
         page_urls = [urls[f'scan_{i + 1}'] for i in range(len(page_paths)) if f'scan_{i + 1}' in urls]
         return render_mosaic_section(page_urls, stats)
     except Exception as e:
-        logger.warning(f"⚠️  Could not build scan mosaic section: {e}")
-        return ''
+        logger.warning(f"⚠️  Could not build scan mosaic section: {e}", exc_info=True)
+        return _mosaic_unavailable(f'{type(e).__name__}: {e}')
 
 
 def generate_kpi_success_report(
@@ -391,6 +480,37 @@ def generate_kpi_success_report(
             before_time_ts = match_capture['timestamp']
             logger.warning(f"⚠️  No frame before match — using match as before")
 
+        # Action frame = the first CAPTURED frame at or after the press. The
+        # before/after-action cards are controller screenshots taken around the
+        # action; this one comes from the capture stream, so the strip shows the
+        # screen at the press instant itself — the same frame the mosaic tags
+        # ACTION. Without it the top row jumped from "before the press" straight
+        # to "after the wait", which on a 4s wait is most of the measurement.
+        action_index = next(
+            (i for i, cap in enumerate(all_captures) if cap['timestamp'] >= request.action_timestamp),
+            None,
+        )
+        if action_index is not None:
+            action_full = os.path.join(working_dir, os.path.basename(all_captures[action_index]['path']))
+            action_time_ts = all_captures[action_index]['timestamp']
+            logger.info(f"   • Action: index {action_index} (first frame at/after the press)")
+        else:
+            action_full = None
+            action_time_ts = None
+            logger.warning(f"⚠️  No frame at/after the action timestamp")
+
+        # After-match = the frame right after the match, so the strip shows the
+        # whole transition (before → match → after) without opening the mosaic.
+        # Absent when the match is the last frame of the scan window.
+        if match_index + 1 < len(all_captures):
+            after_match_full = os.path.join(working_dir, os.path.basename(all_captures[match_index + 1]['path']))
+            after_match_time_ts = all_captures[match_index + 1]['timestamp']
+            logger.info(f"   • After Match: index {match_index + 1} (frame just after match)")
+        else:
+            after_match_full = None
+            after_match_time_ts = None
+            logger.info(f"   • After Match: none (match is the last frame in window)")
+
         # Before/after action come from the action screenshots (full-res paths).
         before_action_full = (request.before_action_screenshot_path
                               if request.before_action_screenshot_path
@@ -428,9 +548,11 @@ def generate_kpi_success_report(
 
         slot_sources = [
             ('before_action', before_action_full),
+            ('action', action_full),
             ('after_action', after_action_full),
             ('before_match', before_full),
             ('match', match_image),
+            ('after_match', after_match_full),
             ('disappear', disappear_full),
         ]
         for slot, full_src in slot_sources:
@@ -462,14 +584,18 @@ def generate_kpi_success_report(
         # Placeholder for missing images
         placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='150'%3E%3Crect fill='%23ddd' width='200' height='150'/%3E%3Ctext x='50%25' y='50%25' text-anchor='middle' fill='%23666'%3ENo Image%3C/text%3E%3C/svg%3E"
         thumb_urls.setdefault('before_action', placeholder)
+        thumb_urls.setdefault('action', placeholder)
         thumb_urls.setdefault('after_action', placeholder)
         thumb_urls.setdefault('before_match', placeholder)
         thumb_urls.setdefault('match', placeholder)
+        thumb_urls.setdefault('after_match', placeholder)
         thumb_urls.setdefault('match_original', placeholder)
         
         # Format timestamps for display
         before_action_time = datetime.fromtimestamp(before_action_time_ts).strftime('%H:%M:%S.%f')[:-3] if before_action_time_ts else 'N/A'
+        action_time = datetime.fromtimestamp(action_time_ts).strftime('%H:%M:%S.%f')[:-3] if action_time_ts else 'N/A'
         after_action_time = datetime.fromtimestamp(after_action_time_ts).strftime('%H:%M:%S.%f')[:-3] if after_action_time_ts else 'N/A'
+        after_match_time = datetime.fromtimestamp(after_match_time_ts).strftime('%H:%M:%S.%f')[:-3] if after_match_time_ts else 'N/A'
         before_time = datetime.fromtimestamp(before_time_ts).strftime('%H:%M:%S.%f')[:-3]
         match_time = datetime.fromtimestamp(match_result['timestamp']).strftime('%H:%M:%S.%f')[:-3]
         action_timestamp_full = datetime.fromtimestamp(request.action_timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
@@ -542,6 +668,8 @@ def generate_kpi_success_report(
             probe_outcomes=match_result.get('probe_outcomes'))
 
         # Generate HTML
+        _conf_precision, _conf_line, _conf_banner = _build_confidence_strings(
+            match_result.get('confidence'))
         pass_condition, kpi_source = _kpi_diag_strings(request)
         display_label_line = _kpi_display_label_line(request)
         html_template = create_kpi_report_template()
@@ -550,20 +678,27 @@ def generate_kpi_success_report(
             display_label_line=display_label_line,
             pass_condition=pass_condition,
             kpi_source=kpi_source,
+            kpi_precision=_conf_precision,
+            confidence_line=_conf_line,
+            confidence_warnings=_conf_banner,
             device_name=f"{request.device_id}",
             navigation_path=request.userinterface_name,
             algorithm=match_result.get('algorithm', 'unknown'),
             captures_scanned=match_result.get('captures_scanned', 0),
             before_action_thumb=thumb_urls['before_action'],
+            action_thumb=thumb_urls['action'],
             after_action_thumb=thumb_urls['after_action'],
             after_action_label=after_action_label,
             before_match_thumb=thumb_urls['before_match'],
             match_thumb=thumb_urls['match'],
+            after_match_thumb=thumb_urls['after_match'],
             match_original=thumb_urls.get('match_original', thumb_urls['match']),
             before_action_time=before_action_time,
+            action_time=action_time,
             after_action_time=after_action_time,
             before_time=before_time,
             match_time=match_time,
+            after_match_time=after_match_time,
             execution_result_id=request.execution_result_id[:12],
             action_timestamp=action_timestamp_full,
             match_timestamp=match_timestamp_full,
@@ -575,7 +710,7 @@ def generate_kpi_success_report(
             action_set_id=request.action_set_id or 'N/A',
             from_node_label=request.from_node_label or 'N/A',
             to_node_label=request.to_node_label or 'N/A',
-            last_action=request.last_action or 'N/A',
+            last_action=_last_action_label(request),
             # Action details
             action_command=action_command,
             action_type=action_type,
@@ -798,7 +933,7 @@ def generate_kpi_failure_report(
             kpi_source=kpi_source,
             from_node_label=request.from_node_label or 'N/A',
             to_node_label=request.to_node_label or 'N/A',
-            last_action=request.last_action or 'N/A',
+            last_action=_last_action_label(request),
             host_name=request.host_name or 'N/A',
             device_name=f"{request.device_id}",
             device_model=request.device_model or 'N/A',

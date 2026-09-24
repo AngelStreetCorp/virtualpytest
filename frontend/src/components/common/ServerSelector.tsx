@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { FormControl, InputLabel, Select, MenuItem, Chip, Box, CircularProgress, Tooltip } from '@mui/material';
 import { Lock as LockIcon } from '@mui/icons-material';
 import { useServerManager } from '../../hooks/useServerManager';
@@ -33,6 +33,26 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
   // The switch is NOT committed until the sign-in succeeds, so cancelling leaves the
   // previous server selected rather than stranding the UI on an unusable one.
   const [pendingAuthServer, setPendingAuthServer] = useState<string | null>(null);
+  // Set when the user cancels the dialog, so the effect below does not immediately
+  // reopen what they just dismissed. Cleared when they ask for it again by picking the
+  // server, or when its auth state changes under them (a session appearing elsewhere).
+  const [dismissedAuthFor, setDismissedAuthFor] = useState<string | null>(null);
+
+  // Prompt for the server that is ALREADY selected, not only for one being switched to.
+  // Opening the dialog used to live solely in `handleChange`, which MUI's Select fires
+  // only when the value actually changes — so a deployment with a single server had no
+  // way to reach it at all: the server is already selected, re-picking it emits nothing,
+  // and a `needs-auth` server is filtered out of the hosts fetch
+  // (ServerManagerProvider), leaving "No servers connected" and a padlock with no way to
+  // act on either. That is every fresh install of the mobile app, where the configured
+  // server is always `needs-auth` on first launch — the one case where the prompt matters
+  // most was the one case it never fired.
+  useEffect(() => {
+    if (!selectedServer || pendingAuthServer) return;
+    if (serverAuthStates[selectedServer] !== 'needs-auth') return;
+    if (dismissedAuthFor === selectedServer) return;
+    setPendingAuthServer(selectedServer);
+  }, [selectedServer, serverAuthStates, pendingAuthServer, dismissedAuthFor]);
 
   const nameFor = (serverUrl: string): string => {
     const serverData = serverHostsData.find((s) => s.server_info.server_url === serverUrl);
@@ -49,6 +69,8 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
 
   const handleChange = (serverUrl: string) => {
     if (serverAuthStates[serverUrl] === 'needs-auth') {
+      // Picking it IS asking for the dialog, so an earlier dismissal no longer applies.
+      setDismissedAuthFor(null);
       setPendingAuthServer(serverUrl);
       return;
     }
@@ -58,6 +80,7 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
   const handleAuthenticated = async () => {
     const serverUrl = pendingAuthServer;
     setPendingAuthServer(null);
+    setDismissedAuthFor(null);
     if (!serverUrl) return;
 
     // Re-probe first so the server is no longer marked needs-auth, otherwise the
@@ -130,7 +153,10 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
         open={pendingAuthServer !== null}
         serverUrl={pendingAuthServer || ''}
         serverName={pendingAuthServer ? nameFor(pendingAuthServer) : undefined}
-        onCancel={() => setPendingAuthServer(null)}
+        onCancel={() => {
+          setDismissedAuthFor(pendingAuthServer);
+          setPendingAuthServer(null);
+        }}
         onAuthenticated={handleAuthenticated}
       />
     </>

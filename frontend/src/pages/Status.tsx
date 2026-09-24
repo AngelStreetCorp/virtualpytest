@@ -26,10 +26,9 @@ import { getCached, setCached } from '../utils/pageCache';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-// 'stopped' is distinct from 'unknown': we KNOW the unit is stopped (an
-// expected state for optional/disabled services), vs 'unknown' = couldn't
-// determine (probe failed). Conflating them mislabels and false-degrades.
-type ServiceStatus = 'ok' | 'degraded' | 'error' | 'stopped' | 'unknown' | 'loading';
+// 'stopped' and 'not_installed' are known, neutral states for optional units;
+// 'unknown' means the probe could not determine the unit state.
+type ServiceStatus = 'ok' | 'degraded' | 'error' | 'stopped' | 'not_installed' | 'unknown' | 'loading';
 
 interface ServiceInfo {
   id: string;
@@ -57,6 +56,7 @@ const StatusDot: React.FC<{ status: ServiceStatus; size?: number }> = ({ status,
     degraded: '#ff9800',
     error: '#f44336',
     stopped: '#607d8b', // blue-grey: known-off, distinct from unknown
+    not_installed: '#607d8b',
     unknown: '#9e9e9e',
     loading: '#9e9e9e',
   }[status];
@@ -69,9 +69,9 @@ const StatusDot: React.FC<{ status: ServiceStatus; size?: number }> = ({ status,
 const overallStatus = (services: ServiceInfo[]): ServiceStatus => {
   if (services.some((s) => s.status === 'error')) return 'error';
   if (services.some((s) => s.status === 'degraded' || s.status === 'unknown')) return 'degraded';
-  // 'stopped' is an accepted resting state — it doesn't block a group from
-  // being "ok" (only 'loading' leaves it indeterminate).
-  if (services.every((s) => s.status === 'ok' || s.status === 'stopped')) return 'ok';
+  // Stopped optional services and optional units that aren't installed are
+  // expected states; only active services count toward the section ratio.
+  if (services.every((s) => s.status === 'ok' || s.status === 'stopped' || s.status === 'not_installed')) return 'ok';
   return 'unknown';
 };
 
@@ -111,7 +111,7 @@ const ServiceRow: React.FC<{
     {/* Status chip — 90px */}
     <Box sx={{ width: 90, flexShrink: 0 }}>
       <Chip
-        label={service.status === 'loading' ? 'checking…' : service.status}
+        label={service.status === 'loading' ? 'checking…' : service.status === 'not_installed' ? 'not installed' : service.status}
         size="small"
         color={statusColor(service.status)}
         variant="outlined"
@@ -158,14 +158,13 @@ const AccordionSection: React.FC<{
   subtitle?: string;
   services: ServiceInfo[];
   onViewLogs: (s: ServiceInfo) => void;
-  defaultExpanded?: boolean;
-}> = ({ title, subtitle, services, onViewLogs, defaultExpanded = false }) => {
+}> = ({ title, subtitle, services, onViewLogs }) => {
   const overall = overallStatus(services.filter((s) => s.status !== 'loading'));
   const okCount = services.filter((s) => s.status === 'ok').length;
-  const total = services.filter((s) => s.status !== 'loading').length;
+  const total = services.filter((s) => s.status !== 'loading' && s.status !== 'not_installed').length;
 
   return (
-    <Accordion defaultExpanded={defaultExpanded} sx={accordionSx}>
+    <Accordion sx={accordionSx}>
       <AccordionSummary
         expandIcon={<ExpandMoreIcon />}
         sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { margin: '6px 0', alignItems: 'center', gap: 1 } }}
@@ -460,9 +459,11 @@ const Status: React.FC = () => {
           logHostName: host.host_name,
           status: svc.status === 'active' ? 'ok' as ServiceStatus
             : (svc.status === 'stopped' || svc.status === 'inactive') ? (svc.optional ? 'stopped' as ServiceStatus : 'degraded' as ServiceStatus)
-            : svc.status === 'stuck' ? 'error' as ServiceStatus
+            : svc.status === 'not_installed' ? (svc.optional ? 'not_installed' as ServiceStatus : 'degraded' as ServiceStatus)
+            : (svc.status === 'stuck' || svc.status === 'error') ? 'error' as ServiceStatus
+            : svc.status === 'unknown' ? 'unknown' as ServiceStatus
             : 'degraded' as ServiceStatus,
-          detail: svc.status,
+          detail: svc.status === 'not_installed' && svc.optional ? 'optional service' : svc.status,
         }));
 
         // Fallback if no service_health data available
@@ -511,7 +512,7 @@ const Status: React.FC = () => {
   const allServices = [...coreServices, ...systemdServices, ...hostGroups.flatMap(g => g.services), ...runnerServices];
   const overall = overallStatus(allServices.filter((s) => s.status !== 'loading'));
   const healthyCount = allServices.filter((s) => s.status === 'ok').length;
-  const totalCount = allServices.filter((s) => s.status !== 'loading').length;
+  const totalCount = allServices.filter((s) => s.status !== 'loading' && s.status !== 'not_installed').length;
 
   return (
     <Box>
@@ -597,7 +598,6 @@ const Status: React.FC = () => {
         subtitle="192.168.x.103 · vpt-server · :5109"
         services={systemdServices}
         onViewLogs={openLogs}
-        defaultExpanded
       />
 
       {/* ── Frontend VM (192.168.x.105) ────────────────────────────────────── */}
@@ -606,7 +606,6 @@ const Status: React.FC = () => {
         subtitle="192.168.x.105 · vpt-frontend · :3000"
         services={coreServices.filter((s) => s.id === 'frontend')}
         onViewLogs={openLogs}
-        defaultExpanded
       />
 
       {/* ── Proxy VM (192.168.x.107) ───────────────────────────────────────── */}
@@ -615,7 +614,6 @@ const Status: React.FC = () => {
         subtitle="192.168.x.107 · nginx · :443"
         services={coreServices.filter((s) => s.id === 'nginx')}
         onViewLogs={openLogs}
-        defaultExpanded
       />
 
       {/* ── Database VM (192.168.x.102) ────────────────────────────────────── */}
@@ -624,7 +622,6 @@ const Status: React.FC = () => {
         subtitle="192.168.x.102 · Supabase / PostgreSQL"
         services={coreServices.filter((s) => s.id === 'supabase')}
         onViewLogs={openLogs}
-        defaultExpanded
       />
 
       {/* ── Storage VM (192.168.x.101) ─────────────────────────────────────── */}
@@ -633,7 +630,6 @@ const Status: React.FC = () => {
         subtitle="192.168.x.101 · MinIO · Redis · DB Backup"
         services={coreServices.filter((s) => ['minio', 'redis', 'db-backup'].includes(s.id))}
         onViewLogs={openLogs}
-        defaultExpanded
       />
 
       {/* ── CI Runners (VMs 163/164/165) ──────────────────────────────────── */}
@@ -643,7 +639,6 @@ const Status: React.FC = () => {
           subtitle=".100/.164/.165 · VMs 163/164/165 · GitHub Actions self-hosted"
           services={runnerServices}
           onViewLogs={openLogs}
-          defaultExpanded
         />
       )}
 

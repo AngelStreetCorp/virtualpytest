@@ -63,6 +63,21 @@ sessions) are generic core behaviour, not hooks, and are not gated.
 reaches (`update_core.sh` / `deploy_customer.sh` do not run migrations). Without it the
 UserInterface editor offers no `phone_agent` model, so no navigation tree can target a phone.
 
+## A paired phone needs no userinterface of its own
+
+`phone_agent` is in the **android_phone family** with `android_mobile`,
+`cloud_android_mobile` and `runner_android_mobile` (`MODEL_FAMILIES` in
+`shared/src/lib/config/device_capabilities.py`, mirrored in
+`frontend/src/config/deviceModelFamilies.ts`), so every matcher offers a paired phone
+the userinterfaces and scripts already written for an Android phone. Adding the
+`phone_agent` chip to each existing userinterface by hand — which is what
+`youtube-android-mobile` still carries — is no longer necessary.
+
+The family is honest here because this feature made it so: `phone_agent.py` reuses
+`AndroidMobileRemoteController.get_available_actions` outright, `execute_command`
+mirrors its command names and params, and `_register_phone_verification` re-backs the
+`adb` verification type with the accessibility node tree.
+
 ## Tests
 
 | Tier | File |

@@ -202,7 +202,7 @@ class DeploymentScheduler:
                 'lock_owner_session_id': dep.get('_lock_owner_session_id'),
                 'lock_owner_job_id': dep.get('_lock_owner_job_id'),
             }
-            requests.post(callback_url, json=payload, timeout=10)
+            requests.post(callback_url, json=payload, headers=server_auth_headers(), timeout=10)
         except Exception as notify_error:
             print(f"[@deployment_scheduler] Failed to notify server deployment status ({status}): {notify_error}")
 

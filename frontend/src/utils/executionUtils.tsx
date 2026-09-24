@@ -12,6 +12,7 @@ import {
   lookupScriptIdentity,
   IdentityEntry,
 } from './identityMapCache';
+import type { RerunPayload } from '../types/common/Rerun_Types';
 
 // Convert report URL/path to logs path (strip any signature/domain first)
 export const getLogsPath = (reportUrl: string): string => {
@@ -216,4 +217,74 @@ export const getStatusChip = (status: ExecutionStatus | CampaignStatus | ScriptS
     default:
       return <Chip label="Unknown" color="default" size="small" />;
   }
+};
+
+/**
+ * Build the rerun config for a stored script result, or null when the run
+ * cannot be replayed.
+ *
+ * Two sources, in priority order:
+ *  1. `rerun_payload` — the launching deployment's exact launch config, joined
+ *     in by get_script_results. Authoritative, and the only source that covers
+ *     runs recorded before the launch fields below were persisted.
+ *  2. `metadata` — the launch fields the executor records on every run, which
+ *     covers everything that never went through a deployment (campaign steps,
+ *     direct API calls).
+ *
+ * Returns null for runs with neither: an unsaved/ad-hoc testcase graph exists
+ * only in the caller that submitted it, and pre-existing rows never recorded
+ * their parameters. Callers render no rerun control in that case.
+ */
+export const buildRerunPayloadFromResult = (result: {
+  script_name: string;
+  script_type?: string;
+  host_name: string;
+  device_name: string;
+  metadata?: any;
+  rerun_payload?: RerunPayload | null;
+}): RerunPayload | null => {
+  // A campaign payload is deliberately ignored here: these rows are individual
+  // script results, and replaying a whole campaign from one of its steps is not
+  // what the icon on that row promises. Such a row falls through to metadata and
+  // reruns just its own script.
+  if (result.rerun_payload && result.rerun_payload.type !== 'campaign') {
+    return result.rerun_payload;
+  }
+
+  const metadata = result.metadata;
+  if (!metadata || typeof metadata !== 'object') return null;
+
+  // device_id is the executor-facing identifier; device_name on the row is the
+  // display name, which is not interchangeable with it.
+  const deviceId = metadata.device_id || 'host';
+
+  if (result.script_type === 'testcase') {
+    // An unsaved graph has no definition to load — nothing to replay.
+    if (metadata.unsaved === true || !metadata.testcase_id) return null;
+    return {
+      type: 'testcase',
+      scriptName: result.script_name,
+      hostName: result.host_name,
+      deviceId,
+      deviceModel: metadata.device_model || 'unknown',
+      testcaseId: String(metadata.testcase_id),
+      testcaseVersionNumber: metadata.testcase_version ?? null,
+      inputValues: metadata.testcase_inputs,
+    };
+  }
+
+  // An empty string is a valid parameter set (a script taking no arguments);
+  // only an absent field means the launch config was never recorded.
+  if (typeof metadata.parameters !== 'string') return null;
+
+  return {
+    type: 'script',
+    scriptName: result.script_name,
+    hostName: result.host_name,
+    deviceId,
+    parameters: metadata.parameters,
+    // Replays the exact virtual-script row that ran. Without it a virtual
+    // script's rerun would look for a disk file of that name and fail.
+    virtualScriptId: metadata.virtual_script_id || undefined,
+  };
 };

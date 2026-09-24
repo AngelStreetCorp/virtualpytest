@@ -40,7 +40,7 @@ parse_devices() {
     fi
     
     # Check for DEVICE1-14
-    for i in {1..14}; do
+    for i in {1..30}; do
         local device_path
         device_path=$(grep "^DEVICE${i}_VIDEO_CAPTURE_PATH=" "$env_file" 2>/dev/null | cut -d '=' -f 2- | tr -d '"' | tr -d "'")
         if [[ -n "$device_path" ]]; then

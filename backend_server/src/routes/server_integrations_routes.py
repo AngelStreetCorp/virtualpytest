@@ -8,6 +8,9 @@ import threading
 import time
 from pathlib import Path
 from shared.src.lib.config.constants import CACHE_CONFIG
+from backend_server.src.lib.auth_middleware import require_permission
+from backend_server.src.integrations.testrail_client import TestRailConnectionError, test_connection as test_testrail_connection
+from backend_server.src.integrations import testrail_service
 
 server_integrations_bp = Blueprint('server_integrations_bp', __name__, url_prefix='/server/integrations')
 
@@ -458,6 +461,183 @@ def test_jira_connection(instance_id):
 SLACK_CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_config.json'
 THREADS_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_threads.json'
 
+# TestRail credentials are kept on the backend and omitted from every read response.
+TESTRAIL_CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'testrail.json'
+
+
+def _testrail_team_id():
+    return (request.args.get('team_id') or '').strip()
+
+
+def _load_testrail_config(team_id=None):
+    return testrail_service.load_config(team_id or _testrail_team_id())
+
+
+@server_integrations_bp.route('/testrail/config', methods=['GET'])
+@require_permission('plugins.testrail:view')
+@handle_route_exceptions('server_integrations:get_testrail_config')
+def get_testrail_config():
+    config = _load_testrail_config(_testrail_team_id())
+    return jsonify({'success': True, 'config': {
+        'base_url': config.get('base_url', ''),
+        'username': config.get('username', ''),
+        'project_id': config.get('project_id'),
+        'has_credentials': bool(config.get('api_key')),
+        'auto_publish': bool(config.get('auto_publish', False)),
+    }})
+
+
+@server_integrations_bp.route('/testrail/cases', methods=['GET'])
+@require_permission('plugins.testrail:view')
+@handle_route_exceptions('server_integrations:list_testrail_cases')
+def list_testrail_cases_route():
+    config = _load_testrail_config()
+    if not config.get('api_key'):
+        return jsonify({'success': False, 'error': 'Connect TestRail before linking cases.'}), 400
+    try:
+        cases = testrail_service.list_cases(config, request.args.get('search', '').strip())
+        return jsonify({'success': True, 'cases': cases})
+    except TestRailConnectionError as exc:
+        return jsonify({'success': False, 'category': exc.category, 'error': str(exc)}), 400
+
+
+@server_integrations_bp.route('/testrail/automation', methods=['POST'])
+@require_permission('plugins.testrail:manage')
+@handle_route_exceptions('server_integrations:update_testrail_automation')
+def update_testrail_automation_route():
+    team_id = _testrail_team_id()
+    config = _load_testrail_config(team_id)
+    if not team_id or not config.get('api_key'):
+        return jsonify({'success': False, 'error': 'Connect TestRail before enabling automatic publishing.'}), 400
+    data = request.get_json(silent=True) or {}
+    config['auto_publish'] = bool(data.get('enabled'))
+    try:
+        testrail_service.save_config(team_id, config)
+    except (OSError, ValueError):
+        return jsonify({'success': False, 'error': 'Could not save TestRail publishing settings.'}), 500
+    return jsonify({'success': True, 'auto_publish': config['auto_publish']})
+
+
+@server_integrations_bp.route('/testrail/mappings', methods=['GET', 'POST', 'DELETE'])
+@require_permission('plugins.testrail:manage')
+@handle_route_exceptions('server_integrations:manage_testrail_mappings')
+def manage_testrail_mappings_route():
+    team_id = _testrail_team_id()
+    if not team_id:
+        return jsonify({'success': False, 'error': 'team_id is required.'}), 400
+    config = _load_testrail_config(team_id)
+    if request.method == 'GET':
+        return jsonify({'success': True, 'mappings': config.get('case_mappings', {})})
+    data = request.get_json(silent=True) or {}
+    if request.method == 'POST' and isinstance(data.get('mappings'), list):
+        try:
+            saved = testrail_service.save_mappings(team_id, data['mappings'])
+            return jsonify({'success': True, 'mappings': saved})
+        except (TypeError, ValueError, TestRailConnectionError) as exc:
+            return jsonify({'success': False, 'error': str(exc), 'category': getattr(exc, 'category', 'invalid_mapping')}), 400
+    vpt_key = str((request.args.get('vpt_key') if request.method == 'DELETE' else data.get('vpt_key')) or '').strip()
+    if not vpt_key:
+        return jsonify({'success': False, 'error': 'VirtualPyTest case name is required.'}), 400
+    try:
+        if request.method == 'DELETE':
+            removed = testrail_service.remove_mapping(team_id, vpt_key)
+            return jsonify({'success': True, 'removed': removed})
+        case_id = int(data.get('case_id'))
+        mapping = testrail_service.save_mapping(team_id, vpt_key, case_id)
+        return jsonify({'success': True, 'mapping': mapping})
+    except (TypeError, ValueError, TestRailConnectionError) as exc:
+        return jsonify({'success': False, 'error': str(exc), 'category': getattr(exc, 'category', 'invalid_mapping')}), 400
+
+
+@server_integrations_bp.route('/testrail/test', methods=['POST'])
+@require_permission('plugins.testrail:manage')
+@handle_route_exceptions('server_integrations:test_testrail_connection')
+def test_testrail_connection_route():
+    data = request.get_json(silent=True) or {}
+    base_url = data.get('base_url', '')
+    username = data.get('username', '')
+    api_key = data.get('api_key', '')
+    if not api_key:
+        saved = _load_testrail_config(_testrail_team_id())
+        if (saved.get('base_url', '').rstrip('/').lower() == str(base_url).rstrip('/').lower()
+                and saved.get('username', '').lower() == str(username).lower()):
+            api_key = saved.get('api_key', '')
+    try:
+        result = test_testrail_connection(
+            base_url, username, api_key
+        )
+        return jsonify({'success': True, **result})
+    except TestRailConnectionError as exc:
+        return jsonify({'success': False, 'category': exc.category, 'error': str(exc)}), 400
+
+
+@server_integrations_bp.route('/testrail/config', methods=['POST', 'DELETE'])
+@require_permission('plugins.testrail:manage')
+@handle_route_exceptions('server_integrations:save_testrail_config')
+def save_testrail_config():
+    if request.method == 'DELETE':
+        try:
+            team_id = _testrail_team_id()
+            if not team_id:
+                return jsonify({'success': False, 'error': 'team_id is required.'}), 400
+            try:
+                with open(TESTRAIL_CONFIG_PATH, 'r') as config_file:
+                    stored = json.load(config_file)
+            except FileNotFoundError:
+                stored = {'teams': {}}
+            teams = stored.get('teams', {}) if isinstance(stored, dict) else {}
+            teams.pop(team_id, None)
+            if teams:
+                stored = {'teams': teams}
+                temp_path = TESTRAIL_CONFIG_PATH.with_suffix('.tmp')
+                with open(temp_path, 'w') as config_file:
+                    json.dump(stored, config_file)
+                os.chmod(temp_path, 0o600)
+                os.replace(temp_path, TESTRAIL_CONFIG_PATH)
+            else:
+                TESTRAIL_CONFIG_PATH.unlink(missing_ok=True)
+            return jsonify({'success': True})
+        except OSError:
+            return jsonify({'success': False, 'error': 'Could not remove TestRail configuration.'}), 500
+
+    data = request.get_json(silent=True) or {}
+    team_id = _testrail_team_id()
+    if not team_id:
+        return jsonify({'success': False, 'error': 'team_id is required.'}), 400
+    current = _load_testrail_config(team_id)
+    base_url = (data.get('base_url') or '').strip()
+    username = (data.get('username') or '').strip()
+    api_key = (data.get('api_key') or '').strip() or current.get('api_key', '')
+    if not base_url or not username or not api_key:
+        return jsonify({'success': False, 'error': 'Instance URL, username/email, and API key are required.'}), 400
+    try:
+        validated = test_testrail_connection(base_url, username, api_key)
+    except TestRailConnectionError as exc:
+        return jsonify({'success': False, 'category': exc.category, 'error': str(exc)}), 400
+
+    project_id = data.get('project_id')
+    project_ids = {str(project.get('id')) for project in validated['projects']}
+    if project_id is None or str(project_id) not in project_ids:
+        return jsonify({'success': False, 'error': 'Selected project is not available to this TestRail account.'}), 400
+    config = {
+        **current,
+        'base_url': validated['base_url'],
+        'username': username,
+        'api_key': api_key,
+        'project_id': int(project_id),
+    }
+    if 'auto_publish' in data:
+        config['auto_publish'] = bool(data.get('auto_publish'))
+    try:
+        testrail_service.save_config(team_id, config)
+    except (OSError, ValueError):
+        return jsonify({'success': False, 'error': 'Could not securely save TestRail configuration.'}), 500
+    return jsonify({'success': True, 'config': {
+        'base_url': config['base_url'], 'username': username,
+        'project_id': config['project_id'], 'has_credentials': True,
+        'auto_publish': bool(config.get('auto_publish', False)),
+    }})
+
 # Simple in-memory cache for Slack config to avoid re-reading from disk on every request
 _slack_config_cache = {'data': None, 'timestamp': 0.0}
 _slack_cache_lock = threading.Lock()
@@ -761,7 +941,24 @@ def slack_events():
     
     When users reply in a Slack thread, this forwards the message
     to the corresponding Agent Chat session via Socket.IO
+
+    Unauthenticated by the global guard (Slack carries no JWT and no API key), so the
+    signature is this route's only credential — it is checked before the body is parsed,
+    and a request without a valid one is refused outright.
     """
+    from backend_server.src.integrations.slack_sync import verify_slack_signature
+
+    ok, reason = verify_slack_signature(
+        request.get_data(),
+        request.headers.get('X-Slack-Request-Timestamp', ''),
+        request.headers.get('X-Slack-Signature', ''),
+    )
+    if not ok:
+        # The reason goes to the log, not the response: which half of the check failed is
+        # information an attacker would otherwise get for free.
+        print(f"[@integrations_routes:slack_events] ⛔ rejected unsigned/invalid request: {reason}")
+        return jsonify({'error': 'unauthorized'}), 401
+
     try:
         data = request.json
         print(f"[@integrations_routes:slack_events] 📥 Received: type={data.get('type')}")
@@ -902,4 +1099,3 @@ def slack_events():
     except Exception as e:
         print(f"[@integrations_routes:slack_events] Error: {e}")
         return jsonify({'ok': True})  # Always return 200 to Slack
-

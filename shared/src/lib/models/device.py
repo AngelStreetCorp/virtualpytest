@@ -312,6 +312,11 @@ class Device:
             else:
                 actual_capabilities['av'] = theoretical_capabilities['av']  # Fallback
         
+        # Which cloud device farm this device's session lives in ('saucelabs',
+        # 'browserstack', …), when it is a features/device-farm device. Set from the
+        # CloudAppium branch below; stays None for every local device.
+        farm_provider = None
+
         if self._controllers.get('remote'):
             # Handle multiple remote controllers
             remote_controllers = self._controllers['remote']
@@ -327,6 +332,17 @@ class Device:
                     remote_implementations.append('android_mobile')
                 elif 'androidtv' in controller_name:
                     remote_implementations.append('android_tv')
+                elif 'cloudappium' in controller_name:
+                    # features/device-farm cloud device. It reports as 'appium' on
+                    # purpose: the panel, the commands and the element model are the
+                    # local Appium ones — only where the session lives differs. Must
+                    # precede the generic 'appium' check, which would also match.
+                    remote_implementations.append('appium')
+                    # …but the frontend still has to be able to say *which* farm, so
+                    # the preview can badge it. Read off the controller's FarmConfig
+                    # rather than the device name, which is only a convention.
+                    farm_provider = getattr(
+                        getattr(remote_controller, 'cfg', None), 'provider', None)
                 elif 'appium' in controller_name:
                     remote_implementations.append('appium')
                 elif 'irtrans' in controller_name:
@@ -407,5 +423,9 @@ class Device:
             device_dict['preferred_userinterface'] = self.preferred_userinterface
         if self.preferred_variant:
             device_dict['preferred_variant'] = self.preferred_variant
+
+        # Cloud device farm this device is leased from (features/device-farm only).
+        if farm_provider:
+            device_dict['device_farm_provider'] = farm_provider
 
         return device_dict 

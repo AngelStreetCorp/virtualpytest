@@ -7,6 +7,8 @@ This service layer separates business logic from HTTP handling.
 
 from typing import Dict, Any, List, Optional
 
+from shared.src.lib.config.device_capabilities import expand_models
+
 class VerificationService:
     """Service for handling verification business logic"""
     
@@ -97,10 +99,14 @@ class VerificationService:
 
                 team_uis = get_all_userinterfaces(team_id) or []
                 active_ui = next((ui for ui in team_uis if ui.get('name') == userinterface_name), None)
-                active_models = set(active_ui.get('models', []) if active_ui else [])
+                # Compare families, not raw model names: a reference captured against an
+                # `android_mobile` UI shows the same app on the same kind of screen as one
+                # captured against `phone_agent` or `cloud_android_mobile`, so the three
+                # must share. MODEL_FAMILIES in shared/src/lib/config/device_capabilities.py.
+                active_models = set(expand_models(active_ui.get('models', []) if active_ui else []))
                 compatible_ui_names = [
                     ui['name'] for ui in team_uis
-                    if active_models.intersection(set(ui.get('models', []) or []))
+                    if active_models.intersection(set(expand_models(ui.get('models', []) or [])))
                 ] if active_models else [userinterface_name]
                 # Always include the active UI so its own shared refs are visible too.
                 if userinterface_name not in compatible_ui_names:

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { getEnv } from '../config/constants';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { useTenantBranding } from '../hooks/brand/useTenantBranding';
 
 export type Branding = {
   name: string;
@@ -10,6 +11,11 @@ export type Branding = {
   showFooter: boolean;
   showProjectName: boolean;
   title: string;
+  // TASK-23 footer-logo follow-up: per-tenant override applied on top of
+  // the deployment-level branding. The footer reads these directly.
+  tenantFooterLogoUrl?: string;
+  tenantFooterLogoAlt?: string;
+  tenantFooterTextColor?: string;
 };
 
 type BrandingContextValue = {
@@ -61,8 +67,19 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const [overrides, setOverrides] = useState<Partial<Branding>>({});
   const [isLoaded, setIsLoaded] = useState(false);
   const [hasBackup, setHasBackup] = useState(false);
+  // TASK-23: per-tenant branding overrides sit on top of the deployment-level
+  // branding. The hook fetches from /server/branding/tenant and caches in
+  // localStorage. Empty object when the caller has no tenant (e.g. a stale
+  // token pre-TASK-23).
+  const tenantBranding = useTenantBranding();
 
-  const branding: Branding = { ...DEFAULTS, ...overrides };
+  const branding: Branding = {
+    ...DEFAULTS,
+    ...overrides,
+    tenantFooterLogoUrl:   tenantBranding.footerLogoUrl ?? undefined,
+    tenantFooterLogoAlt:   tenantBranding.footerLogoAlt ?? undefined,
+    tenantFooterTextColor: tenantBranding.footerTextColor ?? undefined,
+  };
 
   // Apply favicon whenever it changes
   useEffect(() => {

@@ -203,8 +203,8 @@ older lineage). Full `bash update_core.sh main` run: **11/11 OK, no `OWNERSHIP N
 `vpt_user:vpt_user 775` on every target, `labox-web` included — set by the push, while that host's
 `sudo -n find … chown` was still being refused.
 
-`labox-web`'s underlying fault was simply a missing `/etc/sudoers.d/jndoye-nopasswd`
-(`jndoye ALL=(ALL) NOPASSWD: ALL`) that every other host in the fleet has; it had only a whitelist
+`labox-web`'s underlying fault was simply a missing passwordless-sudo fragment under
+`/etc/sudoers.d/` that its peers have; it had only a whitelist
 for `rsync`/`git`/`bash`/`systemctl`. Installed 0440 root:root, `visudo -c` clean across all
 fragments. Both previously-refused steps now succeed, and the feature-unit reconcile — which had
 never run there, its `sudo -n test -f` refusal misreported as "not on the target (older tree)" —

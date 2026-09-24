@@ -79,9 +79,8 @@ The averages stat and the time-series panels keep their passing-only filter on p
 The customer overlay carries its own copies of these three dashboards at the **same path**
 (`infra/monitoring/grafana/dashboards/ookla-speedtest.json` and the two siblings), and the
 overlay is rsynced on top of the platform tree at deploy — so the platform fix above never
-reaches a customer install on its own. The overlay copies (Roboter / HGW columns, MAC and
-environment filters) had the identical hardcoded filter; the same table-only fix was applied
-there in overlay commit `447e235` (branch `prod`) and ships with
+reaches a customer install on its own. The overlay copies had the identical hardcoded filter; the
+same table-only fix was applied there in the overlay repo and ships with
 the next bundle.
 
 The customer's live export of the Ookla dashboard (Grafana version 54) also turned out to be

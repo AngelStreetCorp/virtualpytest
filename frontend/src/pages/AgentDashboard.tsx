@@ -6,7 +6,8 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { Socket } from 'socket.io-client';
+import { createServerSocket } from '../utils/serverSocket';
 import { 
   Box, Container, Paper, Typography, Button,
   IconButton, Tooltip, Chip, Switch, Dialog, DialogTitle,
@@ -127,7 +128,7 @@ export const AgentDashboard: React.FC = () => {
     const socket = // The server, not the page. These are the same host on the web, but the mobile app serves
     // the bundle from its own https://localhost, where a socket aimed at the page origin is
     // refused forever (net::ERR_CONNECTION_REFUSED) and the app never learns any device state.
-    io(`${getServerBaseUrl()}/system`, {
+    createServerSocket(getServerBaseUrl(), '/system', {
       transports: ['websocket'],
       reconnection: true,
     });

@@ -22,6 +22,7 @@ import {
 
 import { StyledDialog } from './StyledDialog';
 import { buildServerUrl, buildServerUrlForServer } from '../../utils/buildUrlUtils';
+import { apiClient } from '../../utils/apiClient';
 import { useServerManager } from '../../hooks/useServerManager';
 
 interface ServiceLogsModalProps {
@@ -45,6 +46,7 @@ interface ServiceLogsModalProps {
 
 const LINE_OPTIONS = [50, 100, 200, 500];
 const SINCE_OPTIONS = ['15m', '1h', '6h', '24h', '7d'];
+const LEVEL_OPTIONS = ['', 'emerg', 'alert', 'crit', 'err', 'warning', 'notice', 'info', 'debug'];
 
 /**
  * Self-contained service log viewer. Owns the fetch (/server/logs/view),
@@ -66,6 +68,8 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
   const [lines, setLines] = useState(defaultLines);
   const [since, setSince] = useState(defaultSince);
   const [activeDevice, setActiveDevice] = useState<string>('');
+  const [grep, setGrep] = useState('');
+  const [level, setLevel] = useState('');
   const [logs, setLogs] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -100,15 +104,19 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
           service: logService,
           lines: lineCount,
           since: sinceValue,
+          grep,
+          level,
         };
         if (logHostName) payload.host_name = logHostName;
         if (perDevice && deviceId) payload.device_id = deviceId;
-        const res = await fetch(logsEndpointUrl, {
+        const res = await apiClient(logsEndpointUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
         const data = await res.json();
+        if (res.status === 401) throw new Error('Your session is not available for this server. Sign in again or select an authenticated server.');
+        if (res.status === 403) throw new Error('You do not have permission to view service logs.');
         if (data.success) {
           setLogs(data.logs || '');
         } else {
@@ -120,7 +128,7 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
         setLoading(false);
       }
     },
-    [logService, logHostName, perDevice, logsEndpointUrl],
+    [logService, logHostName, perDevice, logsEndpointUrl, grep, level],
   );
 
   // Reset filters on open / service change. For per-device (vpt-stream)
@@ -193,6 +201,26 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
             </MenuItem>
           ))}
         </TextField>
+        <TextField
+          select
+          value={level}
+          onChange={(e) => setLevel(e.target.value)}
+          size="small"
+          sx={{ width: 100 }}
+          label="Severity"
+        >
+          {LEVEL_OPTIONS.map((value) => (
+            <MenuItem key={value || 'all'} value={value}>{value || 'All levels'}</MenuItem>
+          ))}
+        </TextField>
+        <TextField
+          value={grep}
+          onChange={(e) => setGrep(e.target.value)}
+          size="small"
+          sx={{ width: 150 }}
+          label="Search"
+          onKeyDown={(e) => { if (e.key === 'Enter') fetchLogs(lines, since, activeDevice); }}
+        />
         <TextField
           select
           value={since}

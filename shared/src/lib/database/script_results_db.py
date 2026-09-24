@@ -163,6 +163,35 @@ def update_script_execution_result(
         print(f"[@db:script_results:update_script_execution_result] Error: {str(e)}")
         return False
 
+def _flatten_rerun_payload(row: Dict) -> Dict:
+    """Lift the embedded deployment rerun_payload to a top-level field.
+
+    The embed arrives as deployment_executions[].deployments.rerun_payload — a
+    list, because the FK points at script_results. In practice a result row is
+    written by exactly one execution, so the first non-empty payload wins. The
+    embed itself is dropped so the row shape the frontend sees stays flat.
+    """
+    if not isinstance(row, dict):
+        return row
+
+    executions = row.pop('deployment_executions', None)
+    if isinstance(executions, dict):
+        executions = [executions]
+
+    payload = None
+    for execution in executions or []:
+        deployment = (execution or {}).get('deployments')
+        if isinstance(deployment, list):
+            deployment = deployment[0] if deployment else None
+        candidate = (deployment or {}).get('rerun_payload')
+        if candidate:
+            payload = candidate
+            break
+
+    row['rerun_payload'] = payload
+    return row
+
+
 def get_script_results(
     team_id: str,
     script_name: Optional[str] = None,
@@ -209,7 +238,15 @@ def get_script_results(
             }
 
         supabase = get_supabase()
-        query = supabase.table('script_results').select('*').eq('team_id', team_id)
+        # Reverse-embed the launching deployment's rerun_payload over the existing
+        # deployment_executions.script_result_id FK. Deployment-launched runs
+        # (RunTests, cron, campaigns) already carry a full launch config there, so
+        # a result row inherits it instead of the caller re-deriving one. Rows with
+        # no deployment behind them (campaign steps, direct API) embed nothing —
+        # those fall back to metadata.parameters, written at record time.
+        query = supabase.table('script_results').select(
+            '*, deployment_executions(deployments(rerun_payload))'
+        ).eq('team_id', team_id)
 
         # Add filters
         if script_name:
@@ -231,12 +268,14 @@ def get_script_results(
 
         # Execute query with ordering and limit
         result = query.order('created_at', desc=True).limit(limit).execute()
-        
-        print(f"[@db:script_results:get_script_results] Found {len(result.data)} script results")
+
+        rows = [_flatten_rerun_payload(row) for row in (result.data or [])]
+
+        print(f"[@db:script_results:get_script_results] Found {len(rows)} script results")
         return {
             'success': True,
-            'script_results': result.data,
-            'count': len(result.data)
+            'script_results': rows,
+            'count': len(rows)
         }
         
     except Exception as e:

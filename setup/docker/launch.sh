@@ -21,6 +21,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
 HOST_ENV="$PROJECT_ROOT/backend_host/src/.env"
+# docker compose v1/v2 auto-reads .env from CWD; tell it where ours lives
+export COMPOSE_ENV_FILE="$ENV_FILE"
 
 MODE=full; ACTION=up; REBUILD=false
 for arg in "$@"; do
@@ -130,8 +132,14 @@ echo "🚀 VirtualPyTest ($MODE stack, $PLATFORM) — PUBLIC_HOST=$PUBLIC_HOST"
 # writes dist/config.js from the environment), so one image serves any PUBLIC_HOST.
 IMAGE_TAG="$(get_env VPT_IMAGE_TAG)"
 if [ "$REBUILD" = true ] || [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = local ]; then
+    # --pull: re-fetch base images (python:3.11-slim, node:22-alpine, etc.) even if cached.
+    # Separate "build" then "up -d" (no --build) so all parallel builds fully export to
+    # Docker's image store before compose tries to create any container. The previous
+    # "up -d --build" had a race: compose started containers while builds were still
+    # exporting their image tarballs, causing "no such image" for the fastest service.
     [ "$REBUILD" = true ] && "${COMPOSE[@]}" build --pull
-    "${COMPOSE[@]}" up -d --build
+    "${COMPOSE[@]}" build
+    "${COMPOSE[@]}" up -d
 else
     echo "📦 pulling backend images tagged '$IMAGE_TAG' (set VPT_IMAGE_TAG=local in .env to build instead)"
     # docker-compose.host.yml defines backend_host only — asking for backend_server there
@@ -139,7 +147,8 @@ else
     if [ "$MODE" = host ]; then PULL=(backend_host); else PULL=(backend_server backend_host frontend); fi
     if ! "${COMPOSE[@]}" pull "${PULL[@]}"; then
         echo "⚠️  pull failed for tag '$IMAGE_TAG' — falling back to building from this checkout"
-        "${COMPOSE[@]}" up -d --build
+        "${COMPOSE[@]}" build
+        "${COMPOSE[@]}" up -d
     else
         "${COMPOSE[@]}" up -d
     fi

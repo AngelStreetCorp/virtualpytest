@@ -14,6 +14,9 @@ Group=vpt_user
 Environment=HOME=/var/lib/vpt_user
 Environment=XDG_CONFIG_HOME=/var/lib/vpt_user/.config
 TimeoutStartSec=120
+# Repair the service user's home and XDG data directories before TigerVNC
+# writes .Xauthority. The '+' prefix runs this one setup command as root.
+ExecStartPre=+/usr/bin/install -d -o vpt_user -g vpt_user /var/lib/vpt_user /var/lib/vpt_user/.cache /var/lib/vpt_user/.local/share
 ExecStartPre=/bin/bash -c 'if [ -f /tmp/.X1-lock ]; then rm -f /tmp/.X1-lock; fi'
 ExecStartPre=/bin/bash -c 'if [ -S /tmp/.X11-unix/X1 ]; then rm -f /tmp/.X11-unix/X1; fi'
 ExecStartPre=/bin/bash -c 'rm -f /var/lib/vpt_user/.vnc/*.pid 2>/dev/null || true'

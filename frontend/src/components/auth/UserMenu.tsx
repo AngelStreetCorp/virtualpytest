@@ -16,6 +16,7 @@ import {
   Groups as TeamsIcon,
   People as UsersIcon,
   WorkspacesOutlined as WorkspacesIcon,
+  Apartment as TenantIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/auth/useAuth';
 import { useProfile } from '../../hooks/auth/useProfile';
@@ -24,7 +25,7 @@ import { isAuthEnabled } from '../../lib/supabase';
 
 export const UserMenu: React.FC = () => {
   const { user, signOut } = useAuth();
-  const { profile } = useProfile();
+  const { profile, isPlatformAdmin } = useProfile();
   const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
@@ -36,6 +37,11 @@ export const UserMenu: React.FC = () => {
 
   const handleMenuClose = () => {
     setAnchorEl(null);
+  };
+
+  const handleTenants = () => {
+    handleMenuClose();
+    navigate('/tenants');
   };
 
   const handleTeams = () => {
@@ -115,6 +121,17 @@ export const UserMenu: React.FC = () => {
         </Box>
 
         <Divider />
+
+        {/* TASK-23: Tenants entry is super-admin only, sits above Teams
+            in the dropdown so the platform-owner surface is grouped together. */}
+        {isPlatformAdmin && (
+          <MenuItem onClick={handleTenants}>
+            <ListItemIcon>
+              <TenantIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Tenants</ListItemText>
+          </MenuItem>
+        )}
 
         {isAdmin && (
           <MenuItem onClick={handleTeams}>

@@ -23,7 +23,7 @@ name: virtualpytest
 
 include:
   - path: supabase/docker-compose.yml
-    env_file: .env
+    env_file: setup/docker/.env
 
 services:
 
@@ -58,7 +58,7 @@ services:
 
   minio:
     container_name: vpt-minio
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: quay.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:

@@ -30,6 +30,55 @@ except ImportError:
 # Config paths
 BACKEND_SERVER_ROOT = Path(__file__).parent.parent.parent
 CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_config.json'
+
+
+def verify_slack_signature(raw_body: bytes, timestamp: str, signature: str) -> tuple:
+    """Verify Slack's request signature (https://api.slack.com/authentication/verifying-requests).
+
+    Returns (ok, reason). The reason is for the server log, never the response body — telling a
+    caller which half of the check it failed is free reconnaissance.
+
+    Fails closed when no signing secret is configured. The inbound webhook used to accept any
+    unsigned POST, so anyone who could reach the server could inject a message into an agent
+    chat session by replaying Slack's event shape; an unconfigured secret must therefore mean
+    "refuse", not "skip the check".
+    """
+    import hashlib
+    import hmac
+    import json as _json
+    import time as _time
+
+    try:
+        secret = ''
+        if CONFIG_PATH.exists():
+            with open(CONFIG_PATH) as f:
+                secret = (_json.load(f).get('signing_secret') or '').strip()
+    except Exception as e:
+        return False, f'could not read signing secret: {e}'
+
+    if not secret:
+        return False, 'no signing_secret in slack_config.json — inbound Slack events are refused'
+    if not timestamp or not signature:
+        return False, 'missing X-Slack-Request-Timestamp or X-Slack-Signature'
+
+    try:
+        drift = abs(_time.time() - int(timestamp))
+    except (TypeError, ValueError):
+        return False, 'malformed X-Slack-Request-Timestamp'
+    # Slack's own replay window. A captured request older than this is refused even though
+    # its signature is still arithmetically valid.
+    if drift > 60 * 5:
+        return False, f'timestamp is {int(drift)}s old, outside the 5 minute replay window'
+
+    expected = 'v0=' + hmac.new(
+        secret.encode(),
+        b'v0:' + timestamp.encode() + b':' + raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+
+    if not hmac.compare_digest(expected, signature):
+        return False, 'signature mismatch'
+    return True, 'ok'
 THREADS_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_threads.json'
 
 

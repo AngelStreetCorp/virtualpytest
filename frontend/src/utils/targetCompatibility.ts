@@ -1,3 +1,4 @@
+import { getCompatibleModels } from '../config/deviceModelFamilies';
 import type { Host, Device } from '../types/common/Host_Types';
 
 export interface TargetRules {
@@ -46,14 +47,6 @@ const hostMatchesRules = (host: Host, rules: Required<TargetRules>) => {
   return normalizePlatform(host.system_stats?.platform) === rules.host_os;
 };
 
-// Runner models are compatible with their physical-device equivalents (bidirectional)
-const COMPATIBLE_MODEL_GROUPS: string[][] = [
-  ['runner_host', 'host_vnc'],
-  ['runner_android_mobile', 'android_mobile'],
-  ['runner_android_tablet', 'android_tablet'],
-  ['runner_android_tv', 'android_tv'],
-];
-
 const deviceMatchesRules = (device: Device, rules: Required<TargetRules>) => {
   if (rules.device_model === 'all') {
     return true;
@@ -66,11 +59,13 @@ const deviceMatchesRules = (device: Device, rules: Required<TargetRules>) => {
     return true;
   }
 
-  // Runner ↔ physical-device compatibility groups
-  for (const group of COMPATIBLE_MODEL_GROUPS) {
-    if (group.includes(deviceModel) && ruleModels.some((m) => group.includes(m))) {
-      return true;
-    }
+  // Model families: a runner stands in for its physical equivalent, and an Android
+  // phone is one whether it is reached by adb, by the paired app or through a cloud
+  // farm. One table, shared with userinterface matching — a script declaring
+  // `device_model: android_mobile` must therefore be offered for a farm phone too.
+  const familyModels = getCompatibleModels(deviceModel);
+  if (ruleModels.some((m) => familyModels.includes(m))) {
+    return true;
   }
 
   return false;

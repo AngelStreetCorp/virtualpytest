@@ -136,6 +136,9 @@ The `install_host.sh` script performs these steps:
    - Password: generated into `backend_host/src/.env` as `HOST_VNC_PASSWORD` on first install
    - Installs custom `vnc_lite.html` with auto-path detection for nginx routing
    - Template: `backend_host/config/services/linux/vnc.lite.example`
+   - **The template ships with no password and the installer does not add one**, so the
+     console opens and then asks for a credential. Bake this host's own password into the
+     served page after installing (see *VNC password: the page supplies it* below).
 
 9. **Configure Permissions**
    - Sets up sudo permissions for service management
@@ -207,6 +210,39 @@ HOST_PORT=6109
 The custom `vnc_lite.html` automatically detects the correct WebSocket path based on its URL location:
 - Page at `/host/myhost/vnc_lite.html` → WebSocket connects to `/host/myhost/websockify`
 - No manual `?path=` parameter needed
+
+### VNC password: the page supplies it, the URL must not
+
+TigerVNC requires `VncAuth`, and the UI opens the console in an iframe **without** a password
+in the URL — deliberately, since a query string lands in browser history, in the `Referer` of
+every sub-request the page makes, and in the access logs of every proxy it crosses
+([BUG-0107](../../../../docs/bugs/BUG-0107-2026-09-15-vnc-console-and-websockify-open-to-the-internet.md)).
+The credential therefore lives **in the page body**, which is only ever served through the
+`auth_request` gate.
+
+The shipped template has no password (`readQueryVariable('password', null)`) and the installer
+copies it verbatim, so after a fresh install the console connects and then prompts. Bake in
+**this host's own** password:
+
+```bash
+PW=$(sudo grep '^HOST_VNC_PASSWORD=' /opt/virtualpytest/backend_host/src/.env | cut -d= -f2-)
+sudo sed -i "s|readQueryVariable('password', null)|readQueryVariable('password', '$PW')|" \
+    /usr/share/novnc/vnc_lite.html
+```
+
+Verify — authenticated gets the page, anonymous gets `401`, and no shared default is present:
+
+```bash
+grep -c admin1234 /usr/share/novnc/vnc_lite.html          # must be 0
+curl -sk -o /dev/null -w '%{http_code}\n' \
+  -H 'Host: <deployment>' https://localhost/host/<name>/vnc_lite.html   # expect 401 (no cookie)
+```
+
+> ⚠️ **Never reuse one password across hosts.** Hosts installed before 2026-09-15 carry a shared
+> default (`admin1234`) hardcoded in their page; that is the vulnerability BUG-0107 documents, and
+> re-introducing it re-opens the console to anyone who knows the default. Each host must use the
+> `HOST_VNC_PASSWORD` generated for it. A host whose password is rotated must have this
+> substitution re-applied, or its console starts prompting again.
 
 > **💡 Optional SSL**: To enable SSL directly on websockify (for direct access without nginx):
 > 1. Edit `/etc/systemd/system/vpt-websockify.service`

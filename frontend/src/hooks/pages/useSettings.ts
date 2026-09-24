@@ -16,31 +16,16 @@ import { getCached, setCached } from '../../utils/pageCache';
 // TYPES
 // =====================================================
 
+// The Settings page now surfaces every key each .env file actually contains
+// (not a fixed whitelist), so both configs are open-ended string maps. Known
+// keys are still accessed by name (config.server.SERVER_NAME etc.) — that
+// still typechecks fine against an index signature.
 export interface ServerConfig {
-  SERVER_NAME: string;
-  SERVER_URL: string;
-  SERVER_PORT: string;
-  ENVIRONMENT: string;
-  DEBUG: string;
-  PYTHONUNBUFFERED: string;
-  AI_PROVIDER: string;
-  AI_AGENT_PROVIDER: string;
-  AI_AGENT_MODEL: string;
-  AI_VISION_PROVIDER: string;
-  AI_VISION_MODEL: string;
-  AI_TEXT_PROVIDER: string;
-  AI_TEXT_MODEL: string;
-  ANTHROPIC_API_KEY: string;
-  OPENROUTER_API_KEY: string;
-  OPENAI_API_KEY: string;
-  MINIMAX_API_KEY: string;
-  GOOGLE_API_KEY: string;
-  LOCAL_AI_BASE_URL: string;
-  LOCAL_AI_MODEL: string;
-  LOCAL_AI_API_KEY: string;
+  [key: string]: string;
 }
 
 export interface FrontendConfig {
+  [key: string]: string;
   VITE_SERVER_URL: string;
   VITE_SLAVE_SERVER_URL: string;
   VITE_GRAFANA_URL: string;
@@ -76,7 +61,13 @@ export interface DeviceConfig {
 
 export interface SettingsConfig {
   server: ServerConfig;
+  serverSensitiveKeys: string[];
   frontend: FrontendConfig;
+  frontendSensitiveKeys: string[];
+  // 'ssh' = read from the real frontend VM over the settings bridge; 'local' = this
+  // server's own (usually irrelevant) copy. See reference_multi_server_registry.
+  frontendSource: 'ssh' | 'local';
+  frontendWarning: string | null;
   host: HostConfig;
   devices: { [key: string]: DeviceConfig };
 }
@@ -88,9 +79,13 @@ export interface UseSettingsReturn {
   error: string | null;
   success: boolean;
   loadConfig: () => Promise<void>;
-  saveConfig: () => Promise<void>;
-  updateServerConfig: (field: keyof ServerConfig, value: string) => void;
-  updateFrontendConfig: (field: keyof FrontendConfig, value: string) => void;
+  // Resolves with the sections actually written ('server' | 'frontend' | 'host'),
+  // so the caller can flag which services now need a restart to apply the change.
+  saveConfig: () => Promise<string[]>;
+  loadHostConfig: (hostName: string) => Promise<boolean>;
+  saveHostConfig: (hostName: string) => Promise<boolean>;
+  updateServerConfig: (field: string, value: string) => void;
+  updateFrontendConfig: (field: string, value: string) => void;
   updateHostConfig: (field: keyof HostConfig, value: string) => void;
   updateDeviceConfig: (deviceKey: string, field: keyof DeviceConfig, value: string) => void;
   addDevice: () => void;
@@ -108,7 +103,6 @@ const getDefaultConfig = (): SettingsConfig => ({
     SERVER_NAME: '',
     SERVER_URL: '',
     SERVER_PORT: '5109',
-    ENVIRONMENT: 'development',
     DEBUG: '1',
     PYTHONUNBUFFERED: '1',
     AI_PROVIDER: '',
@@ -127,6 +121,7 @@ const getDefaultConfig = (): SettingsConfig => ({
     LOCAL_AI_MODEL: '',
     LOCAL_AI_API_KEY: '',
   },
+  serverSensitiveKeys: [],
   frontend: {
     // These show the EFFECTIVE values, so they go through getEnv: a container that
     // overrode them at runtime (public/config.js) must not display the baked-in ones.
@@ -141,6 +136,9 @@ const getDefaultConfig = (): SettingsConfig => ({
     VITE_NAV_DISABLED: '',
     VITE_NAV_COMING_SOON: '',
   },
+  frontendSensitiveKeys: [],
+  frontendSource: 'local',
+  frontendWarning: null,
   host: {
     HOST_NAME: '',
     HOST_PORT: '6109',
@@ -177,9 +175,15 @@ export const useSettings = (): UseSettingsReturn => {
       const defaults = getDefaultConfig();
       const merged: SettingsConfig = {
         server: { ...defaults.server, ...data.server },
+        serverSensitiveKeys: data.server_sensitive_keys ?? [],
         frontend: { ...defaults.frontend, ...(data.frontend ?? {}) },
-        host: { ...defaults.host, ...data.host },
-        devices: data.devices ?? {},
+        frontendSensitiveKeys: data.frontend_sensitive_keys ?? [],
+        frontendSource: data.frontend_source ?? 'local',
+        frontendWarning: data.frontend_warning ?? null,
+        // Host and device settings are loaded separately from a selected
+        // registered host; never display this server's local checkout copy.
+        host: defaults.host,
+        devices: {},
       };
       setConfig(merged);
       setCached('settings-config', merged);
@@ -192,6 +196,42 @@ export const useSettings = (): UseSettingsReturn => {
     }
   }, []);
 
+  const loadHostConfig = useCallback(async (hostName: string) => {
+    if (!hostName) return false;
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.get(buildServerUrl(`/server/settings/host-config?host_name=${encodeURIComponent(hostName)}`));
+      setConfig((prev) => ({ ...prev, host: { ...getDefaultConfig().host, ...data.host }, devices: data.devices ?? {} }));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to load configuration for ${hostName}`);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const saveHostConfig = useCallback(async (hostName: string) => {
+    if (!hostName) {
+      setError('Select a host before saving host and device settings');
+      return false;
+    }
+    try {
+      setSaving(true);
+      setError(null);
+      await api.post(buildServerUrl('/server/settings/host-config'), { host_name: hostName, host: config.host, devices: config.devices });
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 5000);
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `Failed to save configuration for ${hostName}`);
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [config.devices, config.host]);
+
   /**
    * Save configuration to backend
    */
@@ -202,16 +242,19 @@ export const useSettings = (): UseSettingsReturn => {
       setSuccess(false);
 
       console.log('[@hook:useSettings] Saving configuration...');
-      await api.post(buildServerUrl('/server/settings/config'), config);
+      const localConfig = { server: config.server, frontend: config.frontend };
+      const result = await api.post(buildServerUrl('/server/settings/config'), localConfig);
       console.log('[@hook:useSettings] Configuration saved successfully');
       setSuccess(true);
 
       // Clear success message after 5 seconds
       setTimeout(() => setSuccess(false), 5000);
+      return (result?.updated_files ?? []) as string[];
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to save configuration';
       console.error('[@hook:useSettings] Error saving configuration:', err);
       setError(errorMessage);
+      return [];
     } finally {
       setSaving(false);
     }
@@ -220,7 +263,7 @@ export const useSettings = (): UseSettingsReturn => {
   /**
    * Update server configuration field
    */
-  const updateServerConfig = useCallback((field: keyof ServerConfig, value: string) => {
+  const updateServerConfig = useCallback((field: string, value: string) => {
     setConfig((prev) => ({
       ...prev,
       server: { ...prev.server, [field]: value },
@@ -230,7 +273,7 @@ export const useSettings = (): UseSettingsReturn => {
   /**
    * Update frontend configuration field
    */
-  const updateFrontendConfig = useCallback((field: keyof FrontendConfig, value: string) => {
+  const updateFrontendConfig = useCallback((field: string, value: string) => {
     setConfig((prev) => ({
       ...prev,
       frontend: { ...prev.frontend, [field]: value },
@@ -318,6 +361,8 @@ export const useSettings = (): UseSettingsReturn => {
     success,
     loadConfig,
     saveConfig,
+    loadHostConfig,
+    saveHostConfig,
     updateServerConfig,
     updateFrontendConfig,
     updateHostConfig,

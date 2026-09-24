@@ -254,7 +254,7 @@ def main() -> int:
     L: list[str] = ['', '---', '', '## Roll it out', '']
     steps: list = []
     if migrations:
-        L2 = ['STEP 🗄 Database', '',
+        L2 = ['STEP Database', '',
               'Apply once per database, **before** the services restart. No deploy script does this.', '']
         for p, title in migrations:
             L2.append(f'- `{p}`' + (f' — {title}' if title else ''))
@@ -264,7 +264,7 @@ def main() -> int:
         # simply left out, rather than listed as things to read past.
     steps.append(('db', L2, len(migrations))) if migrations else None
     if env_rows:
-        L2 = ['STEP ⚙ Settings', '',
+        L2 = ['STEP Settings', '',
               'Keys that appeared in the `.env` examples. A deploy never writes a VM `.env`, so '
               'anything genuinely new has to be added by hand on the machines named.', '',
               '| Keys | Where | Why |', '|---|---|---|']
@@ -280,7 +280,7 @@ def main() -> int:
 
     steps.append(('env', L2, len(env_rows))) if env_rows else None
     if nginx:
-        L2 = ['STEP 🌐 Nginx', '',
+        L2 = ['STEP Nginx', '',
               'Hand-deployed; the deploy script never touches the proxy. Check your own vhost '
               'carries the block each change touches — it may not.', '']
         L2 += [f'- `{p}`' + (f' — {why}' if why else '') for p, why in nginx]
@@ -288,7 +288,7 @@ def main() -> int:
 
     steps.append(('nginx', L2, len(nginx))) if nginx else None
     if byhand:
-        L2 = ['STEP 🔁 Services', '']
+        L2 = ['STEP Services', '']
         if env_rows:
             # Settings come after this step in the operator's order, but a restart is what reads
             # a .env -- restart first and the new keys sit there doing nothing until next time.
@@ -300,7 +300,7 @@ def main() -> int:
                ', '.join(f'`{u.name}`' for u in byhand), '']
     steps.append(('svc', L2, len(byhand))) if byhand else None
     if graf:
-        L2 = ['STEP 📊 Grafana', '', 'Dashboards to update:', '']
+        L2 = ['STEP Grafana', '', 'Dashboards to update:', '']
         L2 += [f'- `{p}`' + ('  ← **your dashboard**' if src == 'yours' else '') for p, src in graf]
         L2.append('')
 

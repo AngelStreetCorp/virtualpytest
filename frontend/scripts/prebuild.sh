@@ -9,7 +9,7 @@
 # `prebuild` hook, so a non-zero exit would skip the Vite app build). Every step
 # is guarded individually and we always exit 0.
 #
-# CACHING (rewritten for BUG-0103). Each of the four steps owns its own input
+# CACHING (rewritten for BUG-0103). Each of the generating steps owns its own input
 # hash and its own time budget:
 #   - a step is skipped when its inputs are unchanged AND its output is present,
 #   - a step that fails or times out invalidates ONLY ITSELF.
@@ -45,6 +45,7 @@ API_HASH_FILE="$DOCS_CACHE_DIR/api.hash"
 MCP_HASH_FILE="$DOCS_CACHE_DIR/mcp.hash"
 SEC_HASH_FILE="$DOCS_CACHE_DIR/security.hash"
 PUBLISH_HASH_FILE="$DOCS_CACHE_DIR/publish.hash"
+METRICS_HASH_FILE="$DOCS_CACHE_DIR/project_metrics.hash"
 # Single coupled hash from the pre-BUG-0103 cache. Stale by definition now, and
 # leaving it would be a trap for anyone debugging the cache later.
 LEGACY_HASH_FILE="$DOCS_CACHE_DIR/docs.hash"
@@ -56,6 +57,7 @@ API_DOCS_TIMEOUT="${VPT_API_DOCS_TIMEOUT:-300}"
 MCP_DOCS_TIMEOUT="${VPT_MCP_DOCS_TIMEOUT:-60}"
 SECURITY_TIMEOUT="${VPT_SECURITY_TIMEOUT:-240}"
 COPY_DOCS_TIMEOUT="${VPT_COPY_DOCS_TIMEOUT:-90}"
+PROJECT_METRICS_TIMEOUT="${VPT_PROJECT_METRICS_TIMEOUT:-60}"
 
 STEPS_RUN=()
 STEPS_SKIPPED=()
@@ -105,7 +107,7 @@ echo ""
 [ -f "$LEGACY_HASH_FILE" ] && rm -f "$LEGACY_HASH_FILE" 2>/dev/null
 
 # ==================== 1. SYNC VERSION FILE ====================
-echo -e "${YELLOW}[1/5]${NC} Sync version artifact"
+echo -e "${YELLOW}[1/6]${NC} Sync version artifact"
 
 VERSION_SOURCE=""
 for candidate in "$REPO_ROOT/VERSION.txt" "$REPO_ROOT/version.txt" "$FRONTEND_DIR/VERSION.txt" "$FRONTEND_DIR/version.txt"; do
@@ -125,7 +127,7 @@ fi
 echo ""
 
 # ==================== 2. GENERATE API DOCS ====================
-echo -e "${YELLOW}[2/5]${NC} API Documentation (OpenAPI → HTML)"
+echo -e "${YELLOW}[2/6]${NC} API Documentation (OpenAPI → HTML)"
 
 API_HASH="$(api_docs_inputs_hash)" || API_HASH=""
 if can_skip "$API_HASH_FILE" "$API_HASH" "$REPO_ROOT/docs/api/docs/index.html"; then
@@ -155,7 +157,7 @@ fi
 echo ""
 
 # ==================== 3. GENERATE MCP DOCS ====================
-echo -e "${YELLOW}[3/5]${NC} MCP Documentation (tool definitions → markdown)"
+echo -e "${YELLOW}[3/6]${NC} MCP Documentation (tool definitions → markdown)"
 
 MCP_HASH="$(mcp_docs_inputs_hash)" || MCP_HASH=""
 if can_skip "$MCP_HASH_FILE" "$MCP_HASH" "$REPO_ROOT/docs/mcp/mcp_tools_generated.md"; then
@@ -179,7 +181,7 @@ fi
 echo ""
 
 # ==================== 4. GENERATE SECURITY REPORTS ====================
-echo -e "${YELLOW}[4/5]${NC} Security Reports (Bandit + npm audit → HTML)"
+echo -e "${YELLOW}[4/6]${NC} Security Reports (Bandit + npm audit → HTML)"
 
 SEC_HASH="$(security_inputs_hash)" || SEC_HASH=""
 if can_skip "$SEC_HASH_FILE" "$SEC_HASH" "$REPO_ROOT/docs/security/index.html"; then
@@ -210,7 +212,7 @@ fi
 echo ""
 
 # ==================== 5. COPY DOCS TO PUBLIC ====================
-echo -e "${YELLOW}[5/5]${NC} Copy docs to frontend/public/docs/"
+echo -e "${YELLOW}[5/6]${NC} Copy docs to frontend/public/docs/"
 
 cd "$FRONTEND_DIR"
 # Hash computed HERE, after steps 2-4, over the docs/ tree copy-docs actually
@@ -268,6 +270,36 @@ if [ "$COPY_NEEDED" = "1" ]; then
             fi
         fi
     fi
+fi
+echo ""
+
+# ==================== 6. PROJECT METRICS ====================
+# The Analytics page's Project tab: lines of code, bugs per severity/status, and
+# features + fixes per cut build. These are facts about the REPOSITORY, so they are
+# computed once here rather than queried at runtime — which is also why that tab
+# costs nothing to open.
+echo -e "${YELLOW}[6/6]${NC} Project metrics (repo → public/analytics/project.json)"
+
+METRICS_HASH="$(project_metrics_inputs_hash)" || METRICS_HASH=""
+if can_skip "$METRICS_HASH_FILE" "$METRICS_HASH" "$FRONTEND_DIR/public/analytics/project.json"; then
+    echo -e "  ${GREEN}✓${NC} Repo unchanged (${METRICS_HASH:0:12}) — keeping public/analytics/project.json"
+    STEPS_SKIPPED+=("project-metrics")
+elif [ -f "$REPO_ROOT/scripts/docs/build_project_metrics.py" ]; then
+    echo -e "  ${BLUE}→${NC} Counting lines, bugs and releases (budget ${PROJECT_METRICS_TIMEOUT}s)..."
+    cd "$REPO_ROOT"
+    run_step "$PROJECT_METRICS_TIMEOUT" python3 -u scripts/docs/build_project_metrics.py 2>&1
+    if [ "$?" -ne 0 ]; then
+        STEPS_FAILED+=("project-metrics")
+        echo -e "  ${YELLOW}⚠${NC} Project metrics failed or timed out (non-blocking) — the Project tab will show whatever is already published"
+    else
+        echo -e "  ${GREEN}✓${NC} Project metrics written"
+        STEPS_RUN+=("project-metrics")
+        record_hash "$METRICS_HASH_FILE" "$METRICS_HASH"
+    fi
+    cd "$FRONTEND_DIR"
+else
+    echo -e "  ${RED}✗${NC} scripts/docs/build_project_metrics.py not found, skipping"
+    STEPS_SKIPPED+=("project-metrics")
 fi
 echo ""
 

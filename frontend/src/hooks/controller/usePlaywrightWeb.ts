@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import { type Socket } from 'socket.io-client';
+import { createServerSocket } from '../../utils/serverSocket';
 
 import { Host } from '../../types/common/Host_Types';
 
@@ -111,7 +112,7 @@ export const usePlaywrightWeb = (host: Host) => {
     if (socketRef.current) return;
 
     const serverUrl = buildServerUrl('');
-    const socket = io(serverUrl, {
+    const socket = createServerSocket(serverUrl, '', {
       transports: ['websocket'],
       reconnectionAttempts: 5,
       reconnectionDelay: 2000,

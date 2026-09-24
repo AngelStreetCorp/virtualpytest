@@ -75,7 +75,6 @@ Master lookup: scan the section matching the question's topic, open the file who
 - `technical/dev/url-builders.md` — the 3 canonical URL builder functions; `timezone.md` — timezone handling and known issues.
 - `technical/dev/COLOR_CONSISTENCY_GUIDE.md` — centralized theme colors; `Z_INDEX_MANAGEMENT.md` — central z-index registry.
 - `technical/testcase/testcase-graph.md` — `graph_json` structure (Blockly-style nodes/edges); `testcase-naming.md` — testcase naming convention; `testcase-template.md` — standard description format.
-- `technical/permissions/PERMISSION_PLAN.md` — fine-grained permission system design (not yet implemented).
 - `technical/webhook.md` — webhook + WebSocket completion contract for script/deployment execution.
 - `technical/script_execution_socket_diagnosis.md` — field diagnosis of a script-execution socket failure.
 - `technical/AI_ANALYZER_DIRECT_TEST_STRATEGY.md` — test strategy for the direct queue-analyzer loop (failure/success sampling policy); `AI_FALSE_POSITIVE_MARKDOWN_PLAN.md` — plan: per-execution AI-only markdown artifact for false-positive classification.

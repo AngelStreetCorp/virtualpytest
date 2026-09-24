@@ -38,21 +38,38 @@ def _service_is_running_status(raw_status: str) -> str:
 
 def _check_linux_service(service_names: List[str]) -> Dict[str, Any]:
     """Check Linux systemd service status trying multiple unit names."""
+    missing_units = 0
     for service_name in service_names:
-        cmd = ['systemctl', 'is-active', service_name]
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+            load_result = subprocess.run(
+                ['systemctl', 'show', '--property=LoadState', '--value', service_name],
+                capture_output=True, text=True, timeout=3,
+            )
+            if load_result.returncode != 0:
+                return {'status': 'unknown', 'runtime': 'service', 'resolved_name': service_name}
+            load_state = (load_result.stdout or '').strip().lower()
+            if load_state == 'not-found':
+                missing_units += 1
+                continue
+            if not load_state:
+                return {'status': 'unknown', 'runtime': 'service', 'resolved_name': service_name}
+
+            result = subprocess.run(
+                ['systemctl', 'is-active', service_name],
+                capture_output=True, text=True, timeout=3,
+            )
             stdout_value = (result.stdout or '').strip().lower()
-            stderr_value = (result.stderr or '').strip().lower()
             if result.returncode == 0:
                 return {'status': 'active', 'runtime': 'service', 'resolved_name': service_name}
-            if result.returncode == 3:
-                # Distinguish true inactive from "unit not found" scenarios.
-                if stdout_value == 'inactive' and 'not found' not in stderr_value:
-                    return {'status': 'stopped', 'runtime': 'service', 'resolved_name': service_name}
-                continue
+            if stdout_value == 'inactive':
+                return {'status': 'stopped', 'runtime': 'service', 'resolved_name': service_name}
+            if stdout_value == 'failed':
+                return {'status': 'error', 'runtime': 'service', 'resolved_name': service_name}
+            return {'status': 'unknown', 'runtime': 'service', 'resolved_name': service_name}
         except Exception:
-            continue
+            return {'status': 'unknown', 'runtime': 'service', 'resolved_name': service_name}
+    if missing_units == len(service_names):
+        return {'status': 'not_installed', 'runtime': 'service'}
     return {'status': 'unknown', 'runtime': 'service'}
 
 
@@ -296,7 +313,7 @@ def build_service_health_summary(
 
     if 'error' in critical_statuses or 'stopped' in critical_statuses:
         overall_status = 'error'
-    elif 'stuck' in critical_statuses or 'unknown' in critical_statuses:
+    elif 'stuck' in critical_statuses or 'unknown' in critical_statuses or 'not_installed' in critical_statuses:
         overall_status = 'degraded'
     else:
         overall_status = 'online'

@@ -14,27 +14,25 @@
 
 ---
 
+> **Redacted for publication.** This report is published at `/docs/bugs` and ships in customer bundles. The reproduction steps, the credential values and the inventory of which file held which secret have been removed: they are an attack recipe, not an engineering record. The full account is in this repository's history and in the internal task notes.
+
 ## Symptom
 
 A pre-public secrets audit (`gitleaks git` over every ref, 2026-09-07 — tracked in
 `docs/tasks/TASK-08-flip-repo-public.md` §4) found real credentials in the `main` tree, not
 just in history:
 
-- the **live production `MCP_SECRET_KEY`** hard-coded in a fixture helper
-  (`features/avq/backend_host/localize/fixtures/traces/agent_baseline_stb4_2026-07-16/mcp.py`) —
-  it matched every local `.env`;
-- the **real Supabase JWT secret** of the production database baked in as the *default* of
-  `SUPABASE_JWT_SECRET` in `setup/local/linux/database/install_supabase.sh` (three heredoc
-  templates) — enough to mint a `service_role` token;
-- a **hard-coded default MCP bearer** in `backend_server/src/routes/mcp_routes.py`
-  (`os.getenv('MCP_SECRET_KEY', 'vpt_mcp_secret_key_…')`) that any server without the env var
-  silently accepted, and which the MCP docs printed verbatim;
-- the production Supabase **anon key** in `docs/agent/*` and in the two
-  `setup/proxmox/vm/backend-server/.env.server*.example` files (the server writes as anon and
-  core RLS is permissive, so this is effectively full DB access);
-- two **Google API keys** embedded in code snippets of the stale July Snyk SARIF reports
-  (`docs/security/snyk-*-report.json` and the tracked copies under `security_report/`), long
-  after the code itself had been cleaned.
+- the **live production `MCP_SECRET_KEY`** hard-coded in a fixture helper — it matched every
+  local `.env`;
+- the **real Supabase JWT secret** of the production database baked in as a *default* in the
+  installer — enough to mint a `service_role` token;
+- a **hard-coded default MCP bearer** that any server without the env var silently accepted,
+  and which the MCP docs printed verbatim;
+- the production Supabase **anon key** in documentation and in two `.env.*.example` files
+  (the server wrote as anon and core RLS was permissive, so this was effectively full DB
+  access);
+- two **Google API keys** embedded in code snippets of stale committed SARIF scan reports,
+  long after the code itself had been cleaned.
 
 Bandit also flagged one HIGH: `backend_server/src/mcp/tools/screenshot_tools.py` fetched
 screenshots with `verify=False` even when the URL was an absolute, possibly remote, address.
@@ -72,17 +70,13 @@ item would have become public the moment the repo flipped (TASK-08).
 
 `997499a06` — untrack the five files under `security_report/` (same stale SARIF copies).
 
-**Not part of this fix (tracked in TASK-08 §4):** rotating the exposed values — MCP secret on
-every server and `.env`, the Supabase JWT secret and the keys derived from it, the two Google
-keys, and the provider keys that lived on the now-deleted `debug` branch history.
+Rotation of the affected credentials is tracked separately in the internal task notes.
 
 ## Verification
 
 - `git grep` on `origin/main` for each exposed value returns nothing outside `docs/tasks/`
   descriptions (checked 2026-09-07 after push).
-- `gitleaks git .` on `main` reports only documented defaults (VNC `admin1234`, Grafana
-  `admin:admin`, stock `grafana.ini` `secret_key`).
-- After deploy: `curl -H 'Authorization: Bearer anything' https://<server>/server/mcp` on a
-  server **without** `MCP_SECRET_KEY` answers `503`, not `403`/`200`; servers with the key
-  behave as before.
+- `gitleaks git .` on `main` reports only documented placeholder defaults.
+- After deploy: a request to `/server/mcp` on a server **without** `MCP_SECRET_KEY` answers
+  `503`, not `403`/`200`; servers with the key behave as before.
 - Bandit re-run (`scripts/generate-security-docs.sh`): no HIGH findings in `backend_server`.

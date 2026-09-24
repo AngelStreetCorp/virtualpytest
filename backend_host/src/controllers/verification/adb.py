@@ -22,32 +22,34 @@ from . import element_watch
 class ADBVerificationController(VerificationControllerInterface):
     """ADB verification controller that uses direct ADB commands to verify UI elements."""
     
-    def __init__(self, av_controller=None, device_ip: str = None, device_port: int = 5555, **kwargs):
+    def __init__(self, av_controller=None, device_ip: str = None, device_port: int = 5555, adb_serial: str = None, **kwargs):
         """
         Initialize the ADB Verification controller.
-        
+
         Args:
             av_controller: AV controller for capturing screenshots (optional, not used by ADB)
-            device_ip: Android device IP address (required for ADB connection)
+            device_ip: Android device IP address (ADB over TCP)
             device_port: ADB port (default: 5555)
+            adb_serial: USB ADB serial (DEVICE<N>_ADB_SERIAL); takes priority over ip:port
         """
         super().__init__("ADB Verification", "adb")
-        
+
         # Store device connection parameters
         self.device_ip = device_ip
         self.device_port = device_port
+        self.adb_serial = adb_serial
         self.verification_type = 'adb'
-        self.device_id = f"{self.device_ip}:{self.device_port}"
-        
+        self.device_id = self.adb_serial or (f"{self.device_ip}:{self.device_port}" if self.device_ip else None)
+
         self.adb_utils = ADBUtils()
         self.is_connected = True  # Assume connected since we're using direct ADB
         
         print(f"[@controller:ADBVerification] Initialized for device {self.device_id}")
 
     def connect(self) -> bool:
-        """Connect to the ADB device if device_ip is provided."""
-        if not self.device_ip:
-            print(f"[@controller:ADBVerification] No device IP provided, skipping ADB connection")
+        """Connect to the ADB device if device_ip or adb_serial is provided."""
+        if not self.device_id:
+            print(f"[@controller:ADBVerification] No device IP or ADB serial provided, skipping ADB connection")
             return True  # Return True for fallback mode
         
         try:

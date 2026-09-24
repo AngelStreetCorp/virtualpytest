@@ -6,13 +6,40 @@
 |-----------|------------------------------------------------------------------------|
 | ID        | BUG-0040                                                              |
 | Reported  | 2026-09-02                                                            |
-| Status    | Fixed (deployed)                                                      |
+| Status    | Fixed (deployed; second environment closed 2026-09-17 — see below)    |
 | Severity  | Critical (unauthenticated arbitrary file read on the internet-facing frontend; auto-sign auth-bypass token lived in a readable path one guess away) |
 | Area      | `frontend/vite.config.ts`, `frontend/config/services/linux/frontend*.service`, proxmox `~/update_core.sh`, `proxy` VM nginx, Proxmox VMID 105 |
 | Fixed in  | build 8713                                                            |
 | Commit    | `92c933fa2` `6790814c4`                                               |
 
 ---
+
+> **Redacted for publication.** This report is published at `/docs/bugs` and ships in customer bundles. The reproduction steps, the credential values and the inventory of which file held which secret have been removed: they are an attack recipe, not an engineering record. The full account is in this repository's history and in the internal task notes.
+
+
+## The second environment stayed exposed until 2026-09-17
+
+The 2026-09-02 fix covered the primary frontend host. A parallel environment runs the same stack
+on separate hardware, and **it was still serving the site from a Vite dev server** — the fix had
+never been applied there, and nothing flagged the gap: the host was healthy, the service was
+`active`, and the site answered normally.
+
+Two details made it worse than a straight repeat:
+
+- Its build output was **six months old** and predated the credential hygiene fix in BUG-0134, so
+  a naive switch to production mode would have served that stale bundle and undone that fix. The
+  bundle was rebuilt from current sources first, and only then swapped in.
+- That checkout predates `frontend/scripts/ensure_dist.sh`, so it has **no stale-bundle guard** on
+  restart. The installed unit documents this; until the tree is synced, a deploy there must
+  rebuild explicitly rather than rely on the service to notice.
+
+Closed by building a current bundle, installing a production service unit, and disabling the dev
+server. Verified from outside: no dev-server client script, application sources no longer
+retrievable (they now return the SPA shell), and the served bundle carries no credential.
+
+**Lesson:** a fix applied per-host is not applied. Any hardening that lands on one environment
+needs an explicit check against every other environment running the same stack — this one sat
+open for fifteen days with no signal.
 
 ## Symptom
 
@@ -44,11 +71,8 @@ Three compounding issues:
 `journalctl -u vpt-frontend` over the prior ~36h showed an automated scanner probing
 `/proc/1/environ`, `/.env`, `.env.local`, `.env.production`, `~/.ssh/id_rsa`, `~/.aws/credentials`,
 and successfully reading `/etc/services` (its content leaked back in the transform error — the
-exact request the VNC session's browser rendered). None of the guessed secret paths matched the
-real one — `/opt/virtualpytest/frontend/.env`, which exists, is world-readable, and contains
-`VITE_AUTO_SIGN_TOKEN` with `VITE_AUTO_SIGN_ENABLED=true` (a full auth-bypass to admin per
-`AUTO_SIGN_ROLE=admin`, see `docs/agent/infra/CICD.md`). It was one correct guess away —
-the attacker just hadn't tried the process's own working directory yet.
+exact request the VNC session's browser rendered). None of the guessed secret paths matched a file that mattered, though one that did exist was
+readable at the time and has since been locked down.
 
 ## Fix
 
@@ -91,9 +115,7 @@ the attacker just hadn't tried the process's own working directory yet.
 
 ## Not yet done
 
-- `VITE_AUTO_SIGN_TOKEN` / `AUTO_SIGN_TOKEN` were not rotated — the file was world-readable for
-  ~36h of active scanning, though no log evidence shows it was actually read (all guessed paths
-  missed it). Worth rotating out of caution.
+- Credential rotation following this incident is tracked in the internal task notes.
 - The frontend bundle itself still produces one ~2.5MB unsplit `main-*.js` chunk (Vite's own
   build warning: "Some chunks are larger than 500 kB... consider dynamic import() or
   manualChunks"). Splitting it would reduce build memory pressure independent of the VM RAM bump

@@ -61,7 +61,7 @@ Frontend (logged in)                    Proxy (nginx)                 Backend se
       |   { host_name }                       |   (normal /server/ proxy)   | mint HS256 token
       |                                       |                             | {host, sub, exp}
       |<---------- Set-Cookie: vpt_host_session ------------------------- --|
-      |   HttpOnly, Secure, SameSite=Strict,  |                             |
+      |   HttpOnly, Secure, SameSite=None,    |                             |
       |   Path=/host/<name>/, 10 min TTL      |                             |
       |                                       |                             |
       |-- GET /host/<name>/stream/.../*.m3u8 ->|                            |
@@ -90,6 +90,41 @@ Frontend (logged in)                    Proxy (nginx)                 Backend se
   the one sink every stream path converges on (`HLSVideoPlayer.tsx` itself), not at each
   producer, so it covers `buildStreamUrl`, the `useStream` hook, and `EnhancedHLSPlayer`'s own
   fallback chain uniformly.
+
+## Why the cookie is `SameSite=None` (BUG-0143)
+
+It shipped `Strict`, and that locked the mobile app out of every stream. The app is a Capacitor
+shell serving the bundled frontend from its own fixed origin, `https://localhost` — so every call
+it makes to a deployment is cross-**site**, and a `Strict` or `Lax` cookie is neither stored nor
+replayed there. The app minted a session, got a 200, and 401'd on every manifest and segment.
+`SameSite=None; Secure` is the only setting that crosses a site boundary at all.
+
+This is not the loosening it looks like. `SameSite` defends against CSRF, which needs a
+state-changing request; there is none behind this gate — it authorizes `GET`s of one host's media
+and nothing else. The cookie is still `HttpOnly`, still scoped to a single host's path, and still
+expires in 10 minutes. A hostile page can make a browser *send* it; it cannot *read* the response,
+because the origin allowlist still applies.
+
+Two consequences follow, and both are load-bearing:
+
+- **A cross-origin client must fetch streams with credentials**, or the cookie is simply omitted.
+  `HLSVideoPlayer` sets `xhrSetup: xhr.withCredentials = true` and `crossOrigin="use-credentials"`
+  — but only for URLs `isGatedHostPath()` matches, so ungated public assets keep their plain
+  uncredentialed fetch.
+- **A credentialed request forbids `Access-Control-Allow-Origin: *`.** The browser discards such a
+  response whatever its status, including a good 200. `host_stream_routes.py` therefore echoes the
+  caller's origin plus `Access-Control-Allow-Credentials: true` **when that origin is on the
+  allowlist** (`cors_allowed_origins()` in `shared/src/lib/utils/app_utils.py`), with
+  `Vary: Origin`; any other caller still gets `*` and no credentials. Widening that allowlist is
+  therefore a security decision, not a convenience one: an origin added there can make an
+  authenticated user's browser fetch that user's device video and read it.
+
+**Known gap:** an expired or missing session surfaces to a cross-origin client as an opaque CORS
+failure rather than a 401, because nginx generates the `auth_request` denial itself and attaches
+no CORS headers to it. That costs diagnosability, not function — `useHostSession` re-mints every
+4 minutes against a 10-minute TTL, so a 401 should not occur in steady state. Closing it needs an
+`error_page` block in `infra/proxy/nginx/config/production-https.conf` and a proxy deploy.
+
 
 ## VNC vs. HLS: why the refresh behavior differs
 
@@ -153,6 +188,32 @@ curl -s -o /dev/null -w "%{http_code}\n" 'https://<host>/host/<name>/stream/capt
 Always use a fresh, never-before-used query string — a repeated one may be answered by an
 already-open connection or a stale browser cache/back-forward-cache entry, not a new request
 that actually went through the gate.
+
+And test it as a **cross-site** client, not only from a tab on the deployment's own domain. A
+same-origin browser attaches the cookie by default and accepts a wildcard allow-origin, so it
+cannot see either of the faults that made the gate unusable for the mobile app (BUG-0143). The
+two properties a cross-site client depends on:
+
+```bash
+# 1. The cookie must be able to cross a site boundary at all.
+curl -sD- -o/dev/null -X POST 'https://<host>/server/host-session/session' \
+  -H 'Content-Type: application/json' -H 'X-API-Key: <key>' \
+  -d '{"host_name":"<name>"}' | grep -i set-cookie
+# expect: ... Secure; HttpOnly; Path=/host/<name>/; SameSite=None
+#   SameSite=Strict here means every non-browser-origin client is locked out.
+
+# 2. A credentialed caller must not be answered with a wildcard.
+curl -sD- -o/dev/null -H 'Origin: https://localhost' \
+  -H 'Cookie: vpt_host_session=<token>' \
+  'https://<host>/host/<name>/stream/<...>.m3u8' | grep -i access-control
+# expect: access-control-allow-origin: https://localhost
+#         access-control-allow-credentials: true
+#   A '*' here is discarded by the browser whatever the status code, including a good 200.
+```
+
+Both are asserted in `tests/backend_server/test_host_session.py`, which is the cheaper way to
+run them (`SERVER_URL=https://<host> API_KEY=<key> PYTHONPATH=. pytest
+tests/backend_server/test_host_session.py`).
 
 ## Rotating/removing the mechanism
 

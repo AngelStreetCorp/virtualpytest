@@ -148,50 +148,58 @@ def setup_and_cleanup():
     return setup_and_cleanup_app("VirtualPyTest-backend_server", get_server_port, "backend_server", server_app_init)
 
 
+# Paths under /server/ that the global auth guard lets through without a principal.
+#
+# Every entry is either data-free (a health probe, the pre-login auth status check) or
+# authenticates itself inside the route with a credential of its own — an MCP bearer, the
+# CICD ingest token, the host-session cookie, an Origin allowlist. Nothing here is simply
+# "trusted because it is internal": the four host completion callbacks used to be, and any
+# machine that could reach the server could forge a task completion, release a device lock
+# and make the server call an attacker-supplied external_callback_url. Hosts now present the
+# shared X-API-Key on those (server_auth_headers()), so they are gated like everything else.
+#
+# Adding an entry here opens it to the internet. Add one only when the route authenticates
+# itself, and say in a comment which credential it checks.
+UNAUTHENTICATED_SERVER_PREFIXES: tuple = (
+    '/server/health',
+    '/server/action/health',   # health check for action execution service — no auth required
+    '/server/storage/health',   # liveness probe (status page / monitors), returns no data beyond "r2_configured"
+    # The exact path, NOT the '/server/frontend' prefix: the guard matches
+    # `path == prefix or path.startswith(prefix + '/')`, so exempting the prefix would
+    # take POST /server/frontend/navigate with it. /navigate stays closed.
+    '/server/frontend/health',
+    '/server/auth/check',
+    '/server/mcp',
+    # Anonymous visitors of virtualpytest.com; guarded inside the route by an
+    # Origin allowlist, per-IP rate limit and a docs-only tool surface.
+    '/server/public/ask',
+    '/server/integrations/slack/events',
+    # Called only by nginx `auth_request` as an internal subrequest — an
+    # iframe/HLS navigation carries no user JWT, so this route validates its
+    # own short-lived host-session cookie instead (see
+    # server_host_session_routes.py). /server/host-session/session (minting
+    # that cookie) is NOT here — it requires the normal user JWT.
+    '/server/host-session/authorize',
+    # Carries its own bearer (CICD_INGEST_TOKEN, checked inside the route). It exists
+    # for GitHub-hosted runners, which cannot reach the LAN database — and which have
+    # no user JWT either. Without this the global guard rejected their token as a
+    # malformed JWT before the route ever saw it, so the endpoint was unreachable by
+    # its only caller.
+    '/server/cicd/ingest',
+)
+
+
 def configure_global_frontend_auth_guard(app):
     """Apply JWT auth globally for /server/* routes with explicit callback/public exceptions."""
     from flask import request
     from backend_server.src.lib.auth_middleware import (
         enforce_user_auth_if_enabled_for_request,
+        enforce_team_scope,
+        enforce_viewer_read_only,
         is_frontend_jwt_required,
     )
 
-    # Endpoints that must stay reachable without frontend JWT:
-    # - system health checks
-    # - auth status check used by login flow
-    # - MCP endpoints (separate MCP token model)
-    # - host/external callbacks/webhooks
-    unauthenticated_prefixes = (
-        '/server/health',
-        '/server/action/health',   # health check for action execution service — no auth required
-        '/server/storage/health',   # liveness probe (status page / monitors), returns no data beyond "r2_configured"
-        # The exact path, NOT the '/server/frontend' prefix: the guard below matches
-        # `path == prefix or path.startswith(prefix + '/')`, so exempting the prefix would
-        # take POST /server/frontend/navigate with it. /navigate stays closed.
-        '/server/frontend/health',
-        '/server/auth/check',
-        '/server/mcp',
-        # Anonymous visitors of virtualpytest.com; guarded inside the route by an
-        # Origin allowlist, per-IP rate limit and a docs-only tool surface.
-        '/server/public/ask',
-        '/server/web/taskComplete',
-        '/server/script/taskComplete',
-        '/server/campaigns/executionComplete',
-        '/server/deployment/executionComplete',
-        '/server/integrations/slack/events',
-        # Called only by nginx `auth_request` as an internal subrequest — an
-        # iframe/HLS navigation carries no user JWT, so this route validates its
-        # own short-lived host-session cookie instead (see
-        # server_host_session_routes.py). /server/host-session/session (minting
-        # that cookie) is NOT here — it requires the normal user JWT.
-        '/server/host-session/authorize',
-        # Carries its own bearer (CICD_INGEST_TOKEN, checked inside the route). It exists
-        # for GitHub-hosted runners, which cannot reach the LAN database — and which have
-        # no user JWT either. Without this the global guard rejected their token as a
-        # malformed JWT before the route ever saw it, so the endpoint was unreachable by
-        # its only caller.
-        '/server/cicd/ingest',
-    )
+    unauthenticated_prefixes = UNAUTHENTICATED_SERVER_PREFIXES
     print(
         "[@backend_server:auth] Global frontend auth guard active for /server/* "
         f"(enforce_jwt={is_frontend_jwt_required()}, unauthenticated exceptions={len(unauthenticated_prefixes)})"
@@ -209,7 +217,21 @@ def configure_global_frontend_auth_guard(app):
         if any(path == prefix or path.startswith(f'{prefix}/') for prefix in unauthenticated_prefixes):
             return None
 
-        return enforce_user_auth_if_enabled_for_request()
+        denied = enforce_user_auth_if_enabled_for_request()
+        if denied is not None:
+            return denied
+
+        # Read-only floor for the viewer role. Must run here rather than per-route:
+        # only 38 of the 272 write routes carry a permission decorator, so a viewer
+        # JWT otherwise reaches the other 234 unchallenged (TASK-22).
+        denied = enforce_viewer_read_only()
+        if denied is not None:
+            return denied
+
+        # Multi-tenancy. 140 routes take team_id from request.args and none validated
+        # it, so any logged-in user could read another team's data by editing the query
+        # string (TASK-22).
+        return enforce_team_scope()
 
 
 def register_all_server_routes(app):
@@ -229,6 +251,7 @@ def register_all_server_routes(app):
             server_navigation_trees_routes,
             server_pathfinding_routes,
             server_alerts_routes,
+            server_analytics_routes,
             server_verification_routes,
             server_navigation_execution_routes,
             server_devicemodel_routes,
@@ -269,6 +292,9 @@ def register_all_server_routes(app):
             server_auth_routes,
             server_storage_routes,
             server_teams_routes,
+            server_tenants_routes,
+            server_user_tenants_routes,
+            server_branding_tenant_routes,
             server_users_routes,
             server_grafana_routes,
             server_workspaces_routes,
@@ -301,6 +327,7 @@ def register_all_server_routes(app):
             (server_navigation_trees_routes.server_navigation_trees_bp, 'Navigation trees'),
             (server_pathfinding_routes.server_pathfinding_bp, 'Navigation pathfinding'),
             (server_alerts_routes.server_alerts_bp, 'Alert management'),
+            (server_analytics_routes.server_analytics_bp, 'Monitoring > Analytics aggregates (before auto_proxy: it would proxy an unknown section to a host)'),
             (server_verification_routes.server_verification_bp, 'Verification operations'),
             (server_devicemodel_routes.server_devicemodel_bp, 'Device model management'),
             (server_ai_routes.server_ai_bp, 'AI operations'),
@@ -342,6 +369,9 @@ def register_all_server_routes(app):
             (server_auth_routes.server_auth_bp, 'User authentication and authorization'),
             (server_storage_routes.server_storage_bp, 'R2 storage pre-signed URLs (authenticated)'),
             (server_teams_routes.server_teams_bp, 'Teams management'),
+            (server_tenants_routes.server_tenants_bp, 'Tenants management (platform admin only)'),
+            (server_user_tenants_routes.server_user_tenants_bp, 'User-tenant grants (platform admin only)'),
+            (server_branding_tenant_routes.server_branding_tenant_bp, 'Per-tenant branding read (authenticated)'),
             (server_users_routes.server_users_bp, 'Users management'),
             (server_grafana_routes.server_grafana_bp, 'Grafana user provisioning integration'),
             (server_workspaces_routes.server_workspaces_bp, 'Workspace management'),
@@ -386,7 +416,19 @@ def register_all_server_routes(app):
             server_agent_routes.register_agent_socketio_handlers(app.socketio)
             server_system_socket_routes.init_system_socketio(app.socketio)
             server_system_socket_routes.register_system_socketio_handlers(app.socketio)
+            # The default ('/') namespace has no handlers of its own but is not idle —
+            # task_complete is emitted there — and with no connect handler socket.io
+            # accepts everyone. Guard it too (BUG-0156).
+            server_system_socket_routes.register_default_namespace_guard(app.socketio)
         
+        # Keep the Analytics sections warm from boot so the first person to open the
+        # page after a deploy gets a dict lookup, not a cold query. Never fatal: a
+        # pre-warm that cannot reach the DB just means the first request computes.
+        try:
+            server_analytics_routes.start_analytics_prewarm()
+        except Exception as e:
+            print(f"⚠️  Analytics pre-warm not started (page still works, first hit is cold): {e}")
+
         print(f"✅ Registered {registered_count} route blueprints")
         return True
         

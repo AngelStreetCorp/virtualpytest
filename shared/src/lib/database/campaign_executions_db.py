@@ -190,6 +190,131 @@ def update_campaign_execution_result(
         return False
 
 
+def reconcile_stale_campaign_executions(
+    team_id: str,
+    default_timeout_seconds: int = 3600,
+    grace_seconds: int = 300,
+) -> int:
+    """Close campaign rows left running after their worker disappeared.
+
+    A campaign is reconciled from its linked script results when every expected
+    script has a finalized ``execution_time_ms``. If the campaign has exceeded
+    its configured timeout plus a grace period, it is failed even when the
+    worker never produced a script result. The team filter is mandatory so a
+    read-side repair cannot cross tenant boundaries.
+    """
+    if not team_id:
+        return 0
+
+    try:
+        supabase = get_supabase()
+        running = (
+            supabase.table('campaign_executions')
+            .select(
+                'id, started_at, script_result_ids, script_configurations, '
+                'execution_config, status'
+            )
+            .eq('team_id', team_id)
+            .eq('status', 'running')
+            .execute()
+        )
+        rows = running.data or []
+        if not rows:
+            return 0
+
+        reconciled = 0
+        now = datetime.now(timezone.utc)
+        for campaign in rows:
+            campaign_id = campaign.get('id')
+            try:
+                started_at = datetime.fromisoformat(
+                    str(campaign.get('started_at', '')).replace('Z', '+00:00')
+                )
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=timezone.utc)
+            except (TypeError, ValueError):
+                continue
+
+            execution_config = campaign.get('execution_config') or {}
+            configured_timeout = execution_config.get('timeout_minutes')
+            try:
+                timeout_seconds = max(
+                    300,
+                    int(configured_timeout) * 60 if configured_timeout is not None
+                    else default_timeout_seconds,
+                )
+            except (TypeError, ValueError):
+                timeout_seconds = default_timeout_seconds
+            stale = (now - started_at).total_seconds() > timeout_seconds + grace_seconds
+
+            result_ids = [str(value) for value in (campaign.get('script_result_ids') or [])]
+            expected_scripts = len(campaign.get('script_configurations') or [])
+            script_rows = []
+            if result_ids:
+                for offset in range(0, len(result_ids), 200):
+                    response = (
+                        supabase.table('script_results')
+                        .select('id, success, execution_time_ms, completed_at')
+                        .eq('team_id', team_id)
+                        .in_('id', result_ids[offset:offset + 200])
+                        .execute()
+                    )
+                    script_rows.extend(response.data or [])
+
+            all_scripts_final = (
+                bool(script_rows)
+                and len(script_rows) >= expected_scripts
+                and len(script_rows) >= len(result_ids)
+                and all(row.get('execution_time_ms') is not None for row in script_rows)
+            )
+
+            if all_scripts_final:
+                status = 'completed' if all(row.get('success') for row in script_rows) else 'failed'
+                completed_values = [row.get('completed_at') for row in script_rows if row.get('completed_at')]
+                completed_at = max(completed_values) if completed_values else now.isoformat()
+                execution_time_ms = sum(
+                    int(row.get('execution_time_ms') or 0) for row in script_rows
+                )
+                update_data = {
+                    'status': status,
+                    'success': status == 'completed',
+                    'completed_at': completed_at,
+                    'execution_time_ms': execution_time_ms,
+                    'updated_at': now.isoformat(),
+                }
+            elif not stale:
+                continue
+            else:
+                update_data = {
+                    'status': 'failed',
+                    'success': False,
+                    'completed_at': now.isoformat(),
+                    'error_message': 'Campaign execution became stale before completion',
+                    'updated_at': now.isoformat(),
+                }
+
+            result = (
+                supabase.table('campaign_executions')
+                .update(update_data)
+                .eq('team_id', team_id)
+                .eq('id', campaign_id)
+                .eq('status', 'running')
+                .execute()
+            )
+            if result.data:
+                reconciled += 1
+
+        if reconciled:
+            print(
+                f"[@db:campaign_executions:reconcile] Reconciled "
+                f"{reconciled} stale campaign execution(s) for team {team_id}"
+            )
+        return reconciled
+    except Exception as e:
+        print(f"[@db:campaign_executions:reconcile] Error: {e}")
+        return 0
+
+
 def get_campaign_execution_with_scripts(campaign_execution_id: str) -> Optional[Dict]:
     """Get campaign execution with all linked script results."""
     try:
@@ -248,6 +373,10 @@ def get_campaign_results(
             }
 
         supabase = get_supabase()
+
+        # Repair rows whose host worker disappeared before reading results. The
+        # reconciliation is team-scoped and uses the same database client.
+        reconcile_stale_campaign_executions(team_id)
 
         # Build query for campaigns
         query = supabase.table('campaign_executions').select('*').eq('team_id', team_id)

@@ -119,7 +119,22 @@ def host_session_mint():
         max_age=HOST_SESSION_TTL_SECONDS,
         httponly=True,
         secure=True,
-        samesite='Strict',
+        # SameSite=None, not Strict: the mobile app (features/mobile-app) is a Capacitor
+        # shell serving the bundled frontend from its OWN origin, `https://localhost` —
+        # every call it makes to a deployment is cross-site (that is why `https://localhost`
+        # is in DEFAULT_CORS_ALLOWED_ORIGINS). A Strict/Lax cookie is neither stored nor
+        # replayed in a cross-site context, so the APK minted this, got a 200, and then
+        # 401'd on every manifest and segment: no stream anywhere in the app. Only
+        # `SameSite=None; Secure` may cross sites at all.
+        #
+        # Safe here in a way it would NOT be for a general session cookie: this one is
+        # HttpOnly, scoped to a single host's path, expires in 10 minutes, and authorizes
+        # nothing but GETs of that host's media. The CSRF that SameSite defends against
+        # needs a state-changing request; there is none behind this gate. An attacker's
+        # page can make the browser *send* it, but cannot *read* the response — the origin
+        # allowlist in app_utils.py still applies, and nothing here echoes a wildcard to a
+        # credentialed request.
+        samesite='None',
     )
     return resp
 

@@ -4,7 +4,7 @@ import { Link as LinkIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLes
 import { SxProps, Theme } from '@mui/material/styles';
 
 import { getStatusChip } from '../../utils/executionUtils';
-import type { RerunPayload } from '../../types/pages/RunTests_Types';
+import type { RerunPayload } from '../../types/common/Rerun_Types';
 
 export type ExecutionHistoryColumnKey = 'target' | 'script' | 'start' | 'end' | 'status' | 'report' | 'logs' | 'rerun';
 

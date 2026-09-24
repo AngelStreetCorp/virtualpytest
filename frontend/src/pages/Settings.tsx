@@ -14,8 +14,6 @@ import {
   Tune as FeaturesIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
-  AccountCircle as ProfileIcon,
-  Logout as LogoutIcon,
 } from '@mui/icons-material';
 import {
   Box,
@@ -45,19 +43,20 @@ import {
   TableRow,
   TableCell,
   Snackbar,
+  Chip,
 } from '@mui/material';
 import React, { useState, useEffect, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 
 import { useSettings, FrontendConfig } from '../hooks/pages';
 import type { ServerConfig } from '../hooks/pages/useSettings';
-import { useAuth } from '../hooks/auth/useAuth';
-import { isAuthEnabled } from '../lib/supabase';
 import { useBranding } from '../contexts/BrandingContext';
-import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { ALL_NAV_ITEMS } from '../config/navItems';
 import { TOAST_POSITION, TOAST_AUTO_HIDE_DURATION } from '../constants/toastConfig';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { api } from '../utils/apiClient';
+import { ConfirmDialog } from '../components/common/ConfirmDialog';
+import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 // ─── Feature Visibility Tab ───────────────────────────────────────────────────
 // Sources navbar items from the shared `navItems` config so toggle keys
@@ -76,7 +75,7 @@ function toggleNavPathVisibility(
   path: string,
   visible: boolean,
   frontend: FrontendConfig,
-  updateFrontendConfig: (field: keyof FrontendConfig, value: string) => void,
+  updateFrontendConfig: (field: string, value: string) => void,
 ) {
   const hidden = parseNavSet(frontend.VITE_NAV_HIDDEN);
   if (visible) hidden.delete(path);
@@ -88,14 +87,38 @@ const settingsPanelSx = {
   minHeight: 360,
 };
 
+// ─── Restart-required tracking ────────────────────────────────────────────────
+// There's no way to verify a service actually restarted, so this is honest
+// best-effort bookkeeping: a save flags the section, and it stays flagged
+// (across reloads, via localStorage) until the admin explicitly acknowledges
+// having restarted it.
+const RESTART_PENDING_STORAGE_KEY = 'vpt-settings-restart-pending';
+type RestartPendingState = { server?: boolean; frontend?: boolean };
+
+const readRestartPending = (): RestartPendingState => {
+  try {
+    return JSON.parse(localStorage.getItem(RESTART_PENDING_STORAGE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+};
+
+const writeRestartPending = (state: RestartPendingState) => {
+  try {
+    localStorage.setItem(RESTART_PENDING_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    /* private window / storage disabled — badge just won't survive a reload */
+  }
+};
+
 interface AiProviderOption {
   value: string;
   label: string;
-  apiKeyField: keyof ServerConfig;
+  apiKeyField: string;
   placeholder: string;
   // Field whose non-empty value makes the provider selectable. Defaults to apiKeyField;
   // the local provider is enabled by its base URL, the key being optional.
-  enabledField?: keyof ServerConfig;
+  enabledField?: string;
 }
 
 const LOCAL_PROVIDER = 'local';
@@ -136,22 +159,22 @@ const AI_TASKS = [
     key: 'agent',
     short: 'Agent',
     label: 'Agent — chat & tools (Atlas)',
-    providerField: 'AI_AGENT_PROVIDER' as keyof ServerConfig,
-    modelField: 'AI_AGENT_MODEL' as keyof ServerConfig,
+    providerField: 'AI_AGENT_PROVIDER',
+    modelField: 'AI_AGENT_MODEL',
   },
   {
     key: 'vision',
     short: 'Vision',
     label: 'Vision — subtitle / banner / screen detection',
-    providerField: 'AI_VISION_PROVIDER' as keyof ServerConfig,
-    modelField: 'AI_VISION_MODEL' as keyof ServerConfig,
+    providerField: 'AI_VISION_PROVIDER',
+    modelField: 'AI_VISION_MODEL',
   },
   {
     key: 'text',
     short: 'Text',
     label: 'Text — translation / analysis',
-    providerField: 'AI_TEXT_PROVIDER' as keyof ServerConfig,
-    modelField: 'AI_TEXT_MODEL' as keyof ServerConfig,
+    providerField: 'AI_TEXT_PROVIDER',
+    modelField: 'AI_TEXT_MODEL',
   },
 ] as const;
 
@@ -164,9 +187,113 @@ const DEFAULT_PROVIDER_BY_TASK: Record<string, string> = {
   text: 'openrouter',
 };
 
+// ─── Dynamic "every other key" rendering ──────────────────────────────────────
+// The backend now returns every key each .env file contains, not a fixed
+// whitelist. Keys with their own dedicated field elsewhere on the page (the
+// Server tab's Name/URL/Port, the AI tab, Frontend's known fields, Features'
+// nav/feature toggles) are excluded here so they don't render twice.
+
+const KNOWN_SERVER_KEYS = new Set<string>([
+  'SERVER_NAME',
+  'SERVER_URL',
+  'SERVER_PORT',
+  'AI_PROVIDER',
+  ...AI_PROVIDER_OPTIONS.map((o) => o.apiKeyField),
+  ...AI_PROVIDER_OPTIONS.map((o) => o.enabledField).filter((v): v is string => !!v),
+  ...AI_TASKS.flatMap((t) => [t.providerField, t.modelField]),
+]);
+
+const KNOWN_FRONTEND_KEYS = new Set<string>([
+  'VITE_SERVER_URL',
+  'VITE_SLAVE_SERVER_URL',
+  'VITE_GRAFANA_URL',
+  'VITE_CLOUDFLARE_R2_PUBLIC_URL',
+  'VITE_DEV_MODE',
+  'VITE_FEATURE_DEPLOYMENTS',
+  'VITE_FEATURE_RUN_VERSION_SELECTOR',
+  'VITE_NAV_HIDDEN',
+  'VITE_NAV_DISABLED',
+  'VITE_NAV_COMING_SOON',
+]);
+
+// A masked TextField with an eye toggle — same pattern the AI tab already uses
+// for provider API keys, generalized for any credential-shaped .env key.
+const MaskedTextField: React.FC<{
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  sensitive: boolean;
+}> = ({ label, value, onChange, sensitive }) => {
+  const [shown, setShown] = useState(false);
+  return (
+    <TextField
+      label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      fullWidth
+      size="small"
+      type={sensitive && !shown ? 'password' : 'text'}
+      InputProps={
+        sensitive
+          ? {
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton
+                    aria-label={shown ? 'Hide value' : 'Show value'}
+                    onClick={() => setShown((s) => !s)}
+                    edge="end"
+                    size="small"
+                    tabIndex={-1}
+                  >
+                    {shown ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                  </IconButton>
+                </InputAdornment>
+              ),
+            }
+          : undefined
+      }
+    />
+  );
+};
+
+// Every key in `entries` that isn't already rendered by a dedicated field
+// elsewhere on the tab, as a plain masked-if-sensitive grid.
+const ExtraEnvFields: React.FC<{
+  entries: Record<string, string>;
+  sensitiveKeys: string[];
+  exclude: Set<string>;
+  onChange: (key: string, value: string) => void;
+}> = ({ entries, sensitiveKeys, exclude, onChange }) => {
+  const sensitiveSet = new Set(sensitiveKeys);
+  const keys = Object.keys(entries)
+    .filter((k) => !exclude.has(k))
+    .sort();
+  if (keys.length === 0) return null;
+  return (
+    <>
+      <Divider sx={{ mt: 3, mb: 2 }} />
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+        Other settings
+      </Typography>
+      <Grid container spacing={2}>
+        {keys.map((key) => (
+          <Grid item xs={12} md={6} key={key}>
+            <MaskedTextField
+              label={key}
+              value={entries[key] ?? ''}
+              onChange={(value) => onChange(key, value)}
+              sensitive={sensitiveSet.has(key)}
+            />
+          </Grid>
+        ))}
+      </Grid>
+    </>
+  );
+};
+
 const AISettingsTab: React.FC<{
   serverConfig: ServerConfig;
-  updateServerConfig: (field: keyof ServerConfig, value: string) => void;
+  updateServerConfig: (field: string, value: string) => void;
 }> = ({ serverConfig, updateServerConfig }) => {
   const [matrix, setMatrix] = useState<ProviderModelMatrix>({});
   const [shownKeys, setShownKeys] = useState<Record<string, boolean>>({});
@@ -662,20 +789,99 @@ const BrandingTab: React.FC = () => {
 
 const Settings: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') === 'ai' ? 1 : 0;
+  const initialTab = searchParams.get('tab') === 'ai' ? 5 : 0;
   const [activeTab, setActiveTab] = useState(initialTab);
-  const navigate = useNavigate();
-  const { isMobile } = useResponsiveMode();
-  const { user, signOut } = useAuth();
-  const [signingOut, setSigningOut] = useState(false);
-  const handleSignOut = async () => {
-    setSigningOut(true);
+  const [restartPending, setRestartPending] = useState<RestartPendingState>(() => readRestartPending());
+  const [registeredHosts, setRegisteredHosts] = useState<Array<{ host_name: string }>>([]);
+  const [selectedHostName, setSelectedHostName] = useState('');
+  const [hostConfigSaved, setHostConfigSaved] = useState(false);
+  const [hostConfigReady, setHostConfigReady] = useState(false);
+  const [restartingHostService, setRestartingHostService] = useState<string | null>(null);
+
+  const acknowledgeRestart = (scope: 'server' | 'frontend') => {
+    setRestartPending((prev) => {
+      const next = { ...prev, [scope]: false };
+      writeRestartPending(next);
+      return next;
+    });
+  };
+
+  const [restarting, setRestarting] = useState<{ server?: boolean; frontend?: boolean }>({});
+  const [restartError, setRestartError] = useState<string | null>(null);
+  const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
+
+  const doRestartServer = async () => {
+    setRestartError(null);
+    setRestarting((prev) => ({ ...prev, server: true }));
     try {
-      await signOut();
-      navigate('/login');
+      await api.post(buildServerUrl('/server/system/restartServerService'), {});
+      acknowledgeRestart('server');
+    } catch (err) {
+      setRestartError(err instanceof Error ? err.message : 'Failed to restart the server');
     } finally {
-      setSigningOut(false);
+      setRestarting((prev) => ({ ...prev, server: false }));
     }
+  };
+
+  const doRestartFrontend = async () => {
+    setRestartError(null);
+    setRestarting((prev) => ({ ...prev, frontend: true }));
+    try {
+      await api.post(buildServerUrl('/server/settings/restart-frontend'), {});
+      acknowledgeRestart('frontend');
+    } catch (err) {
+      setRestartError(err instanceof Error ? err.message : 'Failed to restart the frontend');
+    } finally {
+      setRestarting((prev) => ({ ...prev, frontend: false }));
+    }
+  };
+
+  const confirmRestartServer = () => {
+    confirm({
+      title: 'Restart Server',
+      message: 'Restart the backend server (vpt-server)?\n\nIt will be briefly unreachable — a few seconds — while it restarts.',
+      confirmText: 'Restart',
+      confirmColor: 'warning',
+      onConfirm: () => {
+        void doRestartServer();
+      },
+    });
+  };
+
+  const confirmRestartFrontend = () => {
+    confirm({
+      title: 'Restart Frontend',
+      message: 'Restart the frontend service (vpt-frontend-prod)?\n\nThe site will be briefly unreachable — a few seconds — while it restarts. This does not rebuild it: an edited .env value still needs a rebuild to take effect.',
+      confirmText: 'Restart',
+      confirmColor: 'warning',
+      onConfirm: () => {
+        void doRestartFrontend();
+      },
+    });
+  };
+
+  const confirmRestartSelectedHostService = (service: 'host' | 'stream') => {
+    const serviceName = service === 'host' ? 'vpt-host' : 'vpt-stream';
+    confirm({
+      title: `Restart ${serviceName}`,
+      message: `Restart ${serviceName} on ${selectedHostName}? The service will be briefly unavailable.`,
+      confirmText: 'Restart',
+      confirmColor: 'warning',
+      onConfirm: async () => {
+        setRestartError(null);
+        setRestartingHostService(service);
+        try {
+          await api.post(buildServerUrl('/server/settings/restart-host-service'), {
+            host_name: selectedHostName,
+            service: serviceName,
+          });
+        } catch (err) {
+          setRestartError(err instanceof Error ? err.message : `Failed to restart ${serviceName}`);
+        } finally {
+          setRestartingHostService(null);
+        }
+      },
+    });
   };
 
   const {
@@ -686,6 +892,8 @@ const Settings: React.FC = () => {
     success,
     loadConfig,
     saveConfig,
+    loadHostConfig,
+    saveHostConfig,
     updateServerConfig,
     updateFrontendConfig,
     updateHostConfig,
@@ -697,12 +905,48 @@ const Settings: React.FC = () => {
   } = useSettings();
 
   useEffect(() => {
-    loadConfig();
-  }, [loadConfig]);
+    const initializeSettings = async () => {
+      await loadConfig();
+      try {
+        const result = await api.get(buildServerUrl('/server/system/getAllHosts?include_actions=false'));
+        const hosts = (result.hosts ?? []).map((host: any) => ({ host_name: host.host_name }));
+        setRegisteredHosts(hosts);
+        if (hosts.length) setSelectedHostName((current) => current || hosts[0].host_name);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load registered hosts');
+      }
+    };
+    void initializeSettings();
+  }, [loadConfig, setError]);
 
   useEffect(() => {
-    if (searchParams.get('tab') === 'ai' && activeTab !== 1) {
-      setActiveTab(1);
+    if (!selectedHostName) return;
+    setHostConfigSaved(false);
+    setHostConfigReady(false);
+    void loadHostConfig(selectedHostName).then(setHostConfigReady);
+  }, [selectedHostName, loadHostConfig]);
+
+  const handleSave = async () => {
+    if (activeTab === 2) {
+      if (!hostConfigReady) return;
+      setHostConfigSaved(await saveHostConfig(selectedHostName));
+      return;
+    }
+    const updatedFiles = await saveConfig();
+    if (updatedFiles.length === 0) return;
+    setRestartPending((prev) => {
+      const next = { ...prev };
+      for (const file of updatedFiles) {
+        if (file === 'server' || file === 'frontend') next[file] = true;
+      }
+      writeRestartPending(next);
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (searchParams.get('tab') === 'ai' && activeTab !== 5) {
+      setActiveTab(5);
     }
   }, [activeTab, searchParams]);
 
@@ -723,14 +967,21 @@ const Settings: React.FC = () => {
           </Typography>
         </Box>
         <Box display="flex" gap={1}>
-          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadConfig}>
+          <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => {
+            void loadConfig().then(async () => {
+            if (selectedHostName) {
+              setHostConfigReady(false);
+              setHostConfigReady(await loadHostConfig(selectedHostName));
+            }
+            });
+          }}>
             Refresh
           </Button>
           <Button
             variant="contained"
             startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
-            onClick={saveConfig}
-            disabled={saving}
+            onClick={handleSave}
+            disabled={saving || (activeTab === 2 && !hostConfigReady)}
           >
             Save
           </Button>
@@ -740,6 +991,12 @@ const Settings: React.FC = () => {
       {error && (
         <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
           {error}
+        </Alert>
+      )}
+
+      {restartError && (
+        <Alert severity="error" sx={{ mb: 1 }} onClose={() => setRestartError(null)}>
+          {restartError}
         </Alert>
       )}
 
@@ -759,31 +1016,75 @@ const Settings: React.FC = () => {
         value={activeTab}
         onChange={(_, newValue) => {
           setActiveTab(newValue);
-          setSearchParams(newValue === 1 ? { tab: 'ai' } : {});
+          setSearchParams(newValue === 5 ? { tab: 'ai' } : {});
         }}
         variant="scrollable"
         scrollButtons="auto"
         allowScrollButtonsMobile
         sx={{ mb: 1 }}
       >
-        <Tab icon={<ServerIcon />} label="Backend Server" iconPosition="start" />
-        <Tab icon={<AIIcon />} label="AI" iconPosition="start" />
-        <Tab icon={<FrontendIcon />} label="Frontend" iconPosition="start" />
+        <Tab
+          icon={<ServerIcon />}
+          iconPosition="start"
+          label={
+            <Box display="flex" alignItems="center" gap={0.75}>
+              Server
+              {restartPending.server && (
+                <Chip label="Restart needed" size="small" color="warning" sx={{ height: 18, fontSize: 10 }} />
+              )}
+            </Box>
+          }
+        />
+        <Tab
+          icon={<FrontendIcon />}
+          iconPosition="start"
+          label={
+            <Box display="flex" alignItems="center" gap={0.75}>
+              Frontend
+              {restartPending.frontend && (
+                <Chip label="Restart needed" size="small" color="warning" sx={{ height: 18, fontSize: 10 }} />
+              )}
+            </Box>
+          }
+        />
         <Tab icon={<HostIcon />} label="Host & Devices" iconPosition="start" />
         <Tab icon={<BrandingIcon />} label="Branding" iconPosition="start" />
         <Tab icon={<FeaturesIcon />} label="Features" iconPosition="start" />
-        {isAuthEnabled && user && (
-          <Tab icon={<ProfileIcon />} label="Profile" iconPosition="start" />
-        )}
+        <Tab icon={<AIIcon />} label="AI" iconPosition="start" />
       </Tabs>
 
-      {/* Tab 1: Backend Server */}
+      {/* Tab 1: Server */}
       <SettingsTabPanel active={activeTab === 0}>
+        {restartPending.server && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 2 }}
+            action={
+              <Box display="flex" gap={1}>
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={confirmRestartServer}
+                  disabled={!!restarting.server}
+                  startIcon={restarting.server ? <CircularProgress size={14} color="inherit" /> : undefined}
+                >
+                  {restarting.server ? 'Restarting…' : 'Restart now'}
+                </Button>
+                <Button color="inherit" size="small" onClick={() => acknowledgeRestart('server')}>
+                  Dismiss
+                </Button>
+              </Box>
+            }
+          >
+            Saved, but not applied yet — restart the backend server (<code>vpt-server.service</code>) to
+            pick up the change.
+          </Alert>
+        )}
         <Card>
           <CardContent>
             <Box display="flex" alignItems="center" mb={1}>
               <ServerIcon sx={{ mr: 1 }} color="primary" />
-              <Typography variant="h6">Backend Server Configuration</Typography>
+              <Typography variant="h6">Server</Typography>
             </Box>
             <Divider sx={{ mb: 2 }} />
 
@@ -796,7 +1097,6 @@ const Settings: React.FC = () => {
                   placeholder="Awesomation"
                   fullWidth
                   size="small"
-                  helperText="Display name for this server"
                 />
               </Grid>
               <Grid item xs={12} md={6}>
@@ -807,7 +1107,6 @@ const Settings: React.FC = () => {
                   placeholder="http://localhost:5109"
                   fullWidth
                   size="small"
-                  helperText="Base URL for the backend server"
                 />
               </Grid>
               <Grid item xs={12} md={6}>
@@ -819,41 +1118,54 @@ const Settings: React.FC = () => {
                   fullWidth
                   size="small"
                   type="number"
-                  helperText="Port for the backend server API"
                 />
               </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
-                  label="Environment"
-                  value={config.server.ENVIRONMENT}
-                  onChange={(e) => updateServerConfig('ENVIRONMENT', e.target.value)}
-                  fullWidth
-                  size="small"
-                  select
-                  helperText="Current environment mode"
-                >
-                  <MenuItem value="development">Development</MenuItem>
-                  <MenuItem value="staging">Staging</MenuItem>
-                  <MenuItem value="production">Production</MenuItem>
-                </TextField>
-              </Grid>
-             
-             
             </Grid>
+
+            <ExtraEnvFields
+              entries={config.server}
+              sensitiveKeys={config.serverSensitiveKeys}
+              exclude={KNOWN_SERVER_KEYS}
+              onChange={updateServerConfig}
+            />
           </CardContent>
         </Card>
       </SettingsTabPanel>
 
-      {/* Tab 2: AI */}
+      {/* Tab 2: Frontend */}
       <SettingsTabPanel active={activeTab === 1}>
-        <AISettingsTab
-          serverConfig={config.server}
-          updateServerConfig={updateServerConfig}
-        />
-      </SettingsTabPanel>
-
-      {/* Tab 3: Frontend */}
-      <SettingsTabPanel active={activeTab === 2}>
+        {restartPending.frontend && (
+          <Alert
+            severity="warning"
+            sx={{ mb: 2 }}
+            action={
+              <Box display="flex" gap={1}>
+                <Button
+                  color="inherit"
+                  size="small"
+                  onClick={confirmRestartFrontend}
+                  disabled={!!restarting.frontend}
+                  startIcon={restarting.frontend ? <CircularProgress size={14} color="inherit" /> : undefined}
+                >
+                  {restarting.frontend ? 'Restarting…' : 'Restart now'}
+                </Button>
+                <Button color="inherit" size="small" onClick={() => acknowledgeRestart('frontend')}>
+                  Dismiss
+                </Button>
+              </Box>
+            }
+          >
+            Saved, but not applied yet — restart the frontend service to pick up the change. Note: the
+            live frontend runs a production build, so <code>VITE_*</code> values are baked in at build
+            time — a plain restart alone won't apply an edited value until it's rebuilt (not available
+            here yet).
+          </Alert>
+        )}
+        {config.frontendWarning && (
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            {config.frontendWarning}
+          </Alert>
+        )}
         <Card>
           <CardContent>
             <Box display="flex" alignItems="center" mb={1}>
@@ -911,17 +1223,23 @@ const Settings: React.FC = () => {
               </Grid>
             </Grid>
 
+            <ExtraEnvFields
+              entries={config.frontend}
+              sensitiveKeys={config.frontendSensitiveKeys}
+              exclude={KNOWN_FRONTEND_KEYS}
+              onChange={updateFrontendConfig}
+            />
           </CardContent>
         </Card>
       </SettingsTabPanel>
 
-      {/* Tab 5: Branding */}
-      <SettingsTabPanel active={activeTab === 4}>
+      {/* Tab 4: Branding */}
+      <SettingsTabPanel active={activeTab === 3}>
         <BrandingTab />
       </SettingsTabPanel>
 
-      {/* Tab 6: Features */}
-      <SettingsTabPanel active={activeTab === 5}>
+      {/* Tab 5: Features */}
+      <SettingsTabPanel active={activeTab === 4}>
         <Card>
           <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
             {/* Feature Toggles */}
@@ -1041,9 +1359,39 @@ const Settings: React.FC = () => {
         </Card>
       </SettingsTabPanel>
 
-      {/* Tab 4: Host & Devices */}
-      <SettingsTabPanel active={activeTab === 3}>
+      {/* Tab 3: Host & Devices */}
+      <SettingsTabPanel active={activeTab === 2}>
         <Box>
+          <Card sx={{ mb: 1 }}>
+            <CardContent>
+              <Box display="flex" alignItems="center" justifyContent="space-between" gap={2} flexWrap="wrap">
+                <TextField
+                  select
+                  label="Registered Host"
+                  value={selectedHostName}
+                  onChange={(event) => {
+                    setHostConfigReady(false);
+                    setSelectedHostName(event.target.value);
+                  }}
+                  size="small"
+                  sx={{ minWidth: 280 }}
+                  disabled={!registeredHosts.length}
+                >
+                  {registeredHosts.map((host) => <MenuItem key={host.host_name} value={host.host_name}>{host.host_name}</MenuItem>)}
+                </TextField>
+                <Box display="flex" gap={1} flexWrap="wrap">
+                  <Button variant="outlined" disabled={!selectedHostName || !!restartingHostService} onClick={() => confirmRestartSelectedHostService('host')}>
+                    {restartingHostService === 'host' ? <CircularProgress size={18} /> : 'Restart vpt-host'}
+                  </Button>
+                  <Button variant="outlined" disabled={!selectedHostName || !!restartingHostService} onClick={() => confirmRestartSelectedHostService('stream')}>
+                    {restartingHostService === 'stream' ? <CircularProgress size={18} /> : 'Restart vpt-stream'}
+                  </Button>
+                </Box>
+              </Box>
+              {!registeredHosts.length && <Alert severity="info" sx={{ mt: 1 }}>No registered hosts are currently available.</Alert>}
+              {hostConfigSaved && <Alert severity="success" sx={{ mt: 1 }}>Configuration saved on {selectedHostName}. Restart the affected service to apply changes.</Alert>}
+            </CardContent>
+          </Card>
           <Card sx={{ mb: 1}}>
             <CardContent>
               <Box display="flex" alignItems="center" mb={1}>
@@ -1061,7 +1409,6 @@ const Settings: React.FC = () => {
                     placeholder="host1"
                     fullWidth
                     size="small"
-                    helperText="Unique identifier for this host"
                   />
                 </Grid>
                 <Grid item xs={12} md={6}>
@@ -1073,7 +1420,6 @@ const Settings: React.FC = () => {
                     fullWidth
                     size="small"
                     type="number"
-                    helperText="Port for the host service"
                   />
                 </Grid>
                 <Grid item xs={12} md={6}>
@@ -1084,7 +1430,6 @@ const Settings: React.FC = () => {
                     placeholder="http://localhost:6109"
                     fullWidth
                     size="small"
-                    helperText="Base URL for the host service"
                   />
                 </Grid>
                 <Grid item xs={12} md={6}>
@@ -1095,7 +1440,6 @@ const Settings: React.FC = () => {
                     placeholder="http://localhost:6109"
                     fullWidth
                     size="small"
-                    helperText="API endpoint URL for the host"
                   />
                 </Grid>
               </Grid>
@@ -1298,30 +1642,24 @@ const Settings: React.FC = () => {
         </Box>
       </SettingsTabPanel>
 
-      {isAuthEnabled && user && (
-        <SettingsTabPanel active={activeTab === 6}>
-          <Card>
-            <CardContent>
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: isMobile ? 'stretch' : 'flex-start' }}>
-                <Typography variant="h6">Profile</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Signed in as <strong>{user.email}</strong>
-                </Typography>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  startIcon={<LogoutIcon />}
-                  onClick={handleSignOut}
-                  disabled={signingOut}
-                  fullWidth={isMobile}
-                >
-                  {signingOut ? 'Signing out...' : 'Log out'}
-                </Button>
-              </Box>
-            </CardContent>
-          </Card>
-        </SettingsTabPanel>
-      )}
+      {/* Tab 6: AI */}
+      <SettingsTabPanel active={activeTab === 5}>
+        <AISettingsTab
+          serverConfig={config.server}
+          updateServerConfig={updateServerConfig}
+        />
+      </SettingsTabPanel>
+
+      <ConfirmDialog
+        open={dialogState.open}
+        title={dialogState.title}
+        message={dialogState.message}
+        confirmText={dialogState.confirmText}
+        cancelText={dialogState.cancelText}
+        confirmColor={dialogState.confirmColor}
+        onConfirm={handleConfirm}
+        onCancel={handleCancel}
+      />
     </Box>
   );
 };

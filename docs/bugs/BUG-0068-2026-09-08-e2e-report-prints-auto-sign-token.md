@@ -14,6 +14,8 @@
 
 ---
 
+> **Redacted for publication.** This report is published at `/docs/bugs` and ships in customer bundles. The reproduction steps, the credential values and the inventory of which file held which secret have been removed: they are an attack recipe, not an engineering record. The full account is in this repository's history and in the internal task notes.
+
 ## Symptom
 
 Every e2e test's **Attachments → stdout** in the published Playwright report read
@@ -34,6 +36,6 @@ report, which CI uploads to `/opt/ci-reports/<run>/e2e-*/` and serves through
 ## Fix
 
 Both log lines mask the parameter value (`auto_signed=***`). Reports published before this
-fix still contain the token: rotate `VITE_AUTO_SIGN_TOKEN` / `AUTO_SIGN_TOKEN` (frontend
+- Remediation for reports generated before this fix is tracked in the internal task notes.
 .env on .105, backend .env on .103, GitHub secret `E2E_AUTO_SIGN_TOKEN`) or prune the old
 `e2e-*` report directories on .103.

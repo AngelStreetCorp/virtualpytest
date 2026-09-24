@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from 'react';
-import { io, Socket } from 'socket.io-client';
+import { usePermissionContext } from './auth/PermissionContext';
+import { Socket } from 'socket.io-client';
+import { createServerSocket } from '../utils/serverSocket';
 import { getServerBaseUrl, buildServerUrl } from '../utils/buildUrlUtils';
-import { getAccessTokenForServer } from '../lib/serverIdentity';
 
 // Event handler registered by consumers (AIContext, useAgentChat)
 type AgentEventHandler = (event: any) => void;
@@ -34,6 +35,7 @@ interface SocketContextType {
 const SocketContext = createContext<SocketContextType | undefined>(undefined);
 
 export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { hasPermission } = usePermissionContext();
   const socketRef = useRef<Socket | null>(null);
   const [socketState, setSocketState] = useState<Socket | null>(null);
   const [isConnected, setIsConnected] = useState(false);
@@ -55,16 +57,11 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     const serverBaseUrl = getServerBaseUrl();
     connectedServerUrlRef.current = serverBaseUrl;
-    socketRef.current = io(`${serverBaseUrl}/agent`, {
-      // Carry the token of THIS server's Supabase identity (TASK-18). Resolved through a
-      // callback rather than a fixed value so every reconnect re-reads it: a socket that
-      // reconnects after a refresh (or after the user switches servers) must not present
-      // a stale token, or one minted for a different Supabase.
-      auth: (cb: (data: Record<string, unknown>) => void) => {
-        void getAccessTokenForServer(serverBaseUrl)
-          .then((token) => cb(token ? { token } : {}))
-          .catch(() => cb({}));
-      },
+    // createServerSocket attaches the handshake credentials (TASK-18 token, plus the
+    // server key and auto-sign token the fetch path already sends). It used to send the
+    // token only, which was enough while nothing checked it and not enough once the
+    // server started refusing unauthenticated sockets on no-Supabase deployments.
+    socketRef.current = createServerSocket(serverBaseUrl, '/agent', {
       transports: ['polling', 'websocket'],
       reconnection: true,
       // Never give up: a capped attempt count (was 5) meant a tab whose laptop
@@ -129,6 +126,14 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     // Return existing session if already created
     if (sessionIdRef.current) return sessionIdRef.current;
 
+    // The agent is a tester+ feature. This used to fire for anyone merely logged in,
+    // so every page load by a viewer POSTed /server/agent/sessions and collected a 403
+    // — correct enforcement, pointless request. Gated here rather than at each call
+    // site: AIContext, useAgentChat and the server-changed handler all come through
+    // this one function. hasPermission() is true when auth is disabled entirely, so a
+    // no-login deployment is unaffected.
+    if (!hasPermission('ai_agent:view')) return null;
+
     try {
       const response = await fetch(buildServerUrl('/server/agent/sessions'), { method: 'POST' });
       const data = await response.json();
@@ -149,7 +154,7 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       console.error('🔌 SocketContext: Failed to create session:', e);
     }
     return null;
-  }, []);
+  }, [hasPermission]);
 
   // Rebind to the newly selected server: the socket and the REST-created
   // session are both server-scoped, so a dropdown switch must tear down and

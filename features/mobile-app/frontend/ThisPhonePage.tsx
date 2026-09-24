@@ -229,9 +229,24 @@ function ThisPhoneNative() {
       }
     });
 
+  /**
+   * Typing the URL must configure the app as completely as scanning the QR does, so this
+   * goes through `applyConfig` — the same path the scanner uses — rather than `setServer`.
+   *
+   * `setServer` stores only what it is handed, and this dialog has only a URL to hand it.
+   * That left `supabase_url`/`supabase_anon_key` unset, and those are what `isAuthEnabled`
+   * in lib/supabase.ts is computed from: with them empty the whole app drops into OPEN_MODE,
+   * where `ProtectedRoute` is a pass-through and API calls carry no JWT. The visible symptom
+   * was that the real LoginPage never appeared — only the minimal per-server dialog, which
+   * has no sign-up, reset or OAuth — and the invisible one was an unauthenticated app
+   * (BUG-0145). `PayloadApplier` takes a bare URL, derives the origin, and fetches
+   * `<origin>/runtime-config.json` for exactly those fields.
+   */
   const submitServerUrl = () =>
     run('server url', async () => {
-      const s = await phoneAgent.setServer({ serverUrl: serverUrlInput.trim() });
+      // Resolves only after PayloadApplier's runtime-config fetch has finished, so the
+      // status it returns already reflects whether the app ended up configured.
+      const s = await phoneAgent.applyConfig({ payload: serverUrlInput.trim() });
       setUrlDialogOpen(false);
       if (s.configured) await phoneAgent.reloadApp();
       else setStatus(s);

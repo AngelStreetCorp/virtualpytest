@@ -99,6 +99,32 @@ class AppiumApp:
         }
 
 
+# Capability values that are credentials. A cloud device farm authenticates inside
+# the capabilities (sauce:options.accessKey, bstack:options.accessKey, lt:options.
+# accessKey), so any log line that prints a capabilities dict verbatim prints the
+# account's key — into the host log, the journal and any bundle collected from it.
+# Every print of a caps dict in this file and in the Appium controllers goes through
+# redact_capabilities() so that cannot happen by omission.
+_SECRET_CAP_KEYS = frozenset({
+    'accesskey', 'access_key', 'username', 'user', 'key', 'password', 'token',
+})
+
+
+def redact_capabilities(capabilities: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy of a capabilities dict with credential values masked, recursively."""
+    if not isinstance(capabilities, dict):
+        return capabilities
+    redacted: Dict[str, Any] = {}
+    for key, value in capabilities.items():
+        if isinstance(value, dict):
+            redacted[key] = redact_capabilities(value)
+        elif str(key).lower() in _SECRET_CAP_KEYS and value:
+            redacted[key] = '***'
+        else:
+            redacted[key] = value
+    return redacted
+
+
 class AppiumUtils:
     """Appium utilities for universal device automation."""
     
@@ -179,7 +205,7 @@ class AppiumUtils:
         """
         try:
             print(f"[@lib:appiumUtils:connect_device] Connecting to device {device_id}")
-            print(f"[@lib:appiumUtils:connect_device] Capabilities: {capabilities}")
+            print(f"[@lib:appiumUtils:connect_device] Capabilities: {redact_capabilities(capabilities)}")
             
             # Check if Appium server is running
             if not self.is_appium_server_running(appium_url):
@@ -395,9 +421,15 @@ class AppiumUtils:
         """Parse Android UIAutomator2 page source (similar to ADB dump)."""
         elements = []
         
-        # Android uses node-based hierarchy similar to ADB dumps
-        node_pattern = r'<node[^>]*(?:\/>|>.*?<\/node>)'
-        matches = re.findall(node_pattern, xml_data, re.DOTALL)
+        # Two XML shapes reach here. ADB's `uiautomator dump` names every element
+        # <node …>; Appium's page_source names each one after its class
+        # (<android.widget.Button …>). Matching only <node …> silently yields zero
+        # elements on the Appium shape — and on a cloud farm device there is no ADB,
+        # so this parser is the only path there. Match an opening tag of any name,
+        # which also keeps a child's attributes from bleeding into its parent the way
+        # the old `>.*?</node>` form allowed.
+        node_pattern = r'<(?!\?|/|hierarchy[\s>])[A-Za-z_][\w.]*(?:"[^"]*"|[^>"])*?/?>'
+        matches = re.findall(node_pattern, xml_data)
         
         element_counter = 0
         for i, match in enumerate(matches):
@@ -662,6 +694,62 @@ class AppiumUtils:
             print(f"[@lib:appiumUtils:tap_coordinates] Tap error: {e}")
             return False
     
+    def swipe(self, device_id: str, from_x: int, from_y: int, to_x: int, to_y: int,
+              duration: int = 300) -> bool:
+        """
+        Swipe from one coordinate to another.
+
+        Mirrors AdbUtils.swipe so an `android_mobile` navigation tree's swipe actions
+        run unchanged on an Appium device (local or cloud farm).
+
+        Args:
+            device_id: Device identifier
+            from_x, from_y: start coordinate
+            to_x, to_y: end coordinate
+            duration: gesture duration in milliseconds
+
+        Returns:
+            bool: True if the swipe was performed
+        """
+        try:
+            print(f"[@lib:appiumUtils:swipe] Swiping ({from_x}, {from_y}) -> ({to_x}, {to_y}) in {duration}ms")
+
+            driver = self.get_driver(device_id)
+            if not driver:
+                print(f"[@lib:appiumUtils:swipe] No driver found for device {device_id}")
+                return False
+
+            # The client's own helper where it exists; W3C pointer actions otherwise.
+            # Both are plain WebDriver calls, so a farm session behaves like a local one.
+            swipe_helper = getattr(driver, 'swipe', None)
+            if callable(swipe_helper):
+                swipe_helper(from_x, from_y, to_x, to_y, duration)
+            else:
+                self._w3c_swipe(driver, from_x, from_y, to_x, to_y, duration)
+
+            print(f"[@lib:appiumUtils:swipe] Successfully swiped ({from_x}, {from_y}) -> ({to_x}, {to_y})")
+            return True
+
+        except Exception as e:
+            print(f"[@lib:appiumUtils:swipe] Swipe error: {e}")
+            return False
+
+    def _w3c_swipe(self, driver: webdriver.Remote, from_x: int, from_y: int,
+                   to_x: int, to_y: int, duration: int) -> None:
+        """One W3C pointer sequence: down at the start, move over `duration`, up."""
+        from selenium.webdriver.common.actions.action_builder import ActionBuilder
+        from selenium.webdriver.common.actions.pointer_input import PointerInput
+        from selenium.webdriver.common.actions import interaction
+
+        finger = PointerInput(interaction.POINTER_TOUCH, 'finger')
+        actions = ActionBuilder(driver, mouse=finger)
+        actions.pointer_action.move_to_location(from_x, from_y)
+        actions.pointer_action.pointer_down()
+        actions.pointer_action.pause(duration / 1000.0)
+        actions.pointer_action.move_to_location(to_x, to_y)
+        actions.pointer_action.pointer_up()
+        actions.perform()
+
     def take_screenshot(self, device_id: str) -> Tuple[bool, str, str]:
         """
         Take a screenshot of the device.

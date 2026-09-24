@@ -1847,27 +1847,47 @@ class TestCaseExecutor:
             print(f"[@testcase_executor:_execute_navigation_block]   → target_node_id: {data.get('target_node_id')}")
             
             # Call navigation through ExecutionOrchestrator for consistency
-            # PRIORITY: Use label if available (more human-readable), fallback to ID
+            # Prefer the UUID when the graph provides one. Labels are display
+            # values and can be duplicated or change independently of the
+            # cached navigation graph; resolving them on every hop can make a
+            # long chain diverge even though the graph carries the right node.
             # Backend validation requires EXACTLY ONE parameter, not both
             target_label = data.get('target_node_label') or data.get('target_node')
             target_id = data.get('target_node_id')
             
+            # A stored graph can carry a target_node_id that no longer exists in
+            # the tree (node re-created, tree re-imported) while its label is
+            # still right. 812ce5119 made the id win unconditionally, so such a
+            # graph failed on every hop before any action ran. Pre-check the id
+            # against the unified graph pathfinding will consult -- the same
+            # lookup NavigationExecutor.execute_navigation performs on entry
+            # (variant-aware cache; on a cold cache it populates once from the
+            # DB, which that call would do a moment later anyway) -- and keep
+            # the id only when it is a node of that graph.
+            if target_id:
+                graph = navigation_executor._sync_unified_graph(
+                    context.tree_id, context.team_id, context.userinterface_name
+                )
+                if graph is None:
+                    # Nothing to check against (cache miss and the populate
+                    # failed): keep id-first behaviour and let navigation
+                    # report whatever it finds.
+                    print(f"[@testcase_executor:_execute_navigation_block] ⚠️ No unified graph for tree {context.tree_id}; cannot pre-check target_node_id '{target_id}', passing it through")
+                elif target_id not in graph.nodes:
+                    if target_label:
+                        print(f"[@testcase_executor:_execute_navigation_block] ⚠️ target_node_id '{target_id}' is not a node of tree {context.tree_id}; navigating by target_node_label '{target_label}' instead")
+                        target_id = None
+                    else:
+                        return {
+                            'success': False,
+                            'execution_time_ms': int((time.time() - start_time) * 1000),
+                            'error': f"target_node_id '{target_id}' is not a node of navigation tree {context.tree_id} and the block has no target_node_label to fall back on"
+                        }
+            
             # ✅ Use ExecutionOrchestrator for unified logging and consistent execution
             from backend_host.src.orchestrator import ExecutionOrchestrator
             
-            # Prefer label over ID - only pass ID if no label exists
-            if target_label:
-                print(f"[@testcase_executor:_execute_navigation_block] Using target_node_label: {target_label}")
-                result = await ExecutionOrchestrator.execute_navigation(
-                    device=self.device,
-                    tree_id=context.tree_id,
-                    userinterface_name=context.userinterface_name,
-                    target_node_id=None,  # Explicitly set to None when using label
-                    target_node_label=target_label,
-                    team_id=context.team_id,
-                    context=context
-                )
-            elif target_id:
+            if target_id:
                 print(f"[@testcase_executor:_execute_navigation_block] Using target_node_id: {target_id}")
                 result = await ExecutionOrchestrator.execute_navigation(
                     device=self.device,
@@ -1875,6 +1895,17 @@ class TestCaseExecutor:
                     userinterface_name=context.userinterface_name,
                     target_node_id=target_id,
                     target_node_label=None,  # Explicitly set to None when using ID
+                    team_id=context.team_id,
+                    context=context
+                )
+            elif target_label:
+                print(f"[@testcase_executor:_execute_navigation_block] Using target_node_label: {target_label}")
+                result = await ExecutionOrchestrator.execute_navigation(
+                    device=self.device,
+                    tree_id=context.tree_id,
+                    userinterface_name=context.userinterface_name,
+                    target_node_id=None,  # Explicitly set to None when using label
+                    target_node_label=target_label,
                     team_id=context.team_id,
                     context=context
                 )

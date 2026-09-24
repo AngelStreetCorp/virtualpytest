@@ -1,6 +1,8 @@
 import {
   KeyboardArrowDown as ArrowDownIcon,
   KeyboardArrowRight as ArrowRightIcon,
+  OpenInFull as ExpandEditorIcon,
+  CloseFullscreen as RestoreEditorIcon,
 } from '@mui/icons-material';
 import {
   Box,
@@ -11,6 +13,7 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Tooltip,
 } from '@mui/material';
 import React from 'react';
 
@@ -51,6 +54,8 @@ interface VerificationEditorProps {
   // Notifies the parent when the capture reference type changes (image/text) so the
   // stream overlay can disable fuzzy-area dragging for text references.
   onReferenceTypeChange?: (type: 'image' | 'text') => void;
+  isMaximized?: boolean;
+  onToggleMaximized?: () => void;
   sx?: any;
 }
 
@@ -68,6 +73,8 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
     userinterfaceName, // Required for saving references
     layoutConfig,
     onReferenceTypeChange,
+    isMaximized = false,
+    onToggleMaximized,
     sx = {},
   }) => {
     // Extract device from host devices array using selectedDeviceId
@@ -214,9 +221,23 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
           ...sx,
         }}
       >
-        <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600 }}>
-          Verification Editor
-        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600 }}>
+            Verification Editor
+          </Typography>
+          {onToggleMaximized && (
+            <Tooltip title={isMaximized ? 'Restore editor' : 'Maximize editor'}>
+              <IconButton
+                aria-label={isMaximized ? 'Restore Verification Editor' : 'Maximize Verification Editor'}
+                size="medium"
+                onClick={onToggleMaximized}
+                sx={{ p: 1, color: 'inherit' }}
+              >
+                {isMaximized ? <RestoreEditorIcon /> : <ExpandEditorIcon />}
+              </IconButton>
+            </Tooltip>
+          )}
+        </Box>
 
         {/* =================== CAPTURE SECTION =================== */}
         <VerificationCapture

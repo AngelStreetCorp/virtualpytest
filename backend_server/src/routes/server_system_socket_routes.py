@@ -10,6 +10,9 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 from flask import current_app, request
 
+from backend_server.src.lib import socket_auth
+from backend_server.src.lib.auth_middleware import authorize_socket_connection
+
 _socketio = None
 SYSTEM_NAMESPACE = "/system"
 
@@ -51,15 +54,55 @@ def register_system_socketio_handlers(socketio) -> None:
     """Register Socket.IO handlers for system namespace."""
 
     @socketio.on("connect", namespace=SYSTEM_NAMESPACE)
-    def handle_connect():
+    def handle_connect(auth=None):
+        """Authenticate the handshake, or refuse the connection.
+
+        This namespace broadcasts the fleet's live state — which hosts and devices exist,
+        which are locked and by whom, deployment progress. The socket.io handshake never
+        passes through the global /server/* guard, so all of it was readable by anyone who
+        could open a socket, on a deployment whose HTTP API is closed.
+
+        Returning False refuses the connection; the client sees a connect_error.
+        """
+        principal = authorize_socket_connection(auth)
+        if principal is None:
+            print(f"[@system_socket] ⛔ refused unauthenticated connection to {SYSTEM_NAMESPACE}")
+            return False
+
+        socket_auth.remember(request.sid, principal)
         socketio.emit(
             "connected",
             {"status": "ok", "namespace": SYSTEM_NAMESPACE},
             namespace=SYSTEM_NAMESPACE,
             to=request.sid,
         )
+        return None
 
     @socketio.on("disconnect", namespace=SYSTEM_NAMESPACE)
     def handle_disconnect():
-        # No-op for now. Keep handler for observability extension later.
+        socket_auth.forget(request.sid)
+        return None
+
+
+def register_default_namespace_guard(socketio) -> None:
+    """Authenticate the default ('/') namespace.
+
+    It carries no handlers of its own, which is exactly why it was open: with no connect
+    handler registered, socket.io accepts every client. It is not idle though —
+    `server_web_routes.task_complete` emits `task_complete` with no namespace, so browser
+    automation results are delivered here and were readable by anyone who connected.
+    """
+
+    @socketio.on("connect")
+    def handle_default_connect(auth=None):
+        principal = authorize_socket_connection(auth)
+        if principal is None:
+            print("[@system_socket] ⛔ refused unauthenticated connection to the default namespace")
+            return False
+        socket_auth.remember(request.sid, principal)
+        return None
+
+    @socketio.on("disconnect")
+    def handle_default_disconnect():
+        socket_auth.forget(request.sid)
         return None

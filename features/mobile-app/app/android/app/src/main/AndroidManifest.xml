@@ -11,9 +11,19 @@
         android:usesCleartextTraffic="true"
         android:theme="@style/AppTheme">
 
+        <!-- Pinned to portrait, for the same reason CaptureActivity below is: this is a
+             phone-held-in-portrait app and every screen is laid out for it. Unlocked, the
+             activity takes whatever rotation the device happens to be in when it is
+             (re)launched — which on a cloud device farm is not a person's hand. A
+             BrowserStack Galaxy S23 came back landscape on activate_app while a Sauce
+             Galaxy S23 FE stayed portrait, so the same test produced portrait evidence on
+             one vendor and sideways evidence on the other, and setting the orientation
+             back over the wire did not restore the screenshot. configChanges already lists
+             orientation, so this costs no activity recreation. -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation"
             android:name=".MainActivity"
+            android:screenOrientation="portrait"
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"

@@ -8,7 +8,10 @@ import logging
 
 from shared.src.lib.database import workspaces_db
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from backend_server.src.lib.auth_middleware import require_admin_role
+from backend_server.src.lib.auth_middleware import (
+    principal_holds_permission,
+    require_permission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,13 +64,13 @@ def _with_device_names(workspace_or_list):
 
 
 @server_workspaces_bp.route('', methods=['GET'])
-@require_admin_role
+@require_permission('org.workspaces:view')
 @handle_route_exceptions('server_workspaces:get_workspaces')
 def get_workspaces():
-    """
-    Get all workspaces
-    Admin: sees all workspaces
-    Regular user: sees only their workspaces
+    """Get every workspace on the deployment.
+
+    This is the administration listing and is not filtered per caller — reaching it at all
+    requires org.workspaces:view. A user's own workspaces come from /workspaces/user/<id>.
     """
     workspaces = workspaces_db.get_all_workspaces()
     return jsonify(_with_device_names(workspaces)), 200
@@ -76,13 +79,34 @@ def get_workspaces():
 @server_workspaces_bp.route('/user/<user_id>', methods=['GET'])
 @handle_route_exceptions('server_workspaces:get_user_workspaces')
 def get_user_workspaces(user_id: str):
-    """Get all workspaces a user has access to (direct + via team membership)"""
+    """Get all workspaces a user has access to (direct + via team membership).
+
+    Carries no permission gate because every signed-in principal calls it for themselves on
+    every page load — WorkspaceProvider fetches the workspace switcher from here, so gating it
+    on workspace administration would empty the switcher for testers and viewers.
+
+    It takes the user id from the path, though, so it needs its own check: without one, any
+    authenticated caller could read anyone else's workspace list by editing the URL. Reading
+    for yourself is always allowed; reading for somebody else is workspace administration.
+    """
+    caller_id = getattr(request, 'user_id', None)
+
+    # caller_id is None on a principal that carries no user identity (the service key, open
+    # mode, auto-sign). Those are already trusted by the global guard to reach /server/*, and
+    # have no "self" to compare against, so they pass.
+    if caller_id and caller_id != user_id and not principal_holds_permission('org.workspaces:view'):
+        return jsonify({
+            'error': 'Forbidden',
+            'message': 'You may only read your own workspaces.',
+            'user_role': getattr(request, 'user_role', None),
+        }), 403
+
     workspaces = workspaces_db.get_user_workspaces(user_id)
     return jsonify(_with_device_names(workspaces)), 200
 
 
 @server_workspaces_bp.route('/<workspace_id>', methods=['GET'])
-@require_admin_role
+@require_permission('org.workspaces:view')
 @handle_route_exceptions('server_workspaces:get_workspace')
 def get_workspace(workspace_id: str):
     """Get a specific workspace by ID"""
@@ -93,10 +117,10 @@ def get_workspace(workspace_id: str):
 
 
 @server_workspaces_bp.route('', methods=['POST'])
-@require_admin_role
+@require_permission('org.workspaces:create')
 @handle_route_exceptions('server_workspaces:create_workspace')
 def create_workspace():
-    """Create a new workspace (admin only)"""
+    """Create a new workspace (org.workspaces:create)"""
     data = request.get_json() or {}
     if not data.get('name'):
         return jsonify({"error": "Workspace name is required"}), 400
@@ -114,10 +138,10 @@ def create_workspace():
 
 
 @server_workspaces_bp.route('/<workspace_id>', methods=['PUT'])
-@require_admin_role
+@require_permission('org.workspaces:edit')
 @handle_route_exceptions('server_workspaces:update_workspace')
 def update_workspace(workspace_id: str):
-    """Update a workspace (admin only)"""
+    """Update a workspace (org.workspaces:edit)"""
     data = request.get_json() or {}
     if not data:
         return jsonify({"error": "No data provided"}), 400
@@ -129,10 +153,10 @@ def update_workspace(workspace_id: str):
 
 
 @server_workspaces_bp.route('/<workspace_id>', methods=['DELETE'])
-@require_admin_role
+@require_permission('org.workspaces:delete')
 @handle_route_exceptions('server_workspaces:delete_workspace')
 def delete_workspace(workspace_id: str):
-    """Delete a workspace (admin only)"""
+    """Delete a workspace (org.workspaces:delete)"""
     success = workspaces_db.delete_workspace(workspace_id)
     if not success:
         return jsonify({"error": "Workspace not found"}), 404
@@ -141,19 +165,19 @@ def delete_workspace(workspace_id: str):
 
 
 @server_workspaces_bp.route('/<workspace_id>/members', methods=['GET'])
-@require_admin_role
+@require_permission('org.workspaces:view')
 @handle_route_exceptions('server_workspaces:get_workspace_members')
 def get_workspace_members(workspace_id: str):
-    """Get all members of a workspace"""
+    """Get all members of a workspace (org.workspaces:view)"""
     members = workspaces_db.get_workspace_members(workspace_id)
     return jsonify(members), 200
 
 
 @server_workspaces_bp.route('/<workspace_id>/members/user', methods=['POST'])
-@require_admin_role
+@require_permission('org.workspaces:manage_members')
 @handle_route_exceptions('server_workspaces:add_workspace_user')
 def add_workspace_user(workspace_id: str):
-    """Add a user to a workspace (admin only)"""
+    """Add a user to a workspace (org.workspaces:manage_members)"""
     data = request.get_json() or {}
     if not data.get('user_id'):
         return jsonify({"error": "user_id is required"}), 400
@@ -165,10 +189,10 @@ def add_workspace_user(workspace_id: str):
 
 
 @server_workspaces_bp.route('/<workspace_id>/members/team', methods=['POST'])
-@require_admin_role
+@require_permission('org.workspaces:manage_members')
 @handle_route_exceptions('server_workspaces:add_workspace_team')
 def add_workspace_team(workspace_id: str):
-    """Add a team to a workspace (admin only)"""
+    """Add a team to a workspace (org.workspaces:manage_members)"""
     data = request.get_json() or {}
     if not data.get('team_id'):
         return jsonify({"error": "team_id is required"}), 400
@@ -180,10 +204,10 @@ def add_workspace_team(workspace_id: str):
 
 
 @server_workspaces_bp.route('/<workspace_id>/members/<member_id>', methods=['DELETE'])
-@require_admin_role
+@require_permission('org.workspaces:manage_members')
 @handle_route_exceptions('server_workspaces:remove_workspace_member')
 def remove_workspace_member(workspace_id: str, member_id: str):
-    """Remove a member from a workspace (admin only)"""
+    """Remove a member from a workspace (org.workspaces:manage_members)"""
     success = workspaces_db.remove_workspace_member(workspace_id, member_id)
     if not success:
         return jsonify({"error": "Failed to remove workspace member"}), 500

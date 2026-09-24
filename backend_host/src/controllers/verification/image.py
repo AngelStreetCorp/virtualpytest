@@ -1819,8 +1819,13 @@ class ImageVerificationController:
             else:
                 reference_name = image_path
             
-            # Remove extension if present to get base name for database lookup
-            base_name = reference_name.split('.')[0]
+            # Remove only a recognized image extension for the database lookup.
+            # Reference names may contain dots (for example ``home_red_5.30``);
+            # splitting at the first dot silently looked up ``home_red_5``.
+            if reference_name.lower().endswith(('.jpg', '.jpeg', '.png')):
+                base_name = os.path.splitext(reference_name)[0]
+            else:
+                base_name = reference_name
             
             print(f"[@controller:ImageVerification] Resolving reference: {reference_name} for userinterface: {userinterface_name}, team_id: {team_id}")
             
@@ -2067,5 +2072,3 @@ class ImageVerificationController:
             return None
         num = int(match.group(1)) + offset
         return filepath.replace(match.group(0), f'capture_{num:09d}')
-
- 

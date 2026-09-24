@@ -235,7 +235,8 @@ def create_frame_selector_section(frames_meta: list, frame_cards: list) -> str:
 
 
 def create_kpi_report_template() -> str:
-    """Create simple KPI report with 3 thumbnails and modal zoom."""
+    """Create the KPI success report: two rows of three frames (action trio,
+    match trio), the scan mosaic, and modal zoom."""
     return """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -301,6 +302,16 @@ def create_kpi_report_template() -> str:
             margin: 0 0 8px 0;
             font-weight: 600;
         }}
+
+        /* The +/- next to the headline number: the KPI can only be as precise as the
+           gap between the two frames around the transition, so the number is never
+           shown on its own any more. */
+        .header h1 .precision {{
+            font-size: 16px;
+            font-weight: 400;
+            opacity: 0.85;
+            margin-left: 8px;
+        }}
         
         .header .meta {{
             font-size: 13px;
@@ -335,11 +346,21 @@ def create_kpi_report_template() -> str:
             letter-spacing: 0.5px;
         }}
         
+        /* Two rows of three, fixed: the action trio (before / at the press /
+           after the wait) on top, the match trio (before / match / after)
+           underneath. auto-fit used to reflow them into one row of four, which
+           read as a single sequence and hid that these are two separate moments. */
         .thumbnails {{
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 15px;
             margin-bottom: 20px;
+        }}
+
+        @media (max-width: 720px) {{
+            .thumbnails {{
+                grid-template-columns: 1fr;
+            }}
         }}
         
         .thumb-card {{
@@ -753,7 +774,7 @@ def create_kpi_report_template() -> str:
                     <path d="M12 3v10.59l3.3-3.3 1.4 1.42L12 17.41l-4.7-4.7 1.4-1.42 3.3 3.3V3h2zM5 19h14v2H5v-2z"/>
                 </svg>
             </button>
-            <h1>✓ KPI: <span id="kpiDisplay" data-ms="{kpi_ms}">{kpi_ms}ms</span></h1>
+            <h1>✓ KPI: <span id="kpiDisplay" data-ms="{kpi_ms}">{kpi_ms}ms</span><span class="precision">{kpi_precision}</span></h1>
             <div class="meta">
                 {display_label_line}
                 <div class="meta-line">
@@ -771,23 +792,36 @@ def create_kpi_report_template() -> str:
                 <div class="meta-line">
                     <strong>Pass condition:</strong> {pass_condition} &nbsp;|&nbsp; <strong>KPI source:</strong> {kpi_source}
                 </div>
+                {confidence_line}
                 {late_scan_banner}
+                {confidence_warnings}
             </div>
         </div>
         
         <div class="content">
             <div class="section">
                 <div class="thumbnails">
+                    <!-- Row 1 — the action: the screenshot taken just before the
+                         press, the captured frame at the press itself, and the
+                         screenshot taken once the action's wait has elapsed. -->
                     <div class="thumb-card">
                         <h3>Before Action</h3>
                         <img src="{before_action_thumb}" onclick="openModal(this.src)" alt="Before action pressed">
                         <div class="timestamp">{before_action_time}</div>
                     </div>
                     <div class="thumb-card">
+                        <h3>Action</h3>
+                        <img src="{action_thumb}" onclick="openModal(this.src)" alt="Frame at the action">
+                        <div class="timestamp">{action_time}</div>
+                    </div>
+                    <div class="thumb-card">
                         <h3>{after_action_label}</h3>
                         <img src="{after_action_thumb}" onclick="openModal(this.src)" alt="After action pressed">
                         <div class="timestamp">{after_action_time}</div>
                     </div>
+                    <!-- Row 2 — the match: the frame before it, the match, and the
+                         frame after it, so the transition the KPI is measured on is
+                         visible without opening the mosaic. -->
                     <div class="thumb-card">
                         <h3>Before Match</h3>
                         <img src="{before_match_thumb}" onclick="openModal(this.src)" alt="Before match">
@@ -798,6 +832,11 @@ def create_kpi_report_template() -> str:
                         <img src="{match_thumb}" onclick="openModal('{match_original}')" alt="Match found" style="cursor: zoom-in;">
                         <div class="timestamp">{match_time}</div>
                         <div class="hint" style="font-size: 11px; margin-top: 4px; color: #4CAF50;">Click to view original</div>
+                    </div>
+                    <div class="thumb-card">
+                        <h3>After Match</h3>
+                        <img src="{after_match_thumb}" onclick="openModal(this.src)" alt="After match">
+                        <div class="timestamp">{after_match_time}</div>
                     </div>
                     {disappear_card}
                 </div>

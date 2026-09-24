@@ -37,10 +37,79 @@
 # that depends on a maybe is not an exemption.
 
 docs/tasks/
-docs/agent/
+docs/agent/release/
 security_report/
 docs/security/*.json
 .claude/
 .cursor/
 .husky/
+.githooks/
 tests/backend_server/.env.test.jwt
+
+# --- product screenshots, until they are re-shot on anonymised fixtures -------------------
+# A pre-publication audit read the images, which no text scanner ever has: device watermarks
+# and table rows carry the customer's own host naming, a Grafana panel is
+# titled with the customer's product name (which the code scrubbed to `example_tv`), an STB
+# details panel shows hardware version and a partly-legible serial under a German operator UI,
+# and one remote photo still carries the operator's emblem while its sibling is the same photo
+# with the emblem removed. Several also show live broadcast content and identifiable faces.
+#
+# Stripped wholesale rather than per-file: the leak is in pixels, so "which ones are clean" is
+# not answerable by grep, and a new screenshot dropped in tomorrow would publish unreviewed.
+# docs/screenshots/ goes too — it is nothing but <img> tags pointing at these files.
+#
+# REMOVE BOTH ENTRIES once the images are re-shot on anonymised device names and content.
+frontend/public/screenshot/
+docs/screenshots/
+
+# --- docs/agent: internal-only ---------------------------------------------------------------
+# Agent docs are authored for maintainers and deployment operators. Even apparently conceptual
+# pages can contain private topology, auth-bypass procedures, customer-context breadcrumbs, or
+# commands that are safe only inside our environment. Keep the public repo's onboarding and user
+# documentation under docs/get-started/, docs/user-guide/, and docs/technical/ instead.
+#
+# This whole-directory rule is intentional: a new agent document must not become public merely
+# because nobody remembered to add its filename here. The publication audit also treats the
+# absence of docs/agent/ as a required invariant.
+docs/agent/
+
+# Internal meta / tooling
+docs/agent/OBSIDIAN.md
+docs/agent/DOCS_BENCHMARK.md
+docs/agent/INDEX.json
+docs/agent/leak-terms.local.txt.example
+
+# Plans, roadmaps, refactors and handovers — snapshots of intent, not of the system
+docs/agent/ai/UNIFIED_CHAT_REFACTOR.md
+docs/agent/platform/AVQ_IMPLEMENTATION.md
+docs/agent/testgen/AI_TEST_GENERATION_PHASES.md
+docs/agent/testgen/AI_TEST_GENERATION_ROADMAP.md
+docs/agent/testgen/AI_TEST_GENERATION_V2.md
+docs/agent/validation/TEST_PROMPT.md
+docs/agent/navigation/HANDOVER_variant_edge_create.md
+docs/agent/navigation/userinterface_variant_uuid_migration.md
+
+# Benchmarks and findings measured on our own devices
+docs/agent/ai/agent_benchmarks.md
+docs/agent/ai/langfuse_integration.md
+docs/agent/navigation/AI_USERINTERFACE_BENCHMARKS.md
+docs/agent/navigation/KNOWN_ISSUES_USERINTERFACE.md
+
+# Runbooks for our fleet — hardware, stalls, recovery, diagnosis
+docs/agent/devices/FFMPEG_TROUBLESHOOT.md
+docs/agent/devices/FFMPEG_HD_PLUS.md
+docs/agent/devices/USB_GRABBER_FLAPPING.md
+docs/agent/devices/IRTRANS_PROXY.md
+docs/agent/devices/DEVICE_INFO_CORRECTION.md
+docs/agent/devices/REMOTE_BUTTON_ALIGNMENT.md
+docs/agent/devices/SCREENSHOTS.md
+docs/agent/devices/bluetooth/
+docs/agent/execution/KPI_TROUBLESHOOTING.md
+docs/agent/navigation/AI_USERINTERFACE_TROUBLESHOOT.md
+docs/agent/navigation/AUTOBUILD.md
+docs/agent/navigation/AUTOBUILD_STRIP_MODEL.md
+docs/agent/validation/VALIDATION_ANALYSIS.md
+docs/agent/validation/VALIDATION_FIX_LOOP.md
+
+# Describes how authentication is bypassed on a deployment. Never publishes.
+docs/agent/validation/TESTING.md

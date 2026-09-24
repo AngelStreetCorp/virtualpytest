@@ -24,6 +24,7 @@
 #   leak_gate.sh --all                 # every tracked file at HEAD (pre-publish audit).
 #                                      # Ignored/untracked files are out of scope in BOTH
 #                                      # checks — .env and dist/ are not what gets published.
+#   leak_gate.sh --tag-message <tag>   # one annotated tag's own message (pre-push hook)
 #   leak_gate.sh --require-terms       # fail if no term list is available (use in CI)
 #
 # Exit: 0 clean · 1 findings · 2 misconfigured (missing terms under --require-terms)
@@ -36,6 +37,7 @@ cd "$REPO_ROOT" || exit 2
 TERMS_FILE="${LEAK_TERMS_FILE:-docs/agent/leak-terms.local.txt}"
 MODE="range"
 RANGE=""
+TAGREF=""
 REQUIRE_TERMS=0
 
 while [[ $# -gt 0 ]]; do
@@ -43,6 +45,7 @@ while [[ $# -gt 0 ]]; do
     --range)          MODE="range";  RANGE="${2:-}"; shift 2 ;;
     --staged)         MODE="staged"; shift ;;
     --all)            MODE="all";    shift ;;
+    --tag-message)    MODE="tagmsg"; TAGREF="${2:-}"; shift 2 ;;
     --require-terms)  REQUIRE_TERMS=1; shift ;;
     -h|--help)        sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "leak_gate: unknown argument '$1'" >&2; exit 2 ;;
@@ -107,6 +110,21 @@ case "$MODE" in
     changed_files() { git diff --cached --name-only --diff-filter=ACMR; }
     added_lines()   { git diff --cached --unified=0 --diff-filter=ACMR -- . | diff_to_located; }
     messages()      { :; }   # no message written yet at pre-commit time
+    ;;
+  tagmsg)
+    SCOPE_DESC="the message of tag ${TAGREF}"
+    changed_files() { :; }
+    added_lines()   { :; }
+    # An annotated tag's message is NOT a commit message, and the tier-2 exemption that
+    # covers commit messages must not reach it: publish_public.sh copies every release-*
+    # tag on the published commit into the public repo, so a tag message is published
+    # content. RELEASING.md states the rule directly -- never a customer name or codename
+    # in a platform tag -- and it was broken the day this mode was written, by a tag
+    # that named two customers in its message. Nothing looked, because pushing a tag hands
+    # the pre-push hook a commit range that is empty whenever the tagged commit is already
+    # on the remote -- it printed "nothing to scan" and passed.
+    messages()      { git for-each-ref --format='%(contents)' "refs/tags/${TAGREF}"; }
+    MSG_TIER2=1
     ;;
   all)
     SCOPE_DESC="every tracked file at HEAD"
@@ -246,7 +264,12 @@ else
   fi
   [[ -n "$T1_PATH_RE" ]] && paths="$(printf '%s\n' "$all_paths" | grep -inE "${T1_PATH_RE}" || true)"
 
-  # Tier 2 — publishable paths only; commit messages skipped entirely.
+  # Tier 2 — publishable paths only; commit messages skipped entirely, EXCEPT a tag
+  # message, which publish_public.sh copies into the public repo (MSG_TIER2).
+  if [[ -n "$T2_LINE_RE" && "${MSG_TIER2:-0}" == "1" ]]; then
+    t2_msgs="$(printf '%s\n' "$all_msgs" | grep -inE "${T2_LINE_RE}" || true)"
+    [[ -n "$t2_msgs" ]] && msgs="${msgs:+${msgs}$'\n'}${t2_msgs}"
+  fi
   if [[ -n "$T2_LINE_RE" ]]; then
     t2_lines="$(printf '%s\n' "$all_lines" | drop_internal_lines | grep -iE "${T2_LINE_RE}" || true)"
     [[ -n "$t2_lines" ]] && lines="${lines:+${lines}$'\n'}${t2_lines}"

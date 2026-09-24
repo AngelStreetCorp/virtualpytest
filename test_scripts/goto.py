@@ -5,14 +5,20 @@ Generic Navigation Script for VirtualPyTest
 This script navigates to a specified node in the navigation tree.
 If no node is specified, it defaults to 'home'.
 
+Every argument is a flag — there is no positional userinterface argument. A bare
+positional is ignored and --userinterface silently keeps its default, so the run
+loads the wrong tree.
+
 Usage:
-    python test_scripts/goto.py [userinterface_name] [--node <node_name>]
-    
+    python test_scripts/goto.py [--userinterface <name>] [--node <node_name>]
+                                [--device <device_id>] [--variant <name>]
+                                [--verify end|each|auto]
+
 Examples:
     python test_scripts/goto.py                           # Goes to 'home' node
     python test_scripts/goto.py --node live               # Goes to 'live' node
-    python test_scripts/goto.py example_mobile --node settings
-    python test_scripts/goto.py example_androidtv --node live_fullscreen --device device2
+    python test_scripts/goto.py --userinterface example_mobile --node settings
+    python test_scripts/goto.py --userinterface example_androidtv --node live_fullscreen --device device2
 """
 
 import sys

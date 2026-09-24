@@ -1,0 +1,9 @@
+{
+  "name": "device-farm",
+  "description": "Cloud device farms as VirtualPyTest devices (TASK-20). A phone in Sauce Labs (or another W3C farm) is driven as an ordinary device of a host: the remote implementation 'appium_cloud' opens a leased WebDriver session against the farm endpoint, a frame pump polls screenshots into the slot's DEVICEn_VIDEO image file so the host's existing ffmpeg imagefile grabber makes HLS + captures (AV stays core hdmi_stream, exactly as for a paired phone), and the 'appium' verification type is re-backed for the cloud models so it reuses that one session instead of allocating a second metered device. Provider differences (endpoint, vendor caps block, app-upload reference, device/artifact REST API) live behind lib/providers/*; Sauce Labs is implemented, BrowserStack and LambdaTest carry their session shape and raise on the REST parts. Core hooks: the cloud_android_mobile / cloud_ios_mobile models in device_capabilities, the CloudAppium branch in device.py's capability reporting, the DEVICEn_FARM_* env block in controller_manager, and capability redaction in appium_utils. Docs: docs/tasks/TASK-20-device-farm-integration.md.",
+  "parts": [
+    "backend_host",
+    "lib",
+    "db"
+  ]
+}

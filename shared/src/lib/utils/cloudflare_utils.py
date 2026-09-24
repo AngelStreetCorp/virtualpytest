@@ -684,6 +684,17 @@ class CloudflareUtils:
         # Check if using MinIO (no Cloudflare R2 endpoint)
         r2_endpoint = os.environ.get('CLOUDFLARE_R2_ENDPOINT')
         if not r2_endpoint:
+            # A deployment may expose its S3 API through a different public
+            # host than the server URL.  When that endpoint is configured,
+            # sign against it first so report HTML cannot inherit a stale
+            # MINIO_PUBLIC_URL from a cloned deployment.
+            presign_endpoint = os.environ.get('MINIO_PRESIGN_ENDPOINT', '').strip()
+            if presign_endpoint:
+                result = self.generate_presigned_url(remote_path, expires_in=MAX_R2_PRESIGN_EXPIRY)
+                if result.get('success'):
+                    logger.debug(f"Generated long-expiry signed URL using MINIO_PRESIGN_ENDPOINT: {remote_path}")
+                    return result['url']
+                logger.warning(f"Failed to generate signed URL for {remote_path}, falling back to configured public URL")
             minio_public_url = os.environ.get('MINIO_PUBLIC_URL', '').strip()
             if minio_public_url:
                 return f"{minio_public_url.rstrip('/')}/{self.bucket_name}/{remote_path.lstrip('/')}"

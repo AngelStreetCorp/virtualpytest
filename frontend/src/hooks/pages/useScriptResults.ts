@@ -8,6 +8,7 @@ import { useMemo } from 'react';
 
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api, apiClient } from '../../utils/apiClient';
+import type { RerunPayload } from '../../types/common/Rerun_Types';
 export interface ScriptResult {
   id: string;
   team_id: string;
@@ -29,6 +30,10 @@ export interface ScriptResult {
   metadata: any;
   created_at: string;
   updated_at: string;
+  /** Launch config of the deployment that started this run, joined in by
+   *  get_script_results. Null for runs with no deployment behind them (campaign
+   *  steps, direct API calls) — those derive a payload from `metadata` instead. */
+  rerun_payload?: RerunPayload | null;
   
   // AI Discard Analysis fields (from backend_discard service)
   checked?: boolean; // Whether AI has analyzed this script result

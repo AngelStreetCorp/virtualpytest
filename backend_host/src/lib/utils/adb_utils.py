@@ -231,19 +231,22 @@ class ADBUtils:
         Connect to ADB device.
         
         Args:
-            device_id: Android device ID (IP:port)
-            
+            device_id: Android device ID — TCP endpoint (IP:port) or USB serial
+
         Returns:
             bool: True if connection successful
         """
         try:
-            # Connect to ADB device
-            success, stdout, stderr, exit_code = self.execute_command(f"adb connect {device_id}")
-            
-            if not success or exit_code != 0:
-                print(f"[@lib:adbUtils:connect_device] ADB connect failed: {stderr}")
-                return False
-            
+            # `adb connect` only applies to TCP endpoints (ip:port). USB serials
+            # (DEVICE<N>_ADB_SERIAL) are enumerated by the adb server directly, so
+            # for those we only verify presence in `adb devices`.
+            if ':' in device_id:
+                success, stdout, stderr, exit_code = self.execute_command(f"adb connect {device_id}")
+
+                if not success or exit_code != 0:
+                    print(f"[@lib:adbUtils:connect_device] ADB connect failed: {stderr}")
+                    return False
+
             # Verify device is connected
             success, stdout, stderr, exit_code = self.execute_command("adb devices")
             
@@ -257,10 +260,11 @@ class ADBUtils:
             
             device_found = None
             for line in device_lines:
-                if device_id in line:
+                # Exact match on the serial column: a USB serial may be a prefix of another
+                if line.split()[0] == device_id:
                     device_found = line
                     break
-                    
+
             if not device_found:
                 print(f"[@lib:adbUtils:connect_device] Device {device_id} not found in adb devices list")
                 return False

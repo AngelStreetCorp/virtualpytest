@@ -111,6 +111,6 @@ further warning.
 The deploy host's `~/virtualpytest` checkout was on an unrelated feature branch
 (`feat/mobile-app`, another session's active work, 9 commits ahead of `main`) — deployed from a
 separate throwaway clone instead so that checkout was not touched. `update_core.sh --server`'s
-target list (`SERVER_IP="192.168.0.103,host1"`) also tried a second target named `host1`, which
+target list (`SERVER_IP="192.168.x.103,host1"`) also tried a second target named `host1`, which
 failed to resolve from this shell (`ssh: Could not resolve hostname host1`) — pre-existing,
 unrelated to this fix, not investigated further here.

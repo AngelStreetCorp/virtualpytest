@@ -4,6 +4,10 @@ import { supabase, signOutAllIdentities } from '../../lib/supabase';
 import { clearServerIdentities } from '../../lib/serverIdentity';
 import { UserProfile } from '../../types/auth';
 import { clearAutoSignSession, tryActivateAutoSign } from '../../lib/autoSign';
+import {
+  profileCacheKey,
+  pruneOrphanedProfileCacheKeys,
+} from '../../config/cacheVersion';
 
 interface AuthContextType {
   user: User | null;
@@ -41,17 +45,32 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [isAutoSigned, setIsAutoSigned] = useState(false);
 
+  // Drop any cached profiles that were written by an older schema version.
+  // Runs once per mount; cheap (one pass over keys with the same prefix).
+  // Best-effort: a private-mode localStorage error throws is swallowed in
+  // pruneOrphanedProfileCacheKeys().
+  useEffect(() => {
+    const removed = pruneOrphanedProfileCacheKeys();
+    if (removed > 0 && typeof console !== 'undefined') {
+      console.info(`[auth] pruned ${removed} orphaned profile cache key(s) (pre-version bump)`);
+    }
+  }, []);
+
   // Fetch user profile from database with caching
   const fetchProfile = async (userId: string): Promise<UserProfile | null> => {
-    // Try cache first
-    const cached = localStorage.getItem(`auth_profile_${userId}`);
+    // Try cache first — keyed by userId AND a schema version constant so a
+    // new field on UserProfile (e.g. is_platform_admin in TASK-23) auto-busts
+    // the cache after deploy without operators having to clear localStorage.
+    // See ../../config/cacheVersion.ts for the version-history rules.
+    const cacheKey = profileCacheKey(userId);
+    const cached = localStorage.getItem(cacheKey);
     if (cached) {
       try {
         const parsed = JSON.parse(cached);
         return parsed as UserProfile;
       } catch (e) {
         console.warn('Error parsing cached profile:', e);
-        localStorage.removeItem(`auth_profile_${userId}`);
+        localStorage.removeItem(cacheKey);
       }
     }
 
@@ -98,7 +117,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       } as UserProfile;
 
       // Update cache
-      localStorage.setItem(`auth_profile_${userId}`, JSON.stringify(profile));
+      localStorage.setItem(cacheKey, JSON.stringify(profile));
 
       return profile;
     } catch (err) {
@@ -341,7 +360,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     clearServerIdentities();
     // Clear local storage cache
     if (user) {
-      localStorage.removeItem(`auth_profile_${user.id}`);
+      localStorage.removeItem(profileCacheKey(user.id));
     }
     setUser(null);
     setProfile(null);
@@ -364,7 +383,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
             denied_permissions: data.denied_permissions ?? [],
             team_permissions: [],
           } as UserProfile;
-          localStorage.setItem(`auth_profile_${user.id}`, JSON.stringify(refreshed));
+          localStorage.setItem(profileCacheKey(user.id), JSON.stringify(refreshed));
           setProfile(refreshed);
         }
       } catch (err) {

@@ -74,6 +74,9 @@ export interface Device {
   preferred_userinterface?: string; // Default userinterface for navigation scripts on this device
   preferred_variant?: string; // Default named variant (only meaningful with preferred_userinterface)
 
+  // === CLOUD DEVICE FARM (features/device-farm only) ===
+  device_farm_provider?: string; // Farm the session is leased from ('browserstack', 'saucelabs'); absent for a local device
+
   // === DEPLOYMENT STATUS ===
   has_running_deployment?: boolean; // True if a deployment script is currently running on this device
 

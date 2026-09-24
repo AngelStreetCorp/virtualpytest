@@ -25,7 +25,11 @@
 PROJECT_ROOT="/opt/virtualpytest"
 ENV_FILE="$PROJECT_ROOT/backend_host/src/.env"
 BASE_PATH="/var/www/html/stream"
-MOUNT_SIZE="200M"
+# 400M, not 200M: hot now keeps 900 capture frames (180s) instead of 300 (60s) so a
+# long KPI window stays on the live 5fps grid, and 900 frames of video-heavy content
+# is ~220MB worst case (hot_cold_archiver.HOT_LIMITS documents the arithmetic).
+# tmpfs allocates on demand, so an idle device still costs only what it writes.
+MOUNT_SIZE="400M"
 VPT_USER="vpt_user"
 DRY_RUN="${DRY_RUN:-0}"
 
@@ -65,7 +69,7 @@ if [ -n "$HOST_CAPTURE_PATH" ]; then
   DEVICES+=("$(basename "$HOST_CAPTURE_PATH")")
 fi
 
-for i in {1..14}; do
+for i in {1..30}; do
   VIDEO_CAPTURE_PATH=$(grep "^DEVICE${i}_VIDEO_CAPTURE_PATH=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f 2- | tr -d '"' | tr -d "'" | sed 's/[[:space:]]*#.*$//' | xargs)
   if [ -n "$VIDEO_CAPTURE_PATH" ]; then
     DEVICES+=("$(basename "$VIDEO_CAPTURE_PATH")")
@@ -80,6 +84,8 @@ fi
 log_info "parsing .env, found ${#DEVICES[@]} active device(s): ${DEVICES[*]}"
 
 MOUNT_OPTS="size=$MOUNT_SIZE,noexec,nodev,nosuid,uid=$VPT_UID,gid=$VPT_GID,mode=755"
+# /proc/mounts reports tmpfs size in kB, so keep the wanted size in the same unit.
+MOUNT_SIZE_K=$(( ${MOUNT_SIZE%M} * 1024 ))
 
 for DEVICE in "${DEVICES[@]}"; do
   DEVICE_DIR="$BASE_PATH/$DEVICE"
@@ -88,12 +94,30 @@ for DEVICE in "${DEVICES[@]}"; do
   run mkdir -p "$DEVICE_DIR" 2>/dev/null
   run chown "$VPT_USER:$VPT_USER" "$DEVICE_DIR" 2>/dev/null || true
 
-  # Fast path: already a tmpfs mount.
+  # Already a tmpfs mount: reconcile its SIZE rather than skipping outright.
+  # Skipping is what made MOUNT_SIZE unchangeable — an existing host kept the size
+  # it was first mounted with, and its /etc/fstab kept the old one too, so even a
+  # reboot could not pick up a new value. A tmpfs remount is instant and does not
+  # touch the files already in it.
   if mountpoint -q "$HOT_PATH" 2>/dev/null; then
-    log_info "$DEVICE — already mounted as tmpfs, skip"
     ACTIVE_HOT_PATHS+=("$(realpath "$HOT_PATH" 2>/dev/null || echo "$HOT_PATH")")
-    continue
-  fi
+    CURRENT_K="$(awk -v p="$HOT_PATH" '$2 == p {print $4}' /proc/mounts 2>/dev/null \
+                 | tr ',' '\n' | sed -n 's/^size=\([0-9]*\)k$/\1/p' | head -1)"
+    # Grow only. A host deliberately given more than the default (vpt-pi1 runs two
+    # devices at 512M) must keep it, and shrinking a live tmpfs below what it already
+    # holds would fail anyway.
+    if [ -n "$CURRENT_K" ] && [ "$CURRENT_K" -lt "$MOUNT_SIZE_K" ] 2>/dev/null; then
+      log_info "$DEVICE — hot tmpfs is ${CURRENT_K}k, want ${MOUNT_SIZE_K}k — remounting"
+      run mount -o "remount,$MOUNT_OPTS" "$HOT_PATH" 2>/dev/null || \
+        log_warn "$DEVICE — could not resize hot tmpfs (permission?); leaving as is"
+    else
+      # Already big enough — leave the mount AND its fstab entry alone. Rewriting
+      # fstab here would quietly shrink a deliberately larger device on next boot.
+      log_info "$DEVICE — hot tmpfs already at ${CURRENT_K:-?}k (>= $MOUNT_SIZE), leaving it"
+      continue
+    fi
+    # Grew it: fall through to the fstab upsert so the new size survives a reboot.
+  else
 
   # Stale-dir fix: /hot exists but is NOT a tmpfs mount. Preserve it out of
   # the way so future mounts never overlay it. This is the root cause of the
@@ -122,8 +146,9 @@ for DEVICE in "${DEVICES[@]}"; do
     log_warn "$DEVICE — could not mount tmpfs at $HOT_PATH; ffmpeg will fall back to SD mode"
     continue
   fi
+  fi
 
-  # Best-effort fstab upsert (only if we successfully mounted).
+  # Best-effort fstab upsert (after a fresh mount OR a resize of an existing one).
   REAL_HOT_PATH="$(realpath "$HOT_PATH" 2>/dev/null || echo "$HOT_PATH")"
   FSTAB_LINE="tmpfs $REAL_HOT_PATH tmpfs $MOUNT_OPTS 0 0"
   if [ -w /etc/fstab ] || [ "$(id -u)" = "0" ]; then

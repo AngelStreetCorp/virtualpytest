@@ -45,25 +45,28 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
         except Exception as e:
             raise RuntimeError(f"Error loading Android Mobile remote config from file: {e}")
     
-    def __init__(self, device_ip: str, device_port: int = 5555, **kwargs):
+    def __init__(self, device_ip: str = None, device_port: int = 5555, adb_serial: str = None, **kwargs):
         """
         Initialize the Android mobile remote controller.
-        
+
         Args:
-            device_ip: Android device IP address (required)
+            device_ip: Android device IP address (ADB over TCP, DEVICE<N>_IP)
             device_port: ADB port (default: 5555)
+            adb_serial: USB ADB serial (DEVICE<N>_ADB_SERIAL). When set it is used as
+                        the `adb -s` target instead of ip:port (USB hub / phone farm).
         """
         super().__init__("Android Mobile", "android_mobile")
-        
+
         # Android device parameters
         self.device_ip = device_ip
         self.device_port = device_port
-        
+        self.adb_serial = adb_serial
+
         # Validate required parameters
-        if not self.device_ip:
-            raise ValueError("device_ip is required for AndroidMobileRemoteController")
-            
-        self.android_device_id = f"{self.device_ip}:{self.device_port}"
+        if not self.device_ip and not self.adb_serial:
+            raise ValueError("device_ip or adb_serial is required for AndroidMobileRemoteController")
+
+        self.android_device_id = self.adb_serial or f"{self.device_ip}:{self.device_port}"
         self.adb_utils = None
         self.device_resolution = None
         
@@ -608,9 +611,9 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
         
     def get_status(self) -> Dict[str, Any]:
         """Get controller status by checking ADB device connectivity."""
-        if not self.device_ip:
-            return {'success': False, 'error': 'No device IP provided'}
-            
+        if not self.android_device_id:
+            return {'success': False, 'error': 'No device IP or ADB serial provided'}
+
         try:
             # Run adb devices to check connectivity
             import subprocess
