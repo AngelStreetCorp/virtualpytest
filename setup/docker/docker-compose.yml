@@ -143,8 +143,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -204,9 +202,14 @@ services:
     # on every start, so changing PUBLIC_HOST needs a restart rather than a rebuild — and
     # one published image serves any address.
     environment:
-      VITE_SERVER_URL: https://api.${PUBLIC_HOST}
-      VITE_GRAFANA_URL: https://grafana.${PUBLIC_HOST}
-      VITE_CLOUDFLARE_R2_PUBLIC_URL: https://minio.${PUBLIC_HOST}/${MINIO_BUCKET:-virtualpytest}
+      # The cloudflared tunnel uses hostnames like gcloudstandalone-api.<zone>
+      # that Universal SSL doesn't auto-provision when they're 2-level subdomains
+      # of a 2-level zone (api.<vm>.<zone>.<zone-tld>). Provide overrides via
+      # env (set in setup/docker/.env), falling back to the VITE_* built from
+      # PUBLIC_HOST for 1-level deployments.
+      VITE_SERVER_URL: ${VITE_SERVER_URL:-https://${PUBLIC_HOST}}
+      VITE_GRAFANA_URL: ${VITE_GRAFANA_URL:-https://${PUBLIC_HOST}}
+      VITE_CLOUDFLARE_R2_PUBLIC_URL: ${VITE_CLOUDFLARE_R2_PUBLIC_URL:-https://${PUBLIC_HOST}/${MINIO_BUCKET:-virtualpytest}}
       # Empty = open mode (no login). To enforce auth see docs/get-started/supabase.md
       VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
       VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
