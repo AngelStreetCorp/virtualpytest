@@ -14,13 +14,20 @@ ARG VITE_SUPABASE_URL=
 ARG VITE_SUPABASE_ANON_KEY=
 ARG VITE_SERVER_PUBLIC_KEY=
 ARG VITE_PROJECT_NAME=VirtualPyTest
+# Release tag passed in by .github/workflows/release-images.yml as a build-arg.
+# prebuild.sh reads this to synthesize a version.txt when the repo-root VERSION.txt
+# isn't reachable from the frontend-only build context (it isn't, see BUG-0117
+# follow-up). Including it as an ARG also adds the value to the cache key for
+# the next RUN layer, which is what actually invalidates the stale-cache layer.
+ARG VPT_IMAGE_TAG
 ENV VITE_SERVER_URL=$VITE_SERVER_URL \
     VITE_GRAFANA_URL=$VITE_GRAFANA_URL \
     VITE_CLOUDFLARE_R2_PUBLIC_URL=$VITE_CLOUDFLARE_R2_PUBLIC_URL \
     VITE_SUPABASE_URL=$VITE_SUPABASE_URL \
     VITE_SUPABASE_ANON_KEY=$VITE_SUPABASE_ANON_KEY \
     VITE_SERVER_PUBLIC_KEY=$VITE_SERVER_PUBLIC_KEY \
-    VITE_PROJECT_NAME=$VITE_PROJECT_NAME
+    VITE_PROJECT_NAME=$VITE_PROJECT_NAME \
+    VPT_IMAGE_TAG=$VPT_IMAGE_TAG
 
 WORKDIR /app
 
@@ -35,6 +42,8 @@ COPY . .
 RUN chmod +x scripts/*.sh && mkdir -p public/docs
 
 # prebuild.sh (npm hook) skips the docs copy when ../docs is absent — expected here
+# VPT_IMAGE_TAG is read by prebuild.sh to synthesize frontend/public/version.txt
+# when the repo root's VERSION.txt isn't in the build context.
 RUN npm run build
 
 # Runtime stage — static files served by `serve` on 5073 (SPA fallback)
