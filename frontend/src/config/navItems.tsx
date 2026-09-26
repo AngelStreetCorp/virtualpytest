@@ -274,6 +274,7 @@ export const INTEGRATIONS_ITEMS: NavItem[] = [
     label: 'Postman',
     path: '/api/workspaces',
     icon: <PostmanIcon fontSize="small" />,
+    externalHref: 'https://martian-zodiac-279215.postman.co/workspace/virtualpytest~4e7a465c-a542-4440-8903-48787f03942a',
   },
   {
     label: 'Jira',

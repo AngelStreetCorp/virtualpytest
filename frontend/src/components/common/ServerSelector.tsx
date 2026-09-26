@@ -67,6 +67,21 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
     return serverUrl.replace(/^https?:\/\//, '');
   };
 
+  // Long server URLs (e.g. "virtualpytest-backend-server.onrender.com") overflow
+  // the closed Select and wrap to a second line. Cap the displayed value at 30
+  // chars with an ellipsis; the dropdown MenuItems keep the full text. The full
+  // URL stays available via the browser title bar and the picker itself.
+  const MAX_DISPLAY_LENGTH = 30;
+  const truncateForDisplay = (value: string): string => {
+    if (value.length <= MAX_DISPLAY_LENGTH) return value;
+    return `${value.slice(0, MAX_DISPLAY_LENGTH - 1)}…`;
+  };
+
+  const renderSelectedServer = (value: unknown): React.ReactNode => {
+    const serverUrl = typeof value === 'string' ? value : '';
+    return truncateForDisplay(nameFor(serverUrl));
+  };
+
   const handleChange = (serverUrl: string) => {
     if (serverAuthStates[serverUrl] === 'needs-auth') {
       // Picking it IS asking for the dialog, so an earlier dismissal no longer applies.
@@ -98,6 +113,7 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
           label={isServerChanging ? 'Switching...' : label}
           onChange={(e) => handleChange(e.target.value)}
           disabled={isServerChanging}
+          renderValue={renderSelectedServer}
           startAdornment={isServerChanging ? (
             <CircularProgress size={16} sx={{ mr: 1, ml: -0.5 }} />
           ) : undefined}
@@ -106,6 +122,9 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
             '& .MuiSelect-select': {
               display: 'flex',
               alignItems: 'center',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              textOverflow: 'ellipsis',
             }
           }}
         >

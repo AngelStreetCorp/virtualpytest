@@ -74,13 +74,13 @@ paths:
           description: Bad request - target_node required or navigation controller not available
         '500':
           description: Host device not initialized or navigation error
-  /server/navigation/config/createEmpty/{ui_name}:
+  /server/navigation/config/createEmpty/{interface_name}:
     post:
       summary: Create Empty Navigation Config
       description: Create an empty navigation configuration for a user interface with entry and home nodes
       tags: [Navigation]
       parameters:
-        - name: ui_name
+        - name: interface_name
           in: path
           required: true
           schema:

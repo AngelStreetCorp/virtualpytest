@@ -932,15 +932,31 @@ ROLE_DEFAULT_PERMISSIONS: dict = {
         'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
         'interface:view',
         'ai_agent:view', 'ai_agent:use',
+        'plugins.postman:view',
         'plugins.jira:view', 'plugins.jira:manage', 'plugins.testrail:view',
         'settings.status:view',
     },
     'viewer': {
+        # Read-only everywhere a tester is also read-only, so a viewer can
+        # audit the system and integrations but cannot mutate state. Write
+        # verbs (`*:manage`, `device_control:execute/reboot/restart_streams`)
+        # stay admin/tester-only — TASK-23 + the global read-only floor on
+        # the /server/* guard means a viewer cannot change anything anyway,
+        # but listing the read verbs here keeps the matrix honest (BUG-0154)
+        # and stops the /server/integrations/* GET endpoints returning 403 to
+        # a viewer who only wants to read the configured status.
         'dashboard:view',
         'testcases:view', 'campaigns:view',
         'reports.tests:view', 'reports.campaigns:view',
         'reports.models:view', 'reports.dependency:view',
         'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
+        'device_control:view',  # see host cards / status; :execute/:reboot/:restart_streams stay tester+admin-only
+        'plugins.postman:view',
+        'plugins.jira:view',
+        'plugins.testrail:view',
+        'plugins.slack:view',
+        'plugins.grafana:view',
+        'plugins.langfuse:view',
         'settings.status:view',
     },
 }

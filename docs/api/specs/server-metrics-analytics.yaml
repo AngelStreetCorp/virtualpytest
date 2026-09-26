@@ -27,13 +27,13 @@ x-postman-variables:
     value: 'edge_login_action'
     description: Edge identifier
 paths:
-  /server/metrics/tree/{navigation_id}:
+  /server/metrics/tree/{tree_id}:
     get:
       summary: Get Tree Metrics
       description: Get performance metrics and analytics for a navigation tree
       tags: [Metrics]
       parameters:
-        - name: navigation_id
+        - name: tree_id
           in: path
           required: true
           schema:
@@ -65,24 +65,24 @@ paths:
                     type: number
         '404':
           description: Navigation tree not found
-  /server/metrics/node/node-id/{navigation_id}:
+  /server/metrics/node/{node_id}/{tree_id}:
     get:
       summary: Get Node Metrics
       description: Get performance metrics for a specific node in a navigation tree
       tags: [Metrics]
       parameters:
-        - name: navigation_id
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Node identifier
+        - name: tree_id
           in: path
           required: true
           schema:
             type: string
           description: Navigation tree identifier
-        - name: node_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Node identifier
         - name: Authorization
           in: header
           required: false
@@ -107,24 +107,24 @@ paths:
                     type: number
         '404':
           description: Node not found
-  /server/metrics/edge/edge-id/{navigation_id}:
+  /server/metrics/edge/{edge_id}/{tree_id}:
     get:
       summary: Get Edge Metrics
       description: Get performance metrics for a specific edge (action) in a navigation tree
       tags: [Metrics]
       parameters:
-        - name: navigation_id
+        - name: edge_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Edge identifier
+        - name: tree_id
           in: path
           required: true
           schema:
             type: string
           description: Navigation tree identifier
-        - name: edge_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Edge identifier
         - name: Authorization
           in: header
           required: false
@@ -149,24 +149,24 @@ paths:
                     type: number
         '404':
           description: Edge not found
-  /server/metrics/history/actions/edge-id/{navigation_id}:
+  /server/metrics/history/actions/{edge_id}/{tree_id}:
     get:
       summary: Get Action History
       description: Get execution history for actions performed on a specific edge
       tags: [Metrics]
       parameters:
-        - name: navigation_id
+        - name: edge_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Edge identifier
+        - name: tree_id
           in: path
           required: true
           schema:
             type: string
           description: Navigation tree identifier
-        - name: edge_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Edge identifier
         - name: Authorization
           in: header
           required: false
@@ -192,24 +192,24 @@ paths:
                       type: number
         '404':
           description: Edge not found
-  /server/metrics/history/verifications/node-id/{navigation_id}:
+  /server/metrics/history/verifications/{node_id}/{tree_id}:
     get:
       summary: Get Verification History
       description: Get verification execution history for a specific node
       tags: [Metrics]
       parameters:
-        - name: navigation_id
+        - name: node_id
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Node identifier
+        - name: tree_id
           in: path
           required: true
           schema:
             type: string
           description: Navigation tree identifier
-        - name: node_id
-          in: query
-          required: true
-          schema:
-            type: string
-          description: Node identifier
         - name: Authorization
           in: header
           required: false

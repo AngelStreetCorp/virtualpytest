@@ -11,9 +11,13 @@ import {
   Alert,
   IconButton,
   Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { ApiOutlined, Add, Refresh, OpenInNew } from '@mui/icons-material';
+import { ApiOutlined, Refresh, OpenInNew } from '@mui/icons-material';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 
 interface Workspace {
@@ -29,6 +33,22 @@ const UserApiWorkspaces: React.FC = () => {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [guideOpen, setGuideOpen] = useState(false);
+  const [guide, setGuide] = useState<string | null>(null);
+  const [guideError, setGuideError] = useState<string | null>(null);
+
+  const openGuide = async () => {
+    setGuideOpen(true);
+    if (guide) return;
+    try {
+      const response = await fetch(buildServerUrl('/server/postman/guide'));
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.error || 'Failed to load guide');
+      setGuide(data.content);
+    } catch (err) {
+      setGuideError(err instanceof Error ? err.message : 'Failed to load guide');
+    }
+  };
 
   const loadWorkspaces = async () => {
     setLoading(true);
@@ -71,8 +91,7 @@ const UserApiWorkspaces: React.FC = () => {
     <Box sx={{ p: 3 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <ApiOutlined sx={{ fontSize: 32, color: 'primary.main' }} />
-          <Typography variant="h4">API Testing Workspaces</Typography>
+          <Typography variant="h4">Postman</Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
           <Button
@@ -81,15 +100,6 @@ const UserApiWorkspaces: React.FC = () => {
             onClick={loadWorkspaces}
           >
             Refresh
-          </Button>
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => {
-              alert('To add a workspace, edit backend_server/config/postman/postman_config.json');
-            }}
-          >
-            Add Workspace
           </Button>
         </Box>
       </Box>
@@ -101,12 +111,12 @@ const UserApiWorkspaces: React.FC = () => {
       )}
 
       {workspaces.length === 0 && !error && (
-        <Alert severity="warning" sx={{ maxWidth: 600, mx: 'auto' }}>
+        <Alert severity="warning" sx={{ width: '100%', maxWidth: 1100, mx: 'auto', boxSizing: 'border-box' }}>
           <Typography variant="h6" sx={{ mb: 1 }}>
             No API workspaces configured
           </Typography>
           <Typography variant="body2" sx={{ mb: 2 }}>
-            To test your APIs with Postman, you need to configure at least one workspace.
+            The shared Postman workspace is not configured on this server.
           </Typography>
           <Typography variant="body2" component="div" sx={{ mb: 1 }}>
             <strong>Steps to configure:</strong>
@@ -114,20 +124,17 @@ const UserApiWorkspaces: React.FC = () => {
           <ol style={{ marginTop: 4, marginBottom: 8, paddingLeft: 20 }}>
             <li>
               <Typography variant="body2">
-                Get your Postman API key from{' '}
-                <a href="https://postman.co/settings/me/api-keys" target="_blank" rel="noopener noreferrer">
-                  Postman Settings
-                </a>
+                Set <code>POSTMAN_API_KEY</code> in the backend server environment. This key stays server-side; VPT users do not need their own Postman key.
+              </Typography>
+            </li>
+            <li>
+              <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                Copy <code>backend_server/config/postman/postman_config.json.example</code> to <code>backend_server/config/postman/postman_config.json</code>. The shared workspace ID is already provided.
               </Typography>
             </li>
             <li>
               <Typography variant="body2">
-                Edit <code>backend_server/config/postman/postman_config.json</code>
-              </Typography>
-            </li>
-            <li>
-              <Typography variant="body2">
-                Add your workspace configuration with your API key
+                Restart the backend server, then refresh this page.
               </Typography>
             </li>
             <li>
@@ -137,10 +144,31 @@ const UserApiWorkspaces: React.FC = () => {
             </li>
           </ol>
           <Typography variant="caption" color="text.secondary">
-            Example: See the config file for the JSON structure needed.
+            The example file shows the workspace configuration.{' '}
+            <Button size="small" onClick={openGuide} sx={{ verticalAlign: 'baseline', p: 0, minWidth: 0, textTransform: 'none' }}>
+              Read the full configuration guide
+            </Button>
           </Typography>
         </Alert>
       )}
+
+      <Dialog open={guideOpen} onClose={() => setGuideOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>Postman configuration guide</DialogTitle>
+        <DialogContent dividers>
+          {guideError ? (
+            <Alert severity="error">{guideError}</Alert>
+          ) : guide ? (
+            <Typography component="pre" sx={{ m: 0, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+              {guide}
+            </Typography>
+          ) : (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}><CircularProgress /></Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGuideOpen(false)}>Close</Button>
+        </DialogActions>
+      </Dialog>
 
       <Grid container spacing={3}>
         {workspaces.map((workspace) => (
@@ -183,10 +211,6 @@ const UserApiWorkspaces: React.FC = () => {
                   </Box>
                 </Box>
 
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  {workspace.description || 'No description'}
-                </Typography>
-
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography variant="caption" color="text.secondary">
                     Workspace ID:
@@ -206,7 +230,7 @@ const UserApiWorkspaces: React.FC = () => {
                       handleViewWorkspace(workspace.id);
                     }}
                   >
-                    View & Test Endpoints
+                    View
                   </Button>
                 </Box>
               </CardContent>
@@ -219,4 +243,3 @@ const UserApiWorkspaces: React.FC = () => {
 };
 
 export default UserApiWorkspaces;
-

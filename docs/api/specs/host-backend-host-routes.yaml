@@ -1,0 +1,3890 @@
+openapi: 3.0.3
+info:
+  title: HOST - Backend Host Routes
+  version: 1.0.0
+  description: Registered Backend Host routes, including enabled feature routes. This generated inventory lists
+    route/method coverage; inspect the handler for exact payloads and response schemas.
+servers:
+- url: '{server_url}'
+  variables:
+    server_url:
+      default: http://localhost:6109
+security:
+- ApiKeyAuth: []
+- BearerAuth: []
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+x-postman-variables:
+- key: server_url
+  value: http://localhost:6109
+  description: Service base URL
+- key: api_key
+  value: your_api_key_here
+  description: Service credential for trusted host callers
+- key: jwt_token
+  value: your_jwt_token_here
+  description: User Bearer token where required
+paths:
+  /health:
+    get:
+      summary: Backend Host health check
+      description: Route inventory entry from `backend_host/src/app.py` (health_alias). Check the handler for required
+        payload fields and authorization rules.
+      operationId: app_health_alias_get_0bb4da59
+      tags:
+      - health
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/action/abortExecution:
+    post:
+      summary: Abort an async action execution.
+      description: Route inventory entry from `backend_host/src/routes/host_actions_routes.py` (abort_action_execution).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_actions_routes_abort_action_execution_post_06992f95
+      tags:
+      - host/action
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/action/executeBatch:
+    post:
+      summary: Execute a batch of actions on a device
+      description: Route inventory entry from `backend_host/src/routes/host_actions_routes.py` (action_execute_batch).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_actions_routes_action_execute_batch_post_82d9061a
+      tags:
+      - host/action
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/action/execution/{execution_id}/status:
+    get:
+      summary: Get status of async action execution
+      description: Route inventory entry from `backend_host/src/routes/host_actions_routes.py` (action_execution_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_actions_routes_action_execution_status_get_b79ff042
+      tags:
+      - host/action
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/action/health:
+    get:
+      summary: Health check endpoint for host action service
+      description: Route inventory entry from `backend_host/src/routes/host_actions_routes.py` (health_check). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_actions_routes_health_check_get_96f47fa6
+      tags:
+      - host/action
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/ai-disambiguation/analyzePrompt:
+    post:
+      summary: Analyze prompt
+      description: Route inventory entry from `backend_host/src/routes/host_ai_disambiguation_routes.py` (analyze_prompt).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_disambiguation_routes_analyze_prompt_post_005b5d70
+      tags:
+      - host/ai-disambiguation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-disambiguation/deleteMapping/{mapping_id}:
+    delete:
+      summary: Delete mapping route
+      description: Route inventory entry from `backend_host/src/routes/host_ai_disambiguation_routes.py` (delete_mapping_route).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_disambiguation_routes_delete_mapping_route_delete_26d3846b
+      tags:
+      - host/ai-disambiguation
+      parameters:
+      - name: mapping_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/ai-disambiguation/getMappings:
+    get:
+      summary: Get mappings
+      description: Route inventory entry from `backend_host/src/routes/host_ai_disambiguation_routes.py` (get_mappings).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_disambiguation_routes_get_mappings_get_87416539
+      tags:
+      - host/ai-disambiguation
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: userinterface_name
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/ai-disambiguation/saveDisambiguation:
+    post:
+      summary: Save disambiguation route
+      description: Route inventory entry from `backend_host/src/routes/host_ai_disambiguation_routes.py` (save_disambiguation_route).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_disambiguation_routes_save_disambiguation_route_post_f11271db
+      tags:
+      - host/ai-disambiguation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/approve-generation:
+    post:
+      summary: Approve generation
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (approve_generation).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_approve_generation_post_1e702699
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/approve-node-verifications:
+    post:
+      summary: Approve node verifications
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (approve_node_verifications).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_approve_node_verifications_post_1c049e78
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/auto-discover-screen:
+    post:
+      summary: Auto discover screen
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (auto_discover_screen).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_auto_discover_screen_post_c34500bb
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/cancel-exploration:
+    post:
+      summary: Cancel exploration
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (cancel_exploration).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_cancel_exploration_post_6c7aaeb5
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/cleanup-temp:
+    post:
+      summary: Cleanup temp
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (cleanup_temp).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_cleanup_temp_post_f7a68f63
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/continue-exploration:
+    post:
+      summary: Continue exploration
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (continue_exploration).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_continue_exploration_post_5636967e
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/exploration-status/{exploration_id}:
+    get:
+      summary: Exploration status
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (exploration_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_exploration_status_get_52a3f4fc
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: exploration_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/ai-generation/finalize-structure:
+    post:
+      summary: Finalize structure
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (finalize_structure).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_finalize_structure_post_ee7decdb
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/init:
+    post:
+      summary: Init exploration
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (init_exploration).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_init_exploration_post_8dab43ba
+      tags:
+      - host/ai-generation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/next:
+    post:
+      summary: Next item
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (next_item).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_next_item_post_ef7b13ea
+      tags:
+      - host/ai-generation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/start-exploration:
+    post:
+      summary: Start exploration
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (start_exploration).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_start_exploration_post_76c36eef
+      tags:
+      - host/ai-generation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/start-node-verification:
+    post:
+      summary: Start node verification
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (start_node_verification).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_start_node_verification_post_33507f13
+      tags:
+      - host/ai-generation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/start-validation:
+    post:
+      summary: Start validation
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (start_validation).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_start_validation_post_73d6fc39
+      tags:
+      - host/ai-generation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai-generation/validate-next-item:
+    post:
+      summary: Validate next item
+      description: Route inventory entry from `backend_host/src/routes/host_ai_exploration_routes.py` (validate_next_item).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_exploration_routes_validate_next_item_post_1d9928c5
+      tags:
+      - host/ai-generation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/analyzeCompatibility:
+    post:
+      summary: Ai analyze compatibility
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_analyze_compatibility).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_analyze_compatibility_post_d48223c0
+      tags:
+      - host/ai
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/analyzePrompt:
+    post:
+      summary: Ai analyze prompt disambiguation
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_analyze_prompt_disambiguation).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_analyze_prompt_disambiguation_post_0b448d02
+      tags:
+      - host/ai
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/executePlan:
+    post:
+      summary: Ai execute plan
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_execute_plan). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_execute_plan_post_7e508d4b
+      tags:
+      - host/ai
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/executeTestCase:
+    post:
+      summary: Ai execute test case
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_execute_test_case).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_execute_test_case_post_1afc89fb
+      tags:
+      - host/ai
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/generatePlan:
+    post:
+      summary: Ai generate plan
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_generate_plan). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_generate_plan_post_2801fa91
+      tags:
+      - host/ai
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/getDevicePosition:
+    get:
+      summary: Ai get device position
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_get_device_position).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_get_device_position_get_e93bb006
+      tags:
+      - host/ai
+      parameters:
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/ai/getStatus:
+    post:
+      summary: Ai get status
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_get_status). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_get_status_post_508197e0
+      tags:
+      - host/ai
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/saveDisambiguation:
+    post:
+      summary: Ai save disambiguation
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_save_disambiguation).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_save_disambiguation_post_f3d48faf
+      tags:
+      - host/ai
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/status/{execution_id}:
+    get:
+      summary: Ai get execution status
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_get_execution_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_get_execution_status_get_7c8e12aa
+      tags:
+      - host/ai
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/ai/stopExecution:
+    post:
+      summary: Ai stop execution
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_stop_execution). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_stop_execution_post_104573dd
+      tags:
+      - host/ai
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/ai/updateDevicePosition:
+    post:
+      summary: Ai update device position
+      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_update_device_position).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_ai_routes_ai_update_device_position_post_06e3d7be
+      tags:
+      - host/ai
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/connect:
+    post:
+      summary: Connect
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (connect). Check the handler
+        for required payload fields and authorization rules.
+      operationId: host_av_routes_connect_post_01a59238
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/disconnect:
+    post:
+      summary: Disconnect
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (disconnect). Check the
+        handler for required payload fields and authorization rules.
+      operationId: host_av_routes_disconnect_post_ad48b700
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/generateDom:
+    post:
+      summary: Generate the LLM DOM (GPT-5.5, no hints) for a node's STORED screenshot
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (generate_dom_route).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_generate_dom_route_post_1df2e453
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/getSegmentCapture:
+    post:
+      summary: Get segment capture
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (get_segment_capture).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_get_segment_capture_post_dae6d6f6
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/getStreamUrl:
+    get:
+      summary: Get stream url
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (get_stream_url). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_get_stream_url_get_f404b5e7
+      tags:
+      - host/av
+      parameters:
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/av/images:
+    get:
+      summary: Serve an image or JSON file from a specified path on host
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (serve_image_by_path).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_serve_image_by_path_get_4cd5589f
+      tags:
+      - host/av
+      parameters:
+      - name: path
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/av/images/screenshot/{filename}:
+    get:
+      summary: Serve a screenshot image by filename from host
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (serve_screenshot). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_serve_screenshot_get_12a02db2
+      tags:
+      - host/av
+      parameters:
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/av/promoteCapturedFrames:
+    post:
+      summary: Persist the video-capture playback frames by copying them from HOT (RAM,
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (promote_captured_frames).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_promote_captured_frames_post_7c160b2d
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/regionFingerprint:
+    post:
+      summary: Recompute a node's Localize fingerprint from its STORED screenshot
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (region_fingerprint).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_region_fingerprint_post_d5291aa4
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/saveScreenshot:
+    post:
+      summary: Save screenshot
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (save_screenshot). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_save_screenshot_post_bfd3a683
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/startCapture:
+    post:
+      summary: Start video capture
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (start_video_capture).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_start_video_capture_post_5b8c4a68
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/status:
+    get:
+      summary: Get status
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (get_status). Check the
+        handler for required payload fields and authorization rules.
+      operationId: host_av_routes_get_status_get_5e7b9176
+      tags:
+      - host/av
+      parameters:
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/av/stopCapture:
+    post:
+      summary: Stop video capture
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (stop_video_capture).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_stop_video_capture_post_f4847b72
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/takeControl:
+    post:
+      summary: Take control
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (take_control). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_take_control_post_a7563b4d
+      tags:
+      - host/av
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/takeScreenshot:
+    post:
+      summary: Take screenshot
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (take_screenshot). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_take_screenshot_post_5eec216b
+      tags:
+      - host/av
+      parameters:
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: fast
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/av/takeVideoForReport:
+    post:
+      summary: Capture a test-execution MP4 via the AV controller and upload to R2
+      description: Route inventory entry from `backend_host/src/routes/host_av_routes.py` (take_video_for_report).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_av_routes_take_video_for_report_post_4344004c
+      tags:
+      - host/av
+      parameters:
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/builder/blocks:
+    get:
+      summary: Get all available standard blocks with their parameter schemas
+      description: Route inventory entry from `backend_host/src/routes/host_builder_routes.py` (get_blocks). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_builder_routes_get_blocks_get_8df9b806
+      tags:
+      - host/builder
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/builder/execute:
+    post:
+      summary: Execute a standard block asynchronously - returns execution_id immediately
+      description: Route inventory entry from `backend_host/src/routes/host_builder_routes.py` (execute_standard_block).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_builder_routes_execute_standard_block_post_bbab7451
+      tags:
+      - host/builder
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/builder/execution/{execution_id}/status:
+    get:
+      summary: Block execution status
+      description: Route inventory entry from `backend_host/src/routes/host_builder_routes.py` (block_execution_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_builder_routes_block_execution_status_get_6799d6c1
+      tags:
+      - host/builder
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/campaigns/abortRunning:
+    post:
+      summary: Abort running campaign orchestrator and currently active script for a device.
+      description: Route inventory entry from `backend_host/src/routes/host_campaign_routes.py` (abort_running_campaign).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_campaign_routes_abort_running_campaign_post_bdf331e9
+      tags:
+      - host/campaigns
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/campaigns/execute:
+    post:
+      summary: Execute campaign
+      description: Route inventory entry from `backend_host/src/routes/host_campaign_routes.py` (execute_campaign).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_campaign_routes_execute_campaign_post_fa888e8b
+      tags:
+      - host/campaigns
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/campaigns/running:
+    get:
+      summary: Get running campaigns
+      description: Route inventory entry from `backend_host/src/routes/host_campaign_routes.py` (get_running_campaigns).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_campaign_routes_get_running_campaigns_get_0e3a46f5
+      tags:
+      - host/campaigns
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/campaigns/status/{execution_id}:
+    get:
+      summary: Get campaign execution status
+      description: Route inventory entry from `backend_host/src/routes/host_campaign_routes.py` (get_campaign_execution_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_campaign_routes_get_campaign_execution_status_get_1c973bb8
+      tags:
+      - host/campaigns
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/controllerStatus:
+    get:
+      summary: Controller status
+      description: Route inventory entry from `backend_host/src/routes/host_control_routes.py` (controller_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_control_routes_controller_status_get_78ecc080
+      tags:
+      - host/controllerStatus
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/crawl/app:
+    post:
+      summary: BFS crawl an app and return a structured site map.
+      description: Route inventory entry from `features/ai-test/backend_host/host_crawl_routes.py` (crawl_app).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_crawl_routes_crawl_app_post_004d4142
+      tags:
+      - host/crawl
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/deployment/abortRunning:
+    post:
+      summary: Abort any currently running deployment script process for a device.
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (abort_running_deployment).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_abort_running_deployment_post_69b05ece
+      tags:
+      - host/deployment
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/deployment/add:
+    post:
+      summary: Add new deployment to scheduler
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (add_deployment).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_add_deployment_post_7093aa67
+      tags:
+      - host/deployment
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/deployment/jobs:
+    get:
+      summary: Inspect APScheduler jobs and deployment queue state for this host.
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (deployment_jobs).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_deployment_jobs_get_4ccc1b06
+      tags:
+      - host/deployment
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/deployment/pause/{deployment_id}:
+    post:
+      summary: Pause deployment
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (pause_deployment).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_pause_deployment_post_65ed9052
+      tags:
+      - host/deployment
+      parameters:
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/deployment/remove/{deployment_id}:
+    delete:
+      summary: Remove deployment
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (remove_deployment).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_remove_deployment_delete_a6da1ee0
+      tags:
+      - host/deployment
+      parameters:
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/deployment/resume/{deployment_id}:
+    post:
+      summary: Resume deployment
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (resume_deployment).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_resume_deployment_post_34f4fdfa
+      tags:
+      - host/deployment
+      parameters:
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/deployment/run/{deployment_id}:
+    post:
+      summary: Trigger a deployment immediately
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (run_deployment_now).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_run_deployment_now_post_33874ca8
+      tags:
+      - host/deployment
+      parameters:
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/deployment/status:
+    get:
+      summary: Check if deployment scheduler is available
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (deployment_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_deployment_status_get_df8ba3f6
+      tags:
+      - host/deployment
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/deployment/update/{deployment_id}:
+    put:
+      summary: Update an existing deployment schedule
+      description: Route inventory entry from `backend_host/src/routes/host_deployment_routes.py` (update_deployment).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_deployment_routes_update_deployment_put_725e6fd6
+      tags:
+      - host/deployment
+      parameters:
+      - name: deployment_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/desktop/bash/executeCommand:
+    post:
+      summary: Execute bash command
+      description: Route inventory entry from `backend_host/src/routes/host_desktop_bash_routes.py` (execute_bash_command).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_desktop_bash_routes_execute_bash_command_post_147adf29
+      tags:
+      - host/desktop
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/desktop/pyautogui/executeCommand:
+    post:
+      summary: Execute pyautogui command
+      description: Route inventory entry from `backend_host/src/routes/host_desktop_pyautogui_routes.py` (execute_pyautogui_command).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_desktop_pyautogui_routes_execute_pyautogui_command_post_9ea0004d
+      tags:
+      - host/desktop
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/devices:
+    get:
+      summary: List devices
+      description: Route inventory entry from `backend_host/src/routes/host_control_routes.py` (list_devices). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_control_routes_list_devices_get_adfa09aa
+      tags:
+      - host/devices
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/monitoring/disk-usage:
+    get:
+      summary: Disk usage diagnostics
+      description: Route inventory entry from `backend_host/src/routes/host_monitoring_routes.py` (disk_usage_diagnostics).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_monitoring_routes_disk_usage_diagnostics_get_72a4c43b
+      tags:
+      - host/monitoring
+      parameters:
+      - name: capture_dir
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/monitoring/latest-json:
+    post:
+      summary: Get latest monitoring json
+      description: Route inventory entry from `backend_host/src/routes/host_monitoring_routes.py` (get_latest_monitoring_json).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_monitoring_routes_get_latest_monitoring_json_post_03bc2f2a
+      tags:
+      - host/monitoring
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/monitoring/listCaptures:
+    post:
+      summary: List captures
+      description: Route inventory entry from `backend_host/src/routes/host_monitoring_routes.py` (list_captures).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_monitoring_routes_list_captures_post_077a6e87
+      tags:
+      - host/monitoring
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/monitoring/live-events:
+    post:
+      summary: Get live events
+      description: Route inventory entry from `backend_host/src/routes/host_monitoring_routes.py` (get_live_events).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_monitoring_routes_get_live_events_post_212a764c
+      tags:
+      - host/monitoring
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/navigation/cache/check/{tree_id}:
+    get:
+      summary: Check navigation cache
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (check_navigation_cache).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_check_navigation_cache_get_28ece4d2
+      tags:
+      - host/navigation
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: variant
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/navigation/cache/clear/{tree_id}:
+    post:
+      summary: Invalidate cached navigation graph(s) for a tree on this host
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (clear_navigation_cache_for_tree).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_clear_navigation_cache_for_tree_post_6b9ab00a
+      tags:
+      - host/navigation
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: variant
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/navigation/cache/populate/{tree_id}:
+    post:
+      summary: Populate navigation cache
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (populate_navigation_cache).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_populate_navigation_cache_post_feefb7e4
+      tags:
+      - host/navigation
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: variant
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/navigation/cache/update-edge:
+    post:
+      summary: Update edge in cache
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (update_edge_in_cache).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_update_edge_in_cache_post_237571bb
+      tags:
+      - host/navigation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/navigation/cache/update-node:
+    post:
+      summary: Update node in cache
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (update_node_in_cache).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_update_node_in_cache_post_0b2ebe7b
+      tags:
+      - host/navigation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/navigation/execute/{tree_id}:
+    post:
+      summary: Start navigation execution — ALWAYS ASYNC
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (navigation_execute).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_navigation_execute_post_8777d179
+      tags:
+      - host/navigation
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/navigation/execution/{execution_id}/status:
+    get:
+      summary: Navigation execution status
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (navigation_execution_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_navigation_execution_status_get_fa4c3695
+      tags:
+      - host/navigation
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/navigation/health:
+    get:
+      summary: Health check endpoint for host navigation service
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (health_check).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_health_check_get_d07b8eb0
+      tags:
+      - host/navigation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/navigation/localize:
+    post:
+      summary: Identify which node the live device screen matches (Localize)
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (navigation_localize).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_navigation_localize_post_a2283841
+      tags:
+      - host/navigation
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/navigation/preview/{tree_id}/{target_node_id}:
+    get:
+      summary: Navigation preview
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (navigation_preview).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_navigation_preview_get_e65d4dce
+      tags:
+      - host/navigation
+      parameters:
+      - name: tree_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: target_node_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: current_node_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: variant
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/navigation/validation_sequence:
+    post:
+      summary: Get validation sequence
+      description: Route inventory entry from `backend_host/src/routes/host_navigation_routes.py` (get_validation_sequence).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_navigation_routes_get_validation_sequence_post_d5dae7bb
+      tags:
+      - host/navigation
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/phone/pairings:
+    post:
+      summary: Create pairing
+      description: Route inventory entry from `features/mobile-app/backend_host/__init__.py` (create_pairing). Check
+        the handler for required payload fields and authorization rules.
+      operationId: __init___create_pairing_post_1567dd7b
+      tags:
+      - host/phone
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/phone/rpc:
+    post:
+      summary: Run one phone command for a caller that is not this process
+      description: Route inventory entry from `features/mobile-app/backend_host/__init__.py` (phone_rpc). Check
+        the handler for required payload fields and authorization rules.
+      operationId: __init___phone_rpc_post_31670421
+      tags:
+      - host/phone
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/phone/slots:
+    get:
+      summary: List slots
+      description: Route inventory entry from `features/mobile-app/backend_host/__init__.py` (list_slots). Check
+        the handler for required payload fields and authorization rules.
+      operationId: __init___list_slots_get_4b0eb83b
+      tags:
+      - host/phone
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/phone/slots/{device_id}:
+    delete:
+      summary: Unpair slot
+      description: Route inventory entry from `features/mobile-app/backend_host/__init__.py` (unpair_slot). Check
+        the handler for required payload fields and authorization rules.
+      operationId: __init___unpair_slot_delete_24570ce8
+      tags:
+      - host/phone
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+    get:
+      summary: Get slot
+      description: Route inventory entry from `features/mobile-app/backend_host/__init__.py` (get_slot). Check the
+        handler for required payload fields and authorization rules.
+      operationId: __init___get_slot_get_24570ce8
+      tags:
+      - host/phone
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/power/executeCommand:
+    post:
+      summary: Execute power command
+      description: Route inventory entry from `backend_host/src/routes/host_power_routes.py` (execute_power_command).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_power_routes_execute_power_command_post_141b2874
+      tags:
+      - host/power
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/power/getStatus:
+    post:
+      summary: Get power status
+      description: Route inventory entry from `backend_host/src/routes/host_power_routes.py` (get_power_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_power_routes_get_power_status_post_45cd914f
+      tags:
+      - host/power
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/releaseControl:
+    post:
+      summary: Release control
+      description: Route inventory entry from `backend_host/src/routes/host_control_routes.py` (release_control).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_control_routes_release_control_post_ade834b3
+      tags:
+      - host/releaseControl
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/remote/dumpUi:
+    post:
+      summary: Dump ui
+      description: Route inventory entry from `backend_host/src/routes/host_remote_routes.py` (dump_ui). Check the
+        handler for required payload fields and authorization rules.
+      operationId: host_remote_routes_dump_ui_post_f362a2a7
+      tags:
+      - host/remote
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/remote/executeCommand:
+    post:
+      summary: Execute command
+      description: Route inventory entry from `backend_host/src/routes/host_remote_routes.py` (execute_command).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_remote_routes_execute_command_post_c74e5ba6
+      tags:
+      - host/remote
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/remote/getApps:
+    post:
+      summary: Get apps
+      description: Route inventory entry from `backend_host/src/routes/host_remote_routes.py` (get_apps). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_remote_routes_get_apps_post_0d8ca196
+      tags:
+      - host/remote
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/remote/getOrientation:
+    post:
+      summary: Get orientation
+      description: Route inventory entry from `backend_host/src/routes/host_remote_routes.py` (get_orientation).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_remote_routes_get_orientation_post_85061299
+      tags:
+      - host/remote
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/remote/screenshotAndDump:
+    post:
+      summary: Screenshot and dump
+      description: Route inventory entry from `backend_host/src/routes/host_remote_routes.py` (screenshot_and_dump).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_remote_routes_screenshot_and_dump_post_b901d5ef
+      tags:
+      - host/remote
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/remote/takeScreenshot:
+    post:
+      summary: Take screenshot
+      description: Route inventory entry from `backend_host/src/routes/host_remote_routes.py` (take_screenshot).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_remote_routes_take_screenshot_post_a8666e73
+      tags:
+      - host/remote
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/remote/tapCoordinates:
+    post:
+      summary: Tap coordinates
+      description: Route inventory entry from `backend_host/src/routes/host_remote_routes.py` (tap_coordinates).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_remote_routes_tap_coordinates_post_a702f5cf
+      tags:
+      - host/remote
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/adjustAudioTiming:
+    post:
+      summary: Adjust audio timing for existing restart video.
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (adjust_audio_timing).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_adjust_audio_timing_post_d47cfddf
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/analysisStatus/{video_id}:
+    post:
+      summary: Get analysis status for polling
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (get_analysis_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_get_analysis_status_post_3b461330
+      tags:
+      - host/restart
+      parameters:
+      - name: video_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/analyzeAudio:
+    post:
+      summary: Analyze audio transcript
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (analyze_restart_audio).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_analyze_restart_audio_post_5f1fa377
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/analyzeComplete:
+    post:
+      summary: 'Combined restart analysis: subtitles + summary in single call'
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (analyze_restart_complete).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_analyze_restart_complete_post_12cd51d5
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/analyzeSubtitles:
+    post:
+      summary: Analyze subtitles
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (analyze_restart_subtitles).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_analyze_restart_subtitles_post_d82d3734
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/analyzeSummary:
+    post:
+      summary: Analyze video summary
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (analyze_restart_summary).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_analyze_restart_summary_post_2e5a8fc2
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/analyzeVideo:
+    post:
+      summary: Async AI analysis for restart video - subtitle detection + video descriptions
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (analyze_restart_video).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_analyze_restart_video_post_684b3c7d
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/createDubbedVideo:
+    post:
+      summary: 'Step 3: Create final dubbed video ~5-8s'
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (create_dubbed_video).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_create_dubbed_video_post_2ca439bd
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/createDubbedVideoFast:
+    post:
+      summary: 'NEW: Fast 2-step dubbed video creation ~5-8s'
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (create_dubbed_video_fast).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_create_dubbed_video_fast_post_5ae962f5
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/generateEdgeSpeech:
+    post:
+      summary: 'Step 2: Generate Edge-TTS speech ~3-5s'
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (generate_edge_speech).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_generate_edge_speech_post_2226238e
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/generateReport:
+    post:
+      summary: Generate report with all analysis data collected from frontend
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (generate_restart_report).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_generate_restart_report_post_a4258560
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/generateRestartVideo:
+    post:
+      summary: Generate video only - fast response
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (generate_restart_video).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_generate_restart_video_post_958bcad0
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/generateVideoOnly:
+    post:
+      summary: Generate video only - fast response
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (generate_restart_video_only).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_generate_restart_video_only_post_a612074e
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/restart/prepareDubbingAudio:
+    post:
+      summary: 'Step 1: Prepare audio for dubbing (extract + separate) ~20-35s'
+      description: Route inventory entry from `backend_host/src/routes/host_restart_routes.py` (prepare_dubbing_audio).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_restart_routes_prepare_dubbing_audio_post_249bb357
+      tags:
+      - host/restart
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/script/abort:
+    post:
+      summary: Abort script
+      description: Route inventory entry from `backend_host/src/routes/host_script_routes.py` (abort_script). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_script_routes_abort_script_post_a8c675cc
+      tags:
+      - host/script
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/script/execute:
+    post:
+      summary: ' execute script'
+      description: Route inventory entry from `backend_host/src/routes/host_script_routes.py` (_execute_script).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_script_routes__execute_script_post_2a64617b
+      tags:
+      - host/script
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/script/get_edge_options:
+    post:
+      summary: Get edge options
+      description: Route inventory entry from `backend_host/src/routes/host_script_routes.py` (get_edge_options).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_script_routes_get_edge_options_post_59152947
+      tags:
+      - host/script
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/script/upload:
+    post:
+      summary: Receive a Python test script from the server and write it to test_scripts/
+      description: Route inventory entry from `backend_host/src/routes/host_script_routes.py` (upload_script). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_script_routes_upload_script_post_35769b4d
+      tags:
+      - host/script
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/stream/{device_folder}/{content_type}:
+    get:
+      summary: List stream directory
+      description: Route inventory entry from `backend_host/src/routes/host_stream_routes.py` (list_stream_directory).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_stream_routes_list_stream_directory_get_372c2b6d
+      tags:
+      - host/stream
+      parameters:
+      - name: device_folder
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: content_type
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/stream/{device_folder}/{content_type}/{filename}:
+    get:
+      summary: Serve HLS stream files (.m3u8, .ts) and related content
+      description: Route inventory entry from `backend_host/src/routes/host_stream_routes.py` (serve_stream_file).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_stream_routes_serve_stream_file_get_c21e5951
+      tags:
+      - host/stream
+      parameters:
+      - name: device_folder
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: content_type
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/system/config:
+    get:
+      summary: Read or update this host's own .env host and DEVICE<N> settings.
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (host_config). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_host_config_get_1c443d99
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+    post:
+      summary: Read or update this host's own .env host and DEVICE<N> settings.
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (host_config). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_host_config_post_1c443d99
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/controlService:
+    post:
+      summary: Start / stop / restart a single controllable host service from the
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (control_service).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_control_service_post_6a01a82d
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/device/{device_id}/is_busy:
+    get:
+      summary: Check if a device is actively executing anything (campaign, testcase, or script)
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (device_is_busy).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_device_is_busy_get_1cdcb43a
+      tags:
+      - host/system
+      parameters:
+      - name: device_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/system/getStreamQuality:
+    get:
+      summary: Return the device's current stream quality (low/sd/hd) as recorded in
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (get_stream_quality).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_get_stream_quality_get_385461ce
+      tags:
+      - host/system
+      parameters:
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/system/health:
+    get:
+      summary: Health check endpoint with system status
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (health). Check the
+        handler for required payload fields and authorization rules.
+      operationId: host_system_routes_health_get_65040cc3
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/system/listBackups:
+    post:
+      summary: List rollback backup options for this host.
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (list_backups). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_list_backups_post_4470ed01
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/logs/file:
+    post:
+      summary: Read a whitelisted log file from the host
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (view_log_file). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_view_log_file_post_92060b29
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/logs/journal:
+    post:
+      summary: Read systemd journal logs for a whitelisted service on this host
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (view_journal_logs).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_view_journal_logs_post_0bd9bf38
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/logs/stream:
+    post:
+      summary: Read a single device's ffmpeg capture log for vpt-stream
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (view_stream_logs).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_view_stream_logs_post_c91736da
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/rebootHost:
+    post:
+      summary: Reboot host
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (reboot_host). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_reboot_host_post_f620a76c
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/restartHostService:
+    post:
+      summary: Restart host service
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (restart_host_service).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_restart_host_service_post_6c387c58
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/restartHostStreamService:
+    post:
+      summary: Real restart of the host-level vpt-stream service
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (restart_host_stream_service).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_restart_host_stream_service_post_d4632968
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/restartService:
+    post:
+      summary: Restart specific down host services (autofix)
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (restart_service).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_restart_service_post_7cee9d5e
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/rollbackCore:
+    post:
+      summary: Rollback /opt/virtualpytest from backup
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (rollback_core). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_rollback_core_post_d2100db8
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/runCommand:
+    post:
+      summary: Run an admin-authored shell script on THIS host and return its
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (run_command). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_run_command_post_99d56f75
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/setStreamQuality:
+    post:
+      summary: Soft per-device quality change — NO service restart
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (set_stream_quality).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_set_stream_quality_post_46bb5ac5
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/system/updateCore:
+    post:
+      summary: Backup /opt/virtualpytest and sync code from shared NFS source
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (update_core). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_update_core_post_509b8527
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/takeControl:
+    post:
+      summary: Take control
+      description: Route inventory entry from `backend_host/src/routes/host_control_routes.py` (take_control). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_control_routes_take_control_post_54ab0bc1
+      tags:
+      - host/takeControl
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/testcase/abortRunning:
+    post:
+      summary: Abort currently running async testcase execution on a device.
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_abort_running).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_abort_running_post_3bf65bad
+      tags:
+      - host/testcase
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/testcase/execute:
+    post:
+      summary: Testcase execute direct
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_execute_direct).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_execute_direct_post_62864a2a
+      tags:
+      - host/testcase
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/testcase/execute-from-prompt:
+    post:
+      summary: Execute from prompt
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (execute_from_prompt).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_execute_from_prompt_post_4d37dfa0
+      tags:
+      - host/testcase
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/testcase/execution/{execution_id}/status:
+    get:
+      summary: Testcase execution status
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_execution_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_execution_status_get_d47f5fdb
+      tags:
+      - host/testcase
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/testcase/list:
+    get:
+      summary: Testcase list
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_list).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_list_get_7b2782eb
+      tags:
+      - host/testcase
+      parameters:
+      - name: include_graph
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/testcase/save:
+    post:
+      summary: Testcase save
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_save).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_save_post_da126e21
+      tags:
+      - host/testcase
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/testcase/{testcase_id}:
+    delete:
+      summary: Testcase delete
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_delete).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_delete_delete_ad586f02
+      tags:
+      - host/testcase
+      parameters:
+      - name: testcase_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+    get:
+      summary: Testcase get
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_get).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_get_get_ad586f02
+      tags:
+      - host/testcase
+      parameters:
+      - name: testcase_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/testcase/{testcase_id}/execute:
+    post:
+      summary: Testcase execute
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_execute).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_execute_post_881c4fcd
+      tags:
+      - host/testcase
+      parameters:
+      - name: testcase_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/testcase/{testcase_id}/history:
+    get:
+      summary: Testcase history
+      description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (testcase_history).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testcase_routes_testcase_history_get_c351b8da
+      tags:
+      - host/testcase
+      parameters:
+      - name: testcase_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/testprompt/execute:
+    post:
+      summary: Testprompt execute
+      description: Route inventory entry from `features/ai-test/backend_host/host_testprompt_routes.py` (testprompt_execute).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_testprompt_routes_testprompt_execute_post_b87fcb87
+      tags:
+      - host/testprompt
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/transcript/generate-dubbed-audio:
+    post:
+      summary: Generate dubbed audio
+      description: Route inventory entry from `backend_host/src/routes/host_transcript_routes.py` (generate_dubbed_audio).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_transcript_routes_generate_dubbed_audio_post_338a5407
+      tags:
+      - host/transcript
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/transcript/translate-chunk:
+    post:
+      summary: Translate chunk
+      description: Route inventory entry from `backend_host/src/routes/host_transcript_routes.py` (translate_chunk).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_transcript_routes_translate_chunk_post_431e6c0f
+      tags:
+      - host/transcript
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/translate/detect:
+    post:
+      summary: Detect text language
+      description: Route inventory entry from `backend_host/src/routes/host_translation_routes.py` (detect_text_language).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_translation_routes_detect_text_language_post_6e5dfdd8
+      tags:
+      - host/translate
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/translate/health:
+    get:
+      summary: Translation health
+      description: Route inventory entry from `backend_host/src/routes/host_translation_routes.py` (translation_health).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_translation_routes_translation_health_get_8bae0609
+      tags:
+      - host/translate
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/translate/restart-batch:
+    post:
+      summary: Translate restart batch
+      description: Route inventory entry from `backend_host/src/routes/host_translation_routes.py` (translate_restart_batch).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_translation_routes_translate_restart_batch_post_9601265a
+      tags:
+      - host/translate
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/translate/text:
+    post:
+      summary: Translate text endpoint
+      description: Route inventory entry from `backend_host/src/routes/host_translation_routes.py` (translate_text_endpoint).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_translation_routes_translate_text_endpoint_post_c4c4e54c
+      tags:
+      - host/translate
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/adb/execute:
+    post:
+      summary: Execute adb verification
+      description: Route inventory entry from `backend_host/src/routes/host_verification_adb_routes.py` (execute_adb_verification).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_adb_routes_execute_adb_verification_post_b5f088be
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/adb/waitForElementToAppear:
+    post:
+      summary: Wait for element to appear
+      description: Route inventory entry from `backend_host/src/routes/host_verification_adb_routes.py` (wait_for_element_to_appear).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_adb_routes_wait_for_element_to_appear_post_8c828748
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/adb/waitForElementToDisappear:
+    post:
+      summary: Wait for element to disappear
+      description: Route inventory entry from `backend_host/src/routes/host_verification_adb_routes.py` (wait_for_element_to_disappear).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_adb_routes_wait_for_element_to_disappear_post_ea451e04
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/appium/execute:
+    post:
+      summary: Execute appium verification
+      description: Route inventory entry from `backend_host/src/routes/host_verification_appium_routes.py` (execute_appium_verification).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_appium_routes_execute_appium_verification_post_d8d2ed85
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/audio/execute:
+    post:
+      summary: Execute audio verification
+      description: Route inventory entry from `backend_host/src/routes/host_verification_audio_routes.py` (execute_audio_verification).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_audio_routes_execute_audio_verification_post_01c9eda6
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/executeBatch:
+    post:
+      summary: Verification execute batch
+      description: Route inventory entry from `backend_host/src/routes/host_verification_routes.py` (verification_execute_batch).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_routes_verification_execute_batch_post_b5c18cc3
+      tags:
+      - host/verification
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/execution/{execution_id}/status:
+    get:
+      summary: Verification execution status
+      description: Route inventory entry from `backend_host/src/routes/host_verification_routes.py` (verification_execution_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_routes_verification_execution_status_get_cb0e4c0b
+      tags:
+      - host/verification
+      parameters:
+      - name: execution_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/verification/getStatus:
+    get:
+      summary: Verification status
+      description: Route inventory entry from `backend_host/src/routes/host_verification_routes.py` (verification_status).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_routes_verification_status_get_5f39aa96
+      tags:
+      - host/verification
+      parameters:
+      - name: device_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/verification/image/cropImage:
+    post:
+      summary: Crop area
+      description: Route inventory entry from `backend_host/src/routes/host_verification_image_routes.py` (crop_area).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_image_routes_crop_area_post_7de48986
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/image/execute:
+    post:
+      summary: Execute image verification
+      description: Route inventory entry from `backend_host/src/routes/host_verification_image_routes.py` (execute_image_verification).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_image_routes_execute_image_verification_post_d44e461d
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/image/processImage:
+    post:
+      summary: Process area
+      description: Route inventory entry from `backend_host/src/routes/host_verification_image_routes.py` (process_area).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_image_routes_process_area_post_81565dd6
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/image/saveImage:
+    post:
+      summary: Save resource
+      description: Route inventory entry from `backend_host/src/routes/host_verification_image_routes.py` (save_resource).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_image_routes_save_resource_post_fbf833c0
+      tags:
+      - host/verification
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/text/detectText:
+    post:
+      summary: Detect text
+      description: Route inventory entry from `backend_host/src/routes/host_verification_text_routes.py` (detect_text).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_text_routes_detect_text_post_e9e324a4
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/text/execute:
+    post:
+      summary: Execute text verification
+      description: Route inventory entry from `backend_host/src/routes/host_verification_text_routes.py` (execute_text_verification).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_text_routes_execute_text_verification_post_463fd0e2
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/text/saveText:
+    post:
+      summary: Save text
+      description: Route inventory entry from `backend_host/src/routes/host_verification_text_routes.py` (save_text).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_text_routes_save_text_post_defcb58c
+      tags:
+      - host/verification
+      parameters:
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/analyzeImageAI:
+    post:
+      summary: Analyze image ai
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (analyze_image_ai).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_analyze_image_ai_post_7fded38b
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/analyzeImageComplete:
+    post:
+      summary: Analyze image complete
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (analyze_image_complete).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_analyze_image_complete_post_56ce54a0
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/analyzeLanguageMenu:
+    post:
+      summary: Analyze language menu
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (analyze_language_menu).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_analyze_language_menu_post_9fecb150
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/debugSubtitlesAI:
+    post:
+      summary: Debug subtitles ai
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (debug_subtitles_ai).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_debug_subtitles_ai_post_aa8525f7
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/detectBlackscreen:
+    post:
+      summary: Detect blackscreen
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (detect_blackscreen).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_detect_blackscreen_post_8a854569
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/detectFreeze:
+    post:
+      summary: Detect freeze
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (detect_freeze).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_detect_freeze_post_b45a5f18
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/detectSubtitles:
+    post:
+      summary: Detect subtitles
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (detect_subtitles).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_detect_subtitles_post_11342f04
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/detectSubtitlesAI:
+    post:
+      summary: Detect subtitles ai
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (detect_subtitles_ai).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_detect_subtitles_ai_post_35976845
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/video/execute:
+    post:
+      summary: Verification video execute
+      description: Route inventory entry from `backend_host/src/routes/host_verification_video_routes.py` (verification_video_execute).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_video_routes_verification_video_execute_post_327c2ed3
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/verification/web/execute:
+    post:
+      summary: Web verification execute
+      description: Route inventory entry from `backend_host/src/routes/host_verification_web_routes.py` (web_verification_execute).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_verification_web_routes_web_verification_execute_post_a4c8d834
+      tags:
+      - host/verification
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/web/closeBrowser:
+    post:
+      summary: Close browser using web controller.
+      description: Route inventory entry from `backend_host/src/routes/host_web_routes.py` (close_browser). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_web_routes_close_browser_post_333bae4f
+      tags:
+      - host/web
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/web/executeCommand:
+    post:
+      summary: Execute a web automation command using web controller.
+      description: Route inventory entry from `backend_host/src/routes/host_web_routes.py` (execute_command). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_web_routes_execute_command_post_182fd875
+      tags:
+      - host/web
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/web/getPageInfo:
+    post:
+      summary: Get page information using web controller.
+      description: Route inventory entry from `backend_host/src/routes/host_web_routes.py` (get_page_info). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_web_routes_get_page_info_post_a1c37694
+      tags:
+      - host/web
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/web/getStatus:
+    post:
+      summary: Get web controller status.
+      description: Route inventory entry from `backend_host/src/routes/host_web_routes.py` (get_status). Check the
+        handler for required payload fields and authorization rules.
+      operationId: host_web_routes_get_status_post_4e39852f
+      tags:
+      - host/web
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/web/navigateToUrl:
+    post:
+      summary: Navigate to URL using web controller.
+      description: Route inventory entry from `backend_host/src/routes/host_web_routes.py` (navigate_to_url). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_web_routes_navigate_to_url_post_72429d4e
+      tags:
+      - host/web
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/web/openBrowser:
+    post:
+      summary: Open browser using web controller.
+      description: Route inventory entry from `backend_host/src/routes/host_web_routes.py` (open_browser). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_web_routes_open_browser_post_1c806fbe
+      tags:
+      - host/web
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/{capture_folder}/translate-segments:
+    post:
+      summary: Translate segments
+      description: Route inventory entry from `backend_host/src/routes/host_translation_routes.py` (translate_segments).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_translation_routes_translate_segments_post_15bc02be
+      tags:
+      - host/{capture_folder}
+      parameters:
+      - name: capture_folder
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /host/{capture_folder}/translate-transcripts:
+    post:
+      summary: Translate transcripts
+      description: Route inventory entry from `backend_host/src/routes/host_translation_routes.py` (translate_transcripts).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_translation_routes_translate_transcripts_post_148a6261
+      tags:
+      - host/{capture_folder}
+      parameters:
+      - name: capture_folder
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /stream/{device_folder}/{content_type}:
+    get:
+      summary: List stream directory
+      description: Route inventory entry from `backend_host/src/routes/host_stream_routes.py` (list_stream_directory).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_stream_routes_list_stream_directory_get_88996a0e
+      tags:
+      - stream/{device_folder}
+      parameters:
+      - name: device_folder
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: content_type
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /stream/{device_folder}/{content_type}/{filename}:
+    get:
+      summary: Serve HLS stream files (.m3u8, .ts) and related content
+      description: Route inventory entry from `backend_host/src/routes/host_stream_routes.py` (serve_stream_file).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_stream_routes_serve_stream_file_get_e99c2aa2
+      tags:
+      - stream/{device_folder}
+      parameters:
+      - name: device_folder
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: content_type
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.

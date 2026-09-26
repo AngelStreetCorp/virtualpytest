@@ -53,7 +53,21 @@ _frontend_deploy_state_cache = {
 
 
 def _read_local_deployed_version(base_dir: str = '/opt/virtualpytest') -> str:
-    for candidate in (os.path.join(base_dir, 'version'), os.path.join(base_dir, 'VERSION.txt')):
+    # Search several common locations. On a Pi/Pi-host the file lives at
+    # /opt/virtualpytest/VERSION.txt. On Render / Docker the file lands under
+    # /app/VERSION.txt (the Dockerfile's WORKDIR is /app/backend_server, so
+    # /app/VERSION.txt is the project-root version the image actually ships).
+    # The relative path './VERSION.txt' is a CWD fallback for `python -m` runs
+    # and pytest. First hit wins, no exception if every path is missing.
+    candidates: list[str] = []
+    for root in (base_dir, '/app', os.getcwd()):
+        for name in ('VERSION.txt', 'version'):
+            candidates.append(os.path.join(root, name))
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
         if os.path.isfile(candidate):
             try:
                 with open(candidate, 'r', encoding='utf-8') as file:

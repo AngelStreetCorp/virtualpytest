@@ -314,6 +314,10 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         data: {
           full_name: fullName,
         },
+        // Supabase otherwise falls back to the project-wide Site URL, which
+        // may point at a different deployment (for example www.virtualpytest.com).
+        // Keep confirmation on the frontend where signup was initiated.
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
       },
     });
 

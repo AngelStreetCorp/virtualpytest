@@ -77,6 +77,7 @@ backend_host_*/
 
 # Postman config with API keys (use .example for template)
 backend_server/config/postman/postman_config.json
+.postman_sync_manifest.json
 backend_server/logs/agent_conversations.log
 test_redis_push.py
 docs/videos/*.mov

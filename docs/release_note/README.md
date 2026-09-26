@@ -43,7 +43,27 @@ schema. Entries that exist only on this branch (`feat/demo`) sit at the end of e
 ### Features
 
 ### Bug fixes
+
+## build 9364 — 2026-09-26
+
+### Features
+
+### Bug fixes
 - **Dailymotion script: missing Execution Summary + placeholder URL crash** — `dailymotion_video_check` now sets `context.execution_summary` on every return path (so the report stops showing the “📊 Execution summary not available” fallback) and falls back to `_DEFAULT_VIDEO_URL` when `--url` is missing or malformed (e.g. an unfilled `{_DEFAULT_VIDEO_URL}` placeholder), instead of crashing with “Could not extract a video id from --url: …” · [BUG-0161](../bugs/BUG-0161-2026-09-24-dailymotion-script-missing-summary-and-placeholder-url.md)
+- **Docker stack couldn't start: MinIO images no longer pull anonymously** — `quay.io/minio/minio` and `quay.io/minio/mc` stopped accepting anonymous pulls, breaking every fresh Docker install and CI's `Docker stack builds and starts` job. The `minio` and `minio-init` services now build from new `setup/docker/images/minio*/Dockerfile`s that vendor the same pinned MinIO/mc binaries from their GitHub release assets instead, and are also published to `ghcr.io/angelstreetcorp/minio(-mc)` for the pull-mode fast path. The native/VM install script (`install_minio.sh`) uses the same GitHub source · [BUG-0162](../bugs/BUG-0162-2026-09-26-minio-quay-anonymous-pull-blocked.md)
+
+### Upgrade
+
+**Compared with** `main-2026.09.24-9342` → `main-2026.09.26-9364` (57 files changed).
+
+**Database** — apply these once per database:
+- `setup/db/migrations/20260925a_team_permissions_sync_infra_and_viewer_read_floor.sql`
+
+**Settings** — no new key.
+
+**Dependencies** — no new package.
+
+**Services** — restart by hand (the deploy restarts the rest itself): `vpt-discard-incidents`, `vpt-discard-scripts`, `vpt-heatmap`
 
 ## build 9311 — 2026-09-24
 

@@ -28,34 +28,29 @@ fi
 echo "   using MinIO credentials from $ROOT_ENV (user '$MINIO_USER')"
 echo "📦 Installing MinIO Server (S3-compatible)..."
 
-# dl.min.io stopped serving the binaries (HTTP 410 Gone, 2025), the GitHub releases carry no
-# assets and Docker Hub denies the minio/* repositories: the binaries are taken out of the
-# pinned images on quay.io (MinIO's own registry) that the Docker stack uses
-# (setup/docker/docker-compose.yml). Docker is present on every VM the installer targets
-# (the database role needs it); a container is created, never run.
-MINIO_IMAGE="quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
-MC_IMAGE="quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z"
+# dl.min.io stopped serving the binaries (HTTP 410 Gone, 2025) and quay.io/minio/* — MinIO's
+# own registry, and the Docker stack's source (setup/docker/docker-compose.yml) — stopped
+# accepting anonymous pulls in late 2026 (both a 401, whether via `docker pull` or a
+# `docker create` extraction). The direct GitHub release download URLs still resolve, so
+# fetch the binaries from there instead — same source as setup/docker/images/minio*/Dockerfile.
+# Keep these two versions in sync with the tags pinned there.
+MINIO_VERSION="RELEASE.2025-07-23T15-54-02Z"
+MC_VERSION="RELEASE.2025-04-16T18-13-26Z"
 SUDO=""; [ "$EUID" -ne 0 ] && SUDO="sudo"
-if ! command -v docker >/dev/null 2>&1; then
-    echo "❌ docker is required to obtain the MinIO binaries (dl.min.io no longer serves them)"
-    exit 1
-fi
-fetch_from_image() {  # fetch_from_image <image> <path-in-image> <destination>
-    local cid
-    cid=$($SUDO docker create "$1") || return 1
-    $SUDO docker cp "$cid:$2" "$3" || { $SUDO docker rm "$cid" >/dev/null 2>&1; return 1; }
-    $SUDO docker rm "$cid" >/dev/null 2>&1
+fetch_release_binary() {  # fetch_release_binary <repo> <version> <destination>
+    curl -fsSL -o "$3" \
+        "https://github.com/minio/$1/releases/download/$2/$1.linux-amd64.$2" || return 1
     $SUDO chmod +x "$3"
 }
-echo "📦 Installing MinIO Server (binary from $MINIO_IMAGE)..."
+echo "📦 Installing MinIO Server (binary from GitHub release $MINIO_VERSION)..."
 if ! command -v minio >/dev/null 2>&1; then
-    fetch_from_image "$MINIO_IMAGE" /usr/bin/minio /tmp/minio
+    fetch_release_binary minio "$MINIO_VERSION" /tmp/minio
     $SUDO mv /tmp/minio /usr/local/bin/minio
 fi
 
-echo "📦 Installing MinIO Client (mc, from $MC_IMAGE)..."
+echo "📦 Installing MinIO Client (mc, from GitHub release $MC_VERSION)..."
 if ! command -v mc >/dev/null 2>&1; then
-    fetch_from_image "$MC_IMAGE" /usr/bin/mc /tmp/mc
+    fetch_release_binary mc "$MC_VERSION" /tmp/mc
     $SUDO mv /tmp/mc /usr/local/bin/mc
 fi
 

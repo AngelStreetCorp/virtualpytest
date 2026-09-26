@@ -37,6 +37,7 @@
 # that depends on a maybe is not an exemption.
 
 docs/tasks/
+docs/_drafts/
 docs/agent/release/
 security_report/
 docs/security/*.json

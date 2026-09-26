@@ -222,7 +222,9 @@ def cors_allowed_origins():
     server_public_ask_routes.py), else DEFAULT_CORS_ALLOWED_ORIGINS above. Never '*' — BUG-0092."""
     raw = os.getenv('CORS_ALLOWED_ORIGINS', DEFAULT_CORS_ALLOWED_ORIGINS)
     origins = [o.strip().rstrip('/') for o in raw.split(',') if o.strip()]
-    return origins or None
+    # Preserve an explicit empty allowlist. Returning None here makes Flask-CORS
+    # use its permissive default, which would turn CORS_ALLOWED_ORIGINS='' into '*'.
+    return origins
 
 
 def setup_flask_app(app_name="VirtualPyTest"):

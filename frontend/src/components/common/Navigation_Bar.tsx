@@ -16,6 +16,7 @@ import {
 } from '../../config/navItems';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
+import { usePermissions } from '../../hooks/auth/usePermissions';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import NavigationDropdown from './Navigation_Dropdown';
 import NavigationGroupedDropdown from './Navigation_GroupedDropdown';
@@ -24,7 +25,16 @@ import { getEnv } from '../../config/constants';
 const NavigationBar: React.FC = () => {
   const location = useLocation();
   const { isPathHidden } = useWorkspaceContext();
+  const { role } = usePermissions();
   const { mode, setMode } = useTheme();
+
+  // Viewers only get the Theme switcher in the Settings dropdown — the
+  // configuration pages (Logs/Models/Settings/Code Deployment/Run Command)
+  // are admin-only routes (see App.tsx) and would just bounce a viewer
+  // back to "Access Denied". Keeping the dropdown (with its footer) lets
+  // viewers still toggle Light/Dark/System without seeing links they can't open.
+  const isViewer = role === 'viewer';
+  const configurationItems = isViewer ? [] : CONFIGURATION_ITEMS;
   const [slackUrl, setSlackUrl] = useState<string>('https://slack.com');
   const [testrailInstanceUrl, setTestrailInstanceUrl] = useState<string>('https://virtualpytest.testrail.io');
   const navItemSx = {
@@ -154,7 +164,7 @@ const NavigationBar: React.FC = () => {
       {/* Settings (configuration) */}
       <NavigationDropdown
         label="Settings"
-        items={CONFIGURATION_ITEMS}
+        items={configurationItems}
         footer={
           <Box>
             <Divider sx={{ my: 0.5 }} />

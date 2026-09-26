@@ -1,6 +1,6 @@
 openapi: 3.0.3
 info:
-  title: Operator Log Review API
+  title: SERVER - Operator Log Review
   version: 1.0.0
   description: Admin-only endpoints used by the frontend Logs page.
 paths:

@@ -1,60 +1,53 @@
 # API Coverage
 
-This project keeps API docs as a manually curated set of OpenAPI specs in `docs/api/specs/`.
+The public Postman workspace combines human-written Server OpenAPI specs with a generated
+Backend Server route inventory. The curated specs provide richer examples for common workflows;
+the generated inventory ensures registered Server route and HTTP method pairs are present even
+when a handler lacks a full OpenAPI contract. The separate Backend Host inventory remains in the
+API reference but is not part of this public workspace.
 
-## What Is The Source Of Truth
+## Sources
 
-- Backend routes live in `backend_server/src/routes/`
-- Public API specs live in `docs/api/specs/*.yaml`
-- Rendered HTML docs are generated into `docs/api/docs/`
-- Frontend API docs UI is the selector in `frontend/src/pages/ApiDocumentation.tsx`
+- Backend Server core routes: `backend_server/src/app.py` registration list and route blueprints
+- Backend Host core routes: `backend_host/src/routes/registry.py` and route blueprints
+- Optional feature routes: enabled `features/*/manifest.json` packages with service route modules
+- Curated OpenAPI specs: `docs/api/specs/`
+- Postman importer: `scripts/sync_postman_openapi.py`
 
-## How The Docs Set Works
+## Generate And Sync
 
-The docs UI does not discover endpoints dynamically.
+After changing or adding routes, regenerate route inventories and sync the specs:
 
-Instead, we maintain a small number of grouped specs, each covering one public API family. This keeps the selector readable and avoids showing every internal callback or low-level route as a separate document.
+```bash
+python3 scripts/generate_api_route_specs.py
+python3 scripts/sync_postman_openapi.py --workspace-id 4e7a465c-a542-4440-8903-48787f03942a
+python3 scripts/sync_postman_openapi.py --workspace-id 4e7a465c-a542-4440-8903-48787f03942a --replace-managed --prune-managed --apply
+python3 scripts/verify_postman_openapi_sync.py --workspace-id 4e7a465c-a542-4440-8903-48787f03942a
+```
 
-Current grouped coverage includes:
+The sync and verifier read `POSTMAN_API_KEY` from the shell environment or project `.env`. Keep this maintainer credential private. The verifier confirms the generated specs and remote managed collections cover the current registered route/method inventory.
 
-- System
-- Device
-- Navigation
-- User Interface
-- Script
-- Testcase
-- Campaign
-- Deployment & Scheduling
-- Requirements
-- AI Analysis
-- Metrics & Analytics
-- Access & Workspace
-- Results & Reporting
+The route generator writes:
 
-## What We Intentionally Group Or Exclude
+- `server-additional-routes.yaml`: registered Backend Server route/method pairs not already in curated specs
+- `host-backend-host-routes.yaml`: registered Backend Host route/method pairs, including feature routes
 
-Some server routes are not shown as their own top-level spec because they are internal, callback-style, or low-level operational endpoints. Typical examples:
+The generated Server inventory includes the `/server/<path:endpoint>` proxy route. That wildcard
+documents the proxy contract. Direct Backend Host routes are inventoried separately and excluded
+from the public Postman workspace.
 
-- callback endpoints such as `taskComplete` / `executionComplete`
-- internal proxy or transport endpoints
-- low-level device-control helper routes (`/server/control/*`, `/server/action/*`, `/server/web/*`, `/server/stream/*`)
-- agent/MCP/benchmark tooling that follows a different interaction model than standard app APIs
+## Scope And Limits
 
-If one of those route families becomes a user-facing API surface, add a dedicated grouped spec for it.
+The generated inventory reflects routes declared on registered Flask blueprints and the Host
+health alias. Optional feature routes are included when their feature manifest exists, unless
+the generator runs with that feature listed in `DISABLED_FEATURES`. The Host inventory follows
+`HOST_TYPE`; runner-specific deployments expose a smaller registry than a full host.
 
-## Manual Update Checklist
+Generated path parameters and simple `request.args.get()` query names are inferred from source.
+Payloads and response schemas are generic; use the handler source for their exact contract.
+Keep curated specs for important flows and add request/response detail there when those APIs
+need polished examples. The inventories make endpoint discovery complete, but do not replace
+contract review.
 
-When adding a new user-facing `/server/*` route family:
-
-1. Decide which existing spec should own it.
-2. If it does not fit an existing spec, create a new grouped spec in `docs/api/specs/`.
-3. Add the new spec to `frontend/src/pages/ApiDocumentation.tsx`.
-4. Run `python3 scripts/generate_api_docs.py`. Note: `redoc-cli` was intentionally removed from
-   `frontend/package.json` (31 npm vulnerabilities via transitive deps, see `b37bd2f85`) — the
-   script now falls back to a one-off `npx --yes redoc-cli@0.13.21` (needs network access, adds
-   nothing to `frontend/package.json`/lockfile). Don't reinstall it as a devDependency.
-5. Run `cd frontend && bash scripts/copy-docs.sh`.
-
-## Review Rule
-
-Before shipping new backend API routes, do a quick scan of `backend_server/src/routes/` and confirm that every new user-facing route is represented in one of the grouped specs above.
+Current route counts are printed by `scripts/generate_api_route_specs.py` and are based on
+registered route/method declarations, not generated OPTIONS/HEAD behavior.

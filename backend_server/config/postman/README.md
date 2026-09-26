@@ -1,201 +1,44 @@
-# Postman Configuration
+# Postman configuration
 
-## Architecture (like real Postman!)
+VirtualPyTest connects to the shared [VirtualPyTest Postman workspace](https://martian-zodiac-279215.postman.co/workspace/virtualpytest~4e7a465c-a542-4440-8903-48787f03942a). The public workspace contains curated API collections and generated Backend Server route inventories. Backend Host routes are a separate service boundary and are not published in this workspace. Its public workspace ID is `4e7a465c-a542-4440-8903-48787f03942a`.
 
-This is a **general-purpose API testing system** that works like public Postman:
+## Configure the VirtualPyTest app
 
-1. **Workspaces** → Containers for collections (fetched from Postman API)
-2. **Environments** → Sets of variables (like `{{base_url}}`, `{{team_id}}`, etc.)
-3. **Variable Substitution** → `{{variable}}` in paths/params are replaced with environment values
+1. Set `POSTMAN_API_KEY` in the backend server's private environment (for example, its ignored `.env`). This credential lets the backend read collection definitions from Postman. Never commit it or expose it in frontend code.
+2. Copy `backend_server/config/postman/postman_config.json.example` to `backend_server/config/postman/postman_config.json`. The example already points to the shared workspace; do not replace it with a personal workspace.
+3. Restart the backend server and refresh the Postman page in VirtualPyTest.
 
-## Configuration Files
+VPT users do not need their own Postman API key. Users granted `plugins.postman:view` can browse the shared collections and create environments in their browser. The runner sends requests directly from the user's browser to the selected backend URL; it does not proxy API requests through this VPT server. `team_id` is an optional request variable, not a Postman workspace or user ID.
 
-### `postman_config.json`
+## Configuration format
 
-Main configuration file with workspaces and environments:
-
-```json
-{
-  "workspaces": [
-    {
-      "id": "workspace-virtualpytest",
-      "name": "VirtualPyTest API",
-      "postmanApiKey": "PMAK-xxx",
-      "workspaceId": "postman-workspace-id",
-      "teamId": "postman-team-id",
-      "description": "VirtualPyTest APIs"
-    }
-  ],
-  "environments": [
-    {
-      "id": "env-dev-server",
-      "name": "Development Server",
-      "workspaceId": "workspace-virtualpytest",
-      "variables": [
-        { "key": "base_url", "value": "http://localhost:5109", "type": "default" },
-        { "key": "team_id", "value": "7fdeb4bb-...", "type": "default" },
-        { "key": "api_key", "value": "your-secret-key", "type": "secret" }
-      ]
-    },
-    {
-      "id": "env-dev-host",
-      "name": "Development Host",
-      "workspaceId": "workspace-virtualpytest",
-      "variables": [
-        { "key": "base_url", "value": "http://localhost:5000", "type": "default" },
-        { "key": "host_name", "value": "host1", "type": "default" },
-        { "key": "device_id", "value": "device1", "type": "default" },
-        { "key": "userinterface", "value": "example_mobile", "type": "default" }
-      ]
-    }
-  ]
-}
-```
-
-### `postman_workspaces.json` (Legacy)
-
-Kept for backward compatibility. Will be migrated to `postman_config.json` format.
-
-## How It Works
-
-### 1. User Flow
-
-1. User selects a **Workspace** (e.g., "VirtualPyTest API")
-2. User selects an **Environment** (e.g., "Development Server" or "Development Host")
-3. User selects endpoints to test
-4. System substitutes `{{variables}}` from environment and executes
-
-### 2. Variable Substitution
-
-Request path: `/server/userinterface/getAllUserInterfaces`
-
-With environment:
-```json
-{
-  "base_url": "http://localhost:5109",
-  "team_id": "7fdeb4bb-..."
-}
-```
-
-Result:
-- URL: `http://localhost:5109/server/userinterface/getAllUserInterfaces?team_id=7fdeb4bb-...`
-
-### 3. Environment Variable Format
-
-Each variable has three properties:
-- `key`: The variable name
-- `value`: The variable value
-- `type`: Either `"default"` (visible) or `"secret"` (masked with •••)
-
-**Example:**
-```json
-{
-  "key": "api_key",
-  "value": "your-secret-key",
-  "type": "secret"
-}
-```
-
-### 4. Common Environment Variables
-
-| Variable | Description | Example | Type |
-|----------|-------------|---------|------|
-| `base_url` | Base URL for API | `http://localhost:5109` | default |
-| `api_key` | Bearer token for auth | `your-secret-key` | **secret** 🔒 |
-| `team_id` | Team ID for multi-tenancy | `7fdeb4bb-...` | default |
-| `host_name` | Host machine name | `host1` | default |
-| `device_id` | Device identifier | `device1` | default |
-| `userinterface` | UI name | `example_mobile` | default |
-
-## Example: Multi-Environment Setup
+`postman_config.json` is the supported configuration file. It identifies the shared workspace. The legacy `environments` list is empty in the sample because runner environments are private to each user's browser. The checked-in `.example` file is the canonical sample. Its workspace section is:
 
 ```json
 {
-  "environments": [
-    {
-      "id": "env-local",
-      "name": "Local Development",
-      "variables": {
-        "base_url": "http://localhost:5109",
-        "team_id": "7fdeb4bb-..."
-      }
-    },
-    {
-      "id": "env-staging",
-      "name": "Staging",
-      "variables": {
-        "base_url": "https://staging.virtualpytest.com",
-        "api_key": "staging-key",
-        "team_id": "7fdeb4bb-..."
-      }
-    },
-    {
-      "id": "env-prod",
-      "name": "Production",
-      "variables": {
-        "base_url": "https://api.virtualpytest.com",
-        "api_key": "prod-key",
-        "team_id": "7fdeb4bb-..."
-      }
-    }
-  ]
+  "id": "workspace-virtualpytest",
+  "name": "VirtualPyTest API",
+  "workspaceId": "4e7a465c-a542-4440-8903-48787f03942a",
+  "description": "Shared VirtualPyTest API collections",
+  "postmanUrl": "https://martian-zodiac-279215.postman.co/workspace/virtualpytest~4e7a465c-a542-4440-8903-48787f03942a"
 }
 ```
 
-## UI Features
+Environment profiles are private to the browser that created them. Set the environment name, Backend Server URL, and optional team ID from **Configure target** in the in-app runner. The URL and team ID are saved in that browser's local storage. An optional user Bearer JWT stays in page memory and is not saved. A matching Supabase session for the selected target can be used automatically.
 
-### Environment Variable Viewer
+Do not enter the server's `API_KEY` (`X-API-Key`) as a user credential. That shared key is reserved for trusted service-to-service calls and may receive service-level permissions. The runner sends a user JWT when available and never sends that service key. Public/open-mode endpoints may accept browser requests without a JWT, depending on the target server's auth posture.
 
-Click **"View Variables"** button to see all environment variables in a Postman-style modal:
+When the target backend is on another origin, it must include the VirtualPyTest app origin in `CORS_ALLOWED_ORIGINS`. CORS only controls browser access; it does not authenticate Postman Desktop, curl, or other direct API clients. Use the target server's JWT/user authorization for protected requests.
 
-| Variable | Value | Type |
-|----------|-------|------|
-| base_url | http://localhost:5109 | default |
-| api_key | •••••••••••••••••••••••••••••••••••••••• | 🔒 secret |
-| team_id | 7fdeb4bb-3639-4ec3-959f-b54769a219ce | default |
+## Keep the public collections in sync
 
-**Features:**
-- ✅ **Secret masking**: Variables marked as `"secret"` are displayed as dots (•••)
-- ✅ **Table view**: Clean table layout like Postman
-- ✅ **Type indicators**: Visual badges showing variable type
-- ✅ **Security icon**: 🔒 icon for secret variables
+The public workspace is generated from the curated `server-*.yaml` specs in `docs/api/specs/`. To cover newly registered Server routes and replace managed collections, run from the repository root:
 
-## Security
-
-- ✅ **Postman API keys** are stored in config but **never exposed to frontend**
-- ✅ **Secret variables** are masked in the UI with dots (•••••)
-- ✅ **API keys** from environments are used in request headers
-- ✅ All Postman API calls go through backend (`/server/postman/*`)
-- ✅ Frontend only receives workspace/environment metadata
-
-## Migration from Old Format
-
-If you have `postman_workspaces.json`, create `postman_config.json`:
-
-Old:
-```json
-[
-  {
-    "id": "workspace-virtualpytest",
-    "apiKey": "PMAK-xxx",
-    "workspaceId": "xxx"
-  }
-]
+```bash
+python3 scripts/generate_api_route_specs.py
+python3 scripts/sync_postman_openapi.py --workspace-id 4e7a465c-a542-4440-8903-48787f03942a
+python3 scripts/sync_postman_openapi.py --workspace-id 4e7a465c-a542-4440-8903-48787f03942a --replace-managed --prune-managed --apply
+python3 scripts/verify_postman_openapi_sync.py --workspace-id 4e7a465c-a542-4440-8903-48787f03942a
 ```
 
-New:
-```json
-{
-  "workspaces": [
-    {
-      "id": "workspace-virtualpytest",
-      "postmanApiKey": "PMAK-xxx",
-      "workspaceId": "xxx"
-    }
-  ],
-  "environments": []
-}
-```
-
-Both formats are supported for backward compatibility.
-
+Set `POSTMAN_API_KEY` in the shell or project `.env` before syncing. The first sync command previews changes; `--apply` writes them to Postman. Keep the gitignored `.postman_sync_manifest.json` between runs. The verifier checks that the OpenAPI specs and imported requests match registered Server route/method pairs. See [API coverage](../../../docs/api/COVERAGE.md) for what generated route inventories do and do not describe.

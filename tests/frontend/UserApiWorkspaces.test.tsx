@@ -10,7 +10,7 @@ describe('UserApiWorkspaces page', () => {
     vi.unstubAllGlobals();
   });
 
-  it('renders the API Testing Workspaces heading', async () => {
+  it('renders the Postman heading', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -25,6 +25,6 @@ describe('UserApiWorkspaces page', () => {
       </BrowserRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'API Testing Workspaces' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Postman' })).toBeInTheDocument();
   });
 });

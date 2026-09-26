@@ -31,6 +31,7 @@ _ROLE_PERMISSIONS: dict = {
         'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
         'interface:view',
         'ai_agent:view', 'ai_agent:use',
+        'plugins.postman:view',
         'plugins.jira:view', 'plugins.jira:manage', 'plugins.testrail:view',
         'settings.status:view',
     ],
@@ -40,6 +41,7 @@ _ROLE_PERMISSIONS: dict = {
         'reports.tests:view', 'reports.campaigns:view',
         'reports.models:view', 'reports.dependency:view',
         'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
+        'plugins.postman:view',
         'settings.status:view',
     ],
 }

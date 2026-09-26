@@ -128,3 +128,6 @@ See [Add a host](add-a-host.md) or the [Proxmox deployment guide](proxmox.md).
 
 **Building or extending VirtualPyTest?**
 See the [Developer setup](local-dev.md), [CI guide](ci_cd.md), and [full documentation](../README.md).
+
+**Publishing or rolling back the GHCR container images?**
+See [Publishing container images](publishing-images.md) — when to publish, how `workflow_dispatch` works on the public repo, what the `verify` job asserts, how users consume the published tags, and how to roll back a bad tag.

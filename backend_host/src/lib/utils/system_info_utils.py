@@ -73,6 +73,73 @@ def _check_linux_service(service_names: List[str]) -> Dict[str, Any]:
     return {'status': 'unknown', 'runtime': 'service'}
 
 
+# Supervisord-specific status strings → our canonical status. Order matters:
+# we test in sequence and pick the first match.
+_SUPERVISOR_STATUS_MAP = (
+    ('RUNNING', 'active'),
+    ('STARTING', 'active'),
+    ('STOPPED', 'stopped'),
+    ('STOPPING', 'stopped'),
+    ('FATAL', 'error'),
+    ('EXITED', 'error'),
+    ('BACKOFF', 'error'),
+    ('UNKNOWN', 'unknown'),
+    ('NOT_FOUND', 'unknown'),
+)
+
+
+def _check_supervisor_service(service_names: List[str]) -> Dict[str, Any]:
+    """Check service status via `supervisorctl` (used in the containerized
+    backend_host where systemd does not manage vpt-* services). Falls back to
+    'unknown' / 'not_installed' if supervisorctl is unavailable or none of the
+    names resolve. The mapped status is reported with `runtime: 'supervisor'`
+    so the dashboard can show which runtime owns the service.
+    """
+    # Cheap probe: the supervisorctl CLI writes to the supervisor socket.
+    # If the socket doesn't exist we are not in a supervisor-managed host.
+    if not os.path.exists('/var/run/supervisor.sock'):
+        return {'status': 'unknown', 'runtime': 'supervisor'}
+
+    for service_name in service_names:
+        try:
+            result = subprocess.run(
+                ['supervisorctl', 'status', service_name],
+                capture_output=True, text=True, timeout=3,
+            )
+        except (FileNotFoundError, OSError):
+            return {'status': 'unknown', 'runtime': 'supervisor'}
+        except Exception:
+            continue
+        if result.returncode != 0:
+            # supervisorctl exit code 4 == "no such process" → try next alias
+            continue
+        stdout = (result.stdout or '').strip()
+        # supervisorctl format: "<name>    <STATUS>    ..." (whitespace-separated).
+        # We do not parse the third column (pid/uptime) — only the status word.
+        if not stdout:
+            continue
+        # First token is the program name (echoed by supervisorctl). The
+        # second token is the status word.
+        parts = stdout.split()
+        if len(parts) < 2:
+            continue
+        sup_status = parts[1].upper()
+        for needle, mapped in _SUPERVISOR_STATUS_MAP:
+            if sup_status.startswith(needle):
+                return {
+                    'status': mapped,
+                    'runtime': 'supervisor',
+                    'resolved_name': service_name,
+                }
+        # Status word we did not recognise — record but do not mark active.
+        return {
+            'status': 'unknown',
+            'runtime': 'supervisor',
+            'resolved_name': service_name,
+        }
+    return {'status': 'not_installed', 'runtime': 'supervisor'}
+
+
 # Windows: services where the canonical vpt-* name may not be the one
 # actually running. e.g. on hosts with TightVNC pre-installed, the NSSM
 # ``vpt-vnc`` service is registered-but-disabled (port 5900 conflict) and
@@ -271,13 +338,13 @@ def build_service_health_summary(
     # On Windows: vpt-host and vpt-stream use Task Scheduler, everything else uses NSSM services.
     # For runner hosts, only vpt-host is critical; all other services are optional/non-critical.
     service_definitions = [
-        {'name': 'vpt-host', 'label': 'Host API', 'description': 'Host API: manages devices & incoming requests', 'critical': True, 'optional': False, 'linux_names': ['vpt-host', 'host'], 'windows_names': ['vpt-host']},
-        {'name': 'vpt-monitor', 'label': 'Monitor', 'description': 'Device health & incident monitoring', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-monitor', 'monitor'], 'windows_names': ['vpt-monitor']},
-        {'name': 'vpt-archiver', 'label': 'Archiver', 'description': 'Buffers video & archives screenshots', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-archiver', 'archiver'], 'windows_names': ['vpt-archiver']},
-        {'name': 'vpt-kpi', 'label': 'KPI', 'description': 'Measures navigation & action KPIs', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-kpi', 'kpi'], 'windows_names': ['vpt-kpi']},
-        {'name': 'vpt-vnc', 'label': 'VNC', 'description': 'Remote desktop (VNC) for the device', 'critical': has_vnc_device and not is_runner, 'optional': not has_vnc_device or is_runner, 'linux_names': ['vpt-vnc', 'vnc'], 'windows_names': _windows_service_candidates('vpt-vnc')},
-        {'name': 'vpt-websockify', 'label': 'Websockify', 'description': 'Bridges VNC to the browser (noVNC)', 'critical': has_vnc_device and not is_runner, 'optional': not has_vnc_device or is_runner, 'linux_names': ['vpt-websockify', 'websockify'], 'windows_names': ['vpt-websockify']},
-        {'name': 'vpt-transcript', 'label': 'Transcript', 'description': 'Audio → text transcription', 'critical': has_audio_devices and not is_runner, 'optional': not has_audio_devices or is_runner, 'linux_names': ['vpt-transcript', 'transcript'], 'windows_names': ['vpt-transcript']},
+        {'name': 'vpt-host', 'label': 'Host API', 'description': 'Host API: manages devices & incoming requests', 'critical': True, 'optional': False, 'linux_names': ['vpt-host', 'host', 'flask'], 'windows_names': ['vpt-host']},
+        {'name': 'vpt-monitor', 'label': 'Monitor', 'description': 'Device health & incident monitoring', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-monitor', 'monitor', 'capture_monitor'], 'windows_names': ['vpt-monitor']},
+        {'name': 'vpt-archiver', 'label': 'Archiver', 'description': 'Buffers video & archives screenshots', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-archiver', 'archiver', 'hot_cold_archiver'], 'windows_names': ['vpt-archiver']},
+        {'name': 'vpt-kpi', 'label': 'KPI', 'description': 'Measures navigation & action KPIs', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-kpi', 'kpi', 'kpi_executor'], 'windows_names': ['vpt-kpi']},
+        {'name': 'vpt-vnc', 'label': 'VNC', 'description': 'Remote desktop (VNC) for the device', 'critical': has_vnc_device and not is_runner, 'optional': not has_vnc_device or is_runner, 'linux_names': ['vpt-vnc', 'vnc', 'x11vnc'], 'windows_names': _windows_service_candidates('vpt-vnc')},
+        {'name': 'vpt-websockify', 'label': 'Websockify', 'description': 'Bridges VNC to the browser (noVNC)', 'critical': has_vnc_device and not is_runner, 'optional': not has_vnc_device or is_runner, 'linux_names': ['vpt-websockify', 'websockify', 'novnc'], 'windows_names': ['vpt-websockify']},
+        {'name': 'vpt-transcript', 'label': 'Transcript', 'description': 'Audio → text transcription', 'critical': has_audio_devices and not is_runner, 'optional': not has_audio_devices or is_runner, 'linux_names': ['vpt-transcript', 'transcript', 'transcript_accumulator'], 'windows_names': ['vpt-transcript']},
         {'name': 'vpt-subtitle', 'label': 'Subtitle', 'description': 'Subtitle extraction & overlay', 'critical': False, 'optional': True, 'linux_names': ['vpt-subtitle', 'subtitle'], 'windows_names': []},
         {'name': 'vpt-emulator', 'label': 'Emulator', 'description': 'Android emulator runtime', 'critical': is_android and not is_runner, 'optional': not is_android or is_runner, 'linux_names': ['vpt-emulator'], 'windows_names': []},
         {'name': 'vpt-emulator-fifo', 'label': 'Screencap', 'description': 'Emulator frame capture pipe', 'critical': is_android and not is_runner, 'optional': not is_android or is_runner, 'linux_names': ['vpt-emulator-fifo'], 'windows_names': []},
@@ -286,6 +353,17 @@ def build_service_health_summary(
     for definition in service_definitions:
         if platform_name == 'Linux':
             status_info = _check_linux_service(definition['linux_names'])
+            # systemd does not know about vpt-* services on a supervisord-managed
+            # host (the containerized backend_host path). Fall back to supervisorctl
+            # so the dashboard reflects the real status of flask / capture_monitor /
+            # hot_cold_archiver / kpi_executor / x11vnc / novnc / transcript_accumulator.
+            # Trust supervisorctl when systemd returns 'unknown', 'not_installed', or
+            # even 'stopped' (systemd may have a stale 'inactive' unit from a previous
+            # install path while supervisord is actually running the program).
+            if status_info.get('status') in ('unknown', 'not_installed', 'stopped'):
+                sup_info = _check_supervisor_service(definition['linux_names'])
+                if sup_info.get('status') not in ('unknown', 'not_installed'):
+                    status_info = sup_info
         elif platform_name == 'Windows':
             if definition['name'] in ('vpt-stream', 'vpt-host'):
                 status_info = _check_windows_scheduled_task(definition['name'])

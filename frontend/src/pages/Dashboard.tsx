@@ -42,7 +42,6 @@ import {
 
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { DeviceFilterBar } from '../components/common/DeviceFilterBar';
-import { ServerSelector } from '../components/common/ServerSelector';
 import { DeviceInfoTooltipIcon } from '../components/common/DeviceInfoTooltipIcon';
 import { featureDeviceLinks } from '../config/features';
 import { ServiceLogsModal } from '../components/common/ServiceLogsModal';
@@ -52,6 +51,7 @@ import { useDeviceFlags } from '../hooks/useDeviceFlags';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { useServerManager } from '../hooks/useServerManager';
 import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
+import { usePermissionContext } from '../contexts/auth/PermissionContext';
 import { useRec } from '../hooks/pages/useRec';
 import { useToast } from '../hooks/useToast';
 import { usePersistedState } from '../hooks/usePersistedState';
@@ -65,6 +65,15 @@ const Dashboard: React.FC = () => {
   const { getAllHosts } = useHostData();
   const { serverHostsData, selectedServer, isLoading: loading, error, refreshServerData } = useServerManager();
   const { isDeviceAllowed } = useWorkspaceContext();
+  const { hasPermission } = usePermissionContext();
+  // Host controls (start/stop/restart a service, restart vpt-host, reboot, restart
+  // streams) all map to backend routes guarded by @require_role('admin'). Viewers
+  // can see host status / service health but must not see the buttons that would
+  // 403 them. `device_control:execute` is held by tester + admin only — viewer
+  // does NOT have it, so this gates correctly. Keeping a single local flag rather
+  // than sprinkling hasPermission() through the render so the read-only viewer
+  // experience stays easy to grep for.
+  const canControlHosts = hasPermission('device_control:execute');
   const rawAvailableHosts = useMemo(() => getAllHosts(), [getAllHosts]);
   // Drop workspace-filtered devices from each host, then drop hosts with no
   // remaining devices — restart/reboot actions only operate on what the user
@@ -828,10 +837,13 @@ const Dashboard: React.FC = () => {
     normalizeVersion(version) !== normalizeVersion(reference);
 
   // Strip the "current:" prefix VERSION.txt carries so only the build string
-  // (e.g. "debug-2026.05.21-8731") is shown.
+  // (e.g. "debug-2026.05.21-8731") is shown. A missing version renders as
+  // an em-dash rather than the literal "unknown" string — the latter looks
+  // like a developer leak and made every server chip turn red on Render
+  // before _read_local_deployed_version was taught to look under /app.
   const displayVersion = (value?: string | null): string => {
-    if (!value) return 'unknown';
-    return value.trim().replace(/^current\s*:/i, '') || 'unknown';
+    if (!value) return '—';
+    return value.trim().replace(/^current\s*:/i, '') || '—';
   };
 
   // Render a "<label>: <version>" caption (label optional). When the version
@@ -910,8 +922,29 @@ const Dashboard: React.FC = () => {
   ): 'success' | 'warning' | 'error' | 'default' => {
     if (status === 'active') return 'success';
     if (status === 'stuck' || status === 'unknown') return optional ? 'default' : 'warning';
-    if (status === 'stopped' || status === 'error') return optional ? 'default' : 'error';
+    // 'not_installed' is the worst outcome (the binary literally does not exist
+    // on the host) — it is not the same as 'stopped' (installed but not running).
+    // Always red so it is impossible to miss on the card, regardless of optional.
+    if (
+      status === 'stopped' ||
+      status === 'error' ||
+      status === 'not_installed' ||
+      status === 'failed'
+    ) {
+      return optional ? 'default' : 'error';
+    }
     return 'default';
+  };
+
+  // Shorten raw server-side status strings to a tidier chip label. We still
+  // keep the raw string in the tooltip so it is not lost. 'not_installed' is
+  // hidden behind an em-dash — the chip is already red, the literal word
+  // "not_installed" on a card reads as developer noise to a tester. The same
+  // treatment covers 'failed' which previously printed as a raw verb.
+  const getServiceStatusLabel = (status: string): string => {
+    if (status === 'not_installed') return '—';
+    if (status === 'failed') return 'failed';
+    return status;
   };
 
   const SystemStatsDisplay: React.FC<{ stats: Host['system_stats']; compact?: boolean }> = ({
@@ -1221,7 +1254,7 @@ const Dashboard: React.FC = () => {
                       </Tooltip>
                     )}
                     <Chip
-                      label={dispStatus}
+                      label={getServiceStatusLabel(dispStatus)}
                       size="small"
                       color={getServiceStatusColor(dispStatus, service.optional)}
                       variant="outlined"
@@ -1278,6 +1311,7 @@ const Dashboard: React.FC = () => {
                         // place (just disabled) — never swap them for a
                         // spinner: that hides/shifts the icons and flashes.
                         const busy = isHostBusy(host.host_name) || pendingService !== null;
+                        if (!canControlHosts) return null;
                         return (
                           <>
                             <IconButton
@@ -1323,7 +1357,11 @@ const Dashboard: React.FC = () => {
           </AccordionDetails>
         </Accordion>
 
-        {/* Per-Host System Controls */}
+        {/* Per-Host System Controls — viewers see the host card with status but
+            not the row of destructive buttons (restart vpt-host, reboot, restart
+            streams, auto-fix). Each button hits a backend route that is admin-only
+            anyway, so hiding for non-admin is consistent with the server. */}
+        {canControlHosts && (
         <Box display="flex" alignItems="center" justifyContent="center" gap={0.5} sx={{ mb: 1 }}>
           <Tooltip title="Restart vpt-host service">
             <span>
@@ -1385,6 +1423,7 @@ const Dashboard: React.FC = () => {
             </span>
           </Tooltip>
         </Box>
+        )}
 
         {renderVersionLine('', host.deployed_version, serverVersion)}
 
@@ -1431,13 +1470,9 @@ const Dashboard: React.FC = () => {
           </Alert>
         )}
 
-        {/* The desktop navbar carries the server picker, and mobile does not render that
-            navbar at all — so on a phone there was no way to switch server. It sits above the
-            device filters because it scopes them: the targets and models below are whichever
-            this server knows about. */}
-        <Box sx={{ mb: 1 }}>
-          <ServerSelector size="small" minWidth={160} />
-        </Box>
+        {/* The AppBar's ServerSelector is the single source of truth on every
+            screen size (incl. mobile/tablet) — do NOT render a second one here,
+            or mobile users see two stacked dropdowns for the same picker. */}
 
         <Box sx={{ mb: 1 }}>
           <DeviceFilterBar
@@ -1482,6 +1517,8 @@ const Dashboard: React.FC = () => {
               )}
             </Box>
             <Box display="flex" gap={0.5}>
+              {canControlHosts && (
+              <>
               <Tooltip title="Restart host service">
                 <span>
                   <IconButton onClick={() => restartAllServices()} disabled={isRestartingService} size="small" color="warning">
@@ -1496,6 +1533,8 @@ const Dashboard: React.FC = () => {
                   </IconButton>
                 </span>
               </Tooltip>
+              </>
+              )}
             </Box>
           </Box>
 
@@ -1562,7 +1601,7 @@ const Dashboard: React.FC = () => {
                               {service.label}
                             </Typography>
                             <Chip
-                              label={service.status}
+                              label={getServiceStatusLabel(service.status)}
                               size="small"
                               color={getServiceStatusColor(service.status, service.optional)}
                               variant="outlined"
@@ -1665,7 +1704,7 @@ const Dashboard: React.FC = () => {
         <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
           <Box display="flex" alignItems="center" gap={1.5}>
             <Typography variant="h6">
-              Registered Servers ({filteredServerHostsData.length}) -{' '}
+              Servers ({filteredServerHostsData.length}) -{' '}
               {totalHosts} Hosts -{' '}
               {totalDevices} Devices
             </Typography>
@@ -1690,7 +1729,9 @@ const Dashboard: React.FC = () => {
             )}
           </Box>
           <Box display="flex" alignItems="center" gap={1}>
-            {/* Global System Controls */}
+            {/* Global System Controls — viewer must not see the "restart / reboot all" row. */}
+            {canControlHosts && (
+            <>
             <Tooltip title="Restart vpt-host service on all hosts">
               <span>
                 <IconButton
@@ -1727,6 +1768,8 @@ const Dashboard: React.FC = () => {
                 </IconButton>
               </span>
             </Tooltip>
+            </>
+            )}
             
             <Tooltip title="Hosts automatically refresh">
               <span>
@@ -1758,7 +1801,7 @@ const Dashboard: React.FC = () => {
                 <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
                   <Box display="flex" alignItems="center" gap={2}>
                     <Typography variant="h6">
-                      Server: {serverData.server_info.server_name} - {serverData.server_info.server_url_display}
+                      Server: {serverData.server_info.server_url_display}
                     </Typography>
                     {/* Server version inline (the source of truth). Turns red
                         with a badge if the frontend bundle is on a different

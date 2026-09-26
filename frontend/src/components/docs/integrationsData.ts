@@ -106,7 +106,7 @@ export const INTEGRATIONS: Integration[] = [
     brand: '#FF6C37',
     description: 'A published collection covering the whole REST API.',
     status: 'live',
-    href: '/docs/api',
+    href: '/docs/integrations/postman',
   },
   {
     name: 'Langfuse',

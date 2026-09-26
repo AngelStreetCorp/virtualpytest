@@ -9,8 +9,8 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | backend_host / test_scripts                                  |
-| Fixed in  | Unreleased                                                   |
-| Commit    | TBD                                                          |
+| Fixed in  | build 9364                                                   |
+| Commit    | eef478a79b                                                   |
 
 ---
 

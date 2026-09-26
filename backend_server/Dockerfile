@@ -28,6 +28,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Project-root version file: _read_local_deployed_version looks for /app/VERSION.txt
+# on Render/Docker (the Dockerfile's WORKDIR is /app/backend_server, so /app/ is
+# the project root). Without this copy the server reports deployed_version=null
+# and the dashboard's version chip prints "unknown" in red.
+COPY VERSION.txt VERSION.txt
+
 # Copy shared library
 COPY shared/ shared/
 # Add shared to PYTHONPATH

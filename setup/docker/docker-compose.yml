@@ -58,7 +58,10 @@ services:
 
   minio:
     container_name: vpt-minio
-    image: quay.io/minio/minio:RELEASE.2025-07-23T15-54-02Z
+    build:
+      context: ../..
+      dockerfile: setup/docker/images/minio/Dockerfile
+    image: ${VPT_REGISTRY:-ghcr.io/angelstreetcorp}/minio:${VPT_IMAGE_TAG:-local}
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -78,7 +81,10 @@ services:
   # Creates the bucket and makes it world-readable (public-URL mode, like the VM install).
   minio-init:
     container_name: vpt-minio-init
-    image: quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z
+    build:
+      context: ../..
+      dockerfile: setup/docker/images/minio-mc/Dockerfile
+    image: ${VPT_REGISTRY:-ghcr.io/angelstreetcorp}/minio-mc:${VPT_IMAGE_TAG:-local}
     restart: "no"
     depends_on:
       minio:

@@ -1,6 +1,7 @@
 # Publishes the release artifacts a user installs from:
-#   - the three container images (server, host, frontend), so a first run pulls instead
-#     of building (docs/get-started/docker.md, `VPT_IMAGE_TAG` in setup/docker/.env.example)
+#   - the five container images (server, host, frontend, minio, minio-mc), so a first run
+#     pulls instead of building (docs/get-started/docker.md, `VPT_IMAGE_TAG` in
+#     setup/docker/.env.example)
 #   - the standalone Docker bundle, ~0.5 MB of the config the stack mounts, so nobody has
 #     to clone 330 MB of git history to run it (setup/docker/make_bundle.sh)
 #
@@ -9,10 +10,16 @@
 # every start, and getEnv() in src/config/constants.ts prefers that over the baked value.
 # Its Dockerfile context is `frontend`, not the repo root, unlike the backends'.
 #
-# PUBLISHING IS GATED TO THE PUBLIC REPO. An image embeds the source it was built from,
-# where the leak gate cannot see it, so images must only ever be built from the public
-# snapshot. On `virtualpytest-internal` a manual run builds both images and throws them
-# away, which still verifies the Dockerfiles and this workflow.
+# minio and minio-mc are not our code — they vendor the upstream MinIO/mc binaries from
+# GitHub releases (setup/docker/images/minio*/Dockerfile) because quay.io/minio/* stopped
+# accepting anonymous pulls. They ride the same matrix and the same public-repo gate purely
+# for simplicity; there is no leak-gate reason to restrict them, since they embed no VPT
+# source.
+#
+# PUBLISHING IS GATED TO THE PUBLIC REPO. The server/host/frontend images embed the source
+# they were built from, where the leak gate cannot see it, so those must only ever be built
+# from the public snapshot. On `virtualpytest-internal` a manual run builds every image and
+# throws them away, which still verifies the Dockerfiles and this workflow.
 name: Release artifacts
 
 on:
@@ -68,6 +75,10 @@ jobs:
           - image: virtualpytest-frontend
             dockerfile: frontend/Dockerfile
             context: frontend
+          - image: minio
+            dockerfile: setup/docker/images/minio/Dockerfile
+          - image: minio-mc
+            dockerfile: setup/docker/images/minio-mc/Dockerfile
     steps:
       - uses: actions/checkout@v7
 
@@ -157,7 +168,7 @@ jobs:
       - name: Assert the backends came from the registry, not a local build
         run: |
           tag="${{ inputs.tag || github.ref_name }}"
-          for svc in vpt-server vpt-host; do
+          for svc in vpt-server vpt-host vpt-minio vpt-minio-init; do
             got="$(docker inspect --format '{{.Config.Image}}' "$svc")"
             echo "${svc}: ${got}"
             case "$got" in

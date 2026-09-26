@@ -1,21 +1,20 @@
 # ☁️ Google Cloud — standalone install
 
-> **Read [Install](get-started/install.md) first.** The Docker path there works
+> **Read [Install](install.md) first.** The Docker path there works
 > on any rented Linux box — Hetzner, AWS, DigitalOcean, Scaleway, OVH, GCP,
 > anywhere. This page adds only what is specific to a single GCP VM: project
-> setup, OS Login / SSH access, and the one Compose workaround (MinIO) that is
-> needed today because `quay.io/minio/*` no longer accepts anonymous pulls.
+> setup and OS Login / SSH access.
 >
 > **One VM, full platform.** This guide keeps the entire stack — Supabase,
 > Redis, MinIO, Grafana, backend server, backend host, frontend — on a single
 > Compute Engine instance. It does **not** cover splitting the stack across
 > multiple GCP projects or across GCP + another cloud; for that, follow
-> [Managed cloud (Vercel + Render)](get-started/cloud-setup.md).
+> [Managed cloud (Vercel + Render)](cloud-setup.md).
 
 A standalone GCP install is for: a long-running demo, a lab box you want to
 reach from anywhere, a single-site deployment on a public cloud you already
 have an account with. It is **not** a free path: GCP's Always Free `e2-micro`
-(1 GB RAM) is too small for the full stack — see [Free cloud starter](user-guide/free-cloud-starter.md)
+(1 GB RAM) is too small for the full stack — see [Free cloud starter](../user-guide/free-cloud-starter.md)
 for that tier.
 
 ## Recommended architecture
@@ -213,145 +212,19 @@ docker compose -f docker-compose.yml -f docker-compose.linux.yml \
 Expect ~9 GB of pulls. If any pull fails with `no space left on device`,
 double-check `df -h /` — the 30 GB boot disk is the minimum for this image set.
 
-## 6. The MinIO workaround (mandatory today)
+## 6. The MinIO workaround (resolved)
 
-The compose file pins `quay.io/minio/minio:RELEASE.2025-07-23T15-54-02Z` and
-`quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z`. As of late 2026 these return
-`HTTP 401` for anonymous pulls (the bearer token has `"actions":[]` for
-`repository:minio/minio`), and the project has no alternative mirror wired
-in — `docker.io/minio/minio` does not exist on Docker Hub, and `bitnami/minio`
-returns empty tag lists. The fix is to install MinIO as a host systemd
-service from the matching GitHub release assets (which **do** exist), then
-point the docker stack at it.
-
-```bash
-# Download binaries matching the tags pinned in docker-compose.yml
-MINIO_VER="RELEASE.2025-07-23T15-54-02Z"
-MC_VER="RELEASE.2025-04-16T18-13-26Z"
-
-curl -fsSL -o /tmp/minio \
-  "https://github.com/minio/minio/releases/download/${MINIO_VER}/minio.linux-amd64.${MINIO_VER}"
-curl -fsSL -o /tmp/mc \
-  "https://github.com/minio/mc/releases/download/${MC_VER}/mc.linux-amd64.${MC_VER}"
-
-sudo install -m 0755 /tmp/minio /usr/local/bin/minio
-sudo install -m 0755 /tmp/mc    /usr/local/bin/mc
-minio --version    # RELEASE.2025-07-23T15-54-02Z (go1.24.x linux/amd64)
-mc    --version    # RELEASE.2025-04-16T18-13-26Z
-
-# Credentials: pull from the .env that launch.sh generated
-MINIO_USER="$(grep ^MINIO_ACCESS_KEY= setup/docker/.env | head -1 | cut -d= -f2-)"
-MINIO_PASS="$(grep ^MINIO_SECRET_KEY= setup/docker/.env | head -1 | cut -d= -f2-)"
-BUCKET="${MINIO_BUCKET:-virtualpytest}"
-BUCKET="$(grep ^MINIO_BUCKET= setup/docker/.env | head -1 | cut -d= -f2-)"
-
-# System user + dirs
-sudo useradd -r -s /sbin/nologin -d /var/lib/minio minio
-sudo mkdir -p /var/lib/minio && sudo chown minio:minio /var/lib/minio
-sudo mkdir -p /etc/minio      && sudo chown minio:minio /etc/minio
-
-# Env file (mode 0600, owned by minio)
-sudo tee /etc/default/minio > /dev/null <<EOF
-MINIO_ROOT_USER=${MINIO_USER}
-MINIO_ROOT_PASSWORD=${MINIO_PASS}
-EOF
-sudo chmod 0600 /etc/default/minio && sudo chown minio:minio /etc/default/minio
-
-# systemd unit
-sudo tee /etc/systemd/system/minio.service > /dev/null <<'UNIT'
-[Unit]
-Description=MinIO object storage (standalone, VirtualPyTest)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=notify
-User=minio
-Group=minio
-EnvironmentFile=/etc/default/minio
-ExecStart=/usr/local/bin/minio server /var/lib/minio --console-address ":9001"
-Restart=always
-RestartSec=5
-LimitNOFILE=65536
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-
-sudo systemctl daemon-reload
-sudo systemctl enable --now minio.service
-
-# Initialise the bucket
-mc alias set local "http://localhost:9000" "$MINIO_USER" "$MINIO_PASS"
-mc mb --ignore-existing "local/$BUCKET"
-mc anonymous set download "local/$BUCKET"   # matches the project "public-URL mode"
-
-# Health
-curl -s http://localhost:9000/minio/health/live   # → 200
-```
-
-### Wire host MinIO into the docker stack
-
-The local `docker-compose.yml` still references `quay.io/minio/...` images
-that will not pull, and `backend_server` references `minio:9000` as a Docker
-network alias. With MinIO running on the host, the alias needs to point at
-the compose network bridge gateway (typically `172.18.0.1`):
-
-```bash
-cd /home/virtualpytest/virtualpytest/setup/docker
-
-# Remove the two services that cannot pull
-cp docker-compose.yml /tmp/docker-compose.yml.original
-python3 - <<'PY'
-import re
-path = "docker-compose.yml"
-with open(path) as f: text = f.read()
-text = re.sub(r"^  minio:\n(?:    .+\n)+", "", text, flags=re.M)
-text = re.sub(r"^  minio-init:\n(?:    .+\n)+", "", text, flags=re.M)
-text = re.sub(r"\n    minio-init:\n      condition: service_completed_successfully\n", "\n", text)
-with open(path, "w") as f: f.write(text)
-PY
-
-# Add an extra_hosts entry to backend_server and backend_host
-NET_IP=$(docker network inspect virtualpytest_default \
-  --format "{{range .IPAM.Config}}{{.Gateway}}{{end}}" | head -1)
-cat > /tmp/patch.py <<PY
-import os, re
-NET_IP = os.environ["NET_IP"]
-path = "/home/virtualpytest/virtualpytest/setup/docker/docker-compose.yml"
-with open(path) as f: text = f.read()
-text = re.sub(r"\n    extra_hosts:\n      - \"minio:[0-9.]+\"\n", "\n", text)
-def add(t, svc):
-    pat = re.compile(r"^(  " + svc + r":\n(?:    .+\n)+)", re.M)
-    def fix(m):
-        b = m.group(1)
-        a = "    extra_hosts:\n      - \"minio:" + NET_IP + "\"\n"
-        return b.replace("    depends_on:\n", a + "    depends_on:\n", 1) \
-               if "    depends_on:\n" in b else b + a
-    return pat.sub(fix, t, count=1)
-for svc in ("backend_server", "backend_host"):
-    text = add(text, svc)
-with open(path, "w") as f: f.write(text)
-PY
-NET_IP="$NET_IP" python3 /tmp/patch.py
-
-docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d
-```
-
-Verify MinIO is reachable from inside the containers:
-
-```bash
-docker exec vpt-server sh -c \
-  'getent hosts minio; \
-   curl -s -o /dev/null -w "minio_live: %{http_code}\n" http://minio:9000/minio/health/live'
-# expected: "172.18.0.1 minio" and "minio_live: 200"
-```
-
-> **Permanent fix.** A future release of `setup/docker/docker-compose.yml`
-> should ship a `minio:` service that uses a local image (built from the
-> MinIO binaries via `setup/docker/scripts/build_minio_image.sh` or similar)
-> or a digest-pinned image from a private GHCR mirror. Until that lands,
-> §6 is mandatory on every fresh install.
+`quay.io/minio/minio` and `quay.io/minio/mc` stopped accepting anonymous
+pulls in late 2026 (`docker.io/minio/minio` does not exist on Docker Hub,
+and `bitnami/minio` returns empty tag lists), which broke the `minio` /
+`minio-init` services in `docker-compose.yml`. Fixed: those two services now
+build from `setup/docker/images/minio/Dockerfile` and
+`setup/docker/images/minio-mc/Dockerfile`, which vendor the same pinned
+MinIO/mc versions from their GitHub release assets instead — the direct
+GitHub download URLs still resolve even though the registries don't. Nothing
+to do on a fresh install; `git pull` + `./launch.sh --rebuild` fixes an
+existing one. `setup/local/linux/storage/install_minio.sh` (the native,
+non-Docker install path) uses the same GitHub source.
 
 ## 7. Bring the stack up
 
@@ -419,7 +292,7 @@ gcloud compute firewall-rules create vpt-public \
 
 > **Do not do this in OPEN MODE.** A fresh install accepts every API call
 > with no login — fine on a trusted LAN, not on a public address. Walk
-> [Production checklist](get-started/production-checklist.md) before
+> [Production checklist](production-checklist.md) before
 > opening any port.
 
 ## 9. Optional — Cloudflare in front of the showcase
@@ -606,7 +479,7 @@ whole docker stack — plus anything else on the VM (noVNC's Chromium, curl
 from inside the host, etc.). For mobile emulators / real devices on a
 separate network, point their DHCP-supplied DNS at `1.1.1.3 / 1.0.0.3`
 or set Android's Private DNS to `family.cloudflare-dns.com`. The full
-rationale and recipes are in [Content filtering](get-started/content-filtering.md).
+rationale and recipes are in [Content filtering](content-filtering.md).
 
 ### 9.6 Putting PUBLIC_HOST on the right name
 
@@ -627,7 +500,7 @@ sed -i 's|^PUBLIC_HOST=.*|PUBLIC_HOST=<your-showcase-domain>|' .env
 - **Wipe and restart** (deletes DB / captures / MinIO / Grafana): `./launch.sh --reset`
 - **Rebuild after `.env` change**: `./launch.sh --rebuild`
 - **Add a device**: edit `backend_host/src/.env`, drop the `x` from the
-  device line, re-run `./launch.sh`. See [Add a host](get-started/add-a-host.md).
+  device line, re-run `./launch.sh`. See [Add a host](add-a-host.md).
 - **Rotate a secret**: edit `setup/docker/.env`, re-run `./launch.sh`.
   Existing services pick the new value up on container recreate. The shipped
   `.env` secrets are random per install; the production checklist covers
@@ -635,14 +508,15 @@ sed -i 's|^PUBLIC_HOST=.*|PUBLIC_HOST=<your-showcase-domain>|' .env
 
 ## What this guide does not cover
 
-- **Multi-VM / multi-region deployments** — see [Managed cloud](get-started/cloud-setup.md)
-  for the managed-service shape, or [Proxmox](get-started/proxmox.md) for
+- **Multi-VM / multi-region deployments** — see [Managed cloud](cloud-setup.md)
+  for the managed-service shape, or [Proxmox](proxmox.md) for
   the on-prem fleet shape.
-- **Free-tier** — GCP Always Free `e2-micro` is too small; see [Free cloud starter](user-guide/free-cloud-starter.md).
+- **Free-tier** — GCP Always Free `e2-micro` is too small; see [Free cloud starter](../user-guide/free-cloud-starter.md).
 - **Production hardening** — auth, TLS, secrets rotation, firewall rules,
-  backups. Walk [Production checklist](get-started/production-checklist.md)
+  backups. Walk [Production checklist](production-checklist.md)
   before this stack holds anything you care about.
 - **Custom domains** — see §9.
-- **The MinIO pin moving again** — the workaround in §6 pins the exact tag
-  in `docker-compose.yml`. If you upgrade, update both the compose file
-  **and** the systemd unit's `minio` binary, and re-initialise the bucket.
+- **The MinIO pin moving again** — `setup/docker/images/minio/Dockerfile` and
+  `setup/docker/images/minio-mc/Dockerfile` pin exact upstream MinIO/mc
+  versions. Bumping one means editing its `ARG` default and republishing
+  (`.github/workflows/release-images.yml`, `workflow_dispatch`) — see §6.

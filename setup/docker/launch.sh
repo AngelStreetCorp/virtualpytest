@@ -143,8 +143,8 @@ if [ "$REBUILD" = true ] || [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = local ]; the
 else
     echo "📦 pulling backend images tagged '$IMAGE_TAG' (set VPT_IMAGE_TAG=local in .env to build instead)"
     # docker-compose.host.yml defines backend_host only — asking for backend_server there
-    # is a hard error, not a no-op.
-    if [ "$MODE" = host ]; then PULL=(backend_host); else PULL=(backend_server backend_host frontend); fi
+    # is a hard error, not a no-op. minio/minio-init aren't in the host compose file either.
+    if [ "$MODE" = host ]; then PULL=(backend_host); else PULL=(backend_server backend_host frontend minio minio-init); fi
     if ! "${COMPOSE[@]}" pull "${PULL[@]}"; then
         echo "⚠️  pull failed for tag '$IMAGE_TAG' — falling back to building from this checkout"
         "${COMPOSE[@]}" build

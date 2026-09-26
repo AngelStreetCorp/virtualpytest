@@ -146,6 +146,7 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[] | ['*']> = {
     'interface:view',
     'ai_agent:view',
     'ai_agent:use',
+    'plugins.postman:view',
     'plugins.jira:view',
     'plugins.jira:manage',
     'plugins.testrail:view',
@@ -162,6 +163,13 @@ export const ROLE_PERMISSIONS: Record<Role, Permission[] | ['*']> = {
     'monitoring.incidents:view',
     'monitoring.heatmap:view',
     'monitoring.ai_queue:view',
+    'device_control:view', // see host cards / status; :execute/:reboot/:restart_streams stay tester+admin-only
+    'plugins.postman:view',
+    'plugins.jira:view',
+    'plugins.testrail:view',
+    'plugins.slack:view',
+    'plugins.grafana:view',
+    'plugins.langfuse:view',
     'settings.status:view',
   ],
 };

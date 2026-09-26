@@ -14,6 +14,13 @@ server_postman_bp = Blueprint('server_postman_bp', __name__, url_prefix='/server
 # Path to config file
 BACKEND_SERVER_ROOT = Path(__file__).parent.parent.parent
 CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'postman' / 'postman_config.json'
+GUIDE_PATH = CONFIG_PATH.parent / 'README.md'
+
+@server_postman_bp.route('/guide', methods=['GET'])
+@handle_route_exceptions('server_postman:get_configuration_guide')
+def get_configuration_guide():
+    """Return the Postman setup guide for display in the frontend."""
+    return jsonify({'success': True, 'content': GUIDE_PATH.read_text(encoding='utf-8')})
 
 # ============================================================================
 # IN-MEMORY CACHE FOR POSTMAN COLLECTIONS
@@ -24,12 +31,30 @@ _cache_lock = threading.Lock()
 def load_config():
     """Load Postman configuration (workspaces + environments)"""
     try:
-        if not CONFIG_PATH.exists():
-            print(f"[@postman_routes] Config file not found: {CONFIG_PATH}")
-            return {'workspaces': [], 'environments': []}
-        
-        with open(CONFIG_PATH, 'r') as f:
-            config = json.load(f)
+        if CONFIG_PATH.exists():
+            with open(CONFIG_PATH, 'r') as f:
+                config = json.load(f)
+        else:
+            config = {'workspaces': [], 'environments': []}
+
+        # Keep the shared Postman credential server-side. A deployment can provide
+        # just the public workspace ID in postman_config.json and keep this key in
+        # its backend .env. Existing per-workspace keys remain supported.
+        api_key = os.getenv('POSTMAN_API_KEY')
+        if not config.get('workspaces') and api_key:
+            config['workspaces'] = [{
+                'id': 'workspace-virtualpytest',
+                'name': 'VirtualPyTest API',
+                'workspaceId': os.getenv(
+                    'POSTMAN_WORKSPACE_ID',
+                    '4e7a465c-a542-4440-8903-48787f03942a',
+                ),
+                'description': 'Shared VirtualPyTest API collections',
+                'postmanUrl': 'https://martian-zodiac-279215.postman.co/workspace/virtualpytest~4e7a465c-a542-4440-8903-48787f03942a',
+            }]
+        if api_key:
+            for workspace in config.get('workspaces', []):
+                workspace.setdefault('postmanApiKey', api_key)
         
         print(f"[@postman_routes] Loaded config: {len(config.get('workspaces', []))} workspace(s), {len(config.get('environments', []))} environment(s)")
         return config
@@ -225,7 +250,8 @@ def get_workspace_collections(workspace_id):
     """Get collections for a workspace using Postman API (with 5-minute cache)"""
     try:
         # Check cache first
-        cache_key = f"collections:{workspace_id}"
+        # Bump key so cached pre-filter data cannot keep exposing Host collections.
+        cache_key = f"server_collections:{workspace_id}"
         with _cache_lock:
             if cache_key in _postman_cache:
                 cached = _postman_cache[cache_key]
@@ -258,6 +284,11 @@ def get_workspace_collections(workspace_id):
         # Enhance with request counts (fetch each collection details)
         enhanced_collections = []
         for collection in collections:
+            # The app's public tester represents the VirtualPyTest Server API.
+            # Host service routes have a separate trust boundary and are not part
+            # of the end-user Postman workspace shown here.
+            if not collection.get('name', '').startswith('SERVER - '):
+                continue
             collection_id = collection['uid']
             
             # Get collection details to count requests
@@ -271,7 +302,7 @@ def get_workspace_collections(workspace_id):
                 enhanced_collections.append({
                     'id': collection['uid'],
                     'name': collection['name'],
-                    'description': collection_detail.get('info', {}).get('description', ''),
+                    'description': collection_detail.get('info', {}).get('description') or f"VirtualPyTest Server API collection: {collection['name']}.",
                     'requestCount': request_count
                 })
             except Exception as e:
@@ -280,7 +311,7 @@ def get_workspace_collections(workspace_id):
                 enhanced_collections.append({
                     'id': collection['uid'],
                     'name': collection['name'],
-                    'description': '',
+                    'description': f"VirtualPyTest Server API collection: {collection['name']}.",
                     'requestCount': 0
                 })
         
@@ -546,6 +577,9 @@ def get_request_definition(request_id):
         url_data = request_data.get('url', {})
         if isinstance(url_data, str):
             url = url_data
+        elif url_data.get('raw'):
+            # Preserve {{server_url}}, query parameters, and path variables for the browser runner.
+            url = url_data['raw']
         else:
             # Construct from parts
             protocol = url_data.get('protocol', 'https')
@@ -622,7 +656,9 @@ def find_request_in_items(items, request_id):
     """Recursively find request by ID in collection items"""
     for item in items:
         # Check if this item is a request with matching ID
-        if 'request' in item and item.get('id') == request_id:
+        if 'request' in item and request_id in {
+            item.get('uid'), item.get('id'), item.get('_postman_id')
+        }:
             return item
         
         # Check nested items (folders)
@@ -851,8 +887,8 @@ def extract_requests_from_items(items, requests_list, folder_path=""):
                 path = url
             else:
                 path = url.get('raw', '')
-                # Try to extract just the path
-                if 'path' in url:
+                # Prefer the raw Postman URL to preserve variables and query parameters.
+                if not path and 'path' in url:
                     path = '/' + '/'.join(url['path'])
             
             # Extract method
@@ -878,4 +914,3 @@ def extract_requests_from_items(items, requests_list, folder_path=""):
             folder_name = item['name']
             new_path = f"{folder_path}/{folder_name}" if folder_path else folder_name
             extract_requests_from_items(item['item'], requests_list, new_path)
-

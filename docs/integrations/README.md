@@ -8,6 +8,18 @@ Integration guides for third-party tools, services, and platforms.
 
 ## Available Integrations
 
+### 📬 Postman API collections
+
+Browse and test the published VirtualPyTest REST API collections. The public Postman workspace
+contains curated Server collections plus generated Server and Host route inventories; it is
+maintained from the OpenAPI specs and covers registered route/method pairs.
+
+**Workspace:** [VirtualPyTest on Postman](https://martian-zodiac-279215.postman.co/workspace/virtualpytest~4e7a465c-a542-4440-8903-48787f03942a)\
+**Guide:** [Postman integration](postman.md) · [API coverage and sync](../api/COVERAGE.md)
+
+VirtualPyTest users can browse it from the app with the `plugins.postman:view` permission. The
+shared workspace ID is public; its Postman API key stays on the backend server.
+
 ### 👤 User provisioning (create users / reset passwords)
 
 Push user accounts in from an external system — one HTTPS call creates a user, or resets their
@@ -114,4 +126,4 @@ Want one of these sooner? [Open a feature request](https://github.com/AngelStree
 - [User Provisioning Guide](user-provisioning.md) — the one integration with no card on the grid, because it is an API rather than a product
 - [JIRA Integration Guide](jira-setup.md)
 - [Slack Integration Guide](slack-setup.md)
-
+- [Postman Integration Guide](postman.md)
