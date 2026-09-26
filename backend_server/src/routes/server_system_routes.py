@@ -26,7 +26,10 @@ from backend_server.src.lib.auth_middleware import require_user_auth, require_ro
 from backend_server.src.routes.server_system_socket_routes import emit_system_update
 from shared.src.lib.config.constants import CACHE_CONFIG
 from shared.src.lib.database.system_metrics_db import store_system_metrics, get_latest_system_metrics
-from shared.src.lib.utils.system_utils import get_systemd_service_status
+from backend_host.src.lib.utils.system_info_utils import (
+    _check_linux_service,
+    _check_supervisor_service,
+)
 
 server_system_bp = Blueprint('server_system', __name__, url_prefix='/server/system')
 _last_ping_emit_by_host = {}
@@ -826,22 +829,6 @@ def _safe_extract_zip(zip_path: str, destination: str) -> None:
         archive.extractall(destination)
 
 
-def _normalize_server_service_status(raw_status: str) -> str:
-    """Map systemctl states to dashboard service states."""
-    normalized = (raw_status or '').strip().lower()
-    if normalized in {'active'}:
-        return 'active'
-    if normalized in {'activating', 'reloading'}:
-        return 'stuck'
-    if normalized in {'inactive', 'deactivating'}:
-        return 'stopped'
-    if normalized in {'failed'}:
-        return 'error'
-    if normalized in {'unknown', 'not-found'}:
-        return 'not_installed'
-    return 'unknown'
-
-
 # Kept in sync with HEATMAP_STATUS_FILE in backend_server/scripts/heatmap_processor.py
 HEATMAP_STATUS_FILE = '/tmp/heatmap_status.json'
 HEATMAP_STALE_AFTER_SECONDS = 180
@@ -885,47 +872,53 @@ def _heatmap_output_status() -> tuple:
 
 
 def _build_server_service_health() -> dict:
-    """Build server service status summary for dashboard cards."""
-    def _is_service_installed(service_name: str) -> bool:
-        """Check whether a systemd unit exists without relying on runtime state."""
-        try:
-            result = subprocess.run(
-                ['systemctl', 'show', service_name, '--property=LoadState', '--value'],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode != 0:
-                return False
-            load_state = (result.stdout or '').strip().lower()
-            return load_state not in {'', 'not-found'}
-        except Exception:
-            return False
+    """Build server service status summary for dashboard cards.
 
+    On native systemd installs each vpt-* unit is registered with systemd; on
+    the containerized install path (gcloudstandalone and Docker Compose) the
+    `vpt-server` container runs supervisord which manages 'flask' and
+    'heatmap_processor' programs — there is no systemd unit at all, so a
+    pure systemctl check returns 'not_installed' for healthy services.
+
+    The dispatch mirrors the host-side fix (commits f67c5d2074 / 4b309b7296):
+    try systemd first and fall back to supervisorctl when systemd reports
+    'unknown' / 'not_installed' / 'stopped'. Each definition's candidates
+    list also includes the supervisord program alias so the right name is
+    tried against the right runtime.
+    """
     definitions = [
         {
             'label': 'Server API',
             'critical': True,
             'optional': False,
-            'candidates': ['vpt-server', 'server'],
+            # systemd unit on native installs, 'flask' supervisor program inside the
+            # vpt-server container, and 'server' (the legacy unit-file basename) as
+            # a safety net.
+            'candidates': ['vpt-server', 'flask', 'server'],
         },
         {
             'label': 'Discard Incident',
             'critical': False,
             'optional': True,
+            # Discard workers are only deployed on native systemd installs — the
+            # Docker image does not run them, so on gcloudstandalone these stay
+            # 'not_installed' (which is the correct optional / non-critical state).
             'candidates': ['vpt-discard-incidents'],
         },
         {
             'label': 'Discard Scripts',
             'critical': False,
             'optional': True,
+            # Same as Discard Incident — native-only deploy.
             'candidates': ['vpt-discard-scripts'],
         },
         {
             'label': 'Heatmap',
             'critical': False,
             'optional': True,
-            'candidates': ['vpt-heatmap'],
+            # 'vpt-heatmap' on native systemd, 'heatmap_processor' supervisor
+            # program inside the vpt-server container.
+            'candidates': ['vpt-heatmap', 'heatmap_processor'],
         },
     ]
 
@@ -933,15 +926,21 @@ def _build_server_service_health() -> dict:
     for definition in definitions:
         resolved_name = definition['candidates'][0]
         mapped_status = 'not_installed'
+        runtime = 'service'
 
-        for candidate in definition['candidates']:
-            if not _is_service_installed(candidate):
-                continue
+        status_info = _check_linux_service(definition['candidates'])
+        # On the containerized host systemd has no knowledge of vpt-* units;
+        # supervisord is the source of truth. Mirror the host-side dispatch
+        # in backend_host/src/lib/utils/system_info_utils.py: trust supervisorctl
+        # when systemd returns unknown / not_installed / stopped.
+        if status_info.get('status') in ('unknown', 'not_installed', 'stopped'):
+            sup_info = _check_supervisor_service(definition['candidates'])
+            if sup_info.get('status') not in ('unknown', 'not_installed'):
+                status_info = sup_info
 
-            current = get_systemd_service_status(candidate)
-            resolved_name = candidate
-            mapped_status = _normalize_server_service_status(current.get('status', 'unknown'))
-            break
+        mapped_status = status_info.get('status', 'not_installed')
+        runtime = status_info.get('runtime', 'service')
+        resolved_name = status_info.get('resolved_name') or resolved_name
 
         detail = ''
         # Only the heatmap has a per-minute output signal to check; an 'active' unit
@@ -958,7 +957,7 @@ def _build_server_service_health() -> dict:
             'detail': detail,
             'critical': definition['critical'],
             'optional': definition['optional'],
-            'runtime': 'service',
+            'runtime': runtime,
             'resolved_name': resolved_name,
         })
 

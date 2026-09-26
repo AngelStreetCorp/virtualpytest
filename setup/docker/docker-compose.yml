@@ -128,9 +128,12 @@ services:
       SUPABASE_JWT_SECRET: ${JWT_SECRET}
       GRAFANA_URL: http://grafana:3000
       REDIS_URL: redis://redis:6379/0
-      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ENDPOINT: http://host.docker.internal:9000
       MINIO_PUBLIC_URL: http://${PUBLIC_HOST:-localhost}:9000
       MINIO_BUCKET: ${MINIO_BUCKET:-virtualpytest}
+    volumes:
+      - ../../test_scripts:/app/test_scripts:ro
+      - ../../test_campaign:/app/test_campaign:ro
     ports:
       - "5109:5109"
     depends_on:
@@ -142,6 +145,8 @@ services:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   backend_host:
     container_name: vpt-host
@@ -161,12 +166,12 @@ services:
       SUPABASE_URL: http://api-gw:8000
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ENDPOINT: http://host.docker.internal:9000
       MINIO_PUBLIC_URL: http://${PUBLIC_HOST:-localhost}:9000
       MINIO_BUCKET: ${MINIO_BUCKET:-virtualpytest}
       # No nginx in the container: Flask serves /host/stream/*, websockify serves noVNC
       HOST_VIDEO_STREAM_PATH: /host/stream/capture
-      HOST_VNC_STREAM_PATH: http://${PUBLIC_HOST:-localhost}:6080/vnc_lite.html
+      HOST_VNC_STREAM_PATH: https://vncgcloud.virtualpytest.com/vnc_lite.html
       HOME: /home/vpt_user
       ANDROID_HOME: /home/vpt_user/.android
       ADB_VENDOR_KEYS: /home/vpt_user/.android
@@ -185,6 +190,8 @@ services:
     depends_on:
       backend_server:
         condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   frontend:
     container_name: vpt-frontend
@@ -197,9 +204,9 @@ services:
     # on every start, so changing PUBLIC_HOST needs a restart rather than a rebuild — and
     # one published image serves any address.
     environment:
-      VITE_SERVER_URL: http://${PUBLIC_HOST:-localhost}:5109
-      VITE_GRAFANA_URL: http://${PUBLIC_HOST:-localhost}:3000
-      VITE_CLOUDFLARE_R2_PUBLIC_URL: http://${PUBLIC_HOST:-localhost}:9000/${MINIO_BUCKET:-virtualpytest}
+      VITE_SERVER_URL: https://api.${PUBLIC_HOST}
+      VITE_GRAFANA_URL: https://grafana.${PUBLIC_HOST}
+      VITE_CLOUDFLARE_R2_PUBLIC_URL: https://minio.${PUBLIC_HOST}/${MINIO_BUCKET:-virtualpytest}
       # Empty = open mode (no login). To enforce auth see docs/get-started/supabase.md
       VITE_SUPABASE_URL: ${VITE_SUPABASE_URL:-}
       VITE_SUPABASE_ANON_KEY: ${VITE_SUPABASE_ANON_KEY:-}
@@ -209,6 +216,8 @@ services:
     depends_on:
       backend_server:
         condition: service_started
+    volumes:
+      - ../../frontend/public/docs:/app/dist/docs:ro
 
   grafana:
     container_name: vpt-grafana

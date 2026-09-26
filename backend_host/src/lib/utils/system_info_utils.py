@@ -88,6 +88,24 @@ _SUPERVISOR_STATUS_MAP = (
 )
 
 
+def _supervisor_socket_path() -> Optional[str]:
+    """Return the supervisord unix socket filesystem path that exists on this
+    host, or None if we cannot find one. Honours ``$SUPERVISOR_SOCKET`` for
+    overrides, then probes the two common locations:
+    ``/var/run/supervisor.sock`` (Debian/Ubuntu default) and
+    ``/tmp/supervisor.sock`` (Alpine and the gcloudstandalone setup, where
+    the supervisord conf.d override redirects the socket). The first
+    existing path wins.
+    """
+    env = os.environ.get('SUPERVISOR_SOCKET')
+    if env:
+        return env
+    for candidate in ('/var/run/supervisor.sock', '/tmp/supervisor.sock'):
+        if os.path.exists(candidate):
+            return candidate
+    return None
+
+
 def _check_supervisor_service(service_names: List[str]) -> Dict[str, Any]:
     """Check service status via `supervisorctl` (used in the containerized
     backend_host where systemd does not manage vpt-* services). Falls back to
@@ -96,14 +114,21 @@ def _check_supervisor_service(service_names: List[str]) -> Dict[str, Any]:
     so the dashboard can show which runtime owns the service.
     """
     # Cheap probe: the supervisorctl CLI writes to the supervisor socket.
-    # If the socket doesn't exist we are not in a supervisor-managed host.
-    if not os.path.exists('/var/run/supervisor.sock'):
+    # If no socket exists at any known location we are not in a
+    # supervisor-managed host. See _supervisor_socket_path for the lookup
+    # order. The supervisorctl binary in the gcloudstandalone image (pip's
+    # wheel, not the distro package) does NOT honour $SUPERVISOR_SERVER_URL
+    # — it falls back to its compiled-in default /var/run/supervisor.sock —
+    # so we pass the detected socket explicitly via -s.
+    sock = _supervisor_socket_path()
+    if not sock:
         return {'status': 'unknown', 'runtime': 'supervisor'}
 
+    server_url = f'unix://{sock}'
     for service_name in service_names:
         try:
             result = subprocess.run(
-                ['supervisorctl', 'status', service_name],
+                ['supervisorctl', '-s', server_url, 'status', service_name],
                 capture_output=True, text=True, timeout=3,
             )
         except (FileNotFoundError, OSError):
