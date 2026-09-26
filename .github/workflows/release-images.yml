@@ -131,6 +131,12 @@ jobs:
             org.opencontainers.image.source=https://github.com/AngelStreetCorp/virtualpytest
             org.opencontainers.image.version=${{ steps.meta.outputs.tag }}
             org.opencontainers.image.licenses=AGPL-3.0
+          # VPT_IMAGE_TAG must be passed through to the frontend build so the
+          # prebuild.sh version-sync step can synthesize a version string when
+          # the repo-root VERSION.txt isn't reachable from the frontend context.
+          # Bug-0117 follow-up.
+          build-args: |
+            VPT_IMAGE_TAG=${{ steps.meta.outputs.tag }}
           cache-from: type=gha,scope=${{ matrix.image }}
           cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
