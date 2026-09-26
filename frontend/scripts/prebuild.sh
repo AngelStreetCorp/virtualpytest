@@ -121,6 +121,13 @@ if [ -n "$VERSION_SOURCE" ]; then
     cp "$VERSION_SOURCE" "$FRONTEND_DIR/public/version.txt"
     cp "$VERSION_SOURCE" "$FRONTEND_DIR/VERSION.txt"
     echo -e "  ${GREEN}✓${NC} Version synced from $(basename "$VERSION_SOURCE")"
+elif [ -n "${VPT_IMAGE_TAG:-}" ]; then
+    # Docker build context only sees frontend/. The repo root's VERSION.txt is
+    # unavailable, but the workflow passes VPT_IMAGE_TAG so we can synthesize
+    # a reasonable version string from the release tag (BUG-0117 follow-up).
+    printf 'current:%s\nprevious:unknown\n' "$VPT_IMAGE_TAG" > "$FRONTEND_DIR/public/version.txt"
+    printf 'current:%s\nprevious:unknown\n' "$VPT_IMAGE_TAG" > "$FRONTEND_DIR/VERSION.txt"
+    echo -e "  ${YELLOW}⚠${NC} No VERSION.txt found — synthesized from VPT_IMAGE_TAG=$VPT_IMAGE_TAG"
 else
     echo -e "  ${YELLOW}⚠${NC} No VERSION.txt found, frontend build will fall back to unknown"
 fi
