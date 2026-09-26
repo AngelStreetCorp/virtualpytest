@@ -44,6 +44,25 @@ schema. Entries that exist only on this branch (`feat/demo`) sit at the end of e
 
 ### Bug fixes
 
+## build 9369 — 2026-09-26
+
+### Features
+
+### Bug fixes
+- **Published-image verification and the standalone bundle check were both silently broken** — `docker-compose.yml`'s Supabase `include` set an `env_file` whose relative path different Compose versions resolve differently (some relative to CWD, some relative to `setup/docker/`), so no single value worked on both the self-hosted and GitHub-hosted CI runners. Removed the line entirely — the top-level project's own `.env` already supplies the same variables to the included file via the ordinary, version-independent `--env-file` mechanism (verified byte-identical `docker compose config` output with and without it). This has been failing the public repo's `Release artifacts` → `bundle` and `verify` jobs since at least 2026-09-24 (images still published fine — only the end-to-end proof that a pulled image works was silently skipped) · [BUG-0163](../bugs/BUG-0163-2026-09-26-docker-compose-include-env-file-path-doubling.md)
+
+### Upgrade
+
+**Compared with** `main-2026.09.26-9366` → `main-2026.09.26-9369` (4 files changed).
+
+**Database** — no migration.
+
+**Settings** — no new key.
+
+**Dependencies** — no new package.
+
+**Services** — nothing to restart by hand.
+
 ## build 9364 — 2026-09-26
 
 ### Features

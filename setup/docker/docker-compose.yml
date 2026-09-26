@@ -22,8 +22,16 @@
 name: virtualpytest
 
 include:
+  # No env_file here on purpose (BUG-0163). It used to say `setup/docker/.env`, which
+  # different Compose versions resolve differently — some relative to CWD (where it's
+  # correct), some relative to this file's own directory setup/docker/ (where it doubles to
+  # setup/docker/setup/docker/.env and fails) — so no single string satisfied both the
+  # self-hosted CI runners and the GitHub-hosted ones at once. Dropping the line entirely
+  # sidesteps the ambiguity: the top-level project's own .env (loaded via the ordinary
+  # CWD-relative `--env-file`/COMPOSE_ENV_FILE path, which every Compose version agrees on)
+  # already supplies these same vars to the included file in the same substitution pass —
+  # confirmed byte-identical `docker compose config` output with and without this line.
   - path: supabase/docker-compose.yml
-    env_file: setup/docker/.env
 
 services:
 
