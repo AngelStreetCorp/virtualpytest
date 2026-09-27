@@ -103,7 +103,16 @@ DEVICE1_VIDEO_AUDIO=default        # Android types: the emulator's sound, via th
 Finally, on Android types only:
 
 ```bash
-bash /opt/virtualpytest/setup/proxmox/vm/backend-host/optimize_emulator.sh   # kills animations and ANR sources
+bash /opt/virtualpytest/setup/proxmox/vm/backend-host/optimize_emulator.sh   # kills animations and ANR sources, screen never sleeps
+```
+
+The screen must never time out. A sleeping emulator streams black, and nothing wakes it
+automatically: the screencap watchdog deliberately leaves a sleeping device alone. Scripts from
+before 2026-09-27 set a 30-minute timeout. On such a host, run once:
+
+```bash
+adb shell settings put system screen_off_timeout 2147483647
+adb shell input keyevent KEYCODE_WAKEUP
 ```
 
 Do **not** disable PulseAudio on an Android type: the emulator plays into `vpt-pulse.service`
@@ -119,6 +128,8 @@ device an audio track and audio-loss detection. A host installed before 2026-09-
 adb devices                          # emulator-5554  device   (Android types)
 systemctl list-units 'vpt-*' --all   # all critical services active
 pactl -s unix:/run/vpt-pulse/native list short clients | grep qemu   # Android types: the emulator is on vpt-pulse
+adb shell settings get system screen_off_timeout   # 2147483647 (never sleeps)
+adb shell dumpsys power | grep mWakefulness        # mWakefulness=Awake
 free -m                              # >500 MB available
 df -h /                              # <80 % used
 ```

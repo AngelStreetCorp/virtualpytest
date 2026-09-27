@@ -374,49 +374,51 @@ sudo systemctl daemon-reload
 sudo systemctl enable cloudflared.service
 ```
 
-### 9.2 Create the tunnel in the Cloudflare dashboard
+### 9.2 Create the tunnel and its public hostnames
 
-The token lives in a separate file so `config.yml` is portable across boxes.
-This is the part you do on the Cloudflare dashboard, not on the VM:
+Do this in the Cloudflare dashboard, not on the VM:
 
-1. **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared**.
-   Pick a name (e.g. `vpt-gcloud`); copy the one-line install command
-   Cloudflare shows you — it prints a token like
-   `eyJhIjoiNjM4...xMtR4In0` and a `<TUNNEL_ID>` UUID.
-2. **Public hostname tab**: add `<your-showcase-domain>` →
-   `http://localhost:5073` for the visitor UI. Repeat for the API, Grafana,
-   MinIO console and Supabase Studio (one hostname per service).
-3. Back on the VM, drop the token JSON you downloaded (or paste the JSON the
-   dashboard shows under "Configure your tunnel") to
-   `/etc/cloudflared/<TUNNEL_ID>.json` and put the matching UUID into
-   `/etc/cloudflared/config.yml`:
+1. **Zero Trust → Networks → Tunnels → Create a tunnel → Cloudflared.** Name it,
+   copy the connector token it shows, and install it on the VM as the unit above expects
+   (`/etc/cloudflared/<TUNNEL_ID>.json`, `tunnel:` + `credentials-file:` in `config.yml`).
+2. **Public hostname tab** — one entry per service the browser must reach. The
+   reference VM uses these, with `<name>` = `gcloudstandalone`:
 
-   ```bash
-   sudo tee /etc/cloudflared/config.yml > /dev/null <<'YAML'
-   tunnel: <TUNNEL_ID>
-   credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+   | Public hostname | Path | Service | What it carries |
+   |---|---|---|---|
+   | `<name>.virtualpytest.com` | | `http://localhost:5073` | the web UI |
+   | `<name>-api.virtualpytest.com` | | `http://localhost:5109` | server API + Socket.IO |
+   | `<name>-api.virtualpytest.com` | `^/host/<HOST_NAME>/` | `http://localhost:6109` | host media (archive, captures, thumbnails) — **must be listed before the bare `-api` entry** |
+   | `<name>-auth.virtualpytest.com` | | `http://localhost:54321` | Supabase gateway (login, PostgREST; Studio sits behind basic auth at `/`) |
+   | `vnc<name>.virtualpytest.com` | | `http://localhost:6080` | noVNC desktop of the host |
 
-   ingress:
-     - hostname: <your-showcase-domain>
-       service: http://localhost:5073
-       originRequest: { connectTimeout: 10s }
-     - hostname: api.<your-showcase-domain>
-       service: http://localhost:5109
-     - hostname: grafana.<your-showcase-domain>
-       service: http://localhost:3000
-     - hostname: minio.<your-showcase-domain>
-       service: http://localhost:9001
-     - hostname: studio.<your-showcase-domain>
-       service: http://localhost:54321
-     - service: http_status:404   # catch-all is mandatory
-   YAML
+   Grafana (`:3000`) and the MinIO console (`:9001`) can get hostnames the same way; they
+   are not needed for the UI to work.
 
-   sudo systemctl restart cloudflared.service
-   sudo systemctl status cloudflared.service --no-pager
-   ```
+**Naming rule.** Cloudflare's Universal SSL certificate covers `example.com` and
+`*.example.com` only. If your showcase already lives on a subdomain
+(`gcloudstandalone.virtualpytest.com`), then `api.gcloudstandalone.virtualpytest.com` is
+two levels deep and fails the TLS handshake. Use sibling names on one level
+(`gcloudstandalone-api`, `gcloudstandalone-auth`, `vncgcloud`) instead.
 
-After this, `https://<your-showcase-domain>` on the open internet reaches
-the frontend container on the VM — no GCP firewall changes required.
+**Where the ingress lives.** A tunnel created in the dashboard is *remotely managed*:
+Cloudflare pushes its public hostnames to `cloudflared`, and the `ingress:` block of
+`/etc/cloudflared/config.yml` is ignored (the journal shows
+`Updated to new configuration … version=N` on every change). Edit hostnames in the
+dashboard, or through the API with a token holding *Account → Cloudflare Tunnel → Edit*:
+
+```bash
+# read
+curl -s -H "Authorization: Bearer $CF_TOKEN" \
+  https://api.cloudflare.com/client/v4/accounts/<ACCOUNT_ID>/cfd_tunnel/<TUNNEL_ID>/configurations
+# write: PUT the same shape back with {"config":{"ingress":[ ... , {"service":"http_status:404"}]}}
+```
+
+Only a tunnel created on the VM with `cloudflared tunnel create` reads its ingress from
+`config.yml`. Either way, the catch-all `http_status:404` entry must stay last.
+
+The DNS side is one proxied CNAME per hostname → `<TUNNEL_ID>.cfargotunnel.com`; the
+dashboard creates it when you add the public hostname.
 
 ### 9.3 WAF — country allowlist (EU + US + CA + UK + AU)
 
@@ -481,24 +483,124 @@ separate network, point their DHCP-supplied DNS at `1.1.1.3 / 1.0.0.3`
 or set Android's Private DNS to `family.cloudflare-dns.com`. The full
 rationale and recipes are in [Content filtering](content-filtering.md).
 
-### 9.6 Putting PUBLIC_HOST on the right name
+### 9.6 Wire the stack to the hostnames
 
-Once the tunnel is up, the only change needed in `.env` is
-`PUBLIC_HOST=<your-showcase-domain>` followed by a rebuild so the frontend
-bakes `VITE_*` values at build time:
+Everything below is a `.env` change followed by recreating the containers — **no image
+rebuild**: the frontend image writes its `VITE_*` values into `config.js` on every container
+start (`frontend/docker/entrypoint.sh`), and the other keys are read at start too.
+
+In `setup/docker/.env` (values from the reference VM; substitute your names):
+
+```bash
+PUBLIC_HOST=gcloudstandalone.virtualpytest.com
+
+# --- browser-facing URLs (HTTPS, through the tunnel) ---
+VITE_SERVER_URL=https://gcloudstandalone-api.virtualpytest.com
+VITE_GRAFANA_URL=https://grafana.virtualpytest.com
+VITE_CLOUDFLARE_R2_PUBLIC_URL=https://minio.virtualpytest.com/virtualpytest
+HOST_VNC_STREAM_PATH=https://vncgcloud.virtualpytest.com/vnc_lite.html
+HOST_URL=/host/vpt-gcloud-host          # nginx-style; the path rule in §9.2 routes it to :6109
+
+# --- login (same posture as a production install) ---
+SERVER_OPEN_MODE=false
+VITE_SUPABASE_URL=https://gcloudstandalone-auth.virtualpytest.com
+VITE_SUPABASE_ANON_KEY=<the ANON_KEY value from this file>
+SUPABASE_PUBLIC_URL=https://gcloudstandalone-auth.virtualpytest.com   # GoTrue's external URL, Studio
+SITE_URL=https://gcloudstandalone.virtualpytest.com                   # where confirmation links land
+
+# --- signup must verify the e-mail address ---
+SMTP_HOST=mail.privateemail.com
+SMTP_PORT=587
+SMTP_USER=noreply@virtualpytest.com
+SMTP_PASS=<mailbox password>
+SMTP_ADMIN_EMAIL=noreply@virtualpytest.com
+SMTP_SENDER_NAME=VirtualPyTest
+ENABLE_EMAIL_AUTOCONFIRM=false
+
+# --- the VNC tile connects without a password prompt for logged-in users ---
+HOST_VNC_AUTOCONNECT=true
+```
+
+What each block does:
+
+- **URLs.** With `PUBLIC_HOST` alone the stack builds `http://<PUBLIC_HOST>:5109`, `:6080`,
+  `:6109` — plain HTTP on ports the tunnel does not publish, which an HTTPS page refuses as
+  mixed content. Each key above replaces one of those with its tunnel hostname.
+- **`HOST_URL=/host/<HOST_NAME>`.** The UI always addresses a host's media as
+  `/host/<name>/stream/…` and expects the server's hostname to answer it — on a native install
+  nginx does, and checks a login cookie first. Here the tunnel path rule sends that prefix to
+  the host, and the host performs the same cookie check itself (it shares `JWT_SECRET` with the
+  server as `HOST_SESSION_SECRET`). Archive, captures, thumbnails and the VNC audio track come
+  from this path; an anonymous request to it gets 401.
+- **Login.** `SERVER_OPEN_MODE=false` makes every `/server/*` call require a user JWT (hosts
+  keep using `API_KEY`). The two `VITE_SUPABASE_*` values give the UI its sign-in dialog.
+  `SUPABASE_PUBLIC_URL` / `SITE_URL` are what GoTrue puts in the links it e-mails; without
+  them they point at `http://<PUBLIC_HOST>:54321`.
+- **Mail.** The stack ships no mail sender, so by default new accounts are confirmed on the
+  spot. With a relay and `ENABLE_EMAIL_AUTOCONFIRM=false`, signup sends a confirmation link
+  and the account stays unusable until it is clicked; password recovery works the same way.
+  The sender domain must be allowed to send (SPF for the relay) — `virtualpytest.com` is.
+- **VNC.** With login enforced, the dashboard fetches the host's VNC password over the
+  authenticated API and hands it to noVNC, so the tile opens without a prompt. Opening
+  `https://vnc<name>…/vnc_lite.html` directly still asks for it. Do not set this while the
+  stack is in open mode — any visitor's browser could then read the password.
+
+Apply:
 
 ```bash
 cd /home/virtualpytest/virtualpytest/setup/docker
-sed -i 's|^PUBLIC_HOST=.*|PUBLIC_HOST=<your-showcase-domain>|' .env
-./launch.sh --rebuild   # rebuilds the frontend image and recreates the container
+docker compose -f docker-compose.yml -f docker-compose.linux.yml up -d --force-recreate --no-deps \
+  backend_server backend_host frontend auth studio
 ```
+
+### 9.7 First login
+
+Sign-up is open (like the production install). Every new account is a **`viewer`** — read-only,
+and the VNC tile still prompts for a password. Promote the first one to admin on the VM:
+
+```bash
+docker exec vpt-supabase-db psql -U postgres \
+  -c "update public.profiles set role='admin' where email='you@example.com'"
+```
+
+then sign out and back in (the role travels in the JWT). Later promotions happen in the web
+UI under *Users*.
+
+### 9.8 Verify from anywhere
+
+```bash
+A=https://gcloudstandalone-api.virtualpytest.com
+curl -sS -o /dev/null -w "ui %{http_code}\n"        https://gcloudstandalone.virtualpytest.com/
+curl -sS -o /dev/null -w "auth %{http_code}\n"      https://gcloudstandalone-auth.virtualpytest.com/auth/v1/health   # 401 = gateway reached
+curl -sS -o /dev/null -w "vnc %{http_code}\n"       https://vncgcloud.virtualpytest.com/vnc_lite.html                # 200
+curl -sS -o /dev/null -w "media anon %{http_code}\n" $A/host/vpt-gcloud-host/stream/capture/segments/output.m3u8   # 401
+curl -sS -o /dev/null -w "media key %{http_code}\n"  -H "X-API-Key: <API_KEY>" $A/host/vpt-gcloud-host/stream/capture/segments/output.m3u8   # 200
+```
+
+In the browser: sign in → device page → the host tile shows the desktop with no prompt, and
+the archive slider lists hours. In a private window the UI shows the sign-in dialog and the
+noVNC URL asks for a password.
 
 ## 10. Day-two
 
 - **Logs**: `cd /home/virtualpytest/virtualpytest/setup/docker && ./launch.sh --logs`
 - **Stop everything** (keeps data): `./launch.sh --down`
 - **Wipe and restart** (deletes DB / captures / MinIO / Grafana): `./launch.sh --reset`
-- **Rebuild after `.env` change**: `./launch.sh --rebuild`
+- **Apply an `.env` change**: recreate the affected containers
+  (`docker compose … up -d --force-recreate --no-deps <service>`); the frontend reads its
+  `VITE_*` values at start, so `--rebuild` is only for `VPT_IMAGE_TAG=local` code changes.
+- **Move to a new release**: `sed -i 's|^VPT_IMAGE_TAG=.*|VPT_IMAGE_TAG=<tag>|' .env`, then
+  `docker compose … pull backend_server backend_host frontend` and the `up -d --force-recreate
+  --no-deps` above. `git pull` the checkout too when the release touched `setup/docker/`.
+- **MinIO on the host instead of in Docker** (§6): keep the in-stack `minio` / `minio-init`
+  out of the way with a local override file, and pass it on every compose command —
+  `launch.sh` cannot be used on such a box (it pulls and starts `minio`):
+  ```yaml
+  # setup/docker/docker-compose.gcloud.yml (untracked; add it to .git/info/exclude)
+  services:
+    minio:      { profiles: ["host-minio-disabled"] }
+    minio-init: { profiles: ["host-minio-disabled"] }
+  ```
 - **Add a device**: edit `backend_host/src/.env`, drop the `x` from the
   device line, re-run `./launch.sh`. See [Add a host](add-a-host.md).
 - **Rotate a secret**: edit `setup/docker/.env`, re-run `./launch.sh`.
@@ -515,7 +617,7 @@ sed -i 's|^PUBLIC_HOST=.*|PUBLIC_HOST=<your-showcase-domain>|' .env
 - **Production hardening** — auth, TLS, secrets rotation, firewall rules,
   backups. Walk [Production checklist](production-checklist.md)
   before this stack holds anything you care about.
-- **Custom domains** — see §9.
+- **Custom domains** — see §9.2 and §9.6.
 - **The MinIO pin moving again** — `setup/docker/images/minio/Dockerfile` and
   `setup/docker/images/minio-mc/Dockerfile` pin exact upstream MinIO/mc
   versions. Bumping one means editing its `ARG` default and republishing

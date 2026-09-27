@@ -37,9 +37,10 @@ adb -s "$EMU" shell settings put global transition_animation_scale 0
 adb -s "$EMU" shell settings put global animator_duration_scale 0
 echo "   Done"
 
-# 3. Increase screen-off timeout (prevent lock screen during tests)
-echo "3. Setting screen timeout to 30 minutes..."
-adb -s "$EMU" shell settings put system screen_off_timeout 1800000
+# 3. Never turn the screen off: a monitored device that sleeps streams black, and the
+#    screencap watchdog deliberately never wakes a sleeping device.
+echo "3. Disabling screen timeout..."
+adb -s "$EMU" shell settings put system screen_off_timeout 2147483647
 echo "   Done"
 
 # 4. Disable background ANR dialogs for non-foreground apps

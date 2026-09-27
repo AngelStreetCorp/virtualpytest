@@ -48,8 +48,12 @@ SERVER_OPEN_MODE=false
 VITE_SUPABASE_URL=http://<PUBLIC_HOST>:54321
 VITE_SUPABASE_ANON_KEY=<the ANON_KEY value from the same file>
 ```
-then `./setup/docker/launch.sh --rebuild` (the frontend bakes the two `VITE_*` values in).
+then recreate the server and frontend containers (`docker compose … up -d --force-recreate
+--no-deps backend_server frontend`; the frontend reads `VITE_*` at container start).
 `JWT_SECRET` is already generated and already passed to the server as `SUPABASE_JWT_SECRET`.
+Behind an HTTPS proxy or tunnel the Supabase gateway needs a public hostname of its own and
+GoTrue must know it (`SUPABASE_PUBLIC_URL`, `SITE_URL`) — the worked example is
+[Google Cloud standalone §9.6](gcp-standalone.md#96-wire-the-stack-to-the-hostnames).
 
 **One VM** — in `/opt/virtualpytest/.env` set `SERVER_OPEN_MODE=false` (`SUPABASE_JWT_SECRET`
 is already there), in `/opt/virtualpytest/frontend/.env` set `VITE_SUPABASE_URL=http://<PUBLIC_HOST>:54321`
@@ -62,9 +66,13 @@ cd /opt/virtualpytest && sudo -u vpt_user ./setup/local/linux/frontend/launch_fr
 
 **Create the first user** in Supabase Studio → *Authentication* → *Add user* (Docker:
 `http://<PUBLIC_HOST>:54321`, basic-auth `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`; VM:
-`http://<PUBLIC_HOST>:54323`). Accounts are usable immediately — no confirmation mail is sent
-by a self-hosted stack. The first user to sign in becomes the admin of the default team;
-roles (admin / tester / viewer) are managed in the web UI under *Users*.
+`http://<PUBLIC_HOST>:54323`), or let people sign up on the login page. Without a mail relay
+accounts are usable immediately; with `SMTP_*` set and `ENABLE_EMAIL_AUTOCONFIRM=false`
+(Docker stack) signup sends a confirmation link first. **Every new account is a `viewer`.**
+Promote the first admin by SQL — `update public.profiles set role='admin' where
+email='…'` on the database (Docker: `docker exec vpt-supabase-db psql -U postgres -c "…"`) —
+then sign out and in; after that, roles (admin / tester / viewer) are managed in the web UI
+under *Users*.
 
 ### Row-level security
 

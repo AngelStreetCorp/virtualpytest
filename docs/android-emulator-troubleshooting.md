@@ -11,6 +11,8 @@
 | Stream image stretched (portrait shows as landscape) | vpt-stream started before emulator was ready | `sudo systemctl restart vpt-stream` |
 | Stream is black but frames are fresh and services healthy | Emulator booted with the display composing nothing | SLEEP+WAKEUP the guest display (§9) |
 | No stream, `latest.png` fresh, ffmpeg restarts ~every minute, log says `Invalid pts (1) <= last (1)` | Capture timestamps collide (BUG-0165) | Deploy the fixed `run_ffmpeg.sh` — a restart does not help (§10) |
+| Tile plays after a restart, black ~17 min later; segments fresh with a picture, `<video>` stuck at `readyState 1` | JPEG outputs on the synthetic clock starve the audio input (BUG-0169) | Check segment A/V `start_time`, deploy the all-wall-clock fix (§11) |
+| Stream black, `latest.png` fresh but all black, `mWakefulness=Asleep` | Emulator screen timed out (old 30-min default) | Set `screen_off_timeout 2147483647` and wake it (§12) |
 | "Host is not online" on devices page | Host not registered with backend server | `sudo systemctl restart vpt-host` |
 
 ## Service Overview
@@ -438,6 +440,64 @@ at frame 1. A restart cannot help; the next two close frames hit it again.
 new `segment_*.ts` files, and the ffmpeg log has no `Invalid pts`.
 
 Full write-up: [BUG-0165](bugs/BUG-0165-2026-09-27-emulator-stream-stalls-on-duplicate-capture-timestamps.md).
+
+### 11. Tile Goes Black ~17 min After a Restart, but Segments Are Fresh (Audio/Video Timelines Apart)
+
+**Symptoms:** the emulator tile plays after `sudo systemctl restart vpt-stream`, then goes black
+15–20 minutes later while other devices keep playing. On the host, `latest.png`, captures and
+segments are all fresh, and a decoded segment frame shows the right screen. In the browser the
+`<video>` sits at `readyState 1` with no frame, while `currentTime` moves.
+
+**Check:**
+```bash
+S=$(ls -t /var/www/html/stream/capture1/hot/segments/*.ts | sed -n 2p)
+ffprobe -v error -show_entries stream=codec_type,start_time -of compact=p=0 "$S"
+# Broken: audio start_time seconds (or thousands of seconds) away from video. Healthy: within ~0.1 s.
+grep -n 'RTCSTART,split=3\|enc_time_base 1:1000' /opt/virtualpytest/backend_host/scripts/run_ffmpeg.sh
+# no match = old script (wall clock only on the stream branch)
+```
+
+**Cause:** ffmpeg reads its inputs only as fast as its slowest output. If the capture/thumbnail
+JPEG outputs sit on the synthetic 1/fps clock (about 1.4% slow), the audio input is read too
+slowly. Its queue overflows after about 17 minutes, samples are lost, and the audio timeline
+slips away from the video one. Changing how the audio is stamped does **not** fix it; only the
+direction of the drift changes.
+
+**Fix:** deploy a `run_ffmpeg.sh` where the wall clock sits before `split=3` and both JPEG outputs
+have `-enc_time_base 1:1000`, then `sudo systemctl restart vpt-stream`. Watch a segment's A/V
+`start_time` for 25 min. A restart alone clears the gap until the queue fills again.
+
+If the segment frames themselves are black, this isn't §11; see §12.
+
+Full write-up: [BUG-0169](bugs/BUG-0169-2026-09-27-emulator-audio-timestamps-run-ahead-black-player.md).
+
+### 12. Stream Black Because the Emulator Screen Went to Sleep
+
+**Symptoms:**
+- Stream black, but all services healthy and frames fresh (`latest.png` rewritten every second)
+- `latest.png`, captures and segment frames are genuinely black: mean brightness `0`
+- It comes back after someone touches the device, then goes black again ~30 min later
+
+**Check:**
+```bash
+identify -format "%[fx:mean]\n" /var/www/html/stream/emulator_frames/latest.png   # 0 = black
+sudo -u vpt_user adb -s emulator-5554 shell dumpsys power | grep mWakefulness       # Asleep = this
+sudo -u vpt_user adb -s emulator-5554 shell settings get system screen_off_timeout   # 1800000 = old default
+```
+
+**Why nothing self-heals:** the screencap watchdog (§9) only power-cycles a black display while the
+device reports `Awake`. A sleeping device is treated as deliberately slept and left alone.
+
+**Fix (once per emulator, survives reboots):**
+```bash
+A="sudo -u vpt_user adb -s emulator-5554 shell"
+$A settings put system screen_off_timeout 2147483647   # never
+$A input keyevent KEYCODE_WAKEUP
+```
+`optimize_emulator.sh` sets this for new emulators since 2026-09-27. Older ones had 30 minutes:
+`labox-mobile` slept this way; the TV AVD already had `2147483647`.
+
+Separate from §9: there the display is awake but composes nothing; here the display is off.
 
 ## Template for Cloning
 

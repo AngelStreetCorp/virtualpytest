@@ -183,7 +183,12 @@ but a trusted LAN can reach the machine:
 
 1. enforce login — [supabase.md](supabase.md#enforce-login);
 2. put a reverse proxy with TLS in front (an nginx example: `infra/proxy/nginx/config/docker.conf`)
-   and set `PUBLIC_HOST` to the public name, then `./setup/docker/launch.sh --rebuild`;
+   and set `PUBLIC_HOST` to the public name, then recreate the containers (`./setup/docker/launch.sh`
+   again; the frontend reads its `VITE_*` values at container start, no rebuild). If the API,
+   noVNC or Supabase end up on hostnames other than the UI's, set `VITE_SERVER_URL`,
+   `HOST_VNC_STREAM_PATH`, `HOST_URL`, `VITE_SUPABASE_URL` and `SUPABASE_PUBLIC_URL` /
+   `SITE_URL` accordingly — worked example in
+   [Google Cloud standalone §9.6](gcp-standalone.md#96-wire-the-stack-to-the-hostnames);
 3. firewall everything else:
    ```bash
    sudo ufw default deny incoming && sudo ufw default allow outgoing

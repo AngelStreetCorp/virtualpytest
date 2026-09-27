@@ -1016,19 +1016,21 @@ start_grabber() {
     # audio comes from the emulator's own output routed into this user's PulseAudio
     # (`-audio pa` on the AVD). Without it the device reports audio N/A, which is
     # truthful but means the heatmap can never show an audio loss for it.
-    # `aresample=async=1` keeps the wall-clock audio aligned with the synthetic
-    # constant-rate video timeline, which otherwise drifts apart over a long run.
+    # Audio is stamped with the arrival wall clock, the same clock as the video's RTCTIME,
+    # and aresample stretches it (up to 1000 samples/s) to stay on that clock (BUG-0169).
+    # The audio drift once blamed on stamping was input starvation, fixed in the filter graph
+    # below; wall-clock stamps plus aresample still cover any jitter in pulse delivery.
     ensure_pulse_server "$audio_device"
     local audio_input=""
     local audio_codec=""
     local audio_map=""
     if [ "$audio_device" != "null" ] && [ -n "$audio_device" ]; then
       if [ "$audio_device" = "default" ] || [ "$audio_device" = "pulse" ]; then
-        audio_input="-f pulse -thread_queue_size 2048 -i default"
+        audio_input="-f pulse -use_wallclock_as_timestamps 1 -thread_queue_size 2048 -i default"
       else
-        audio_input="-f alsa -thread_queue_size 2048 -i \"$audio_device\""
+        audio_input="-f alsa -use_wallclock_as_timestamps 1 -thread_queue_size 2048 -i \"$audio_device\""
       fi
-      audio_codec="-c:a aac -b:a 64k -ar 44100 -ac 2 -af aresample=async=1"
+      audio_codec="-c:a aac -b:a 64k -ar 44100 -ac 2 -af aresample=async=1000:first_pts=0"
       audio_map="-map 1:a?"
       echo "🔊 Audio enabled for emulator capture via: $audio_device"
     fi
@@ -1040,8 +1042,11 @@ start_grabber() {
     # and earlier (28 s behind after 2 min on labox-mobile, unbounded), while ffmpeg holds the
     # surplus audio in RAM. With audio on, stamp the frames with the wall clock instead so
     # both inputs share one clock; the HLS muxer is VFR, so the ~4 fps real cadence is kept.
-    # Only on the [str] branch (BUG-0165): the JPEG outputs run at 1/$input_fps, so two
-    # wall-clock frames inside one tick round to the same pts, mjpeg rejects it and ffmpeg stalls.
+    # The clock goes before the split so EVERY output runs on it (BUG-0169): ffmpeg paces its
+    # inputs by the slowest output, so JPEG outputs left on the synthetic clock (~1.4% slow)
+    # starve the audio input; after ~17 min its queue overflows and samples are lost until the
+    # player goes black. The JPEG encoders get a 1 ms time base, or two wall-clock frames in
+    # one 1/$input_fps tick share a pts and mjpeg stalls ffmpeg (BUG-0165).
     local video_clock=""
     [ -n "$audio_input" ] && video_clock="settb=AVTB,setpts=RTCTIME-RTCSTART,"
 
@@ -1050,8 +1055,8 @@ start_grabber() {
     FFMPEG_CMD="(while true; do cat \"$source\" 2>/dev/null || break; sleep 0.2; done) | \
       /usr/bin/ffmpeg -loglevel error -stats -f image2pipe -framerate $input_fps -i - \
       $audio_input \
-      -filter_complex \"[0:v]split=3[str][cap][thm]; \
-        [str]${video_clock}scale=${stream_scale}[streamout]; \
+      -filter_complex \"[0:v]${video_clock}split=3[str][cap][thm]; \
+        [str]scale=${stream_scale}[streamout]; \
         [cap]setpts=PTS-STARTPTS[captureout]; \
         [thm]scale=${thumb_scale}[thumbout]\" \
       -map \"[streamout]\" $audio_map -c:v libx264 -preset ultrafast -tune zerolatency \
@@ -1063,9 +1068,9 @@ start_grabber() {
         -start_number $seg_start \
         -hls_segment_filename $output_segments/segment_%09d.ts \
         $output_segments/output.m3u8 \
-      -map \"[captureout]\" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
+      -map \"[captureout]\" -fps_mode passthrough -enc_time_base 1:1000 -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
         -start_number $cap_start $output_captures/capture_%09d.jpg \
-      -map \"[thumbout]\" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
+      -map \"[thumbout]\" -fps_mode passthrough -enc_time_base 1:1000 -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
         -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg"
 
   elif [ "$source_type" = "x11grab" ]; then

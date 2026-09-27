@@ -39,9 +39,11 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 
 ## Unreleased
 
+- **AI Agent Target panel shows a black VNC stream unless another page opened the stream in the last 10 minutes** · reported 2026-09-27 · [BUG-0174](BUG-0174-2026-09-27-agent-target-panel-vnc-black-without-host-session.md)
 - **analyze_screen_for_action could not pick a web field: no CSS selectors, any unique id won, and it answered with a command web lacks** · reported 2026-09-27 · [BUG-0173](BUG-0173-2026-09-27-web-selector-scoring-ignores-css-and-intent.md)
 - **The agent could not read a web page: dump_ui_elements asked for a remote controller and the model never saw the elements or script results** · reported 2026-09-27 · [BUG-0172](BUG-0172-2026-09-27-agent-dump-ui-elements-blind-on-web.md)
 - **Atlas router offers screen/device tools without the tools that feed them, so web chats fail on guessed calls** · reported 2026-09-27 · [BUG-0170](BUG-0170-2026-09-27-router-offers-tools-without-their-prerequisites.md)
+- **Emulator streams went black after ~17 minutes: the image outputs starved the audio input** · reported 2026-09-27 · [BUG-0169](BUG-0169-2026-09-27-emulator-audio-timestamps-run-ahead-black-player.md)
 - **The agent retried a dead browser action every 5 seconds for 40 minutes, and every other chat waited on it in silence** · reported 2026-09-27 · [BUG-0167](BUG-0167-2026-09-27-agent-loops-on-closed-browser-context-for-40-minutes.md)
 - **The AI Agent chat never rendered its reply: the page's own duplicate CONNECTs killed the socket** · reported 2026-09-27 · [BUG-0166](BUG-0166-2026-09-27-agent-chat-duplicate-socket-connect-never-renders-reply.md)
 - **Emulator streams stalled at the first frame after emulator audio was added (regression)** · reported 2026-09-27 · [BUG-0165](BUG-0165-2026-09-27-emulator-stream-stalls-on-duplicate-capture-timestamps.md)
@@ -50,10 +52,6 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 - **VNC preview cards render black: centering pushes the scaled iframe out of view** — VNC previews are black cards: the iframe's layout box stays 1440×847 and scales from its top-left, so centring it moved the render off the card · reported 2026-09-15 · [BUG-0104](BUG-0104-2026-09-15-vnc-preview-scaled-off-screen-by-centering.md)
 - **vpt-pi1 keeps disappearing from the UI; a Cloudflare Tunnel fixed the 522s but NOT the reported symptom** — `vpt-pi1` intermittently vanishes from the UI — **root-caused 2026-09-15**: the host is *evicted from the server registry* (9 gaps >180s in one morning, ~70 min absent). The ping ran ~7 sequential WAN DB calls **before** pinging, each on a fresh TCP connection (httpx keepalive 5s vs 60s cycle), and the Pi's outbound SYNs are dropped by the router — with postgrest's 120s default timeout one dropped SYN stalled the ping thread for minutes. Fixed: metrics moved to their own thread, DB client given a 5s connect timeout + connect-retries + 300s keep-alive, ping interval 60s→30s · reported 2026-09-15 · [BUG-0093](BUG-0093-2026-09-15-rpitest-unreachable-tunnel-did-not-fix-it.md)
 - **A running script is indistinguishable from one that failed instantly** · reported 2026-09-15 · [BUG-0090](BUG-0090-2026-09-15-script-results-completed-at-set-at-insert.md)
-
-## build 9391
-
-- **Docker host: archive stream and captures never load (no nginx to answer `/host/<name>/`)** · reported 2026-09-27 · [BUG-0171](BUG-0171-2026-09-27-docker-host-archive-and-captures-unreachable.md)
 
 ## build 9389
 

@@ -14,6 +14,7 @@ import {
 } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
+import { useHostSession } from '../../hooks/useHostSession';
 import { calculateVncScaling } from '../../utils/vncUtils';
 
 
@@ -37,6 +38,13 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
   // Determine if device is mobile (for aspect ratio)
   const deviceModel = getSelectedDeviceModel();
   const isMobile = deviceModel?.includes('mobile') || deviceModel === 'android_mobile';
+  const isVnc = deviceModel === 'host_vnc';
+
+  // The stream proxy's auth_request gate 401s /host/<name>/vnc_lite.html without the
+  // host-session cookie, so the iframe gets its src only once the mint resolves (as in
+  // RecHostPreview). Without it the panel stayed black unless another page had minted
+  // the cookie in the last 10 minutes. Not keepAlive: only the handshake is gated.
+  const vncSessionReady = useHostSession(isVnc ? streamUrl : null, false);
 
   return (
     <Box
@@ -77,8 +85,8 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
               bgcolor: '#000', // Black background for video
             }}
           >
-            {selectedDevice && streamUrl ? (
-              deviceModel === 'host_vnc' ? (
+            {selectedDevice && streamUrl && (!isVnc || vncSessionReady) ? (
+              isVnc ? (
                 // VNC device - render iframe like RecHostPreview
                 // Iframes don't respect % sizing, must use transform scaling
                 <Box
@@ -120,7 +128,7 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
                   }}
                 />
               )
-            ) : isLoadingUrl ? (
+            ) : isLoadingUrl || (selectedDevice && streamUrl) ? (
               <Typography variant="body2" color="text.secondary">
                 Loading stream...
               </Typography>
