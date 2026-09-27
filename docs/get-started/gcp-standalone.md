@@ -589,6 +589,10 @@ noVNC URL asks for a password.
 - **Apply an `.env` change**: recreate the affected containers
   (`docker compose … up -d --force-recreate --no-deps <service>`); the frontend reads its
   `VITE_*` values at start, so `--rebuild` is only for `VPT_IMAGE_TAG=local` code changes.
+- **Refresh the docs pages** after a `git pull`: `cd frontend && bash scripts/prebuild.sh`, then
+  recreate the frontend container. The prebuild swaps `frontend/public/docs` atomically
+  (new directory, old one deleted), and a bind mount keeps pointing at the deleted one —
+  the container then serves the SPA fallback for every `/docs/*.md` until it is recreated.
 - **Move to a new release**: `sed -i 's|^VPT_IMAGE_TAG=.*|VPT_IMAGE_TAG=<tag>|' .env`, then
   `docker compose … pull backend_server backend_host frontend` and the `up -d --force-recreate
   --no-deps` above. `git pull` the checkout too when the release touched `setup/docker/`.

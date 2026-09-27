@@ -39,6 +39,7 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 
 ## Unreleased
 
+- **Web input_text failed unless the field came as params.selector, and ignored press_enter** · reported 2026-09-27 · [BUG-0175](BUG-0175-2026-09-27-web-input-text-rejects-natural-field-forms.md)
 - **AI Agent Target panel shows a black VNC stream unless another page opened the stream in the last 10 minutes** · reported 2026-09-27 · [BUG-0174](BUG-0174-2026-09-27-agent-target-panel-vnc-black-without-host-session.md)
 - **analyze_screen_for_action could not pick a web field: no CSS selectors, any unique id won, and it answered with a command web lacks** · reported 2026-09-27 · [BUG-0173](BUG-0173-2026-09-27-web-selector-scoring-ignores-css-and-intent.md)
 - **The agent could not read a web page: dump_ui_elements asked for a remote controller and the model never saw the elements or script results** · reported 2026-09-27 · [BUG-0172](BUG-0172-2026-09-27-agent-dump-ui-elements-blind-on-web.md)

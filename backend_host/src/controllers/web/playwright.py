@@ -1266,18 +1266,40 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         return matches
     
     @ensure_controller_loop
-    async def input_text(self, selector: str, text: str, wait_time: int = 200) -> Dict[str, Any]:
-        """Input text into an element."""
+    async def input_text(self, selector: Optional[str], text: str, wait_time: int = 200,
+                         press_enter: bool = False) -> Dict[str, Any]:
+        """Input text into an element.
+
+        selector: CSS (css=...), XPath (//... or xpath=...) or any Playwright selector.
+        None types into the focused field, e.g. the search box a click just focused.
+        press_enter submits afterwards, as a user would.
+        """
         try:
-            print(f"[PLAYWRIGHT]: Inputting text to: {selector}")
+            print(f"[PLAYWRIGHT]: Inputting text to: {selector or '<focused field>'}")
             start_time = time.time()
-            
+
             # Get persistent page from browser+context
             page = await self._get_persistent_page()
-            
-                # Input text
-            await page.fill(selector, text)
-                
+
+            if selector:
+                await page.fill(selector, text)
+            else:
+                focused_is_editable = await page.evaluate(
+                    "() => { const el = document.activeElement;"
+                    " return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA'].includes(el.tagName)); }"
+                )
+                if not focused_is_editable:
+                    return {
+                        'success': False,
+                        'error': ("No field to type into: pass params.selector (from dump_ui_elements, "
+                                  "e.g. css=input[name='q']) or click the field first"),
+                        'execution_time': int((time.time() - start_time) * 1000)
+                    }
+                await page.locator('*:focus').fill(text)
+
+            if press_enter:
+                await page.keyboard.press('Enter')
+
             await asyncio.sleep(wait_time / 1000)
             
             result = {
@@ -1927,21 +1949,14 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             return await self.hover_element(selector)
         
         elif command == 'input_text':
-            # Standardize parameter names: convert 'element_id' to 'selector'
-            selector = params.get('selector') or params.get('element_id')
+            # The field may come as selector, element_id or xpath (Playwright reads
+            # //... as XPath); none at all types into the focused field.
+            selector = params.get('selector') or params.get('element_id') or params.get('xpath')
             text = params.get('text', '')
             timeout = params.get('timeout', 3000)
-            
-            if not selector:
-                return {
-                    'success': False,
-                    'error': ("selector parameter is required inside params: the field's "
-                              "selector from dump_ui_elements, e.g. "
-                              "{\"command\": \"input_text\", \"params\": {\"selector\": \"css=input[name='q']\", \"text\": \"...\"}}"),
-                    'execution_time': 0
-                }
+            press_enter = bool(params.get('press_enter', False))
 
-            return await self.input_text(selector, text, wait_time=timeout)
+            return await self.input_text(selector, text, wait_time=timeout, press_enter=press_enter)
         
         elif command == 'tap_x_y':
             x = params.get('x')
@@ -2666,7 +2681,7 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                     'command': 'input_text',
                     'action_type': 'web',
                     'params': {},
-                    'description': 'Type text into an input field',
+                    'description': 'Type text into an input field (params: selector, text, optional press_enter; no selector types into the focused field)',
                     'requiresInput': True,
                     'inputLabel': 'CSS selector and text (comma separated)',
                     'inputPlaceholder': '#username,myusername'
