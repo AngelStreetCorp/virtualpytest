@@ -44,7 +44,8 @@ schema. Entries that exist only on this branch (`feat/demo`) sit at the end of e
 - **Docker host desktop is XFCE** — the `virtualpytest-host` image now starts the same XFCE desktop the native installer sets up, instead of a bare fluxbox, so its VNC tile matches a native host
 
 ### Bug fixes
-- **Viewers got 403 on every stream URL lookup** — `av/getStreamUrl` / `av/getStatus` are read-only POSTs, now exempt from the viewer floor · [BUG-0168](../bugs/BUG-0168-2026-09-27-viewer-blocked-from-stream-url-lookup.md)
+- **Docker host: archive, captures and VNC live audio never loaded** — the host now answers the nginx-style `/host/<name>/stream/…` itself and gates it with the login session cookie, so a Docker host behind a tunnel or on a LAN serves media like a native host · [BUG-0171](../bugs/BUG-0171-2026-09-27-docker-host-archive-and-captures-unreachable.md)
+- **Viewers got 403 on every stream URL lookup** — `av/getStreamUrl` / `av/getStatus` are read-only POSTs, now exempt from the viewer floor · [BUG-0168](../bugs/BUG-0168-2026-09-27-viewer-blocked-from-stream-url-lookup.md) · `0c11b8fab1`
 - **AI Agent chat never rendered its reply** — the page sent several CONNECTs for `/agent` on one connection while the authenticated handshake was pending; the server refused the duplicates and the client destroyed its own socket, so the agent's answer went to a room nobody listened in. One handshake per connection now, rooms are re-joined on every reconnect, and a refused handshake rebuilds the socket instead of leaving a dead one · [BUG-0166](../bugs/BUG-0166-2026-09-27-agent-chat-duplicate-socket-connect-never-renders-reply.md) · `bcd8e9c7d2`
 - **Agent looped on a closed browser context for 40 minutes** — a dead Playwright context is now dropped and reconnected on the host, the agent ends its turn after three identical tool failures, and a chat queued behind another conversation is told it is waiting · [BUG-0167](../bugs/BUG-0167-2026-09-27-agent-loops-on-closed-browser-context-for-40-minutes.md) · `b660a964d8`
 - **Docker host's noVNC asks for a password** — opt-in `HOST_VNC_AUTOCONNECT` replaces the broken `ef8e0fc4ca` hand-off · [BUG-0164](../bugs/BUG-0164-2026-09-27-docker-vnc-password-prompt-autoconnect-broken.md) · `becb88e027`
@@ -54,7 +55,7 @@ schema. Entries that exist only on this branch (`feat/demo`) sit at the end of e
 
 Android emulator devices show a live stream again.
 
-**Upgrade:** new optional keys in `setup/docker/.env`: `HOST_VNC_STREAM_PATH`, `HOST_VNC_AUTOCONNECT`, `SUPABASE_PUBLIC_URL`, `SITE_URL`, `SMTP_*`, `ENABLE_EMAIL_AUTOCONFIRM`. Restart `backend_host` and rebuild the frontend. On emulator hosts, restart `vpt-stream` after the deploy (`update_core.sh <branch> --host --restart vpt-stream`). A plain code deploy leaves the old ffmpeg running.
+**Upgrade:** new optional keys in `setup/docker/.env`: `HOST_VNC_STREAM_PATH`, `HOST_VNC_AUTOCONNECT`, `SUPABASE_PUBLIC_URL`, `SITE_URL`, `SMTP_*`, `ENABLE_EMAIL_AUTOCONFIRM`, `HOST_URL`, `HOST_SESSION_SECRET`. Restart `backend_host` and rebuild the frontend. On emulator hosts, restart `vpt-stream` after the deploy (`update_core.sh <branch> --host --restart vpt-stream`). A plain code deploy leaves the old ffmpeg running.
 
 ## build 9369 — 2026-09-26
 

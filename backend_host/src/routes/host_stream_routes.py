@@ -9,6 +9,7 @@ from werkzeug.utils import secure_filename
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
 from shared.src.lib.utils.storage_path_utils import get_capture_folder, get_capture_storage_path, get_stream_base_path, sanitize_folder_name
 from shared.src.lib.utils.app_utils import cors_allowed_origins
+from backend_host.src.lib.utils.host_session import host_session_denied
 
 
 def _is_under(base_path: str, file_path: str) -> bool:
@@ -248,6 +249,36 @@ def serve_stream_file(device_folder, content_type, filename):
             'success': False,
             'error': str(e)
         }), 500
+
+
+# nginx-shaped paths answered by the host itself (BUG-0171). The frontend always addresses
+# media as /host/<name>/stream/...; behind nginx the name is stripped and the server-minted
+# host-session cookie is checked by auth_request. Without nginx (the Docker image) the host
+# does both: it answers only for its own name and checks the cookie or the service key.
+def _own_host_name() -> str:
+    return os.getenv('HOST_NAME', '')
+
+
+@host_stream_bp.route('/host/<host_name>/stream/<device_folder>/<content_type>/<path:filename>', methods=['GET', 'OPTIONS'])
+def serve_stream_file_for_host(host_name, device_folder, content_type, filename):
+    if host_name != _own_host_name():
+        return jsonify({'success': False, 'error': f'not host {host_name}'}), 404
+    denied = host_session_denied(host_name)
+    if denied:
+        body, status = denied
+        return jsonify(body), status
+    return serve_stream_file(device_folder, content_type, filename)
+
+
+@host_stream_bp.route('/host/<host_name>/stream/<device_folder>/<content_type>/', methods=['GET'])
+def list_stream_directory_for_host(host_name, device_folder, content_type):
+    if host_name != _own_host_name():
+        return jsonify({'success': False, 'error': f'not host {host_name}'}), 404
+    denied = host_session_denied(host_name)
+    if denied:
+        body, status = denied
+        return jsonify(body), status
+    return list_stream_directory(device_folder, content_type)
 
 
 @host_stream_bp.route('/stream/<device_folder>/<content_type>/', methods=['GET'])

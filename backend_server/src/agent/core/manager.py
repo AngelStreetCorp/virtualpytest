@@ -83,6 +83,13 @@ class QAManagerAgent:
         # Visual verification — Atlas needs this when navigating any device.
         'capture_screenshot',
     )
+    # Router tools that are unusable without another tool's output: offering the
+    # key without its value forces the model to guess (see _select_router_tools_for_message).
+    _ATLAS_ROUTER_TOOL_PREREQUISITES = {
+        'analyze_screen_for_action': ('dump_ui_elements',),
+        'analyze_screen_for_verification': ('dump_ui_elements',),
+        'execute_device_action': ('list_actions',),
+    }
     _ATLAS_ROUTER_CATEGORY_HINTS = {
         'device': {'device', 'devices', 'host', 'hosts', 'status'},
         'testcase': {'test', 'tests', 'testcase', 'testcases', 'case', 'cases'},
@@ -648,12 +655,20 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         # is a navigation tree" scored only navigation tools, and the model,
         # told to read_doc but not given it, flailed into crawl_app /
         # list_navigation_nodes and errored the chat.
-        needed = [t for t in ('read_doc', 'search_docs')
-                  if t in safe_tools and t not in selected]
-        if needed:
-            if len(selected) + len(needed) > 12:
-                selected = selected[:12 - len(needed)]
-            selected.extend(needed)
+        # Same for a selected tool's prerequisites: a tool offered without the
+        # tool that feeds it cannot be used. Observed: "open YouTube and search
+        # ..." scored analyze_screen_for_action + execute_device_action but not
+        # dump_ui_elements / list_actions, so the model sent elements=[] and
+        # guessed the web command name (type_text) — BUG-0170.
+        def required_for(tools: list[str]) -> list[str]:
+            required = ['read_doc', 'search_docs']
+            for tool in tools:
+                required.extend(self._ATLAS_ROUTER_TOOL_PREREQUISITES.get(tool, ()))
+            return [t for t in dict.fromkeys(required) if t in safe_tools]
+
+        base = [t for t in selected if t not in required_for(selected)]
+        base = base[:12 - len(required_for(selected))]
+        selected = base + [t for t in required_for(base) if t not in base]
 
         return selected
 

@@ -262,6 +262,11 @@ def setup_api_authentication(app):
         for public_path in PUBLIC_MEDIA_PATHS:
             if request.path.startswith(public_path):
                 return None
+        # nginx-shaped media paths the host answers itself: the route checks the
+        # host-session cookie / service key (host_session_denied), not this guard.
+        own_host = os.getenv('HOST_NAME', '')
+        if own_host and request.path.startswith(f'/host/{own_host}/stream/'):
+            return None
         
         # Validate API key
         is_valid, error_response = validate_api_key()

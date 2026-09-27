@@ -23,8 +23,11 @@ services:
       HOST_NAME: ${HOST_NAME:-docker-host}
       HOST_PORT: "6109"
       HOST_BIND_IP: 0.0.0.0
-      HOST_URL: http://${PUBLIC_HOST:-localhost}:6109
+      HOST_URL: ${HOST_URL:-http://${PUBLIC_HOST:-localhost}:6109}
       HOST_API_URL: http://${PUBLIC_HOST:-localhost}:6109
+      # Must equal the server's HOST_SESSION_SECRET (or its JWT_SECRET) when HOST_URL is the
+      # nginx-style /host/<HOST_NAME>: the host validates the server-minted stream cookie.
+      HOST_SESSION_SECRET: ${HOST_SESSION_SECRET:-}
       HOST_VIDEO_STREAM_PATH: /host/stream/capture
       HOST_VNC_STREAM_PATH: http://${PUBLIC_HOST:-localhost}:6080/vnc_lite.html
       HOME: /home/vpt_user

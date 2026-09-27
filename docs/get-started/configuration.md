@@ -70,6 +70,7 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | `MINIO_*` / `CLOUDFLARE_R2_*` | hosts upload captures themselves | same as the server |
 | `HOST_VIDEO_SOURCE` / `HOST_VIDEO_AUDIO` / `HOST_VIDEO_CAPTURE_PATH` / `HOST_VIDEO_FPS` | the host's own VNC desktop as a capture source | `:1` / `null` / `/var/www/html/stream/capture` / `10` |
 | `HOST_VNC_STREAM_PATH` / `HOST_VIDEO_STREAM_PATH` / `HOST_VNC_PASSWORD` | browser paths for the desktop view and the stream | template values, address swapped by the installer |
+| `HOST_URL` / `HOST_SESSION_SECRET` | Docker stack: browser-facing base URL of the host. `/host/<HOST_NAME>` (nginx-style) when a proxy/tunnel routes that prefix to `:6109`; the host then checks the server-minted stream cookie, signed with `HOST_SESSION_SECRET` (defaults to `JWT_SECRET`) | `http://<PUBLIC_HOST>:6109` / `JWT_SECRET` |
 | `HOST_VNC_AUTOCONNECT` | `true` lets the dashboard pass `HOST_VNC_PASSWORD` to noVNC so app users connect without a prompt. Opening `vnc_lite.html` directly still asks. The password lands in the iframe URL and proxy logs | `false` |
 | `DEVICEn_NAME` / `_MODEL` / `_IP` / `_PORT` / `_VIDEO` / `_VIDEO_AUDIO` / `_VIDEO_CAPTURE_PATH` / `_VIDEO_FPS` / `_VIDEO_STREAM_PATH` | device *n* (1–10): identity, network address, capture card, audio, output paths | template examples, disabled with the `x` prefix |
 | `DEVICEn_IR_PATH` / `_IR_TYPE` or `_IR_IP` / `_IR_PORT` / `_IR_LED` / `_IR_REMOTE` | infrared control: local `lirc` transmitter or networked IRTrans box | |

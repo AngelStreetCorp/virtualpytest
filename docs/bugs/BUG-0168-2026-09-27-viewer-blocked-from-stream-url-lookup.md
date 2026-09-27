@@ -6,11 +6,11 @@
 |-----------|--------------------------------------------------------------|
 | ID        | BUG-0168                                                     |
 | Reported  | 2026-09-27                                                   |
-| Status    | Fixed in code, not yet released                              |
+| Status    | Fixed, deployed on the gcloud VM (build 9389)                |
 | Severity  | Medium                                                       |
 | Area      | backend_server auth middleware (viewer read-only floor)      |
-| Fixed in  | —                                                            |
-| Commit    | —                                                            |
+| Fixed in  | build 9389 (`main-2026.09.27-9389`)                          |
+| Commit    | 0c11b8fab1                                                   |
 
 ---
 
@@ -40,5 +40,6 @@ in `backend_server/src/lib/auth_middleware.py`. `/server/system/vnc-info` is del
 
 ## Verification
 
-Not yet: needs a backend_server image release and a viewer account on a login-enforced
-deployment. Expected: the device page loads streams for a viewer; the VNC tile still prompts.
+Shipped in the `virtualpytest-server` image `main-2026.09.27-9389`, deployed on the gcloud VM
+2026-09-27. Not yet exercised with a viewer account in a browser there (the only account is
+admin); expected: the device page loads streams for a viewer, the VNC tile still prompts.

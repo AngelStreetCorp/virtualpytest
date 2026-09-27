@@ -261,6 +261,25 @@ def test_router_tools_always_include_read_doc(make_manager):
         assert len(selected) <= 14
 
 
+def test_router_tools_include_prerequisites(make_manager):
+    """A router tool is offered with the tool that feeds it (BUG-0170):
+    'open YouTube ... search' scored analyze_screen_for_action and
+    execute_device_action but not dump_ui_elements / list_actions, so the
+    model sent elements=[] and guessed the web command type_text."""
+    manager, _, _ = make_manager([])
+    msg = ('Open YouTube in the browser, search for "Raspberry Pi" and tell me '
+           'the title of the first result.')
+    selected = manager._select_router_tools_for_message(msg)
+    assert len(selected) <= 12
+    assert "read_doc" in selected
+    for tool, prereqs in manager._ATLAS_ROUTER_TOOL_PREREQUISITES.items():
+        if tool in selected:
+            for prereq in prereqs:
+                assert prereq in selected, f"{tool} offered without {prereq}: {selected}"
+    assert "analyze_screen_for_action" in selected
+    assert "dump_ui_elements" in selected
+
+
 # --------------------------------------------------------------------------
 # 4. require_tool_use rejects toolless final answers
 # --------------------------------------------------------------------------
