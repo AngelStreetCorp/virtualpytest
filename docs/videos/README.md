@@ -10,4 +10,23 @@
 
 ---
 
-More walkthroughs (device control, navigation trees, monitoring) are being re-recorded and will appear here as they are published.
+<table>
+  <tr>
+    <td align="center" width="320">
+      <b>Navigation tree: map your app once</b><br>
+      <a href="https://virtualpytest.com/videos/virtualpytest_02_navigation_tree.mp4" target="_blank">
+        <img src="https://virtualpytest.com/videos/virtualpytest_02_navigation_tree.jpg" width="300" alt="Navigation tree walkthrough">
+      </a>
+    </td>
+    <td align="center" width="320">
+      <b>Evidence: every run leaves proof</b><br>
+      <a href="https://virtualpytest.com/videos/virtualpytest_03_evidence.mp4" target="_blank">
+        <img src="https://virtualpytest.com/videos/virtualpytest_03_evidence.jpg" width="300" alt="Evidence walkthrough">
+      </a>
+    </td>
+    <td align="center" width="320">
+      <b>AI agent: ask, it acts</b><br>
+      Coming soon
+    </td>
+  </tr>
+</table>

@@ -151,6 +151,7 @@ echo "   ⏰ Hour folders: 0-23 in segments/metadata/audio (all devices)"
 echo "   🔧 Temp dirs: segments/temp, metadata/temp (all devices)"
 echo ""
 
+mkdir -p /tmp/xdg-vpt_user && chown vpt_user:vpt_user /tmp/xdg-vpt_user && chmod 700 /tmp/xdg-vpt_user
 echo "🔧 Starting supervisord..."
 exec /usr/bin/supervisord -c /etc/supervisor/supervisord.conf -n
 

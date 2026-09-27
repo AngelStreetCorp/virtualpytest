@@ -41,9 +41,12 @@ schema. Entries that exist only on this branch (`feat/demo`) sit at the end of e
 ## Unreleased
 
 ### Features
+- **Docker host desktop is XFCE** — the `virtualpytest-host` image now starts the same XFCE desktop the native installer sets up, instead of a bare fluxbox, so its VNC tile matches a native host
 
 ### Bug fixes
-- **Viewers got 403 on every stream URL lookup** — `av/getStreamUrl` / `av/getStatus` are read-only POSTs, now exempt from the viewer floor · [BUG-0166](../bugs/BUG-0166-2026-09-27-viewer-blocked-from-stream-url-lookup.md)
+- **Viewers got 403 on every stream URL lookup** — `av/getStreamUrl` / `av/getStatus` are read-only POSTs, now exempt from the viewer floor · [BUG-0168](../bugs/BUG-0168-2026-09-27-viewer-blocked-from-stream-url-lookup.md)
+- **AI Agent chat never rendered its reply** — the page sent several CONNECTs for `/agent` on one connection while the authenticated handshake was pending; the server refused the duplicates and the client destroyed its own socket, so the agent's answer went to a room nobody listened in. One handshake per connection now, rooms are re-joined on every reconnect, and a refused handshake rebuilds the socket instead of leaving a dead one · [BUG-0166](../bugs/BUG-0166-2026-09-27-agent-chat-duplicate-socket-connect-never-renders-reply.md) · `bcd8e9c7d2`
+- **Agent looped on a closed browser context for 40 minutes** — a dead Playwright context is now dropped and reconnected on the host, the agent ends its turn after three identical tool failures, and a chat queued behind another conversation is told it is waiting · [BUG-0167](../bugs/BUG-0167-2026-09-27-agent-loops-on-closed-browser-context-for-40-minutes.md) · `b660a964d8`
 - **Docker host's noVNC asks for a password** — opt-in `HOST_VNC_AUTOCONNECT` replaces the broken `ef8e0fc4ca` hand-off · [BUG-0164](../bugs/BUG-0164-2026-09-27-docker-vnc-password-prompt-autoconnect-broken.md) · `becb88e027`
 - **Regression: emulator streams stalled at the first frame** — since emulator audio shipped (build 9151, `1d3581ffe`), the wall-clock timestamps meant for the audio-synced stream also reached the capture and thumbnail outputs. Two frames inside one tick got the same timestamp, the encoder rejected it, and ffmpeg restarted about once a minute without producing a stream. Restarting did not help. The wall clock now applies to the stream branch only · [BUG-0165](../bugs/BUG-0165-2026-09-27-emulator-stream-stalls-on-duplicate-capture-timestamps.md) · `d38adc77a`
 

@@ -143,8 +143,26 @@ def run_agent_coroutine(coro_factory, socketio=None, session_id=None):
     """
     coro = coro_factory()
     try:
-        with _agent_processing_lock:
+        # Tell the conversation it is queued rather than leaving it on the bare
+        # 'Received...' ack: with one worker, a long-running conversation (or a
+        # runaway one — see the 26-minute session 39d2c4e2 on 2026-09-27) makes
+        # every other chat look dead for minutes, and the user has no way to tell
+        # "waiting" from "broken".
+        acquired = _agent_processing_lock.acquire(blocking=False)
+        if not acquired:
+            if socketio is not None and session_id is not None:
+                socketio.emit('agent_event', {
+                    'type': 'thinking',
+                    'agent': 'System',
+                    'content': 'Waiting for another conversation to finish...',
+                    'timestamp': datetime.now().isoformat(),
+                    'session_id': session_id,
+                }, room=session_id, namespace='/agent')
+            _agent_processing_lock.acquire()
+        try:
             asyncio.run(coro)
+        finally:
+            _agent_processing_lock.release()
     except Exception as e:
         logger.error(f"Agent background task crashed: {e}", exc_info=True)
         coro.close()  # nothing awaited it — silences "never awaited"

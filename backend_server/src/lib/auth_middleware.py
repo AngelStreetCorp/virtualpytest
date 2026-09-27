@@ -515,7 +515,7 @@ VIEWER_WRITE_EXEMPT_PREFIXES: tuple = (
     '/server/host-session/session',
     # Read-only lookups that travel as POST because the auto-proxy takes host_name /
     # device_id in a JSON body (auto_proxy.py even rewrites them to GET on the host side).
-    # Without them a viewer's device page 403s on every stream URL (BUG-0166).
+    # Without them a viewer's device page 403s on every stream URL (BUG-0168).
     '/server/av/getStreamUrl',
     '/server/av/getStatus',
 )

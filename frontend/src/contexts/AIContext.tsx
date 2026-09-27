@@ -132,13 +132,12 @@ export const AIProvider: React.FC<{children: React.ReactNode}> = ({ children }) 
 
     const initSession = async () => {
       try {
-        // Skip health check if we already know no key is set and none was saved since
-        const cachedStatus = localStorage.getItem(STORAGE_KEY_AI_STATUS);
+        // Always ask the backend. A cached 'needs_key' used to short-circuit this check
+        // for good, so any browser that once saw the agent unconfigured (or hit the server
+        // mid-deploy and got no key in the answer) hid the floating Ask AI button forever,
+        // even after a key was configured server-side. The cache now only seeds the
+        // initial render; the backend answer always wins.
         const savedKey = localStorage.getItem(STORAGE_KEY_API);
-        if (cachedStatus === 'needs_key' && !savedKey) {
-          setStatus('needs_key');
-          return;
-        }
 
         // First check if API key is configured on backend
         const healthResponse = await fetch(buildServerUrl('/server/agent/health'));

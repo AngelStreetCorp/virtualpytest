@@ -819,6 +819,15 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         # Bounded retries for thinking-only/empty-text responses (MiniMax glitch)
         empty_retries = 0
 
+        # Circuit breaker for a tool that keeps failing the same way. The model has no
+        # notion of "this will never work": with a dead browser context it re-issued
+        # execute_device_action 360 times over 26 minutes (session 39d2c4e2, 2026-09-27),
+        # each call returning the same TargetClosedError. Three identical consecutive
+        # failures end the turn with an error instead.
+        last_tool_failure = None  # (tool_name, error text)
+        identical_tool_failures = 0
+        MAX_IDENTICAL_TOOL_FAILURES = 3
+
         # Track if we've sent debug events for this turn
         debug_events_sent = False
 
@@ -1089,7 +1098,9 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                             self.logger.warning(f"Langfuse tool tracking failed: {e}")
                             print(f"[AGENT] ⚠️ Langfuse tool tracking error (non-critical): {e}")
                     yield AgentEvent(type=EventType.TOOL_RESULT, agent=self.nickname, content="Success", tool_name=tool_use.name, tool_result=result, success=True)
-                    
+                    last_tool_failure = None
+                    identical_tool_failures = 0
+
                     # Track tool call for summary
                     tool_calls_this_turn.append({
                         'tool_name': tool_use.name,
@@ -1168,8 +1179,21 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                     print(f"[AGENT] ❌ Tool '{tool_name}' failed: {str(e)}")
 
                     yield AgentEvent(type=EventType.ERROR, agent=self.nickname, content=user_error, error=str(e), tool_name=tool_name)
-                    
+
                     turn_messages.append({"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_use.id, "content": f"Error: {e}", "is_error": True}]})
+
+                    failure_key = (tool_name, error_str)
+                    identical_tool_failures = identical_tool_failures + 1 if failure_key == last_tool_failure else 1
+                    last_tool_failure = failure_key
+                    if identical_tool_failures >= MAX_IDENTICAL_TOOL_FAILURES:
+                        stop_msg = (
+                            f"Stopping: '{tool_name}' failed {identical_tool_failures} times in a row with the same error. "
+                            f"Fix the underlying problem and ask again. Last error: {error_str}"
+                        )
+                        self.logger.error(f"[AGENT] {stop_msg}")
+                        print(f"[AGENT] 🛑 {stop_msg}")
+                        yield AgentEvent(type=EventType.ERROR, agent=self.nickname, content=stop_msg, error="repeated_tool_failure", tool_name=tool_name)
+                        break
             else:
                 response_text = text_content
 

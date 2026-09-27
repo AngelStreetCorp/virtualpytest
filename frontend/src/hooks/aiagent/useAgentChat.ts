@@ -138,7 +138,7 @@ export const useAgentChat = () => {
   }, []);
 
   // Use centralized socket
-  const { socket, connect, isConnected, initSession: sharedInitSession, registerEventHandler, unregisterEventHandler, emitSendMessage: sharedEmitSendMessage, forceReconnect } = useSocket();
+  const { socket, connect, isConnected, initSession: sharedInitSession, joinSession, registerEventHandler, unregisterEventHandler, emitSendMessage: sharedEmitSendMessage, forceReconnect } = useSocket();
 
   console.log('[useAgentChat] Socket state:', { socket: !!socket, isConnected, socketConnected: socket?.connected });
 
@@ -878,10 +878,10 @@ export const useAgentChat = () => {
 
     console.log('[useAgentChat] Setting up socket event listeners for session:', session?.id);
 
-    // Join session when socket connects (if we have a session)
+    // Room membership (shared session, background_tasks, every per-conversation
+    // session) is owned by SocketContext, which re-joins them all on each connect.
     const handleConnect = () => {
       console.log('[useAgentChat] Socket connected, session:', session?.id);
-      joinSessionIfAvailable();
 
       // Reset retry count on successful connection
       sendMessageRetryCountRef.current = 0;
@@ -892,21 +892,6 @@ export const useAgentChat = () => {
         disconnectTimeoutRef.current = null;
       }
     };
-
-    const joinSessionIfAvailable = () => {
-      if (session?.id && socket.connected) {
-        console.log('[useAgentChat] Joining session:', session.id);
-        socket.emit('join_session', { session_id: session.id });
-        // Join background_tasks room for Sherlock analysis updates
-        socket.emit('join_session', { session_id: 'background_tasks' });
-        console.log('[useAgentChat] Joined session and background_tasks rooms');
-      } else {
-        console.log('[useAgentChat] Cannot join session - session:', !!session?.id, 'connected:', socket.connected);
-      }
-    };
-
-    // Also join session when session becomes available (in case socket was already connected)
-    joinSessionIfAvailable();
 
     const handleDisconnect = (reason: string) => {
       console.warn(`[useAgentChat] Socket disconnected: ${reason}`);
@@ -934,28 +919,11 @@ export const useAgentChat = () => {
       // For transport close (tab backgrounding), do nothing - socket will reconnect
     };
 
-    const handleReconnect = () => {
-      console.log('[useAgentChat] Socket reconnected, rejoining session');
-      if (session?.id) {
-        socket.emit('join_session', { session_id: session.id });
-        socket.emit('join_session', { session_id: 'background_tasks' });
-      }
-      // Re-join every per-conversation session room too
-      for (const sid of conversationSessionRef.current.values()) {
-        socket.emit('join_session', { session_id: sid });
-      }
-
-      // Cancel any pending disconnect timeout on successful reconnect
-      if (disconnectTimeoutRef.current) {
-        clearTimeout(disconnectTimeoutRef.current);
-        disconnectTimeoutRef.current = null;
-      }
-    };
-
-    // Set up listeners
+    // Set up listeners. (There is no socket-level 'reconnect' event in socket.io-client
+    // v3+ — it lives on the Manager — so a re-established connection arrives here as a
+    // plain 'connect'.)
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
-    socket.on('reconnect', handleReconnect);
 
     const handleAgentEvent = (event: AgentEvent) => {
       // Route by session when possible: events are stamped with session_id by
@@ -1311,7 +1279,6 @@ export const useAgentChat = () => {
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
-      socket.off('reconnect', handleReconnect);
       unregisterEventHandler('agentchat');
       socket.off('ui_action', handleUiAction);
       socket.off('slack_message', handleSlackMessage);
@@ -1541,7 +1508,9 @@ export const useAgentChat = () => {
           convSessionId = data.session.id as string;
           conversationSessionRef.current.set(targetConvoId, convSessionId);
           sessionConversationRef.current.set(convSessionId, targetConvoId);
-          socket?.emit('join_session', { session_id: convSessionId });
+          // Registered with SocketContext so the room survives a reconnect mid-answer:
+          // the reply is delivered to THIS session's room, not the shared one.
+          joinSession(convSessionId);
           console.log(`[useAgentChat] Created session ${convSessionId} for conversation ${targetConvoId}`);
         }
       } catch (e) {
@@ -1636,7 +1605,7 @@ export const useAgentChat = () => {
     }, 4000);
 
     console.log('[useAgentChat] Message sent to backend');
-  }, [input, isProcessing, session?.id, activeConversationId, socket, isConnected, connect]);
+  }, [input, isProcessing, session?.id, activeConversationId, socket, isConnected, connect, joinSession]);
 
   // Allow external code to set the agent
   const agentIdRef = useRef<string>('assistant');

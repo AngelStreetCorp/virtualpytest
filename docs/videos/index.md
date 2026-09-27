@@ -7,7 +7,7 @@
 
 .spotlight-video h2 {
   margin-bottom: 8px;
-  color: rgb(255, 255, 255);
+  color: inherit;
   font-size: 24px;
 }
 
@@ -55,7 +55,7 @@
   margin: 0 0 8px 0;
   font-size: 14px;
   font-weight: 600;
-  color: rgb(255, 255, 255);
+  color: inherit;
   min-height: 40px;
   display: flex;
   align-items: center;
@@ -106,4 +106,33 @@
 
 ---
 
-More walkthroughs (device control, navigation trees, monitoring) are being re-recorded and will appear here as they are published.
+<div class="video-grid">
+  <div class="video-card">
+    <h3>Navigation tree: map your app once</h3>
+    <div class="video-wrapper">
+      <video controls preload="metadata" playsinline
+        poster="https://virtualpytest.com/videos/virtualpytest_02_navigation_tree.jpg"
+        src="https://virtualpytest.com/videos/virtualpytest_02_navigation_tree.mp4"
+        style="position:absolute;top:0;left:0;width:100%;height:100%;background:#000;">
+      </video>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Evidence: every run leaves proof</h3>
+    <div class="video-wrapper">
+      <video controls preload="metadata" playsinline
+        poster="https://virtualpytest.com/videos/virtualpytest_03_evidence.jpg"
+        src="https://virtualpytest.com/videos/virtualpytest_03_evidence.mp4"
+        style="position:absolute;top:0;left:0;width:100%;height:100%;background:#000;">
+      </video>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>AI agent: ask, it acts</h3>
+    <div class="video-wrapper" style="display:flex;align-items:center;justify-content:center;background:#1b2a41;color:#cfd8e6;font-size:14px;padding-bottom:0;min-height:160px;">
+      Coming soon
+    </div>
+  </div>
+</div>

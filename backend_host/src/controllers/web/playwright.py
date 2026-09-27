@@ -207,15 +207,38 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
 
         # Reuse first page if any, else create a new page
         try:
-            pages = context.pages
-            if pages and len(pages) > 0:
-                page = pages[0]
-            else:
-                page = await context.new_page()
+            return await self._page_from_context(context)
         except Exception as e:
-            raise RuntimeError(f"Failed to acquire page from context: {type(e).__name__}: {str(e)}")
+            # The cached context is dead (Chrome exited, the window was closed, the CDP
+            # session dropped): Playwright raises TargetClosedError from BrowserContext.new_page
+            # and every later call would too, because the class-level handles were never
+            # reset. Seen 2026-09-27 (agent session 39d2c4e2): 360 execute_device_action
+            # calls over 26 minutes, all failing on the same closed context. Drop the dead
+            # handles and connect once more before giving up.
+            print(f"[PLAYWRIGHT]: Page acquisition failed ({type(e).__name__}: {e}) — dropping dead browser handles and reconnecting")
+            self.__class__._browser = None
+            self.__class__._context = None
+            self.__class__._browser_connected = False
+            connect_result = await self.connect_browser()
+            if not connect_result or not connect_result.get('success'):
+                raise RuntimeError(
+                    f"Failed to acquire page from context: {type(e).__name__}: {e}; "
+                    f"reconnect failed: {connect_result.get('error') if isinstance(connect_result, dict) else 'unknown error'}"
+                )
+            context = self.__class__._context
+            if context is None:
+                raise RuntimeError("Failed to acquire page: browser context is not available after reconnect")
+            try:
+                return await self._page_from_context(context)
+            except Exception as retry_error:
+                raise RuntimeError(f"Failed to acquire page from context after reconnect: {type(retry_error).__name__}: {retry_error}")
 
-        return page
+    @staticmethod
+    async def _page_from_context(context):
+        pages = context.pages
+        if pages and len(pages) > 0:
+            return pages[0]
+        return await context.new_page()
     
     async def _cleanup_persistent_browser(self):
         """Clean up persistent browser+context."""

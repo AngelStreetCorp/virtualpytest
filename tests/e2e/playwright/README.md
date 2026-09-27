@@ -7,6 +7,10 @@ Critical-path browser/API tests for VirtualPyTest.
   - UI smoke only
   - Specs:
     - `specs/ui.smoke.spec.js`
+- Agent socket (`npx playwright test specs/agent.socket.spec.js`)
+  - `/agent` Socket.IO handshake: exactly one CONNECT per engine connection, no `44 "Unable to connect"`
+  - Chat round-trip: a prompt's reply is rendered (needs the server's agent worker idle — it answers one conversation at a time)
+  - Spec: `specs/agent.socket.spec.js`
 - Viewport (`run_e2e_viewport.sh`)
   - Desktop 1280x800 layout checks
   - Mobile 375x812 layout checks

@@ -1,10 +1,10 @@
-# BUG-0166 — Viewers get 403 on every stream: `av/getStreamUrl` is a POST
+# BUG-0168 — Viewers get 403 on every stream: `av/getStreamUrl` is a POST
 
 > Bugs index: [README.md](README.md) · Release notes: [../release_note/README.md](../release_note/README.md)
 
 | Field     | Value                                                        |
 |-----------|--------------------------------------------------------------|
-| ID        | BUG-0166                                                     |
+| ID        | BUG-0168                                                     |
 | Reported  | 2026-09-27                                                   |
 | Status    | Fixed in code, not yet released                              |
 | Severity  | Medium                                                       |

@@ -24,9 +24,16 @@ import { getAccessTokenForServer } from '../lib/serverIdentity';
 
 type SocketOptions = Parameters<typeof io>[1];
 
-export const buildSocketAuth =
-  (serverBaseUrl: string) =>
-  (cb: (data: Record<string, unknown>) => void): void => {
+export const buildSocketAuth = (serverBaseUrl: string) => {
+  // socket.io-client sends one CONNECT packet per callback invocation. If the engine
+  // reconnects while a previous token lookup is still in flight, the stale resolution
+  // would send a second CONNECT on the new engine connection — which the server refuses
+  // ("Unable to connect") and the client then tears the socket down over. Only the most
+  // recent request may answer.
+  let generation = 0;
+
+  return (cb: (data: Record<string, unknown>) => void): void => {
+    const mine = ++generation;
     const payload: Record<string, unknown> = {};
 
     const serverKey = getEnv('VITE_SERVER_PUBLIC_KEY') || '';
@@ -35,16 +42,21 @@ export const buildSocketAuth =
     const autoSign = getAutoSignHeaderToken();
     if (autoSign) payload.auto_sign = autoSign;
 
+    const deliver = () => {
+      if (mine === generation) cb(payload);
+    };
+
     void getAccessTokenForServer(serverBaseUrl)
       .then((token) => {
         if (token) payload.token = token;
-        cb(payload);
+        deliver();
       })
       // A missing token is not a failure here: the server decides. An open-mode deployment
       // admits the connection anyway, and a closed one refuses it with a connect_error,
       // which is the same answer the fetch path gives.
-      .catch(() => cb(payload));
+      .catch(deliver);
   };
+};
 
 /**
  * Connect to `namespace` on `serverBaseUrl` with the handshake credentials attached.

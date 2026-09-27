@@ -11,8 +11,9 @@ RUN apt-get update && apt-get install -y \
     tigervnc-tools \
     novnc \
     websockify \
-    fluxbox \
-    xterm \
+    xfce4 \
+    xfce4-terminal \
+    dbus-x11 \
     scrot \
     python3-tk \
     python3-dev \
