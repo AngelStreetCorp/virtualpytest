@@ -513,6 +513,11 @@ VIEWER_WRITE_EXEMPT_PREFIXES: tuple = (
     # player needs (BUG-0107). It signs a JWT and sets a cookie — it writes nothing.
     # Without it every device tile sits on "Loading stream..." forever for a viewer.
     '/server/host-session/session',
+    # Read-only lookups that travel as POST because the auto-proxy takes host_name /
+    # device_id in a JSON body (auto_proxy.py even rewrites them to GET on the host side).
+    # Without them a viewer's device page 403s on every stream URL (BUG-0166).
+    '/server/av/getStreamUrl',
+    '/server/av/getStatus',
 )
 
 

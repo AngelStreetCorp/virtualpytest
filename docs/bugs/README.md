@@ -39,6 +39,7 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 
 ## Unreleased
 
+- **Viewers get 403 on every stream: `av/getStreamUrl` is a POST** · reported 2026-09-27 · [BUG-0166](BUG-0166-2026-09-27-viewer-blocked-from-stream-url-lookup.md)
 - **Emulator streams stalled at the first frame after emulator audio was added (regression)** · reported 2026-09-27 · [BUG-0165](BUG-0165-2026-09-27-emulator-stream-stalls-on-duplicate-capture-timestamps.md)
 - **An adb verification silently drops leading and trailing spaces from its search term** · reported 2026-09-17 · [BUG-0136](BUG-0136-2026-09-17-adb-verification-strips-search-term-whitespace.md)
 - **The auto-sign token was published to the internet in the frontend bundle** · reported 2026-09-17 · [BUG-0134](BUG-0134-2026-09-17-auto-sign-token-published-in-the-frontend-bundle.md)

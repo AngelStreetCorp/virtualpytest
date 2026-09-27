@@ -88,6 +88,7 @@ The template `backend_host/src/.env.example` documents every device option inlin
 | `VITE_GRAFANA_URL` | Grafana as seen from the browser | `http://<PUBLIC_HOST>:3000` |
 | `VITE_CLOUDFLARE_R2_PUBLIC_URL` | public base for stored files (set = direct links) | MinIO: `http://<PUBLIC_HOST>:9000/virtualpytest` |
 | `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` | login page. Both empty = no login (open mode) | empty |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `SMTP_ADMIN_EMAIL` / `SMTP_SENDER_NAME` + `ENABLE_EMAIL_AUTOCONFIRM` | Docker stack: outbound mail for signup confirmation and password recovery; set `ENABLE_EMAIL_AUTOCONFIRM=false` once a relay is configured so new accounts must verify their address | no relay, `true` |
 | `SUPABASE_PUBLIC_URL` / `SITE_URL` | Docker stack behind an HTTPS tunnel: the public URL of the Supabase gateway (GoTrue `API_EXTERNAL_URL`, Studio) and of the frontend (GoTrue `SITE_URL`) | `http://<PUBLIC_HOST>:54321` / `http://<PUBLIC_HOST>:5073` |
 | `VITE_SERVER_PUBLIC_KEY` | pairs with `SERVER_PUBLIC_KEY` (no-Supabase deployments) | unset |
 | `VITE_AUTO_SIGN_ENABLED` / `VITE_AUTO_SIGN_TOKEN` | pairs with `AUTO_SIGN_*` | off |

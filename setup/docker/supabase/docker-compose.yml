@@ -95,9 +95,10 @@ services:
       GOTRUE_JWT_ISSUER: http://${PUBLIC_HOST:-localhost}:${SUPABASE_API_PORT:-54321}/auth/v1
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
       GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: "false"
-      # No mail server in the stack: users created in Studio (or by the server's
-      # admin API) are usable immediately instead of waiting for a confirmation mail.
-      GOTRUE_MAILER_AUTOCONFIRM: "true"
+      # No mail server in the stack by default: users created in Studio (or by the server's
+      # admin API) are usable immediately instead of waiting for a confirmation mail. With a
+      # real SMTP_* relay set, ENABLE_EMAIL_AUTOCONFIRM=false makes signup verify the address.
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM:-true}
       GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-admin@example.com}
       GOTRUE_SMTP_HOST: ${SMTP_HOST:-}
       GOTRUE_SMTP_PORT: ${SMTP_PORT:-2500}
