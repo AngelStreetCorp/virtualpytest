@@ -6,7 +6,7 @@ Used by: dump_analyzer.py, screen_analyzer.py, MCP tools
 
 Priority Order:
 - Mobile: ID > CONTENT_DESC > XPATH > TEXT
-- Web: ID > XPATH > TEXT
+- Web: ID > XPATH > CSS > TEXT
 - STB/TV: Use screenshot_analyzer.py instead (visual scoring)
 """
 
@@ -23,12 +23,13 @@ class SelectorPriority:
     ID = 1000              # resource_id (mobile), #id (web) - Always unique by design
     CONTENT_DESC = 600     # Mobile only - Accessibility label (above XPath!)
     XPATH = 500            # Structural path - Usually unique
+    CSS = 400              # Web only - the dump's CSS selector; relevance comes from its describing attributes
     TEXT = 200             # Weakest - Can be duplicate/dynamic
 
 
 PLATFORM_PRIORITY_ORDER = {
     'mobile': ['id', 'content_desc', 'xpath', 'text'],
-    'web': ['id', 'xpath', 'text'],
+    'web': ['id', 'xpath', 'css', 'text'],
     # STB/TV not included - use screenshot_analyzer.py
 }
 
@@ -214,6 +215,11 @@ def get_selector_value(element: Dict, selector_type: str, platform: str) -> Opti
         if value and value.strip():
             return value.strip()
     
+    elif selector_type == 'css' and platform == 'web':
+        value = element.get('selector', '')
+        if value and value.strip():
+            return value.strip()
+    
     elif selector_type == 'text':
         if platform == 'mobile':
             value = element.get('text', '')
@@ -258,6 +264,8 @@ def score_selector(
         score = SelectorPriority.CONTENT_DESC
     elif selector_type == 'xpath':
         score = SelectorPriority.XPATH
+    elif selector_type == 'css':
+        score = SelectorPriority.CSS
     else:  # text
         score = SelectorPriority.TEXT
     
@@ -279,7 +287,24 @@ def score_selector(
             details['modifiers'].append('weak_word')
     
     # Context matching bonus (for all types)
-    if context_label:
+    if context_label and platform == 'web' and selector_type in ('id', 'css'):
+        # An id or a CSS selector is unique but says little about WHAT the element is:
+        # judge it by what describes the element (placeholder, aria-label, name, title,
+        # text, and the id itself). Otherwise any unique id on the page wins.
+        description = f"{describe_web_element(element)} {value if selector_type == 'id' else ''}".lower()
+        label_words = set(re.findall(r'[a-z0-9]+', context_label.lower()))
+        overlap = label_words & set(re.findall(r'[a-z0-9]+', description))
+        if context_label.lower() in description:
+            score += 500
+            details['modifiers'].append('exact_context_match')
+        elif overlap:
+            score += 200
+            details['modifiers'].append('partial_context_match')
+        else:
+            # Unrelated to the intent: never let an arbitrary unique selector win
+            # (applied below, after the uniqueness bonus).
+            details['modifiers'].append('no_context_match')
+    elif context_label:
         if value.lower() == context_label.lower():
             score += 500
             details['modifiers'].append('exact_context_match')
@@ -313,16 +338,29 @@ def score_selector(
         details['unique'] = None
         details['modifiers'].append('uniqueness_not_checked')
     
+    if 'no_context_match' in details['modifiers']:
+        score = -1
+
     details['final_score'] = score
     
     return (score, details)
+
+
+def describe_web_element(element: Dict) -> str:
+    """The human-facing words of a web element: what a user would call it."""
+    attributes = element.get('attributes') or {}
+    parts = [element.get('textContent') or '']
+    for key in ('placeholder', 'aria-label', 'name', 'title'):
+        parts.append(element.get(key) or attributes.get(key) or '')
+    return ' '.join(p for p in parts if p)
 
 
 def find_best_selector(
     elements: List[Dict],
     platform: str,
     context_label: str = '',
-    require_unique: bool = True
+    require_unique: bool = True,
+    selector_types: Optional[List[str]] = None
 ) -> Optional[Dict]:
     """
     Find the best selector from a list of elements using platform-specific priorities.
@@ -332,6 +370,7 @@ def find_best_selector(
         platform: 'mobile' or 'web'
         context_label: Node label for relevance matching
         require_unique: If True, requires uniqueness check (default: True)
+        selector_types: Restrict to these types (in platform priority order); None = all
     
     Returns:
         {
@@ -349,7 +388,8 @@ def find_best_selector(
     if platform not in PLATFORM_PRIORITY_ORDER:
         raise ValueError(f"Unsupported platform: {platform}. Use 'mobile' or 'web'.")
     
-    priority_order = PLATFORM_PRIORITY_ORDER[platform]
+    priority_order = [t for t in PLATFORM_PRIORITY_ORDER[platform]
+                      if selector_types is None or t in selector_types]
     best_result = None
     best_score = -9999
     

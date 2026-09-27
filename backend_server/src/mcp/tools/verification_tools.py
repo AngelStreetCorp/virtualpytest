@@ -238,9 +238,11 @@ class VerificationTools:
             if not e.get('isVisible', True):
                 continue
             attributes = e.get('attributes') or {}
+            # css= makes the selector explicit: click_element would read a bare
+            # tag.class selector (input.yt-searchbox-input) as visible text.
             minimal = {
                 'id': e.get('id'),
-                'selector': e.get('selector', ''),
+                'selector': f"css={e['selector']}" if e.get('selector') else '',
                 'tagName': e.get('tagName', ''),
                 'textContent': (e.get('textContent') or '').strip()[:80],
             }

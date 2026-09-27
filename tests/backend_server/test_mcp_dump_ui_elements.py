@@ -59,9 +59,9 @@ def test_web_dump_uses_playwright_and_lists_elements():
     assert body['command'] == 'dump_elements'
     assert body['host_name'] == 'host-clone-1'
 
-    assert [e['selector'] for e in result['elements']] == ['input[name="search_query"]']
+    assert [e['selector'] for e in result['elements']] == ['css=input[name="search_query"]']
     listed = json.loads(result['content'][0]['text'].split('Elements:\n', 1)[1])
-    assert listed == [{'id': None, 'selector': 'input[name="search_query"]', 'tagName': 'input',
+    assert listed == [{'id': None, 'selector': 'css=input[name="search_query"]', 'tagName': 'input',
                        'textContent': '', 'name': 'search_query', 'placeholder': 'Search'}]
 
 

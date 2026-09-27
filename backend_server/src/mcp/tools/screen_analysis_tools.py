@@ -78,7 +78,9 @@ class ScreenAnalysisTools:
             selector_value = result['selector_value']
             
             # MOBILE: Always use click_element (text-based) - IDs are unreliable on mobile ADB
-            # WEB: Can use click_element_by_id for stable element IDs
+            # WEB: Playwright's click_element takes a CSS selector or visible text as
+            # element_id; there is no click_element_by_id on web.
+            css_selector = None
             if platform == 'mobile':
                 # Mobile always uses click_element with text/xpath - never by ID
                 command = 'click_element'
@@ -86,13 +88,15 @@ class ScreenAnalysisTools:
             else:
                 # Web platform
                 if selector_type == 'id':
-                    command = 'click_element_by_id'
-                    action_params = {'element_id': selector_value, 'wait_time': 1000}
+                    css_selector = f'[id="{selector_value}"]'
+                elif selector_type == 'css':
+                    css_selector = selector_value
+                command = 'click_element'
+                if css_selector:
+                    action_params = {'element_id': css_selector, 'wait_time': 1000}
                 elif selector_type == 'xpath':
-                    command = 'click_element'
                     action_params = {'xpath': selector_value, 'wait_time': 1000}
-                else:  # text or content_desc
-                    command = 'click_element'
+                else:  # text
                     action_params = {'text': selector_value, 'wait_time': 1000}
             
             # Determine confidence
@@ -104,8 +108,14 @@ class ScreenAnalysisTools:
             else:
                 confidence = 'low'
             
+            # The model reads only the text: put the ready-to-run action in it.
+            text = (f"selector:{selector_type}={selector_value} (confidence {confidence})\n"
+                    f"action: {json.dumps({'command': command, 'params': action_params})}")
+            if css_selector:
+                typing = {'command': 'input_text', 'params': {'selector': css_selector, 'text': '<text>'}}
+                text += f"\nto type into it: {json.dumps(typing)}"
             return {
-                "content": [{"type": "text", "text": f"selector:{selector_type}={selector_value}"}],
+                "content": [{"type": "text", "text": text}],
                 "isError": False,
                 "command": command,
                 "params": action_params,
@@ -161,7 +171,9 @@ class ScreenAnalysisTools:
                 elements=elements,
                 platform=platform,
                 context_label=node_label,
-                require_unique=True
+                require_unique=True,
+                # waitForElementToAppear matches text/ids, not CSS selectors
+                selector_types=['id', 'content_desc', 'xpath', 'text']
             )
             
             if not result:

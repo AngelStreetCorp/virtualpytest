@@ -712,7 +712,12 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             return False
         
         text = text.strip()
-        
+
+        # Explicit Playwright engine prefix: css=input.search, xpath=//input
+        # (the agent's web dump hands out css= selectors so they are never read as text)
+        if text.startswith(('css=', 'xpath=')):
+            return True
+
         # XPath selector: //div or (//div)
         if text.startswith('//') or text.startswith('(//'):
             return True
@@ -1930,10 +1935,12 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             if not selector:
                 return {
                     'success': False,
-                    'error': 'selector parameter is required',
+                    'error': ("selector parameter is required inside params: the field's "
+                              "selector from dump_ui_elements, e.g. "
+                              "{\"command\": \"input_text\", \"params\": {\"selector\": \"css=input[name='q']\", \"text\": \"...\"}}"),
                     'execution_time': 0
                 }
-                
+
             return await self.input_text(selector, text, wait_time=timeout)
         
         elif command == 'tap_x_y':

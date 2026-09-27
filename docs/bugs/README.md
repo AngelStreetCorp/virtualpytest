@@ -39,6 +39,7 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 
 ## Unreleased
 
+- **analyze_screen_for_action could not pick a web field: no CSS selectors, any unique id won, and it answered with a command web lacks** · reported 2026-09-27 · [BUG-0173](BUG-0173-2026-09-27-web-selector-scoring-ignores-css-and-intent.md)
 - **The agent could not read a web page: dump_ui_elements asked for a remote controller and the model never saw the elements or script results** · reported 2026-09-27 · [BUG-0172](BUG-0172-2026-09-27-agent-dump-ui-elements-blind-on-web.md)
 - **Atlas router offers screen/device tools without the tools that feed them, so web chats fail on guessed calls** · reported 2026-09-27 · [BUG-0170](BUG-0170-2026-09-27-router-offers-tools-without-their-prerequisites.md)
 - **The agent retried a dead browser action every 5 seconds for 40 minutes, and every other chat waited on it in silence** · reported 2026-09-27 · [BUG-0167](BUG-0167-2026-09-27-agent-loops-on-closed-browser-context-for-40-minutes.md)
