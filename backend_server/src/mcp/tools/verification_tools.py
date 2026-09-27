@@ -4,6 +4,7 @@ Verification Tools - Device state verification
 Verify UI elements, video playback, text, and other device states.
 """
 
+import json
 import time
 from typing import Dict, Any
 from ..utils.api_client import MCPAPIClient
@@ -137,9 +138,7 @@ class VerificationTools:
     
     def dump_ui_elements(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Dump UI elements from current device screen
-
-        REUSES existing verification endpoints
+        Dump UI elements from current device screen. Mobile/TV read the remote controller (ADB/Appium); web reads the page DOM through Playwright. The elements are listed in the response - pass them to analyze_screen_for_action, or use a web element's selector with input_text/click_element
 
         Args:
             params: {
@@ -157,14 +156,17 @@ class VerificationTools:
         team_id = params.get('team_id', get_team_id())
         platform = params.get('platform', 'mobile')
 
+        print(f"[@MCP:dump_ui_elements] Dumping UI for {device_id} on {host_name} (platform={platform})")
+
+        if platform == 'web':
+            return self._dump_web_elements(host_name, device_id, team_id)
+
         query_params = {
             'device_id': device_id,
             'host_name': host_name,
             'team_id': team_id,
             'platform': platform
         }
-
-        print(f"[@MCP:dump_ui_elements] Dumping UI for {device_id} on {host_name}")
 
         # Use /server/remote/dumpUi endpoint (proxies to backend_host)
         result = self.api.post('/server/remote/dumpUi', data=query_params)
@@ -203,10 +205,68 @@ class VerificationTools:
         text_summary = f"{len(elements)} elements ({len(clickable)} clickable)"
 
         return {
-            "content": [{"type": "text", "text": text_summary}],
+            "content": [{"type": "text", "text": self._with_element_list(text_summary, minimal_elements)}],
             "isError": False,
             "elements": minimal_elements
         }
+
+    # Attributes worth showing the model for a web element: they say what the field
+    # or link is, and name/placeholder/aria-label make stable selectors.
+    _WEB_ELEMENT_ATTRIBUTES = ('name', 'type', 'placeholder', 'aria-label', 'title', 'role', 'href')
+    # The element list goes into the tool's text, which is all the model reads.
+    _ELEMENT_LIST_MAX_CHARS = 15000
+
+    def _dump_web_elements(self, host_name: str, device_id: str, team_id: str) -> Dict[str, Any]:
+        """Dump the page DOM through the web (Playwright) controller.
+
+        A web device has no remote controller: its dump is Playwright's dump_elements,
+        the command the web terminal runs through /server/web/executeCommand.
+        """
+        result = self.api.post('/server/web/executeCommand', data={
+            'host_name': host_name,
+            'device_id': device_id,
+            'team_id': team_id,
+            'command': 'dump_elements',
+            'params': {'element_types': 'all'},
+        })
+
+        if not result.get('success'):
+            return {"content": [{"type": "text", "text": f"❌ Web DOM dump failed: {result.get('error', 'Failed to dump web elements')}"}], "isError": True}
+
+        minimal_elements = []
+        for e in result.get('elements', []):
+            if not e.get('isVisible', True):
+                continue
+            attributes = e.get('attributes') or {}
+            minimal = {
+                'id': e.get('id'),
+                'selector': e.get('selector', ''),
+                'tagName': e.get('tagName', ''),
+                'textContent': (e.get('textContent') or '').strip()[:80],
+            }
+            for key in self._WEB_ELEMENT_ATTRIBUTES:
+                if attributes.get(key):
+                    minimal[key] = str(attributes[key])[:80]
+            minimal_elements.append(minimal)
+
+        if not minimal_elements:
+            return {"content": [{"type": "text", "text": "No visible web elements found"}], "isError": False}
+
+        page = result.get('output_data') or {}
+        text_summary = f"{len(minimal_elements)} visible elements on {page.get('page_title', '')} ({page.get('page_url', '')})"
+
+        return {
+            "content": [{"type": "text", "text": self._with_element_list(text_summary, minimal_elements)}],
+            "isError": False,
+            "elements": minimal_elements
+        }
+
+    def _with_element_list(self, summary: str, elements: list) -> str:
+        """Append the elements to the summary: the model only reads the text part of a tool result."""
+        listing = json.dumps(elements, ensure_ascii=False, separators=(',', ':'))
+        if len(listing) > self._ELEMENT_LIST_MAX_CHARS:
+            listing = listing[:self._ELEMENT_LIST_MAX_CHARS] + '...(truncated)'
+        return f"{summary}\n\nElements:\n{listing}"
 
     def get_installed_apps(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """

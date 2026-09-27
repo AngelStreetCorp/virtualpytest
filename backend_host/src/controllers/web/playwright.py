@@ -1369,6 +1369,9 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             return {
                 'success': True,
                 'result': result,
+                # The action executor forwards only output_data, so the value
+                # the script returned must travel there to reach the caller.
+                'output_data': {'result': result},
                 'error': '',
                 'execution_time': execution_time
             }

@@ -7,6 +7,7 @@ import {
   buildDubbedAudioUrl,
   buildTranscriptChunkUrl,
   buildTranscriptManifestUrl
+  fetchHostMedia,
 } from '../../../utils/buildUrlUtils';
 
 interface UseTranscriptPlayerProps {
@@ -134,7 +135,7 @@ export const useTranscriptPlayer = ({
         
         console.log(`[@useTranscriptPlayer] Checking transcript availability from manifest...`);
         
-        fetch(manifestUrl)
+        fetchHostMedia(manifestUrl)
           .then(res => {
             if (!res.ok) {
               console.log(`[@useTranscriptPlayer] No transcript manifest available`);

@@ -21,7 +21,7 @@ def get_tools() -> List[Dict[str, Any]]:
     return [
     {
         "name": "dump_ui_elements",
-        "description": "Dump UI elements from current device screen REUSES existing verification endpoints MCP-formatted response with UI elements array",
+        "description": "Dump UI elements from current device screen. Mobile/TV read the remote controller (ADB/Appium); web reads the page DOM through Playwright. The elements are listed in the response - pass them to analyze_screen_for_action, or use a web element's selector with input_text/click_element. MCP-formatted response with UI elements array",
         "inputSchema": {
             "type": "object",
             "properties": {

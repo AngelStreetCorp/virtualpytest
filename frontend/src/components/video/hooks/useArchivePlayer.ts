@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { ArchiveMetadata } from '../EnhancedHLSPlayer.types';
 import { Host } from '../../../types/common/Host_Types';
-import { buildStreamUrl } from '../../../utils/buildUrlUtils';
+import { buildStreamUrl, fetchHostMedia } from '../../../utils/buildUrlUtils';
 
 interface UseArchivePlayerProps {
   isLiveMode: boolean;
@@ -44,7 +44,7 @@ export const useArchivePlayer = ({
     
     try {
       const manifestUrl = baseUrl.replace(/\/(segments\/)?(output|archive.*?)\.m3u8$/, '/segments/archive_manifest.json');
-      const response = await fetch(manifestUrl);
+      const response = await fetchHostMedia(manifestUrl);
       
       if (!response.ok) {
         console.warn('[@EnhancedHLSPlayer] No archive manifest found');

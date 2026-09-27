@@ -144,6 +144,18 @@ export const ensureHostSession = async (url: string): Promise<boolean> => {
 };
 
 /**
+ * fetch() for a host media URL (archive/transcript manifests, playlists): mints the
+ * host-session cookie first when the path is gated, and always sends credentials. The API
+ * can be a sibling origin (Docker stack behind a tunnel, the mobile app), where a plain
+ * fetch() omits the cookie and the host answers 401 (BUG-0171). Same-origin callers are
+ * unaffected: `include` is what the browser already did for them.
+ */
+export const fetchHostMedia = async (url: string, init: RequestInit = {}): Promise<Response> => {
+  await ensureHostSession(url);
+  return fetch(url, { ...init, credentials: 'include' });
+};
+
+/**
  * Build a URL against the PRIMARY (main) server, ignoring the currently
  * selected server. Use for resources that only ever live on the main server
  * regardless of the server-picker selection (e.g. CI/CD reports, runners).
@@ -1005,7 +1017,7 @@ export const buildRunningLogUrl = (
 export const getStreamMediaSequence = async (host: any, deviceId: string): Promise<number> => {
   try {
     const manifestUrl = buildStreamUrl(host, deviceId);
-    const response = await fetch(`${manifestUrl}?_t=${Date.now()}`, {
+    const response = await fetchHostMedia(`${manifestUrl}?_t=${Date.now()}`, {
       method: 'GET',
       cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
