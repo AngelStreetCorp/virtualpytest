@@ -6,11 +6,11 @@
 |-----------|--------------------------------------------------------------|
 | ID        | BUG-0164                                                     |
 | Reported  | 2026-09-27                                                   |
-| Status    | Fixed in code, not yet verified on a Docker host             |
+| Status    | Fixed, deployed on the gcloud VM 2026-09-27                   |
 | Severity  | Medium                                                       |
 | Area      | backend_host, frontend (VNC iframe), setup/docker            |
-| Fixed in  | —                                                            |
-| Commit    | —                                                            |
+| Fixed in  | build 9384 (`main-2026.09.27-9384`)                          |
+| Commit    | becb88e027, 86a1957a42 (entrypoint export)                   |
 
 ---
 
@@ -72,6 +72,14 @@ Who can obtain it, checked 2026-09-27 against the code and the gcloud VM:
 
 ## Verification
 
-Done: `tsc --noEmit` and eslint are clean for the touched files. By reading the code: the
-route is registered as `POST`, and `auto_proxy` forwards `POST /server/system/vnc-info` to it.
-Not done: a live check on the Docker VM (needs a new image release plus the `.env` keys).
+On the gcloud VM after deploying `main-2026.09.27-9384` with `HOST_VNC_AUTOCONNECT=true`:
+- `POST /server/system/vnc-info` with `X-API-Key` → `success=true`, non-empty password; the
+  same call anonymous → 401; `POST /host/system/vnc-info` on the host without a key → 401.
+- The served password hashes to the same bytes as `/home/vpt_user/.vnc/passwd`
+  (`vncpasswd -f` is deterministic), and x11vnc runs with `-rfbauth` on that file.
+- `https://vncgcloud.virtualpytest.com/vnc_lite.html` serves the stock page:
+  `readQueryVariable('password')` with no default → prompts.
+- The live frontend chunk `RecHostStreamModal-*.js` carries the `system/vnc-info` fetch;
+  `/version.txt` reports `main-2026.09.27-9384`.
+- Not machine-verified: the tile connecting without a prompt in a browser (no auto-sign on
+  that VM; a fresh signup is a viewer and is meant to be prompted).
