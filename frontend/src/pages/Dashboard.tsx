@@ -1067,12 +1067,6 @@ const Dashboard: React.FC = () => {
           </Box>
           <Box display="flex" alignItems="center" gap={1}>
             <Chip
-              label={`${host.device_count} device${host.device_count > 1 ? 's' : ''}`}
-              size="small"
-              variant="outlined"
-              sx={{ fontSize: '0.7rem' }}
-            />
-            <Chip
               label={operationalStatus}
               size="small"
               color={getOperationalStatusColor(operationalStatus)}
@@ -1703,11 +1697,6 @@ const Dashboard: React.FC = () => {
       <Paper sx={{ p: 2, mt: 3 }}>
         <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
           <Box display="flex" alignItems="center" gap={1.5}>
-            <Typography variant="h6">
-              Servers ({filteredServerHostsData.length}) -{' '}
-              {totalHosts} Hosts -{' '}
-              {totalDevices} Devices
-            </Typography>
             {(errorHostCount > 0 || errorOnly) && (
               <Tooltip
                 title={

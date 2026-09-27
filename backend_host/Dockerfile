@@ -42,6 +42,11 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Copy VERSION.txt so the host can report its real version (build context is the repo root
+# via compose, so this is `<repo-root>/VERSION.txt`). Without this, _read_local_deployed_version
+# at backend_host/src/lib/utils/host_utils.py falls through and reports "unknown" in the dashboard.
+COPY VERSION.txt /app/VERSION.txt
+
 # Copy shared library
 COPY shared/ shared/
 # Add shared to PYTHONPATH
