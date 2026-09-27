@@ -120,6 +120,27 @@ def host_config():
     return jsonify({'success': True, 'message': 'Host configuration saved'}), 200
 
 
+@host_system_bp.route('/vnc-info', methods=['POST'])
+@route_exception_handler()
+def get_vnc_info():
+    """Hand the dashboard this host's VNC password so noVNC connects without a prompt.
+
+    Opt-in with HOST_VNC_AUTOCONNECT=true. App users then connect without typing it, and a
+    direct hit on vnc_lite.html still prompts (that URL carries no password). Reached only
+    through the server's JWT-guarded auto-proxy (POST /server/system/vnc-info). The password
+    ends up in the iframe's query string, so every proxy in front of noVNC logs it.
+
+    Keep this POST. The server's enforce_viewer_read_only rejects non-GET requests from the
+    viewer role, which every new signup gets; as GET, any registered user could read the
+    password.
+    """
+    autoconnect = os.getenv('HOST_VNC_AUTOCONNECT', 'false').strip().lower() == 'true'
+    password = os.getenv('HOST_VNC_PASSWORD', '') if autoconnect else ''
+    if password == 'CHANGE_ME':
+        password = ''
+    return jsonify({'success': True, 'password': password}), 200
+
+
 def _project_root() -> str:
     """Resolve /opt/virtualpytest style project root from this route file."""
     return str(Path(__file__).resolve().parents[3])

@@ -255,9 +255,12 @@ function vptFeaturesPlugin(): Plugin {
       if (source === VIRTUAL_ID) return RESOLVED_ID;
       // Feature files live outside frontend/, so bare imports (react, @mui/...) would not
       // find frontend/node_modules by walking up. Resolve them as if imported from src/.
+      // Compare with forward slashes: Vite hands importers as POSIX paths even on
+      // Windows, while path.resolve() gives backslashes there, so a raw startsWith
+      // never matched and every bare import from a feature failed to resolve.
       if (
         importer &&
-        importer.startsWith(featuresDir) &&
+        importer.replace(/\\/g, '/').startsWith(featuresDir.replace(/\\/g, '/')) &&
         !source.startsWith('.') &&
         !source.startsWith('/') &&
         !source.startsWith('\0')

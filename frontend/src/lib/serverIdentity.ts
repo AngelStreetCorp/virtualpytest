@@ -18,6 +18,7 @@
 import { Session, SupabaseClient } from '@supabase/supabase-js';
 
 import { STORAGE_KEYS } from '../config/constants';
+import { getAutoSignedSession } from './autoSign';
 import { unauthenticatedFetch } from '../utils/pristineFetch';
 
 import { getClientForIdentity, normalizeIdentity, supabase, isAuthEnabled, PRIMARY_IDENTITY } from './supabase';
@@ -236,6 +237,16 @@ export const getServerAuthState = async (serverUrl: string): Promise<ServerAuthS
   const info = getServerAuthInfo(serverUrl);
   if (!info) return 'unknown';
   if (info.mode !== 'supabase') return 'no-auth-required';
+  // An auto-signed session (CI / agent-browser, `?auto_signed=<token>`) holds no
+  // Supabase token at all: the backend accepts the X-Auto-Sign header instead. Without
+  // this the server is reported `needs-auth`, ServerManagerProvider skips it in the
+  // hosts fetch and ServerSelector opens the sign-in dialog on every page, so E2E
+  // runs see "No servers connected" behind a modal they cannot fill in.
+  // The URL check covers the very first probe of a fresh tab, which can run before
+  // AuthContext's effect has stored the session flag from `?auto_signed=`.
+  if (getAutoSignedSession() || new URLSearchParams(window.location.search).has('auto_signed')) {
+    return 'authenticated';
+  }
   // A server in supabase mode that advertises no identity predates TASK-18: the single
   // primary session is all we have, so report it the way the app behaved before.
   if (!info.identity || !info.anonKey) return isAuthEnabled ? 'authenticated' : 'no-auth-required';

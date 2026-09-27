@@ -39,6 +39,8 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 
 ## Unreleased
 
+- **Emulator streams stalled at the first frame after emulator audio was added (regression)** · reported 2026-09-27 · [BUG-0165](BUG-0165-2026-09-27-emulator-stream-stalls-on-duplicate-capture-timestamps.md)
+- **Docker host's noVNC asks for a password; the auto-connect fix never ran** · reported 2026-09-27 · [BUG-0164](BUG-0164-2026-09-27-docker-vnc-password-prompt-autoconnect-broken.md)
 - **An adb verification silently drops leading and trailing spaces from its search term** · reported 2026-09-17 · [BUG-0136](BUG-0136-2026-09-17-adb-verification-strips-search-term-whitespace.md)
 - **The auto-sign token was published to the internet in the frontend bundle** · reported 2026-09-17 · [BUG-0134](BUG-0134-2026-09-17-auto-sign-token-published-in-the-frontend-bundle.md)
 - **VNC preview cards render black: centering pushes the scaled iframe out of view** — VNC previews are black cards: the iframe's layout box stays 1440×847 and scales from its top-left, so centring it moved the render off the card · reported 2026-09-15 · [BUG-0104](BUG-0104-2026-09-15-vnc-preview-scaled-off-screen-by-centering.md)

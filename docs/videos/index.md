@@ -86,54 +86,24 @@
 </style>
 
 <div class="spotlight-video">
+  <h2>VirtualPyTest in 60 seconds</h2>
   <div class="video-wrapper">
-    <iframe 
-      src="https://www.youtube.com/embed/eGC_-t5bpzE" 
-      frameborder="0" 
-      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+    <iframe
+      src="https://www.youtube.com/embed/RBgS376Blvo"
+      title="VirtualPyTest in 60 seconds"
+      frameborder="0"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
       allowfullscreen>
     </iframe>
   </div>
+  <p>Dashboard, live device control, one-click test runs, reports, KPI measurement, the 24h heatmap and incident evidence, in one minute.</p>
+  <p>
+    <a href="https://www.youtube.com/watch?v=RBgS376Blvo" target="_blank" rel="noopener">Watch on YouTube</a>
+    &nbsp;·&nbsp;
+    <a href="https://github.com/AngelStreetCorp/virtualpytest" target="_blank" rel="noopener">Source on GitHub</a>
+  </p>
 </div>
 
 ---
 
-<div class="video-grid">
-  <div class="video-card">
-    <h3>Device Control</h3>
-    <div class="video-wrapper">
-      <iframe 
-        src="https://www.youtube.com/embed/BsXrSLI0kJg"  
-        frameborder="0" 
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-        allowfullscreen>
-      </iframe>
-    </div>
-  </div>
-
-  <div class="video-card">
-    <h3>Navigation Tree</h3>
-    <div class="video-wrapper">
-      <iframe 
-        src="https://www.youtube.com/embed/GmN9vmE8PfE" 
-        frameborder="0" 
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-        allowfullscreen>
-      </iframe>
-    </div>
-  </div>
-
-  <div class="video-card">
-    <h3>Monitoring</h3>
-    <div class="video-wrapper">
-      <iframe 
-        src="https://www.youtube.com/embed/9S78Zt-PZuY" 
-        frameborder="0" 
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-        allowfullscreen>
-      </iframe>
-    </div>
-  </div>
-</div>
-
----
+More walkthroughs (device control, navigation trees, monitoring) are being re-recorded and will appear here as they are published.

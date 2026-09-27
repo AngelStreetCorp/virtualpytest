@@ -313,6 +313,7 @@ class HeatmapProcessor:
                                 'host_name': host_name,
                                 'device_id': device_id,
                                 'device_name': device_name,
+                                'device_model': device.get('device_model'),
                                 'host_data': host_data
                             })
                 else:
@@ -328,6 +329,7 @@ class HeatmapProcessor:
                             'host_data': host_data
                         })
             
+            hosts_devices = self._drop_unpaired_phone_slots(hosts_devices)
             logger.info(f"🎯 Total AV devices found: {len(hosts_devices)}")
             return hosts_devices
             
@@ -335,6 +337,52 @@ class HeatmapProcessor:
             logger.error(f"❌ Error getting hosts from API: {e}")
             return []
     
+    def _drop_unpaired_phone_slots(self, hosts_devices: List[Dict]) -> List[Dict]:
+        """Drop `phone_agent` slots that have no connected phone.
+
+        A phone slot is a device line in the host's .env, so getAllHosts lists it whether
+        or not a phone is paired and connected — and an empty slot then shows up in every
+        mosaic as a permanent "NO CAPTURE" cell. Ask the mobile-app feature for live slot
+        states and keep only slots whose state is 'connected'. Any failure (feature
+        disabled, host unreachable, malformed answer) keeps the previous behaviour: the
+        slot stays in, so a transient error never hides a phone that is really there.
+        """
+        phone_keys = {
+            (d['host_name'], d['device_id'])
+            for d in hosts_devices if d.get('device_model') == 'phone_agent'
+        }
+        if not phone_keys:
+            return hosts_devices
+        try:
+            import requests
+            from shared.src.lib.utils.build_url_utils import server_auth_headers
+            response = requests.get(
+                'http://localhost:5109/server/mobile-app/hosts',
+                headers=server_auth_headers(), timeout=10,
+            )
+            if response.status_code != 200:
+                logger.warning(f"⚠️ Phone slot states unavailable (HTTP {response.status_code}) - keeping {len(phone_keys)} slot(s)")
+                return hosts_devices
+            hosts = (response.json() or {}).get('hosts') or []
+        except Exception as e:
+            logger.warning(f"⚠️ Phone slot states unavailable ({e}) - keeping {len(phone_keys)} slot(s)")
+            return hosts_devices
+
+        connected = set()
+        for host in hosts:
+            for slot in host.get('slots') or []:
+                if slot.get('state') == 'connected':
+                    connected.add((host.get('host_name'), slot.get('device_id')))
+
+        kept = []
+        for d in hosts_devices:
+            key = (d['host_name'], d['device_id'])
+            if key in phone_keys and key not in connected:
+                logger.info(f"📵 Skipping phone slot {d['host_name']}/{d['device_id']} ({d.get('device_name')}): no phone connected")
+                continue
+            kept.append(d)
+        return kept
+
     def _fetch_device_capture(self, device: Dict) -> Optional[Dict]:
         """Fetch current capture for a single device (for parallel execution)"""
         try:

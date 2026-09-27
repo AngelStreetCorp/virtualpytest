@@ -8,6 +8,7 @@ import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { MonitoringOverlay } from '../monitoring/MonitoringOverlay';
 import { buildStreamUrl, withVncCacheBust } from '../../utils/buildUrlUtils';
 import { useHostSession } from '../../hooks/useHostSession';
+import { useVncPassword } from '../../hooks/controller/useVncPassword';
 import { RestartPlayer } from './RestartPlayer';
 
 interface ErrorTrendData {
@@ -161,6 +162,9 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
     : streamUrl;
   const effectiveUrlError = archiveStreamBuild.error || urlError;
 
+  // Only a host with HOST_VNC_AUTOCONNECT=true returns a password; others stay URL-clean.
+  const { vncPasswordReady, withVncPassword } = useVncPassword(isVncDevice && isLiveMode ? host : null);
+
   // BUG-0107 step 2: the proxy's auth_request gate rejects the iframe's navigation to
   // /host/<name>/vnc_lite.html without this cookie. Must be set BEFORE the iframe is
   // given a src, so the live VNC iframe only renders once the mint call resolves. Not
@@ -274,9 +278,9 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
               justifyContent: 'center',
             }}
           >
-            {vncSessionReady && (
+            {vncSessionReady && vncPasswordReady && (
             <iframe
-              src={withVncCacheBust(effectiveStreamUrl)}
+              src={withVncCacheBust(withVncPassword(effectiveStreamUrl))}
               style={{
                 border: 'none',
                 backgroundColor: '#000',

@@ -1,32 +1,13 @@
 
 <p align="center">
-  <b>Overview</b><br>
-  <a href="https://www.youtube.com/watch?v=eGC_-t5bpzE" target="_blank">
-    <img src="https://img.youtube.com/vi/eGC_-t5bpzE/maxresdefault.jpg" width="600" alt="Featured Video">
+  <b>VirtualPyTest in 60 seconds</b><br>
+  <a href="https://www.youtube.com/watch?v=RBgS376Blvo" target="_blank">
+    <img src="https://img.youtube.com/vi/RBgS376Blvo/maxresdefault.jpg" width="600" alt="VirtualPyTest in 60 seconds">
   </a>
+  <br>
+  Dashboard, live device control, one-click test runs, reports, KPI measurement, the 24h heatmap and incident evidence.
 </p>
 
 ---
 
-<table>
-  <tr>
-    <td align="center" width="320">
-      <b>Device Control</b>
-      <a href="https://www.youtube.com/watch?v=BsXrSLI0kJg" target="_blank">
-        <img src="https://img.youtube.com/vi/BsXrSLI0kJg/hqdefault.jpg" width="300" alt="Device Control">
-      </a>
-    </td>
-    <td align="center" width="320">
-      <b>Navigation Tree</b>
-      <a href="https://www.youtube.com/watch?v=GmN9vmE8PfE" target="_blank">
-        <img src="https://img.youtube.com/vi/GmN9vmE8PfE/hqdefault.jpg" width="300" alt="Navigation Tree">
-      </a>
-    </td>
-    <td align="center" width="320">
-      <b>Monitoring</b>
-      <a href="https://www.youtube.com/watch?v=9S78Zt-PZuY" target="_blank">
-        <img src="https://img.youtube.com/vi/9S78Zt-PZuY/hqdefault.jpg" width="300" alt="Monitoring">
-      </a>
-    </td>
-  </tr>
-</table>
+More walkthroughs (device control, navigation trees, monitoring) are being re-recorded and will appear here as they are published.

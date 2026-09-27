@@ -1040,6 +1040,8 @@ start_grabber() {
     # and earlier (28 s behind after 2 min on labox-mobile, unbounded), while ffmpeg holds the
     # surplus audio in RAM. With audio on, stamp the frames with the wall clock instead so
     # both inputs share one clock; the HLS muxer is VFR, so the ~4 fps real cadence is kept.
+    # Only on the [str] branch (BUG-0165): the JPEG outputs run at 1/$input_fps, so two
+    # wall-clock frames inside one tick round to the same pts, mjpeg rejects it and ffmpeg stalls.
     local video_clock=""
     [ -n "$audio_input" ] && video_clock="settb=AVTB,setpts=RTCTIME-RTCSTART,"
 
@@ -1048,8 +1050,8 @@ start_grabber() {
     FFMPEG_CMD="(while true; do cat \"$source\" 2>/dev/null || break; sleep 0.2; done) | \
       /usr/bin/ffmpeg -loglevel error -stats -f image2pipe -framerate $input_fps -i - \
       $audio_input \
-      -filter_complex \"[0:v]${video_clock}split=3[str][cap][thm]; \
-        [str]scale=${stream_scale}[streamout]; \
+      -filter_complex \"[0:v]split=3[str][cap][thm]; \
+        [str]${video_clock}scale=${stream_scale}[streamout]; \
         [cap]setpts=PTS-STARTPTS[captureout]; \
         [thm]scale=${thumb_scale}[thumbout]\" \
       -map \"[streamout]\" $audio_map -c:v libx264 -preset ultrafast -tune zerolatency \

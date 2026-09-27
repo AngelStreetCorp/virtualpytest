@@ -48,6 +48,9 @@ if [ -z "$VNCPASSWD_BIN" ]; then
     exit 1
 fi
 printf '%s\n' "$VNC_PASS" | "$VNCPASSWD_BIN" -f > /home/vpt_user/.vnc/passwd
+# supervisord hands its environment to every program, so /host/system/vnc-info reports the
+# password that is actually in the passwd file — including a generated one.
+export HOST_VNC_PASSWORD="$VNC_PASS"
 chown vpt_user:vpt_user /home/vpt_user/.vnc/passwd
 chmod 600 /home/vpt_user/.vnc/passwd
 if [ ! -s /home/vpt_user/.vnc/passwd ]; then

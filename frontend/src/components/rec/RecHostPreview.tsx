@@ -10,6 +10,7 @@ import { featureDeviceLinks, featurePreviewAction } from '../../config/features'
 import { DEFAULT_DEVICE_RESOLUTION } from '../../config/deviceResolutions';
 import { isMobileModel } from '../../config/layoutConfig';
 import { useStream } from '../../hooks/controller';
+import { useVncPassword } from '../../hooks/controller/useVncPassword';
 import { useDeviceScriptLabel } from '../../hooks/rec/useDeviceScriptLabel';
 import { useDeviceLockLabel } from '../../hooks/rec/useDeviceLockLabel';
 import { useHostControl } from '../../hooks/useHostManager';
@@ -101,6 +102,9 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
     host,
     device_id: device?.device_id || 'device1',
   });
+
+  // Only a host with HOST_VNC_AUTOCONNECT=true returns a password; others stay URL-clean.
+  const { vncPasswordReady, withVncPassword } = useVncPassword(isVncDevice ? host : null);
 
   // BUG-0107 step 2: the proxy's auth_request gate rejects the iframe's navigation to
   // /host/<name>/vnc_lite.html without this cookie. Must be set BEFORE the iframe is
@@ -450,7 +454,7 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                 }}
               >
                 {/* Only render VNC iframe when stream is active and the VNC session cookie is set */}
-                {isStreamActive && vncSessionReady && (
+                {isStreamActive && vncSessionReady && vncPasswordReady && (
                   <Box
                     sx={{
                       width: previewVncSize.width,
@@ -460,7 +464,7 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                     }}
                   >
                     <iframe
-                      src={withVncCacheBust(streamUrl)}
+                      src={withVncCacheBust(withVncPassword(streamUrl))}
                       style={{
                         border: 'none',
                         backgroundColor: '#000',

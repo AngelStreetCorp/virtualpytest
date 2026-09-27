@@ -43,6 +43,14 @@ schema. Entries that exist only on this branch (`feat/demo`) sit at the end of e
 ### Features
 
 ### Bug fixes
+- **Docker host's noVNC asks for a password** — opt-in `HOST_VNC_AUTOCONNECT` replaces the broken `ef8e0fc4ca` hand-off · [BUG-0164](../bugs/BUG-0164-2026-09-27-docker-vnc-password-prompt-autoconnect-broken.md)
+- **Regression: emulator streams stalled at the first frame** — since emulator audio shipped (build 9151, `1d3581ffe`), the wall-clock timestamps meant for the audio-synced stream also reached the capture and thumbnail outputs. Two frames inside one tick got the same timestamp, the encoder rejected it, and ffmpeg restarted about once a minute without producing a stream. Restarting did not help. The wall clock now applies to the stream branch only · [BUG-0165](../bugs/BUG-0165-2026-09-27-emulator-stream-stalls-on-duplicate-capture-timestamps.md) · `d38adc77a`
+
+**In plain words:** with `HOST_VNC_AUTOCONNECT=true`, the desktop view in the app connects by itself. Opening the VNC page directly still asks for the password. Other installs are unchanged.
+
+Android emulator devices show a live stream again.
+
+**Upgrade:** new optional keys in `setup/docker/.env`: `HOST_VNC_STREAM_PATH`, `HOST_VNC_AUTOCONNECT`. Restart `backend_host` and rebuild the frontend. On emulator hosts, restart `vpt-stream` after the deploy (`update_core.sh <branch> --host --restart vpt-stream`). A plain code deploy leaves the old ffmpeg running.
 
 ## build 9369 — 2026-09-26
 

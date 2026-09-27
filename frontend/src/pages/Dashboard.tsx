@@ -1443,12 +1443,6 @@ const Dashboard: React.FC = () => {
     );
   }
 
-  const totalDevices = filteredServerHostsData.reduce(
-    (total, serverData) => total + serverData.hosts.reduce((hostTotal, host) => hostTotal + (host.device_count || 0), 0),
-    0
-  );
-  const totalHosts = filteredServerHostsData.reduce((total, serverData) => total + serverData.hosts.length, 0);
-
   if (isMobile || isTablet) {
     return (
       <Box>

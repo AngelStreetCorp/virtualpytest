@@ -10,6 +10,7 @@
 | `Monitor=stuck(0s)` but FFmpeg active | Monitor watches `hot/captures/` which doesn't exist | Symlink hot/captures → captures (§8) |
 | Stream image stretched (portrait shows as landscape) | vpt-stream started before emulator was ready | `sudo systemctl restart vpt-stream` |
 | Stream is black but frames are fresh and services healthy | Emulator booted with the display composing nothing | SLEEP+WAKEUP the guest display (§9) |
+| No stream, `latest.png` fresh, ffmpeg restarts ~every minute, log says `Invalid pts (1) <= last (1)` | Capture timestamps collide (BUG-0165) | Deploy the fixed `run_ffmpeg.sh` — a restart does not help (§10) |
 | "Host is not online" on devices page | Host not registered with backend server | `sudo systemctl restart vpt-host` |
 
 ## Service Overview
@@ -249,6 +250,8 @@ sudo journalctl -u vpt-emulator-fifo --no-pager -n 10
 # 4. Check captures (no recent JPGs = ffmpeg stuck)
 ls -lt /var/www/html/stream/capture1/captures/ | head -5
 ```
+If `latest.png` is fresh (step 1) but captures are still stale, the screencap side is fine —
+go to §10.
 
 **Fix:**
 ```bash
@@ -401,6 +404,40 @@ An inline `bash -c 'while true; …'` there is the old version with no blackness
 the unit from `backend_host/config/services/linux/emulator-fifo.service`.
 
 Full write-up: [BUG-0086](bugs/BUG-0086-2026-09-14-android-emulator-boots-with-black-display.md).
+
+### 10. FFmpeg Restarts Every Minute While `latest.png` Is Fresh (Timestamp Collision)
+
+**Symptoms:**
+- No live stream; `hot/segments/` stays empty even right after `sudo systemctl restart vpt-stream`
+- `latest.png` is updated every second (the screencap side is fine — this is **not** §5)
+- vpt-stream log cycles `✅ device1 recovered` → `⚠️ stale ffmpeg log_age=54s` about once a
+  minute, then `🌀 ... USB flapping ... backing off 600s`. The "USB flapping" wording is the
+  watchdog's generic restart-count message; an emulator has no USB grabber
+- Fleet health: `DEGRADED — capture layer: No JSON analysis files found`
+
+**Diagnosis:**
+```bash
+tail -c 2000 /tmp/ffmpeg_output_device1.log
+# This bug:  frame=    1 ... time=00:00:00.20
+#            Application provided invalid, non monotonically increasing dts to muxer in stream 0: 1 >= 1
+#            [mjpeg @ ...] Invalid pts (1) <= last (1)
+#            Error submitting video frame to the encoder
+
+grep -n 'video_clock\|split=3' /opt/virtualpytest/backend_host/scripts/run_ffmpeg.sh
+# Broken: [0:v]${video_clock}split=3 ...    Fixed: [str]${video_clock}scale=...
+```
+
+**Root cause:** only devices with emulator audio on (`DEVICEn_VIDEO_AUDIO` set). The wall-clock
+timestamps that keep the picture in step with the audio were applied before the `split`, so the
+capture and thumbnail JPEG outputs got them too. Those outputs tick at `1/DEVICEn_VIDEO_FPS`, and
+two frames inside one tick round to the same pts — the mjpeg encoder rejects it and ffmpeg stalls
+at frame 1. A restart cannot help; the next two close frames hit it again.
+
+**Fix:** deploy a `run_ffmpeg.sh` where `${video_clock}` sits on the `[str]` branch only, then
+`sudo systemctl restart vpt-stream`. Verify: `ls -lt .../capture1/hot/segments/ | head -3` shows
+new `segment_*.ts` files, and the ffmpeg log has no `Invalid pts`.
+
+Full write-up: [BUG-0165](bugs/BUG-0165-2026-09-27-emulator-stream-stalls-on-duplicate-capture-timestamps.md).
 
 ## Template for Cloning
 

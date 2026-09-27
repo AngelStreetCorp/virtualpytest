@@ -169,7 +169,8 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-virtualpytest}
       # No nginx in the container: Flask serves /host/stream/*, websockify serves noVNC
       HOST_VIDEO_STREAM_PATH: /host/stream/capture
-      HOST_VNC_STREAM_PATH: https://vncgcloud.virtualpytest.com/vnc_lite.html
+      # Set HOST_VNC_STREAM_PATH in .env when noVNC is published on its own HTTPS hostname.
+      HOST_VNC_STREAM_PATH: ${HOST_VNC_STREAM_PATH:-http://${PUBLIC_HOST:-localhost}:6080/vnc_lite.html}
       HOME: /home/vpt_user
       ANDROID_HOME: /home/vpt_user/.android
       ADB_VENDOR_KEYS: /home/vpt_user/.android
