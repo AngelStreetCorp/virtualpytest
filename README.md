@@ -14,7 +14,8 @@
     <a href="https://virtualpytest.angelstreet.io/docs/features"><b>Features</b></a> •
     <a href="docs/get-started/README.md"><b>Get started</b></a> •
     <a href="https://virtualpytest.angelstreet.io/docs"><b>Documentation</b></a> •
-    <a href="#community--support"><b>Community</b></a>
+    <a href="#community--support"><b>Community</b></a> •
+    <a href="docs/release_note/README.md"><b>Release notes</b></a>
   </p>
 </div>
 
@@ -31,6 +32,68 @@
 VirtualPyTest captures what a device shows (HDMI, camera, screen mirroring, browser) and drives it back (IR, Bluetooth remote, ADB, Appium, Playwright). On top of that it gives you a navigation graph of your app, a test runner, 24/7 monitoring, and Grafana analytics.
 
 It runs on Linux, Raspberry Pi, Docker, or the cloud, and targets set-top boxes, Android TV, mobile phones, web apps, and anything else you can point a capture card at. It is built to replace commercial device-testing suites that cost $50k+ per year.
+
+---
+
+## See it in action
+
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=RBgS376Blvo">
+    <img src="frontend/public/readme/videos/01_promo.jpg" alt="VirtualPyTest in 60 seconds" width="100%">
+  </a>
+  <p><a href="https://www.youtube.com/watch?v=RBgS376Blvo"><b>VirtualPyTest in 60 seconds</b></a> — dashboard, devices, heatmap, a test run, its report and the KPI it measured.</p>
+</div>
+
+<table align="center">
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=_CP29LQe0xQ"><img src="frontend/public/readme/videos/02_navigation.jpg" alt="Map your app once" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=_CP29LQe0xQ"><b>Map your app once</b></a><br>
+      <sub>Screens as nodes, actions as edges, one goto that drives a real browser</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=bBheQqaRIQM"><img src="frontend/public/readme/videos/03_evidence.jpg" alt="Proof, not a checkmark" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=bBheQqaRIQM"><b>Proof, not a checkmark</b></a><br>
+      <sub>Every step with its screenshot, verification and evidence</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=prG2eqnbjfs"><img src="frontend/public/readme/videos/04_ai_agent.jpg" alt="Ask the AI, it acts" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=prG2eqnbjfs"><b>Ask the AI, it acts</b></a><br>
+      <sub>Answers from the docs, then runs a script on a device from the chat</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=rFkZxSoK0zM"><img src="frontend/public/readme/videos/05_kpi.jpg" alt="Every navigation, timed" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=rFkZxSoK0zM"><b>Every navigation, timed</b></a><br>
+      <sub>A KPI on every run, measured from the frames, with its report</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=TcRkqETFlco"><img src="frontend/public/readme/videos/06_comparison.jpg" alt="Why did it fail?" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=TcRkqETFlco"><b>Why did it fail?</b></a><br>
+      <sub>Reference, screen and pixel diff, side by side, from a failed step</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=9cjzYpDVROs"><img src="frontend/public/readme/videos/07_zap.jpg" alt="Automatic zap detection" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=9cjzYpDVROs"><b>Automatic zap detection</b></a><br>
+      <sub>Zap with the remote: the backend detects and times it, no code to write</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=DR8IX3Y_rCs"><img src="frontend/public/readme/videos/09_monitoring.jpg" alt="Automatic incident detection" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=DR8IX3Y_rCs"><b>Automatic incident detection</b></a><br>
+      <sub>Freezes caught on their own, and a 24 h review buffer on every device, no script</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=xWZyBp7Npck"><img src="frontend/public/readme/videos/10_quicktest.jpg" alt="QuickTest Builder" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=xWZyBp7Npck"><b>QuickTest Builder</b></a><br>
+      <sub>No code, just steps: press CH+, check the picture moves, run</sub>
+    </td>
+  </tr>
+</table>
+
+All videos, with new ones as they come, are on the [Videos page](https://virtualpytest.angelstreet.io/docs/videos).
 
 ---
 
@@ -181,13 +244,30 @@ monolithic image. See [Install with Docker](docs/get-started/docker.md) and
 | **Source code** | Yours to read and modify | Vendor locked |
 | **Monitoring, analytics, AI** | Included | Paid add-ons |
 
----
+### What we do that they don't
 
-## Status
+Stb-tester gives you Python. Witbe gives you no-code. VirtualPyTest gives you both, and AI can drive all of it.
 
-Actively developed and used in production. See the [release notes](docs/release_note/README.md) for what ships in each build, and [GitHub Issues](https://github.com/AngelStreetCorp/virtualpytest/issues) for what is planned or in progress.
+| | VirtualPyTest | Stb-tester | Witbe |
+| :--- | :---: | :---: | :---: |
+| **Free** | ✅ | ❌ | ❌ |
+| **Open source** | ✅ | ✅ | ❌ |
+| **Python scripting** | ✅ | ✅ | ❌ |
+| **No-code builder** | ✅ | ❌ | ✅ |
+| **AI drives the whole platform through MCP** | ✅ | ❌ | ❌ |
+| **Hosts on any hardware, Raspberry Pi included** | ✅ | ❌ | ❌ |
+| **Integration: Grafana, TestRail, Postman, Langfuse,slack** | ✅ | ❌ | ❌ |
+| **Farms SauceLabs/BrowserStack and emulators** | ✅ | ❌ | ❌ |
+| **Fine-grained permissions and Workspace ** | ✅ | ❌ | ❌ |
+| **Heatmap across devices** | ✅ | ❌ | ❌ |
+| **Automatic KPI measurement** | ✅ | ❌ | ❌ |
+| **Automatic incident detection** | ✅ | ❌ | ❌ |
+| **Requirements and test coverage** | ✅ | ❌ | ❌ |
+| **Ask AI assistant** | ✅ | ❌ | ❌ |
+| **24h review buffer on every device** | ✅ | ❌ | ❌ |
+| **Add your own controllers for new devices and test systems** | ✅ | ⚠️ | ❌ |
 
-Running it yourself? The installers ship LAN-friendly defaults. Before a deployment faces the internet, go through the [production hardening checklist](docs/get-started/production-checklist.md).
+⚠️ partial · ❌ not offered (checked September 2026)
 
 ---
 
