@@ -271,6 +271,47 @@ Stb-tester gives you Python. Witbe gives you no-code. VirtualPyTest gives you bo
 
 ---
 
+## FAQ
+
+The five questions worth asking any testing vendor, answered for VirtualPyTest. More in the [full FAQ](docs/faq/README.md).
+
+<details>
+<summary><b>Can you test our production app on multiple platforms without changing our code?</b></summary>
+
+**Yes.** Nothing is installed in your app: no SDK, no instrumentation, no test build. The screen is captured from the outside (HDMI, camera, screen mirroring, browser) and the device is driven the way a user drives it (IR or Bluetooth remote, ADB, Appium, Playwright). The same script runs on STB, Android TV, mobile and web; the navigation tree holds what differs per platform. See [Unified controller](docs/features/unified-controller.md).
+
+</details>
+
+<details>
+<summary><b>Can you show a live event monitored on multiple platforms, with a recording of what viewers saw?</b></summary>
+
+**Yes.** Every device's screen is visible at once, with a fleet heatmap flagging devices in trouble. Each device's HDMI output is recorded continuously (video, audio, transcript) on a **rolling 24-hour buffer**, and incidents keep their start and end frames as evidence. See [Visual capture](docs/features/visual-capture.md).
+
+</details>
+
+<details>
+<summary><b>Do you measure picture and sound quality, or only whether a screen appeared?</b></summary>
+
+**Both**, on every captured frame, 24/7: black screen, freeze, blur, blockiness; audio loss, silence, loudness (LKFS), saturation; subtitles (OCR + language detection), zapping, banners; plus an approximate MOS (1–5) per minute in Grafana. The MOS is an indicator, not a certified lab measurement (no VMAF). See [AV quality](docs/features/avq.md).
+
+</details>
+
+<details>
+<summary><b>What happens to our tests when we redesign the app or switch language?</b></summary>
+
+**The scripts don't change.** Scripts name destinations like `navigate_to("settings")`, never pixels or selectors, so a redesign only touches the navigation tree: recapture reference images in one click or let AI exploration rebuild nodes. Screens are recognised by a layout fingerprint that tolerates translated text, and text checks use OCR with language detection and fuzzy matching. A full redesign still needs someone to review the updated tree.
+
+</details>
+
+<details>
+<summary><b>What will 24/7 monitoring on all our devices cost per month, with no surprises?</b></summary>
+
+**Software: €0 a month.** Open source (AGPL v3), self-hosted, no licence, per-device or usage fees. Hardware is a one-time cost: ~€420 for 1 device (Raspberry Pi 5 + HDMI capture card), ~€480 for up to 4 devices on one host, ~€7 per extra capture card. Running costs are electricity, plus storage beyond the default 24 h of recordings (~7.5 GB per device per day). See the [hardware guide](docs/get-started/hardware.md).
+
+</details>
+
+---
+
 ## Community & Support
 
 - **🐛 Issues**: report bugs or request features on [GitHub Issues](https://github.com/AngelStreetCorp/virtualpytest/issues).
