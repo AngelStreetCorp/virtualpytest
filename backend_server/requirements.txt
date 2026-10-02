@@ -34,7 +34,7 @@ pymongo>=4.3.0
 sqlalchemy>=2.0.0
 
 # Authentication and security - pinned to working Linux versions
-PyJWT==2.13.0
+PyJWT==2.15.0
 bcrypt>=4.0.0
 
 # Process management
