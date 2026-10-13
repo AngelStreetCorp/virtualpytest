@@ -2,6 +2,8 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 
 import { Host } from '../types/common/Host_Types';
 
+import { useModEmit } from '../mods/core/components/ModsProvider';
+
 import { useHostControl } from './useHostManager';
 import { useUserSession } from './useUserSession';
 
@@ -15,6 +17,9 @@ interface UseDeviceControlProps {
   sessionId?: string;
   autoCleanup?: boolean; // Auto-release control on unmount
   tree_id?: string; // Navigation tree ID for cache population
+  // Scope to warm that cache for. The unified graph is keyed per variant, so a
+  // base-only warm-up leaves a variant run to rebuild the hierarchy (BUG-0202).
+  variant?: string | null;
 }
 
 interface UseDeviceControlReturn {
@@ -47,6 +52,7 @@ export const useDeviceControl = ({
   sessionId,
   autoCleanup = true,
   tree_id,
+  variant,
 }: UseDeviceControlProps): UseDeviceControlReturn => {
   // ========================================
   // STATE
@@ -74,6 +80,22 @@ export const useDeviceControl = ({
   const { takeControl, releaseControl, hasActiveLock } = useHostControl();
   const { sessionId: browserSessionId } = useUserSession();
 
+  // Mods see every take / release (picture-in-picture pauses while a page holds control).
+  const emitToMods = useModEmit();
+  const emitRef = useRef(emitToMods);
+  emitRef.current = emitToMods;
+  const announce = useCallback(
+    (h: Host, deviceId: string | undefined, active: boolean, owner: string | undefined) =>
+      emitRef.current('control.change', {
+        hostName: h.host_name,
+        deviceId: deviceId || 'device1',
+        active,
+        owner: owner || 'unknown',
+        timestamp: Date.now(),
+      }),
+    [],
+  );
+
   // ========================================
   // CONTROL HANDLERS
   // ========================================
@@ -98,7 +120,8 @@ export const useDeviceControl = ({
       );
 
       const effectiveSessionId = browserSessionId || sessionId;
-      const result = await takeControl(host, device_id, effectiveSessionId, tree_id);
+      const result = await takeControl(host, device_id, effectiveSessionId, tree_id,
+                                       undefined, variant);
 
       if (result.success) {
         setIsControlActive(true);
@@ -112,6 +135,7 @@ export const useDeviceControl = ({
         console.log(
           `[useDeviceControl] Successfully took control of: ${host.host_name}, device: ${device_id}`,
         );
+        announce(host, device_id, true, sessionId);
         return { success: true };
       } else {
         // Handle specific error types with user-friendly messages
@@ -146,7 +170,7 @@ export const useDeviceControl = ({
     } finally {
       setIsControlLoading(false);
     }
-  }, [host, device_id, browserSessionId, sessionId, tree_id, takeControl]);
+  }, [host, device_id, browserSessionId, sessionId, tree_id, takeControl, announce]);
 
   const handleReleaseControl = useCallback(async (): Promise<boolean> => {
     if (!host) {
@@ -177,6 +201,7 @@ export const useDeviceControl = ({
         console.log(
           `[useDeviceControl] Successfully released control of: ${host.host_name}, device: ${device_id}`,
         );
+        announce(host, device_id, false, sessionId);
         return true;
       } else {
         const errorMessage = result.error || 'Failed to release control';
@@ -192,7 +217,7 @@ export const useDeviceControl = ({
     } finally {
       setIsControlLoading(false);
     }
-  }, [host, device_id, browserSessionId, sessionId, releaseControl]);
+  }, [host, device_id, browserSessionId, sessionId, releaseControl, announce]);
 
   const handleToggleControl = useCallback(async (): Promise<void> => {
     if (isControlActive) {
@@ -245,6 +270,7 @@ export const useDeviceControl = ({
           console.log(
             `[useDeviceControl] Auto-cleanup: releasing control of ${cleanupHost.host_name}, device: ${cleanupDeviceId}`,
           );
+          announce(cleanupHost, cleanupDeviceId, false, sessionId);
           // Don't await - this is cleanup
           releaseControl(cleanupHost, cleanupDeviceId, cleanupSessionId).catch((error) => {
             console.error(`[useDeviceControl] Cleanup error:`, error);

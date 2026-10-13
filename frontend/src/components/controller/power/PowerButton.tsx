@@ -10,6 +10,7 @@ import { Power as PowerIcon } from '@mui/icons-material';
 import { usePowerControl } from '../../../hooks/power/usePowerControl';
 import { useToast } from '../../../hooks/useToast';
 import { Host, Device } from '../../../types/common/Host_Types';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface PowerButtonProps {
   host: Host;
@@ -19,6 +20,7 @@ interface PowerButtonProps {
 
 export const PowerButton: React.FC<PowerButtonProps> = ({ host, device, disabled = false }) => {
   const { showError } = useToast();
+  const P = useAgentChatPalette();
 
   // Power control hook
   const {
@@ -85,16 +87,16 @@ export const PowerButton: React.FC<PowerButtonProps> = ({ host, device, disabled
 
   // Determine button color based on power state
   const getButtonColor = () => {
-    if (disabled || !powerStatus) return '#666'; // Grey when disabled or no status
+    if (disabled || !powerStatus) return P.textMuted; // muted when disabled or no status
 
     switch (powerStatus.power_state) {
       case 'on':
-        return '#ffc107'; // Yellow when on
+        return P.accent; // gold when on
       case 'off':
-        return '#fff'; // White when off
+        return P.textPrimary; // primary text when off
       case 'unknown':
       default:
-        return '#666'; // Grey when unknown
+        return P.textMuted; // muted when unknown
     }
   };
 
@@ -130,18 +132,18 @@ export const PowerButton: React.FC<PowerButtonProps> = ({ host, device, disabled
           sx={{
             color: buttonColor,
             '&:hover': {
-              color: buttonColor, // keep the state color on hover (yellow = on, white = off)
-              backgroundColor: isButtonDisabled ? 'transparent' : 'rgba(255, 255, 255, 0.1)',
+              color: buttonColor, // keep the state color on hover (gold = on, primary = off)
+              backgroundColor: isButtonDisabled ? 'transparent' : P.hoverBg,
             },
             '&.Mui-disabled': {
-              color: '#666',
+              color: P.textMuted,
             },
             transition: 'color 0.2s ease-in-out',
           }}
           aria-label={`Power control - ${powerStatus?.power_state || 'unknown'}`}
         >
           {isLoading ? (
-            <CircularProgress size={20} sx={{ color: '#666' }} />
+            <CircularProgress size={20} sx={{ color: P.textMuted }} />
           ) : (
             <PowerIcon fontSize="small" />
           )}

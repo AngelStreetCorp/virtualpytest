@@ -27,7 +27,7 @@
 
 import { isAuthEnabled } from '../lib/supabase';
 import { getAutoSignHeaderToken } from '../lib/autoSign';
-import { getClientForRequest } from '../lib/serverIdentity';
+import { getAccessTokenForRequest } from '../lib/serverIdentity';
 
 export interface ApiClientOptions extends Omit<RequestInit, 'headers'> {
   headers?: Record<string, string>;
@@ -77,13 +77,13 @@ export async function apiClient(
       // TASK-18: pick the session by the request's target server. apiClient sets the
       // header itself, and installFetchAuth never overwrites an Authorization that is
       // already present — so getting this wrong here could not be corrected downstream.
-      const client = getClientForRequest(url);
-      const { data: { session } } = client
-        ? await client.auth.getSession()
-        : { data: { session: null } };
+      // Time-bounded: this await runs BEFORE the request, so an identity whose Supabase
+      // is unreachable used to hold the call (and its AbortSignal) for supabase-js's full
+      // ~30 s refresh-retry window instead of letting it fail fast.
+      const accessToken = await getAccessTokenForRequest(url);
 
-      if (session?.access_token) {
-        requestHeaders['Authorization'] = `Bearer ${session.access_token}`;
+      if (accessToken) {
+        requestHeaders['Authorization'] = `Bearer ${accessToken}`;
         if (!hasLoggedJwtAttached) {
           console.info('[@apiClient][SECURITY] JWT Authorization header attached for frontend -> server API calls.');
           hasLoggedJwtAttached = true;

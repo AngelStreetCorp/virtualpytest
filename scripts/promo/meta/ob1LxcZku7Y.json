@@ -1,0 +1,21 @@
+{
+ "id": "ob1LxcZku7Y",
+ "title": "Now compatible: Nintendo Switch and Fire TV Vega OS | VirtualPyTest",
+ "description": "VirtualPyTest now drives a Nintendo Switch, and Fire TV on its new operating system, Vega OS. On the Switch, VirtualPyTest acts as the game controller: it moves through the Home menu, launches Dragon Ball Xenoverse 2 and lets its intro play, then switches to Super Kirby Clash, where button presses still work inside the game. Fire TV was already supported; now its new system Vega OS is too. The remote appears on screen: into YouTube, search, and a video plays, driven the way any viewer would.\n\nVideo on the Fire TV: Big Buck Bunny, (CC) Blender Foundation, CC BY 3.0.\n\nOpen source & free\n\nChapters\n0:00 Now compatible\n0:04 Nintendo Switch: VirtualPyTest is the controller\n0:12 The Home menu\n0:17 Launch Dragon Ball Xenoverse 2\n0:24 Its intro, live from the console\n0:40 Another game: Super Kirby Clash\n0:49 Press A: the game answers\n1:01 Fire TV on Vega OS: the remote\n1:09 Search and pick a video\n1:18 It plays",
+ "tags": [
+  "device testing",
+  "fire tv",
+  "fire tv vega",
+  "game console testing",
+  "nintendo switch",
+  "open source",
+  "remote control automation",
+  "streaming device",
+  "test automation",
+  "vega os",
+  "virtualpytest"
+ ],
+ "privacy": "public",
+ "category": "28",
+ "published": "2026-10-06"
+}

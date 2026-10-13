@@ -18,6 +18,7 @@
 import React, { useState } from 'react';
 import { Box, Typography, IconButton, CircularProgress, Tooltip } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface AIStepDisplayProps {
   step: {
@@ -39,6 +40,7 @@ export const AIStepDisplay: React.FC<AIStepDisplayProps> = ({
   showExpand = true,
   compact = false
 }) => {
+  const P = useAgentChatPalette();
   const [isExpanded, setIsExpanded] = useState(false);
 
   const isNavigation = step.command === 'execute_navigation';
@@ -47,23 +49,23 @@ export const AIStepDisplay: React.FC<AIStepDisplayProps> = ({
   // Status styling
   const getStatusStyle = () => {
     const { status } = step;
-    
+
     let statusIcon, bgColor, borderColor;
     if (status === 'completed') {
-      statusIcon = <Box sx={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#4caf50' }} />;
-      bgColor = 'rgba(76,175,80,0.1)';
-      borderColor = 'rgba(76,175,80,0.3)';
+      statusIcon = <Box sx={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: P.success }} />;
+      bgColor = `${P.success}1a`;
+      borderColor = `${P.success}4d`;
     } else if (status === 'failed') {
-      statusIcon = <Box sx={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#f44336' }} />;
-      bgColor = 'rgba(244,67,54,0.1)';
-      borderColor = 'rgba(244,67,54,0.3)';
+      statusIcon = <Box sx={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: P.error }} />;
+      bgColor = `${P.error}1a`;
+      borderColor = `${P.error}4d`;
     } else if (status === 'current') {
-      statusIcon = <CircularProgress size={12} sx={{ color: '#2196f3' }} />;
-      bgColor = 'rgba(33,150,243,0.1)';
-      borderColor = 'rgba(33,150,243,0.3)';
+      statusIcon = <CircularProgress size={12} sx={{ color: P.accentText }} />;
+      bgColor = `${P.accent}1a`;
+      borderColor = `${P.accent}4d`;
     } else {
-      statusIcon = <Box sx={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: '#666', border: '1px solid #888' }} />;
-      bgColor = 'rgba(255,255,255,0.05)';
+      statusIcon = <Box sx={{ width: 12, height: 12, borderRadius: '50%', backgroundColor: P.textMuted, border: `1px solid ${P.borderColor}` }} />;
+      bgColor = `${P.hoverBg}`;
       borderColor = 'transparent';
     }
 
@@ -97,11 +99,11 @@ export const AIStepDisplay: React.FC<AIStepDisplayProps> = ({
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
         {statusIcon}
          <Tooltip title={`${step.stepNumber}. ${displayText}${step.duration !== undefined ? (step.duration === 0 ? ' (already at target)' : ` (${step.duration.toFixed(1)}s)`) : ''}`} arrow placement="top">
-          <Typography 
-            variant="caption" 
-            sx={{ 
-              color: '#fff', 
-              fontWeight: 'bold', 
+          <Typography
+            variant="caption"
+            sx={{
+              color: P.textPrimary,
+              fontWeight: 'bold',
               fontFamily: isNavigation ? 'monospace' : 'inherit',
               flex: 1,
               fontSize: compact ? '0.65rem' : '0.75rem',
@@ -117,10 +119,10 @@ export const AIStepDisplay: React.FC<AIStepDisplayProps> = ({
         </Tooltip>
         
         {isNavigation && showExpand && (
-          <IconButton 
+          <IconButton
             size="small"
             onClick={handleToggleExpand}
-            sx={{ color: '#aaa', p: 0.25 }}
+            sx={{ color: P.textSecondary, p: 0.25 }}
           >
             {isExpanded ? (
               <ExpandLessIcon fontSize="small" />
@@ -133,26 +135,26 @@ export const AIStepDisplay: React.FC<AIStepDisplayProps> = ({
       
       {/* Navigation transitions (when expanded) - Compact vertical spacing */}
       {isNavigation && isExpanded && transitions.length > 0 && (
-        <Box sx={{ ml: 1.5, mt: 0.5, borderLeft: '2px solid #444', pl: 0.75 }}>
+        <Box sx={{ ml: 1.5, mt: 0.5, borderLeft: `2px solid ${P.borderColor}`, pl: 0.75 }}>
           {transitions.map((transition: any, tIdx: number) => (
             <Box key={tIdx} sx={{ mb: 0.5 }}>
-              <Typography variant="caption" sx={{ color: '#2196f3', fontWeight: 'bold', display: 'block', fontSize: '0.7rem' }}>
+              <Typography variant="caption" sx={{ color: P.accentText, fontWeight: 'bold', display: 'block', fontSize: '0.7rem' }}>
                 {transition.from_node_label} → {transition.to_node_label}
               </Typography>
               {transition.actions?.map((action: any, aIdx: number) => {
                 const firstParam = action.params ? Object.values(action.params)[0] : '';
                 const paramStr = typeof firstParam === 'string' ? firstParam : JSON.stringify(firstParam);
                 return (
-                  <Typography key={aIdx} variant="caption" sx={{ color: '#aaa', display: 'block', ml: 0.75, fontFamily: 'monospace', fontSize: '0.65rem', lineHeight: 1.3 }}>
+                  <Typography key={aIdx} variant="caption" sx={{ color: P.textSecondary, display: 'block', ml: 0.75, fontFamily: 'monospace', fontSize: '0.65rem', lineHeight: 1.3 }}>
                     - {action.command}({paramStr})
                   </Typography>
                 );
               })}
               {transition.verifications?.length > 0 && (
                 <Box sx={{ ml: 0.75, mt: 0.25 }}>
-                  <Typography variant="caption" sx={{ color: '#888', fontSize: '0.6rem' }}>Verifications:</Typography>
+                  <Typography variant="caption" sx={{ color: P.textMuted, fontSize: '0.6rem' }}>Verifications:</Typography>
                   {transition.verifications.map((verification: any, vIdx: number) => (
-                    <Typography key={vIdx} variant="caption" sx={{ color: '#888', display: 'block', ml: 0.75, fontFamily: 'monospace', fontSize: '0.6rem', lineHeight: 1.3 }}>
+                    <Typography key={vIdx} variant="caption" sx={{ color: P.textMuted, display: 'block', ml: 0.75, fontFamily: 'monospace', fontSize: '0.6rem', lineHeight: 1.3 }}>
                       - {verification.command} ({verification.verification_type})
                     </Typography>
                   ))}
@@ -162,10 +164,10 @@ export const AIStepDisplay: React.FC<AIStepDisplayProps> = ({
           ))}
         </Box>
       )}
-      
+
       {/* Non-navigation steps: show command/params */}
       {!isNavigation && (
-        <Typography variant="caption" sx={{ color: '#aaa', display: 'block', ml: 2, fontFamily: 'monospace', fontSize: compact ? '0.65rem' : '0.75rem' }}>
+        <Typography variant="caption" sx={{ color: P.textSecondary, display: 'block', ml: 2, fontFamily: 'monospace', fontSize: compact ? '0.65rem' : '0.75rem' }}>
           {step.command}
           {step.params && Object.keys(step.params).length > 0 && ` | ${JSON.stringify(step.params)}`}
         </Typography>

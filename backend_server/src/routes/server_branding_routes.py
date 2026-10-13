@@ -35,7 +35,8 @@ FRONTEND_DIST_DIR = os.environ.get(
     os.path.join(_FRONTEND_ROOT, 'dist'),
 )
 
-_ALLOWED_KEYS = {'name', 'tagline', 'logoUrl', 'faviconUrl', 'title', 'showFooter'}
+_ALLOWED_KEYS = {'name', 'tagline', 'logoUrl', 'faviconUrl', 'title', 'showFooter',
+                 'showGithubLink', 'showMobileAppLink'}
 _ALLOWED_ASSET_NAMES = {'logo', 'favicon'}
 _ALLOWED_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.ico', '.svg', '.webp', '.gif'}
 

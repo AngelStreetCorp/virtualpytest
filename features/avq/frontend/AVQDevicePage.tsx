@@ -41,9 +41,10 @@ import { useMonitoring } from '../../../frontend/src/hooks/monitoring/useMonitor
 import { useResponsiveMode } from '../../../frontend/src/hooks/useResponsiveMode';
 import { formatScreenVerdict } from '../../../frontend/src/utils/screenVerdict';
 import { useRec } from '../../../frontend/src/hooks/pages/useRec';
+import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
 
-const mosColor = (v: number | null | undefined): string =>
-  v == null ? '#9e9e9e' : v <= 0 ? '#f44336' : v >= 4 ? '#4caf50' : v >= 2.5 ? '#ff9800' : '#f44336';
+const mosColor = (v: number | null | undefined, P: ReturnType<typeof useAgentChatPalette>): string =>
+  v == null ? P.textMuted : v <= 0 ? P.error : v >= 4 ? P.success : v >= 2.5 ? P.warning : P.error;
 
 const Stat: React.FC<{ label: string; value: React.ReactNode; color?: string }> = ({
   label,
@@ -61,6 +62,7 @@ const Stat: React.FC<{ label: string; value: React.ReactNode; color?: string }> 
 );
 
 const AVQDevicePage: React.FC = () => {
+  const P = useAgentChatPalette();
   const { hostName, deviceId } = useParams<{ hostName: string; deviceId: string }>();
   const navigate = useNavigate();
   const { isMobile } = useResponsiveMode();
@@ -175,8 +177,8 @@ const AVQDevicePage: React.FC = () => {
     return n && n > 1 ? `${base} (${n}×)` : base;
   };
   const avail = (v: number | null | undefined) => (v == null ? '—' : v > 0.5 ? 'Yes' : 'No');
-  const availColor = (v: number | null | undefined) =>
-    v == null ? undefined : v > 0.5 ? '#4caf50' : '#f44336';
+  const availColor = (v: number | null | undefined, palette: ReturnType<typeof useAgentChatPalette>) =>
+    v == null ? undefined : v > 0.5 ? palette.success : palette.error;
 
   const handleSeek = (epochMs: number) => {
     const d = new Date(epochMs);
@@ -227,12 +229,12 @@ const AVQDevicePage: React.FC = () => {
         <Box sx={{ flex: 1 }} />
         {displayMetric && (
           <>
-            <Chip size="small" label={`Video ${avail(displayMetric.video_availability)}`} sx={{ bgcolor: availColor(displayMetric.video_availability) || '#9e9e9e', color: '#fff' }} />
-            <Chip size="small" label={`Video MOS ${fmt(displayMetric.video_mos)}`} sx={{ bgcolor: mosColor(displayMetric.video_mos), color: '#fff' }} />
+            <Chip size="small" label={`Video ${avail(displayMetric.video_availability)}`} sx={{ bgcolor: availColor(displayMetric.video_availability, P) || P.textMuted, color: 'primary.contrastText' }} />
+            <Chip size="small" label={`Video MOS ${fmt(displayMetric.video_mos)}`} sx={{ bgcolor: mosColor(displayMetric.video_mos, P), color: 'primary.contrastText' }} />
             {!isMobile && (
               <>
-                <Chip size="small" label={`Audio ${avail(displayMetric.audio_availability)}`} sx={{ bgcolor: availColor(displayMetric.audio_availability) || '#9e9e9e', color: '#fff' }} />
-                <Chip size="small" label={`Audio MOS ${fmt(displayMetric.audio_mos)}`} sx={{ bgcolor: mosColor(displayMetric.audio_mos), color: '#fff' }} />
+                <Chip size="small" label={`Audio ${avail(displayMetric.audio_availability)}`} sx={{ bgcolor: availColor(displayMetric.audio_availability, P) || P.textMuted, color: 'primary.contrastText' }} />
+                <Chip size="small" label={`Audio MOS ${fmt(displayMetric.audio_mos)}`} sx={{ bgcolor: mosColor(displayMetric.audio_mos, P), color: 'primary.contrastText' }} />
               </>
             )}
           </>
@@ -257,7 +259,7 @@ const AVQDevicePage: React.FC = () => {
               {viewTab === 'player' ? (
                 <>
                   {isLiveMode ? (
-                    <Typography variant="body2" sx={{ color: '#f44336', fontWeight: 700, display: 'flex', alignItems: 'center' }}>
+                    <Typography variant="body2" sx={{ color: P.error, fontWeight: 700, display: 'flex', alignItems: 'center' }}>
                       <LiveIcon sx={{ fontSize: 11, mr: 0.5 }} /> LIVE
                     </Typography>
                   ) : (
@@ -283,7 +285,7 @@ const AVQDevicePage: React.FC = () => {
                   </Typography>
                   <Tooltip title="Jump to latest frame">
                     <IconButton size="small" onClick={framesGoLive}>
-                      <LiveIcon sx={{ fontSize: 14, color: framesLive ? '#888' : '#f44336' }} />
+                      <LiveIcon sx={{ fontSize: 14, color: framesLive ? P.textMuted : P.error }} />
                     </IconButton>
                   </Tooltip>
                   <Tooltip title="Previous frame (←)">
@@ -351,7 +353,7 @@ const AVQDevicePage: React.FC = () => {
                   : 'Now (last minute)'}
               </span>
               <Box component="span" sx={{ color: screen.color, fontWeight: 600 }}>
-                · {screen.text}
+                · {screenVerdict && !screenVerdict.node && !screenVerdict.state ? 'unknown screen' : screen.text}
               </Box>
             </Typography>
             <Divider sx={{ my: 1 }} />
@@ -370,8 +372,8 @@ const AVQDevicePage: React.FC = () => {
               <>
                 <Typography variant="overline" color="text.secondary">Video</Typography>
                 <Stack direction="row" flexWrap="wrap" gap={1.25} sx={{ mb: 0.75 }}>
-                  <Stat label="Available" value={avail(displayMetric.video_availability)} color={availColor(displayMetric.video_availability)} />
-                  <Stat label="Video MOS" value={fmt(displayMetric.video_mos)} color={mosColor(displayMetric.video_mos)} />
+                  <Stat label="Available" value={avail(displayMetric.video_availability)} color={availColor(displayMetric.video_availability, P)} />
+                  <Stat label="Video MOS" value={fmt(displayMetric.video_mos)} color={mosColor(displayMetric.video_mos, P)} />
                   <Stat label="Bluriness" value={fmt(displayMetric.blurriness_score)} />
                   <Stat label="Blockiness" value={fmt(displayMetric.blockiness_score)} />
                   <Stat label="Jerkiness" value={fmt(displayMetric.jerkiness_score)} />
@@ -384,8 +386,8 @@ const AVQDevicePage: React.FC = () => {
                     <Divider sx={{ my: 0.75 }} />
                     <Typography variant="overline" color="text.secondary">Audio</Typography>
                     <Stack direction="row" flexWrap="wrap" gap={1.25}>
-                      <Stat label="Available" value={avail(displayMetric.audio_availability)} color={availColor(displayMetric.audio_availability)} />
-                      <Stat label="Audio MOS" value={fmt(displayMetric.audio_mos)} color={mosColor(displayMetric.audio_mos)} />
+                      <Stat label="Available" value={avail(displayMetric.audio_availability)} color={availColor(displayMetric.audio_availability, P)} />
+                      <Stat label="Audio MOS" value={fmt(displayMetric.audio_mos)} color={mosColor(displayMetric.audio_mos, P)} />
                       <Stat label="Audio Level" value={fmt(displayMetric.audio_level_db, ' dB')} />
                       <Stat label="Loudness" value={fmt(displayMetric.loudness_lkfs, ' LKFS')} />
                       <Stat label="Silence" value={fmtIncident(displayMetric.silence_seconds, 'noSound')} />

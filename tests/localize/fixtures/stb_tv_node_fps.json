@@ -1,0 +1,152 @@
+{
+  "_comment": "Stub node fingerprints for the stb_tv userinterface. Used by the real-match test in place of a DB query — the real test exercises the payload plumbing (Tier 2 merge, company passthrough, gate_skip), not the matcher quality, so the fingerprints are deliberately non-matching to the real pi1_capture4 frames. Each node carries a v6 fingerprint shape: dhash (256-bit hex), regions dict (5 region dHashes from _region_dhashes), focus signature (kind/box/nav + x/y/w/h), optional crop dHash (v6 app-grid sibling), title OCR, and band tokens. The monitor's _load_node_fps() passes this shape directly into ImageHelpers.identify_screen(img, node_fps) — see backend_host/scripts/monitor_localize.py:282-350 and backend_host/src/controllers/verification/image_helpers.py:1335-1567. tier='rule' is the convention screen_state_cv.py:51-56 documents for the standalone monitor path. No real brand names: the userinterface name 'stb_tv' and the 'home'/'settings'/'epg'/'apps' node labels are placeholders (AGENTS.md leak-gate).",
+  "userinterface": "stb_tv",
+  "company": "brand_a",
+  "tier": "rule",
+  "nodes": [
+    {
+      "node_id": "home",
+      "label": "home",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "home",
+        "text": ["home"]
+      }
+    },
+    {
+      "node_id": "settings",
+      "label": "settings",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "settings",
+        "text": ["settings"]
+      }
+    },
+    {
+      "node_id": "epg",
+      "label": "epg",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "epg",
+        "text": ["epg"]
+      }
+    },
+    {
+      "node_id": "apps",
+      "label": "apps",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "apps",
+        "text": ["apps"]
+      }
+    },
+    {
+      "node_id": "app_settings",
+      "label": "app_settings",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "app_settings",
+        "text": ["app_settings"]
+      }
+    },
+    {
+      "node_id": "app_search",
+      "label": "app_search",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "app_search",
+        "text": ["app_search"]
+      }
+    },
+    {
+      "node_id": "app_market",
+      "label": "app_market",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "app_market",
+        "text": ["app_market"]
+      }
+    },
+    {
+      "node_id": "channel_promo",
+      "label": "channel_promo",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "channel_promo",
+        "text": ["channel_promo"]
+      }
+    }
+  ]
+}

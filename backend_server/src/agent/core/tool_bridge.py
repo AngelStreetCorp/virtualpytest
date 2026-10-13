@@ -11,6 +11,9 @@ import json
 from typing import Dict, Any, List, Optional
 
 from backend_server.src.mcp.mcp_instance import get_mcp_server
+from backend_server.src.mcp.tools.analytics_tools import ANALYTICS_TOOL_NAMES
+from backend_server.src.mcp.tools.masterchief_tools import MASTERCHIEF_PROPOSE_TOOL_NAMES
+from backend_server.src.mcp.utils.lock_ownership import DEVICE_LOCK_TOOL_NAMES
 from ..tools.page_interaction import (
     get_available_pages,
     get_page_schema,
@@ -301,6 +304,71 @@ class ToolBridge:
         """
         self.logger.info(f"Executing tool: {tool_name}")
         self.logger.debug(f"Params: {params}")
+
+        # Analytics identity and scope are trusted runtime context, never model-provided
+        # arguments. Keeping the keys private also keeps credentials/tenant mechanics out
+        # of the public tool schema while making cache entries tenant-specific.
+        params = dict(params or {})
+        if tool_name in ANALYTICS_TOOL_NAMES and self.session:
+            params.update({
+                "_context_team_id": self.session.context.get("team_id"),
+                "_context_user_id": self.session.context.get("user_id"),
+                "_context_user_email": self.session.context.get("user_email"),
+                "_context_user_role": self.session.context.get("user_role"),
+                "_context_workspace_id": self.session.context.get("workspace_id"),
+                "_context_selected_server": self.session.context.get("selected_server"),
+                "_context_selected_server_name": self.session.context.get("selected_server_name"),
+                "_context_selected_server_hosts": self.session.context.get("selected_server_hosts"),
+                "_context_host_name": self.session.context.get("host_name"),
+                "_context_device_id": self.session.context.get("device_id"),
+                "_context_userinterface_name": self.session.context.get("userinterface_name"),
+                "_context_grafana_base_url": self.session.context.get("grafana_base_url"),
+                "_context_named_devices": self.session.context.get("named_devices"),
+                "_context_refers_to_selected_device": bool(self.session.context.get("refers_to_selected_device")),
+                "_context_selected_device": self.session.context.get("selected_device"),
+                "_context_selected_device_foreign": bool(self.session.context.get("selected_device_foreign")),
+                "_context_known_device_names": [d.get("device_name") for d in
+                                                (self.session.context.get("available_devices") or [])
+                                                if isinstance(d, dict) and d.get("device_name")],
+            })
+
+        # Masterchief identity: the propose tool writes the audit row directly
+        # (the HTTP routes reject the service key, by design). We need the
+        # caller's team + identity to write the row, so the bridge injects the
+        # same trusted runtime context for propose_masterchief_op.
+        if tool_name in MASTERCHIEF_PROPOSE_TOOL_NAMES and self.session:
+            params.update({
+                "_context_team_id": self.session.context.get("team_id"),
+                "_context_user_id": self.session.context.get("user_id"),
+                "_context_user_email": self.session.context.get("user_email"),
+                "_context_user_role": self.session.context.get("user_role"),
+                "_context_workspace_id": self.session.context.get("workspace_id"),
+                "_context_selected_server": self.session.context.get("selected_server"),
+                "_context_selected_server_name": self.session.context.get("selected_server_name"),
+                "_context_selected_server_hosts": self.session.context.get("selected_server_hosts"),
+                "_context_host_name": self.session.context.get("host_name"),
+                "_context_device_id": self.session.context.get("device_id"),
+                "_context_userinterface_name": self.session.context.get("userinterface_name"),
+                "_context_grafana_base_url": self.session.context.get("grafana_base_url"),
+                "_context_named_devices": self.session.context.get("named_devices"),
+                "_context_refers_to_selected_device": bool(self.session.context.get("refers_to_selected_device")),
+                "_context_selected_device": self.session.context.get("selected_device"),
+                "_context_selected_device_foreign": bool(self.session.context.get("selected_device_foreign")),
+                "_context_known_device_names": [d.get("device_name") for d in
+                                                (self.session.context.get("available_devices") or [])
+                                                if isinstance(d, dict) and d.get("device_name")],
+            })
+
+        # Device-lock identity (BUG-0402): this chat's session, the browser tab it was sent from,
+        # and its signed-in user, so device tools run only under this caller's own Take Control.
+        # Always the runtime's values, never the model's - it cannot claim someone else's lock.
+        if tool_name in DEVICE_LOCK_TOOL_NAMES and self.session:
+            ctx = self.session.context
+            params.update({
+                "session_id": self.session.id,
+                "_caller_browser_session_id": ctx.get("browser_session_id"),
+                "_caller_user_id": None if ctx.get("user_shared") else ctx.get("user_id"),
+            })
         
         # Check result cache if enabled
         if cache_config and cache_config.enabled:

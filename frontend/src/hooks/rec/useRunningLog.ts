@@ -99,6 +99,14 @@ export const useRunningLog = (
           return;
         }
 
+        // Every caller polls only while a run is active, so a 404 means the run has not
+        // written its log yet (a testcase writes it after its first block starts): keep
+        // polling. Only real errors count toward giving up.
+        if (response.status === 404) {
+          if (!isCancelled) setLogData(null);
+          return;
+        }
+
         failureCountRef.current += 1;
         if (!isCancelled) {
           setLogData(null);

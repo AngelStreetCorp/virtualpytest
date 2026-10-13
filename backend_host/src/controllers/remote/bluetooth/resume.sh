@@ -48,63 +48,80 @@ echo "===== resume.sh begin $(date -Is) (pid=$$ adapter=${ADAPTER_HCI}) ====="
 
 SPOOF_MAC_PREFIX="20:21:41:00:1F"
 
-# Auto-detect: find the most recently modified adapter directory that
-# matches our spoof prefix AND contains a bonded device. This is the
-# MAC that start.sh picked for the last successful pair.  Falls back
-# to the newest matching adapter dir even without a bond (handles
-# "start.sh ran but STB hasn't paired yet").
+# MAC selection — an adapter NEVER adopts a MAC that belongs to a sibling
+# adapter (BUG-0483, vpt-mf1 2026-10-12). Every candidate goes through
+# _mac_owned_by_sibling: a MAC another hciN is currently using, or that another
+# adapter-hciN.mac binding names, is off limits — taking it gives two adapters
+# the same address, bluetoothd drops one of them, both STBs go dark.
+_has_bond() { ls "/var/lib/bluetooth/$1/" 2>/dev/null | grep -qE '^[0-9A-F]{2}:'; }
+_mac_owned_by_sibling() {
+    local mac="${1^^}" h f
+    for h in /sys/class/bluetooth/hci*; do
+        h="$(basename "$h")"
+        [[ "$h" == "$ADAPTER_HCI" || "$h" == *:* ]] && continue
+        timeout 5 hciconfig "$h" 2>/dev/null | grep -qi "BD Address: ${mac}" && return 0
+    done
+    for f in /var/lib/vpt-ble/adapter-hci*.mac; do
+        [[ -f "$f" && "$f" != "/var/lib/vpt-ble/adapter-${ADAPTER_HCI}.mac" ]] || continue
+        [[ "$(tr -d '[:space:]' < "$f" | tr a-f A-F)" == "$mac" ]] && return 0
+    done
+    return 1
+}
 if [[ -z "${ADAPTER_MAC:-}" ]]; then
     ADAPTER_MAC=""
-    # Pass 0 (preferred): the hci -> MAC binding start.sh persisted for THIS
-    # adapter. Deterministic across reboot and immune to the multi-adapter
-    # collision where hci1 and hci2 share the ${SPOOF_MAC_PREFIX}:* prefix and
-    # the dir-glob passes below let one adapter pick the other's bond. See
-    # BLUETOOTH.md §6.7.23-followup.
+    _prefix_re="^${SPOOF_MAC_PREFIX//:/\\:}:[0-9A-Fa-f]{2}$"
+    # Pass 0: the address this adapter is ALREADY on. If it is one of ours,
+    # holds a bond and no sibling owns it, the adapter is bonded to its STB
+    # through it — keep it, whatever the bind file says (a staged/stale bind
+    # file must never move a working adapter off its bond).
+    cur="$(timeout 5 hciconfig "$ADAPTER_HCI" 2>/dev/null | awk '/BD Address:/{print $3}')"
+    if [[ "$cur" =~ $_prefix_re ]] && _has_bond "$cur" && ! _mac_owned_by_sibling "$cur"; then
+        ADAPTER_MAC="$cur"
+        echo "== Keeping current bonded address: ${ADAPTER_HCI} -> $ADAPTER_MAC =="
+    fi
+    # Pass 1: the hci -> MAC binding start.sh persisted for THIS adapter
+    # (§6.7.23-followup). Used only when it holds a bond (a binding staged
+    # before a pair that never completed has none, §6.7.26-followup-4).
     bind_file="/var/lib/vpt-ble/adapter-${ADAPTER_HCI}.mac"
-    if [[ -f "$bind_file" ]]; then
+    if [[ -z "$ADAPTER_MAC" && -f "$bind_file" ]]; then
         cand="$(tr -d '[:space:]' < "$bind_file" 2>/dev/null || true)"
-        if [[ "$cand" =~ ^${SPOOF_MAC_PREFIX//:/\\:}:[0-9A-Fa-f]{2}$ ]]; then
-            # Trust the persisted binding ONLY if its adapter dir actually holds a
-            # bond. A stale/premature bind file strands the real bond otherwise:
-            # start.sh persists the binding EARLY (line ~160) from an auto-picked
-            # byte, but its 60s controller timeout can kill the run before the pair
-            # completes — leaving adapter-hciN.mac pointing at a bondless MAC (the
-            # lowest free byte, typically 1F:01) while the good bond sits untouched
-            # under a different 1F:xx dir. Blindly spoofing the bind-file MAC then
-            # reports "no bonded peer" forever ("No Bluetooth pairing found" in the
-            # UI) even though the bond is intact. When the bind-file MAC has no
-            # bond, fall through to the Pass-1 scan below, which finds the dir that
-            # actually contains a bond. See BLUETOOTH.md §6.7.26-followup-4.
-            if ls "/var/lib/bluetooth/$cand/" 2>/dev/null | grep -qE '^[0-9A-F]{2}:'; then
-                ADAPTER_MAC="$cand"
-                echo "== Using persisted adapter binding: ${ADAPTER_HCI} -> $ADAPTER_MAC =="
-            else
-                echo "== Ignoring persisted binding ${ADAPTER_HCI} -> $cand: no bond under that MAC. Scanning for the real bond dir. ==" >&2
-            fi
+        if [[ "$cand" =~ $_prefix_re ]] && _has_bond "$cand" && ! _mac_owned_by_sibling "$cand"; then
+            ADAPTER_MAC="$cand"
+            echo "== Using persisted adapter binding: ${ADAPTER_HCI} -> $ADAPTER_MAC =="
+        else
+            echo "== Persisted binding ${ADAPTER_HCI} -> $cand has no bond (or a sibling owns it); scanning unowned bond dirs ==" >&2
         fi
     fi
-    # First pass (fallback): adapter dir with a bond subdirectory
+    # Pass 2: newest bonded adapter dir that NO sibling owns.
     if [[ -z "$ADAPTER_MAC" ]]; then
         for d in $(ls -td /var/lib/bluetooth/${SPOOF_MAC_PREFIX}:* 2>/dev/null); do
-            if ls "$d" 2>/dev/null | grep -qE '^[0-9A-F]{2}:'; then
-                ADAPTER_MAC="$(basename "$d")"
-                break
+            m="$(basename "$d")"
+            _has_bond "$m" || continue
+            if _mac_owned_by_sibling "$m"; then
+                echo "  skipping $m: owned by a sibling adapter" >&2
+                continue
             fi
+            ADAPTER_MAC="$m"
+            break
         done
     fi
-    # Second pass (fallback): newest adapter dir (no bond yet)
+    # No bond for this adapter anywhere: stop here and touch nothing. Picking a
+    # bondless or borrowed MAC only hides the problem; the fix is start.sh
+    # (re-pair) or correcting adapter-${ADAPTER_HCI}.mac by hand.
     if [[ -z "$ADAPTER_MAC" ]]; then
-        newest=$(ls -td /var/lib/bluetooth/${SPOOF_MAC_PREFIX}:* 2>/dev/null | head -1)
-        if [[ -n "$newest" ]]; then
-            ADAPTER_MAC="$(basename "$newest")"
-        fi
-    fi
-    if [[ -z "$ADAPTER_MAC" ]]; then
-        echo "ERROR: no adapter directory matching $SPOOF_MAC_PREFIX:* in /var/lib/bluetooth/" >&2
-        echo "Run start.sh first to create one." >&2
+        echo "ERROR: no bonded ${SPOOF_MAC_PREFIX}:* address for ${ADAPTER_HCI} that a sibling adapter does not own." >&2
+        echo "Nothing changed. Re-pair with start.sh, or fix /var/lib/vpt-ble/adapter-${ADAPTER_HCI}.mac." >&2
         exit 2
     fi
     echo "== Auto-detected adapter MAC: $ADAPTER_MAC =="
+    # Self-heal the binding so the next run (and start.sh's sibling guard) agree.
+    if [[ -d /var/lib/vpt-ble ]] && [[ "$(tr -d '[:space:]' < "$bind_file" 2>/dev/null)" != "$ADAPTER_MAC" ]]; then
+        printf '%s\n' "$ADAPTER_MAC" > "$bind_file" 2>/dev/null \
+            && echo "== Rewrote $bind_file -> $ADAPTER_MAC =="
+    fi
+elif _mac_owned_by_sibling "$ADAPTER_MAC"; then
+    echo "ERROR: ADAPTER_MAC $ADAPTER_MAC is already used by a sibling adapter; refusing (BUG-0483)." >&2
+    exit 2
 fi
 
 if [[ $EUID -ne 0 ]]; then

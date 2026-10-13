@@ -627,8 +627,8 @@ class AppiumVerificationController(VerificationControllerInterface):
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=0.0,
-                        description="Maximum time to wait (seconds)"
+                        default=0,
+                        description="Maximum time to wait (ms)"
                     ),
                     'check_interval': create_param(
                         ParamType.NUMBER,
@@ -655,8 +655,8 @@ class AppiumVerificationController(VerificationControllerInterface):
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=0.0,
-                        description="Maximum time to wait (seconds)"
+                        default=0,
+                        description="Maximum time to wait (ms)"
                     ),
                     'check_interval': create_param(
                         ParamType.NUMBER,
@@ -720,7 +720,7 @@ class AppiumVerificationController(VerificationControllerInterface):
                 'command': 'waitForElementToAppear',
                 'params': {
                     'search_term': 'Settings',
-                    'timeout': 10.0,
+                    'timeout': 10000,
                     'check_interval': 1.0
                 }
             }

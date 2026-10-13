@@ -39,7 +39,6 @@ from backend_host.src.services.ai_exploration.phases.verification_manager import
 )
 from backend_host.src.services.ai_exploration.phases.cleanup_manager import (
     finalize_structure as phase2_finalize,
-    approve_generation as phase2_approve,
     cancel_exploration as phase2_cancel
 )
 
@@ -296,6 +295,15 @@ class ExplorationExecutor:
             if not nav_result.get('success'):
                 error_msg = nav_result.get('error', 'Unknown error')
                 print(f"[@ExplorationExecutor:start_exploration] ❌ PHASE 0 FAILED: Cannot navigate to '{start_node}': {error_msg}")
+                # A new interface's Entry → home edge has no action, so the graph has no
+                # edge out of Entry at all: say what to set instead of the pathfinding error.
+                if "No path found from 'Entry" in error_msg:
+                    error_msg = (
+                        f"The interface's entry edge (Entry → {start_node}) has no action yet, so the device "
+                        f"cannot be brought to '{start_node}'. Open that edge in the editor and set how to reach "
+                        f"'{start_node}' (Android app: close_app then launch_app with the app's package), save, "
+                        f"then start AI Generate again."
+                    )
                 
                 with self._lock:
                     self.exploration_state['status'] = 'failed'
@@ -570,19 +578,6 @@ class ExplorationExecutor:
             Mobile/Web: {'success': True, 'item': 'Search', 'click_result': 'success', ...}
         """
         return phase2_validate_next(self)
-    
-    def approve_generation(self, tree_id: str, approved_nodes: list, approved_edges: list, team_id: str) -> Dict[str, Any]:
-        """
-        Approve generation - rename all _temp nodes/edges
-        
-        Returns:
-            {
-                'success': True,
-                'nodes_created': 2,
-                'edges_created': 1
-            }
-        """
-        return phase2_approve(self, tree_id, approved_nodes, approved_edges, team_id)
     
     def cancel_exploration(self, tree_id: str, team_id: str) -> Dict[str, Any]:
         """

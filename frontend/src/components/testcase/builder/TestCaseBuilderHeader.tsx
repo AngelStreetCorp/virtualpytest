@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Button, Typography, CircularProgress } from '@mui/material';
+import { Box, Button, Typography, CircularProgress, SxProps, Theme } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import AddIcon from '@mui/icons-material/Add';
@@ -9,10 +9,10 @@ import { UserinterfaceSelector } from '../../common/UserinterfaceSelector';
 import { NavigationEditorDeviceControls } from '../../navigation/Navigation_NavigationEditor_DeviceControls';
 import { UndoRedoDiscardButtons } from '../../common/UndoRedoDiscardButtons';
 import { RunButton } from './RunButton';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface TestCaseBuilderHeaderProps {
   // Theme
-  actualMode: 'light' | 'dark';
 
   // Builder Type (for display) — the SHARED header for TestCase / Campaign /
   // QuickTest, so all builders get the same look & feel.
@@ -76,6 +76,8 @@ interface TestCaseBuilderHeaderProps {
   // Execution State
   isExecuting: boolean;
   isExecutable: boolean;
+  /** Optional restyle of the Run button (a page recolours it to its palette). */
+  runButtonSx?: SxProps<Theme>;
 
   // Undo/Redo/Discard — optional; rendered only when `undo` is provided.
   undo?: () => void;
@@ -91,7 +93,6 @@ interface TestCaseBuilderHeaderProps {
 }
 
 export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
-  actualMode,
   builderType = 'TestCase', // Default to TestCase for backward compatibility
   creationMode,
   setCreationMode,
@@ -126,6 +127,7 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
   isSaving = false,
   isExecuting,
   isExecutable,
+  runButtonSx,
   onCloseProgressBar,
   undo,
   redo = () => {},
@@ -133,6 +135,7 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
   canRedo = false,
   resetBuilder = () => {},
 }) => {
+  const P = useAgentChatPalette();
   const interfaceDropdownStyles = {
     select: {
       height: 32,
@@ -154,7 +157,7 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        background: actualMode === 'dark' ? '#111827' : '#ffffff',
+        background: P.surface,
         height: '46px',
         flexShrink: 0,
       }}
@@ -185,7 +188,7 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
                 variant="h6"
                 sx={{
                   fontWeight: hasUnsavedChanges ? 700 : 600,
-                  color: hasUnsavedChanges ? '#f97316' : 'primary.main',
+                  color: hasUnsavedChanges ? '#f97316' : P.accentText,
                   whiteSpace: 'nowrap',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -206,7 +209,13 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
                 onCloseProgressBar?.();
                 setCreationMode('visual');
               }}
-              sx={{ fontSize: 11, py: 0.5, px: 1.5, ml: 1 }}
+              sx={{ ml: 1, ...({
+                fontSize: 11, py: 0.5, px: 1.5, textTransform: 'none', boxShadow: 'none',
+                borderColor: P.accent,
+                ...(creationMode === 'visual'
+                  ? { bgcolor: P.accent, color: '#1a1a1a', '&:hover': { bgcolor: P.accentHover, boxShadow: 'none' } }
+                  : { color: P.accentText, '&:hover': { borderColor: P.accent, bgcolor: `${P.accent}1a` } }),
+              }) }}
             >
               Visual
             </Button>
@@ -218,7 +227,13 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
                 setCreationMode('ai');
               }}
               startIcon={<AutoAwesomeIcon fontSize="small" />}
-              sx={{ fontSize: 11, py: 0.5, px: 1.5 }}
+              sx={{
+                fontSize: 11, py: 0.5, px: 1.5, textTransform: 'none', boxShadow: 'none',
+                borderColor: P.accent,
+                ...(creationMode === 'ai'
+                  ? { bgcolor: P.accent, color: '#1a1a1a', '&:hover': { bgcolor: P.accentHover, boxShadow: 'none' } }
+                  : { color: P.accentText, '&:hover': { borderColor: P.accent, bgcolor: `${P.accent}1a` } }),
+              }}
             >
               AI
             </Button>
@@ -360,6 +375,7 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
             }}
             isExecuting={isExecuting}
             isExecutable={isExecutable}
+            sx={runButtonSx}
             selectedDeviceId={selectedDeviceId}
             isControlActive={isControlActive}
             userinterfaceName={userinterfaceName}

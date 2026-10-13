@@ -19,7 +19,8 @@ export const DEVICE_MODEL_CONTROLLER_MAPPING = {
   phone_agent: ['image', 'audio', 'text', 'video', 'adb'],
   android_tablet: ['image', 'audio', 'text', 'video', 'adb'],
   android_tv: ['image', 'audio', 'text', 'video'],
-  fire_tv: ['image', 'audio', 'text', 'video'],
+  fire_tv_fireos: ['image', 'audio', 'text', 'video'],
+  fire_tv_vega: ['image', 'audio', 'text', 'video'],
   ios_phone: ['image', 'text', 'appium'],
   ios_mobile: ['image', 'text', 'appium'],
   // features/device-farm: a cloud device has the same verification surface as its
@@ -30,6 +31,8 @@ export const DEVICE_MODEL_CONTROLLER_MAPPING = {
   cloud_android_mobile: ['image', 'audio', 'text', 'video', 'appium', 'adb'],
   cloud_ios_mobile: ['image', 'text', 'appium'],
   stb: ['image', 'audio', 'text', 'video'],
+  nintendo_switch: ['image', 'text', 'video'],
+  tello: ['image', 'text', 'video'],
 } as const;
 
 export type DeviceModel = keyof typeof DEVICE_MODEL_CONTROLLER_MAPPING;
@@ -101,7 +104,8 @@ export type RemoteControllerImplementation =
   | 'android_tv'
   | 'android_mobile'
   | 'ir_remote'
-  | 'bluetooth_remote';
+  | 'bluetooth_remote'
+  | 'vega';
 
 export type AVControllerImplementation = 'hdmi_stream';
 

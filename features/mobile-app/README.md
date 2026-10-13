@@ -52,6 +52,7 @@ This is the complete list; when it grows, add the line here and in the manifest 
 | `frontend/src/components/mobile/MobileBottomNav.tsx` | one More-menu entry (*Mobile App* on the web, *This phone* in the APK), gated on `isFeatureEnabled('mobile-app')` |
 | `frontend/src/components/common/Footer.tsx` | "Get the app" link, same gate |
 | `frontend/src/config/features.ts`, `components/rec/RecHostPreview.tsx` | the generic `previewActions` slot: the card mounts a feature's component for its device model and lets it claim the click — an unpaired phone slot offers its pairing code instead of the offline placeholder (`PhoneSlotPreviewAction.tsx`) |
+| `frontend/src/config/features.ts`, `pages/Settings.tsx` | the generic `settingsNotices` slot: inside the APK, Settings shows the installed version and offers a newer published one (`AppUpdateNotice.tsx`) |
 | `infra/proxy/nginx/config/*.conf` | `location ~ ^/host/([^/]+)/phone/socket\.io/` WebSocket upgrade proxy |
 
 Core fetch/auth/socket changes made during TASK-17 (server identity vs page origin, per-server

@@ -5,7 +5,7 @@ Testcase tool definitions - AUTO-GENERATED (DEBUG VIEW)
 This file is auto-generated from docstrings in testcase_tools.py
 To change definitions, update the docstrings in the implementation.
 
-Generated: 6 tools
+Generated: 7 tools
 """
 
 from typing import List, Dict, Any
@@ -21,7 +21,7 @@ def get_tools() -> List[Dict[str, Any]]:
     return [
     {
         "name": "execute_testcase",
-        "description": "Execute a test case by name (or graph for unsaved testcases) \u26a0\ufe0f CRITICAL: Host/Device Selection - If user explicitly specifies host_name/device_id: Use those values directly - Otherwise: Call get_compatible_hosts(userinterface_name='...') FIRST to find compatible hosts - DO NOT use default values blindly without checking compatibility REUSES existing /server/testcase/execute endpoint (same as frontend) Pattern from server_testcase_routes.py line 167 Workflow (when host NOT specified by user): 1. Call get_compatible_hosts(userinterface_name='your_ui') 2. Use recommended host_name and device_id from response 3. Call execute_testcase with those values Workflow (when user specifies host): 1. User says \"use host X with device Y\" 2. Call execute_testcase directly with host_name='X', device_id='Y' MCP-formatted response with execution results",
+        "description": "Start a test case by name (or graph for unsaved testcases) and return its execution_id at once The run goes on on the host. This tool does NOT wait for the result: call get_testcase_execution_status(execution_id, host_name) until `done` is true. \u26a0\ufe0f CRITICAL: Host/Device Selection - If user explicitly specifies host_name/device_id: Use those values directly - Otherwise: Call get_compatible_hosts(userinterface_name='...') FIRST to find compatible hosts - DO NOT use default values blindly without checking compatibility REUSES existing /server/testcase/execute endpoint (same as frontend) Workflow: 1. get_compatible_hosts(userinterface_name='your_ui') unless the user named the host/device 2. execute_testcase(testcase_name, host_name, device_id) -> execution_id 3. get_testcase_execution_status(execution_id, host_name, device_id) until done is true MCP response with structuredContent {execution_id, host_name, device_id, status: 'running', done: false}",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -29,19 +29,37 @@ def get_tools() -> List[Dict[str, Any]]:
                     "type": "string",
                     "description": "Test case name like 'Login Flow Test'"
                 },
+                "host_name": {
+                    "type": "string",
+                    "description": "Host to run on, from get_compatible_hosts"
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "Device to run on, from get_compatible_hosts"
+                },
+                "userinterface_name": {
+                    "type": "string",
+                    "description": "Interface override, defaults to the testcase's interface"
+                },
                 "graph_json": {
                     "type": "object",
                     "description": "For unsaved/temporary testcases only"
+                },
+                "team_id": {
+                    "type": "string",
+                    "description": "Team override"
                 }
             },
             "required": [
-                "testcase_name"
+                "testcase_name",
+                "host_name",
+                "device_id"
             ]
         }
     },
     {
         "name": "execute_testcase_by_id",
-        "description": "LEGACY WRAPPER: Load and execute a saved test case by ID \u26a0\ufe0f DEPRECATED: Use execute_testcase(testcase_name=...) instead This wrapper is kept for backward compatibility with existing MCP clients. MCP-formatted response with execution results",
+        "description": "LEGACY WRAPPER: Load and execute a saved test case by ID \u26a0\ufe0f DEPRECATED: Use execute_testcase(testcase_name=...) instead This wrapper is kept for backward compatibility with existing MCP clients. Same as execute_testcase: the execution_id at once; read the result with get_testcase_execution_status",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -54,8 +72,41 @@ def get_tools() -> List[Dict[str, Any]]:
         }
     },
     {
+        "name": "get_testcase_execution_status",
+        "description": "Read the state of a test case started by execute_testcase Waits up to wait_seconds (default 20, max 50) for the run to end, then answers with its current state. Call again while `done` is false. A test case that ran and FAILED is `status: completed, passed: false` (not a tool error); isError is only set when the execution_id is unknown. REUSES existing /server/testcase/execution/<id>/status endpoint (same as frontend) MCP response with structuredContent {execution_id, status: running|completed|failed|aborted|unknown, done, passed, report_url, logs_url, execution_time_ms, error, current_block_id}",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "execution_id": {
+                    "type": "string",
+                    "description": "execution_id returned by execute_testcase"
+                },
+                "host_name": {
+                    "type": "string",
+                    "description": "Host the test case runs on (same as given to execute_testcase"
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "Device the test case runs on"
+                },
+                "wait_seconds": {
+                    "type": "integer",
+                    "description": "Seconds to wait for the run to end before answering: default 20, max 50, 0 answers at once"
+                },
+                "team_id": {
+                    "type": "string",
+                    "description": "Team override"
+                }
+            },
+            "required": [
+                "execution_id",
+                "host_name"
+            ]
+        }
+    },
+    {
         "name": "list_testcases",
-        "description": "List all saved test cases. MCP-formatted response with list of test cases\n\nExample: list_testcases()",
+        "description": "List all saved test cases. Team is automatically inferred from server configuration (TEAM_ID env var). MCP-formatted response with list of test cases\n\nExample: list_testcases()",
         "inputSchema": {
             "type": "object",
             "properties": {},
@@ -101,7 +152,7 @@ def get_tools() -> List[Dict[str, Any]]:
     },
     {
         "name": "save_testcase",
-        "description": "Save a test case graph to the database REUSES existing /server/testcase/save endpoint (same as frontend) Pattern from server_testcase_routes.py line 28 MCP-formatted response with saved testcase info",
+        "description": "Save a test case graph to the database \u2705 RECOMMENDED FOR AI AGENTS: Use this tool to save test cases you've built yourself. Graph format example: { \"nodes\": [ {\"id\": \"start\", \"type\": \"start\", \"data\": {\"label\": \"Start\"}, \"position\": {\"x\": 250, \"y\": 50}}, {\"id\": \"nav-1\", \"type\": \"navigation\", \"data\": {\"action_type\": \"navigation\", \"label\": \"Navigate to home\", \"target_node_id\": \"<uuid>\", \"target_node_label\": \"home\"}, \"position\": {\"x\": 250, \"y\": 150}}, {\"id\": \"ver-1\", \"type\": \"verification\", \"data\": {\"action_type\": \"verification\", \"command\": \"waitForTextToAppear\", \"label\": \"Verify page loaded\", \"params\": {\"text\": \"Welcome\", \"timeout\": 10000}}, \"position\": {\"x\": 250, \"y\": 250}}, {\"id\": \"success\", \"type\": \"success\", \"data\": {\"label\": \"Success\"}, \"position\": {\"x\": 250, \"y\": 350}}, {\"id\": \"failure\", \"type\": \"failure\", \"data\": {\"label\": \"Failure\"}, \"position\": {\"x\": 450, \"y\": 350}} ], \"edges\": [ {\"id\": \"e1\", \"source\": \"start\", \"sourceHandle\": \"success\", \"target\": \"nav-1\", \"type\": \"success\"}, {\"id\": \"e2\", \"source\": \"nav-1\", \"sourceHandle\": \"success\", \"target\": \"ver-1\", \"type\": \"success\"}, {\"id\": \"e3\", \"source\": \"ver-1\", \"sourceHandle\": \"success\", \"target\": \"success\", \"type\": \"success\"}, {\"id\": \"e4\", \"source\": \"nav-1\", \"sourceHandle\": \"failure\", \"target\": \"failure\", \"type\": \"failure\"}, {\"id\": \"e5\", \"source\": \"ver-1\", \"sourceHandle\": \"failure\", \"target\": \"failure\", \"type\": \"failure\"} ] } Node types: start, navigation, action, verification, success, failure Use list_navigation_nodes() to get valid target_node_ids for navigation nodes. Use list_actions() to get valid commands for action nodes. Use list_verifications() to get valid commands for verification nodes. REUSES existing /server/testcase/save endpoint (same as frontend) MCP-formatted response with saved testcase info",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -111,7 +162,7 @@ def get_tools() -> List[Dict[str, Any]]:
                 },
                 "graph_json": {
                     "type": "object",
-                    "description": "Graph from generate_test_graph"
+                    "description": "Graph with nodes and edges (see format above"
                 },
                 "testcase_id": {
                     "type": "string",

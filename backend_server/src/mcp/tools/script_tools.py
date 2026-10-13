@@ -1,8 +1,26 @@
-import time
 from typing import Dict, Any
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
+from ..utils.execution_status_constants import DONE_STATES, STATE_RUNNING
+from ..utils.execution_status_formatter import (
+    build_status, started_response, status_response, transient_read_response, unknown_execution_response,
+)
+from ..utils.execution_status_mappers import KIND_SCRIPT, map_script_status
+from ..utils.execution_status_reader import clamp_wait_seconds, is_transient_read_failure, read_until_done
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
+from shared.src.lib.executors.cli_arg_utils import normalize_argv
+
+
+
+# Flags every script accepts through the framework, on top of its own `_script_args`.
+FRAMEWORK_FLAGS = {'--host', '--device', '--userinterface', '--variant', '--ui-mode', '--ui_mode', '--local-debug', '--local_debug'}
+
+
+def find_unknown_flags(parameters: str, script_flags):
+    """Flags in a CLI parameter string that neither the script nor the framework defines."""
+    known = FRAMEWORK_FLAGS | {('--' + f.lstrip('-')) for f in script_flags}
+    return [tok.split('=', 1)[0] for tok in parameters.split()
+            if tok.startswith('--') and tok.split('=', 1)[0] not in known]
 
 
 class ScriptTools:
@@ -76,12 +94,16 @@ class ScriptTools:
         for folder in folders:
             for item in folder.get('items', []):
                 if item.get('type') == 'script':
-                    scripts.append({
+                    entry = {
                         'name': item['id'],  # e.g., 'gw/dns_lookuptime.py'
                         'folder': folder.get('name', 'Root'),
                         'target_rules': item.get('target_rules'),
                         'tags': item.get('tags', []),
-                    })
+                    }
+                    # Virtual (DB-stored) script: execute_script needs this id.
+                    if item.get('is_virtual'):
+                        entry['virtual_script_id'] = item.get('virtual_script_id')
+                    scripts.append(entry)
 
         if not scripts:
             return {"isError": False, "scripts": []}
@@ -97,7 +119,10 @@ class ScriptTools:
     
     def execute_script(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute a Python script on a device. Automatically acquires a device lock for the duration of execution.
+        Start a Python script on a device and return its execution_id at once. Automatically acquires a device lock for the duration of execution.
+
+        The script goes on on the host. This tool does NOT wait for the result: call
+        get_script_execution_status(execution_id) until `done` is true.
 
         ⚠️ MANDATORY PREREQUISITE: You MUST call get_device_info() or get_compatible_hosts() BEFORE this tool
         to discover available host_name and device_id values. Do NOT guess device_id values.
@@ -110,7 +135,8 @@ class ScriptTools:
 
         Args:
             params: {
-                'script_name': str (REQUIRED) - Script filename (e.g., 'my_script.py'),
+                'script_name': str (REQUIRED) - Script filename (e.g., 'my_script.py'), or the virtual script name,
+                'virtual_script_id': str (OPTIONAL) - Required for a virtual (DB-stored) script: the id from list_scripts or save_virtual_script,
                 'host_name': str (REQUIRED) - Host where device is located (from get_device_info or get_compatible_hosts),
                 'device_id': str (OPTIONAL) - Device identifier (defaults to 'host' if not provided),
                 'parameters': str (OPTIONAL) - CLI parameters as string (e.g., '--param1 value1 --param2 value2'),
@@ -119,9 +145,10 @@ class ScriptTools:
             }
 
         Returns:
-            MCP-formatted response with script execution results
+            MCP response with structuredContent {execution_id, host_name, device_id, status: 'running', done: false}
         """
         script_name = params.get('script_name')
+        virtual_script_id = params.get('virtual_script_id')
         host_name = params.get('host_name')
         device_id = params.get('device_id')
         parameters = params.get('parameters', '')
@@ -155,6 +182,24 @@ class ScriptTools:
         if device_id not in valid_device_ids:
             return {"content": [{"type": "text", "text": f"device_id '{device_id}' does not exist on host '{host_name}'. Available device_ids on this host: {valid_device_ids}. Call get_device_info(host_name='{host_name}') to see available devices."}], "isError": True}
         
+        # Normalise aliased flags and reject unknown ones BEFORE dispatch, so the
+        # model gets the valid list back in the same turn instead of a failed run.
+        if parameters and parameters.strip():
+            tokens, alias_warnings = normalize_argv(parameters.split())
+            for warning in alias_warnings:
+                print(f"[@MCP:execute_script] {warning}")
+            parameters = ' '.join(tokens)
+            analyze_data = {'script_name': script_name}
+            if virtual_script_id:
+                analyze_data['virtual_script_id'] = virtual_script_id
+            analysis = self.api.post('/server/script/analyze', data=analyze_data, params={'team_id': team_id})
+            if isinstance(analysis, dict) and analysis.get('success') and isinstance(analysis.get('parameters'), list):
+                script_flags = [p.get('name', '') for p in analysis['parameters'] if p.get('name')]
+                unknown = find_unknown_flags(parameters, script_flags)
+                if unknown:
+                    valid = sorted(FRAMEWORK_FLAGS | {'--' + f for f in script_flags})
+                    return {"content": [{"type": "text", "text": f"Unknown flag(s) {unknown} for {script_name}. Valid flags: {valid}. Fix the parameters string and call execute_script again."}], "isError": True}
+
         # Build parameters string (SAME as RunTests.tsx lines 427-470)
         # The frontend always appends --host and --device at the end
         param_parts = []
@@ -189,6 +234,8 @@ class ScriptTools:
         }
         if environment in ('dev', 'test', 'prod'):
             data['environment'] = environment
+        if virtual_script_id:
+            data['virtual_script_id'] = virtual_script_id
         
         query_params = {'team_id': team_id}
         
@@ -211,8 +258,9 @@ class ScriptTools:
             task_id = result['task_id']
             print(f"[@MCP:execute_script] Async execution started with task_id: {task_id}")
             
-            # POLL for completion - SAME pattern as frontend (useScript.ts lines 269-279)
-            return self._poll_script_completion(task_id, host_name, script_name)
+            structured = build_status(task_id, KIND_SCRIPT, STATE_RUNNING,
+                                      host_name=host_name, device_id=device_id, script_name=script_name)
+            return started_response(structured, script_name, 'get_script_execution_status')
         
         # Check for errors - use exit_code since 'success' is not returned by script executor
         exit_code = result.get('exit_code', 0)
@@ -260,89 +308,40 @@ class ScriptTools:
             "result": self._filter_result_for_mcp(result)
         }
     
-    def _poll_script_completion(self, task_id: str, host_name: str, script_name: str, max_wait: int = 7200) -> Dict[str, Any]:
+    def get_script_execution_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Poll script execution until complete
-        
+        Read the state of a script started by execute_script
+
+        Waits up to wait_seconds (default 20, max 50) for the script to end, then answers with its
+        current state. Call again while `done` is false. A script whose test FAILED is
+        `status: completed, passed: false` (not a tool error); isError is only set when the
+        execution_id is unknown.
+
         REUSES existing /server/script/status/<task_id> endpoint (same as frontend)
-        Pattern from useScript.ts lines 161-220
+
+        Args:
+            params: {
+                'execution_id': str (REQUIRED) - execution_id returned by execute_script,
+                'wait_seconds': int (OPTIONAL) - Seconds to wait for the script to end before answering: default 20, max 50, 0 answers at once
+            }
+
+        Returns:
+            MCP response with structuredContent {execution_id, status: running|completed|failed|aborted|unknown, done, passed, exit_code, script_success, report_url, logs_url, execution_time_ms, error}
         """
-        poll_interval = 10  # 10 seconds - less frequent for long scripts (useScript.ts line 166)
-        elapsed = 0
-        
-        print(f"[@MCP:poll_script] Polling for task {task_id} (max {max_wait}s)")
-        
-        while elapsed < max_wait:
-            time.sleep(poll_interval)
-            elapsed += poll_interval
-            
-            # Poll status endpoint - SAME as frontend (useScript.ts line 174)
-            status = self.api.get(f'/server/script/status/{task_id}')
-            
-            # Check if we got a valid response (useScript.ts line 177)
-            if status.get('success') and status.get('task'):
-                task = status['task']
-                current_status = task.get('status')
-                
-                if current_status == 'completed':
-                    print(f"[@MCP:poll_script] Script completed after {elapsed}s")
-                    task_result = task.get('result', {})
-                    
-                    # Extract results - SAME as frontend (useScript.ts lines 181-189)
-                    # Determine success: exit_code 0 = process ran successfully
-                    # Note: script_success indicates test pass/fail, NOT tool execution success
-                    exit_code = task_result.get('exit_code', 0)
-                    script_success = task_result.get('script_success')
-                    report_url = task_result.get('report_url', '')
-                    logs_url = task_result.get('logs_url', '')
-                    execution_time_ms = task_result.get('execution_time_ms', elapsed * 1000)
-                    device_id = task_result.get('device_id', '')
-                    
+        task_id = params.get('execution_id')
+        if not task_id:
+            return {"content": [{"type": "text", "text": "Error: execution_id is required"}], "isError": True}
 
-                    
-                    # Tool execution is successful if process exited cleanly (exit_code 0)
-                    is_tool_error = exit_code != 0
-                    
-                    response_text = f"✅ Script '{script_name}' completed\n"
-                    response_text += f"Exit code: {exit_code}\n"
-                    if script_success is not None:
-                        response_text += f"Test result: {'PASSED' if script_success else 'FAILED'}\n"
-                    if report_url:
-                        response_text += f"\n📄 Report: [View Report]({report_url})"
-                    if logs_url:
-                        response_text += f"\n📋 Logs: [View Logs]({logs_url})"
-                    
-                    # Return filtered result (no stdout/stderr) to reduce token usage
-                    return {
-                        "isError": is_tool_error,
-                        "result": self._filter_result_for_mcp(task_result)
-                    }
-                
-                elif current_status == 'failed':
-                    print(f"[@MCP:poll_script] Script failed after {elapsed}s")
-                    task_result = task.get('result', {})
-                    exit_code = task_result.get('exit_code', 1)
-                    script_success = task_result.get('script_success')
-                    report_url = task_result.get('report_url', '')
-                    logs_url = task_result.get('logs_url', '')
-                    error = task.get('error', 'Script execution failed')
-                    
-                    response_text = f"❌ Script '{script_name}' failed after {elapsed}s\n"
-                    response_text += f"Exit code: {exit_code}\n"
-                    if script_success is not None:
-                        response_text += f"Test result: {'PASSED' if script_success else 'FAILED'}\n"
-                    response_text += f"Error: {error}\n"
-                    if report_url:
-                        response_text += f"\n📄 Report: [View Report]({report_url})"
-                    if logs_url:
-                        response_text += f"\n📋 Logs: [View Logs]({logs_url})"
-                    
-                    filtered = self._filter_result_for_mcp(task_result)
-                    return {"content": [{"type": "text", "text": response_text}], "isError": True, "result": filtered}
+        response = read_until_done(
+            lambda: self.api.get(f'/server/script/status/{task_id}'),
+            lambda r: map_script_status(task_id, r)['status'] in DONE_STATES,
+            clamp_wait_seconds(params.get('wait_seconds')),
+        )
 
-                elif current_status in ['pending', 'running']:
-                    print(f"[@MCP:poll_script] Status: {current_status} - {elapsed}s elapsed")
-        
-        print(f"[@MCP:poll_script] Script execution timed out after {max_wait}s")
-        return {"content": [{"type": "text", "text": f"Script execution timed out after {max_wait}s"}], "isError": True}
+        if not response.get('success'):
+            error = response.get('error', 'Unknown error')
+            if is_transient_read_failure(response):
+                return transient_read_response(task_id, KIND_SCRIPT, error)
+            return unknown_execution_response(task_id, KIND_SCRIPT, error)
 
+        return status_response(map_script_status(task_id, response))

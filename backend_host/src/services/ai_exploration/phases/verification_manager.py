@@ -266,6 +266,22 @@ def approve_node_verifications(executor, approved_verifications: List[Dict], tea
             
             nodes_to_save.append(node_data)
         
+        # The start node (home) is not created by the generation, so no suggestion carries it,
+        # but its screenshot was taken and uploaded at Start: attach it when home has none, so
+        # every node of the tree shows a screenshot (TASK-40).
+        start_node_id = executor.exploration_state.get('home_id')
+        start_screenshot = executor.exploration_state.get('current_analysis', {}).get('screenshot')
+        if start_node_id and start_screenshot and all(n.get('node_id') != start_node_id for n in nodes_to_save):
+            start_result = get_node_by_id(tree_id, start_node_id, team_id)
+            if start_result.get('success'):
+                start_data = start_result['node']
+                if not (start_data.get('data') or {}).get('screenshot'):
+                    start_data['data'] = {**(start_data.get('data') or {}),
+                                          'screenshot': start_screenshot,
+                                          'screenshot_timestamp': int(time.time() * 1000)}
+                    nodes_to_save.append(start_data)
+                    print(f"  📸 Start node '{start_node_id}' gets the Start screenshot: {start_screenshot}")
+        
         # Save all updated nodes in a SINGLE BATCH
         # This ensures the materialized view refresh trigger fires only ONCE
         if nodes_to_save:

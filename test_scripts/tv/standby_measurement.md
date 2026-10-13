@@ -47,6 +47,7 @@ So to see the user's chosen friendly name on the recorded KPI when measuring a m
    - `goto(<standby_node>)` — traverses the `live → standby` edge (POWER).
    - `sleep(<standby_wait>)` — dwell in standby.
    - `goto(<live_node>)` — traverses the **`standby → live`** edge (POWER), which the KPI pipeline auto-measures.
+   - **Deep standby (dwell of 5 min or more):** the wake is the BLE WoBLE cold-wake instead of the POWER press. The cold-wake brings the STB up to live on its own, so no POWER is pressed (it would send the box back to standby). The script polls the live node's verifications for up to 60 s, then records the same `standby → live` row and queues its KPI with the **cold-wake emission as the start** and the live-node verification as the end anchor, so the KPI is the time from the BLE wake signal until the live node appears. With a non-BLE remote, or if live does not appear in time, it falls back to `goto(<live_node>)` (POWER).
 5. Poll `execution_results` every 3s (max 60s) until `--iterations` wake measurements have been post-processed by `vpt-kpi.service`.
 6. Filter to the `standby → live` action_set, compute min/max/avg, and emit a per-iteration breakdown (reusing `_append_direction_metrics`).
 

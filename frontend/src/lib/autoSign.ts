@@ -110,6 +110,18 @@ export const tryActivateAutoSign = (): boolean => {
     return true;
   }
 
+  // A page reload of a tab that was activated with ?auto_signed=<token>: the URL no
+  // longer carries the token (stripped above) and production bundles are built with
+  // auto-sign disabled, so without this the stored token was wiped and the reload landed
+  // on /login (BUG-0392). Tab-scoped on purpose: only sessionStorage, which a reload keeps
+  // and a new tab or browser restart does not. The backend still validates the token.
+  if (
+    sessionStorage.getItem(AUTO_SIGN_FLAG_KEY) === 'true' &&
+    sessionStorage.getItem(AUTO_SIGN_TOKEN_KEY)
+  ) {
+    return true;
+  }
+
   clearAutoSignSession();
   return false;
 };

@@ -14,13 +14,14 @@ features/<name>/
   backend_host/__init__.py      optional: same for the host app
   backend_host/*.py             optional: standalone scripts run by units below
   backend_host/services/*.service  optional: systemd unit templates (%PROJECT_ROOT%), installed as vpt-<unit>.service
-  frontend/routes.tsx           optional: default-exports a FeatureDefinition (routes / nav / deviceLinks / previewActions)
+  frontend/routes.tsx           optional: default-exports a FeatureDefinition (routes / nav / deviceLinks / previewActions / settingsNotices)
   frontend/**                   pages, components, hooks of the feature
   grafana/*.json                optional: dashboards (push with infra/monitoring/grafana/dashboards/_push_dashboard.py)
   lib/                          optional: python shared by the feature's server + host parts (features.<name>.lib)
   skills/<skill>/SKILL.md       optional: agent skills, loaded next to backend_server/src/agent/skills/definitions/
   backend_server/mcp_tools/*_tools.py  optional: MCP tool classes, discovered like backend_server/src/mcp/tools/
   app/                           optional: native app project, not deployed to any VM
+  scripts/*.py                   optional: operator scripts run by hand (sys.path bootstrap three levels up); nothing discovers them
   db/*.sql                       optional: the feature's own migrations, idempotent; NOT applied by any deploy script (see Rules)
   README.md                      recommended: parts, the core hooks the feature relies on, docs, tests, how to disable
 ```
@@ -80,6 +81,9 @@ Slots offered by core (all append-only, order = feature folder name):
 | `routes[].hideFloatingAiButton: true` | the floating Ask-AI button (`AIOmniOverlay`) is hidden while the location matches that route (`matchesFeatureRoute(pathname, 'hideFloatingAiButton')`) — for builder pages that carry their own AI/device chrome |
 | `deviceLinks` | per-device shortcut on the Dashboard |
 | `previewActions` | per-`device_model` stand-in for the click on a REC preview card (`RecHostPreview.tsx`): the card always mounts `Component` with `{hostName, deviceId, open, onClose, onCanHandleChange}`; while it reports `canHandle=true` the click opens it instead of the stream modal — used by `mobile-app` for an unpaired phone slot |
+| `videoOverlays` | drawn inside the device video player (`EnhancedHLSPlayer.tsx`): each `Component` is mounted with `{hostName, deviceId, isLiveMode, monitoringMode}` and fetches its own data — used by `companion` for the strip under the live video |
+| `settingsNotices` | components mounted under the Settings title (`Settings.tsx`), no props; each renders nothing when it has nothing to say — used by `mobile-app` for the APK's update banner |
+| `mods` | mods (TASK-77, `docs/agent/platform/MODS.md`): each `ModDefinition` hooks app events and draws into the core `app.header` / `app.band` / `app.overlay` / `app.side` / `app.pane` slots; every user switches each one on or off on Settings > Mods — used by `mods` |
 
 Nav items go through the same page-visibility layers as core ones (the path is the key).
 
@@ -174,7 +178,9 @@ Every feature currently reports gaps; the `Tests` column below is the summary of
 | `virtual-scripts` | backend_server, frontend, lib | none | Virtual Scripts editor (`/builder/virtual-scripts`) + `/server/virtual-script/*` CRUD/validation/versions; the virtual-script *runtime* (`virtual_scripts_db`, `script_executor` `virtual_script_id`, executable listing, RunTests) is core |
 | `cicd` | backend_server, frontend, grafana, lib, db | component (render-only) | CI/CD Reports (Test → Report) and Run CI/CD (Test → Execute) over the `cicd` schema + `/server/cicd/*`; GitHub `workflow_dispatch` with runner choice, `ci_projects` registry, *CI/CD Quality* dashboard. Deny-listed for the customer overlay. User-facing page: [CI/CD](../features/cicd.md); implementation reference: `docs/agent/execution/CICD_FEATURE.md` (internal) |
 | `mobile-app` | backend_server, backend_host, frontend, lib, app, db | unit (host bridge + sim), tier A (server routes), component (both pages), page sweep | One Android APK: the web frontend in a Capacitor shell, plus a phone-as-device mode (scan a QR code, the phone streams its screen and accepts taps/swipes/keys/text through an existing host, `device_model: phone_agent`). The mobile *layout* is core. User page: [Mobile App](../features/mobile-app.md); operators: [MOBILE_APP.md](MOBILE_APP.md); hooks + tests: `features/mobile-app/README.md` |
+| `ai-dataset` | backend_server, frontend, lib, scripts, db | tier A (server routes + registration, mining script, step 5 scoring, step 6 export, step 4i triage), page sweep | Admin-only **AI Dataset** page (`/training-review`, AI dropdown) to human-label captured AI training samples and freeze an eval set, `/server/training-samples/*`, `scripts/mine_failures.py`, and the step 5 eval scoring (`lib/family_prompts.py`, `lib/comparators.py`, `scripts/score_eval.py`, pinned profile with no fallback), and the step 6 export `scripts/export_dataset.py` (combined dataset for the top-level `training/` folder). Step 4i: AI triage, where an AI worker labels in place of the human and the human sees only disagreements and a spot-check (`scripts/triage_batch.py`, the *Needs you* view, the `eval-v0-ai` freeze, feature migration `db/001_triage.sql` applied by hand). Sample *capture* (helper, DB module, migration, hooks, `get_training_storage`) is core and inert unless `TRAINING_DATA_ENABLED`. Design: [TASK-27](../tasks/TASK-27-ai-training-dataset.md); hooks + tests: `features/ai-dataset/README.md` |
 | `device-farm` | backend_host, lib, db | unit (providers, lease, pump, controllers) | Cloud device farms as devices (`cloud_android_mobile` / `cloud_ios_mobile`): a leased W3C Appium session against Sauce Labs (BrowserStack / LambdaTest carry their session shape only), screenshots pumped into the slot's image file so the core ffmpeg imagefile grabber makes the stream, and the `appium` **and `adb`** verification types re-backed so they share that one session. A farm phone is in the `android_phone` model family, so it is offered the userinterfaces and scripts already written for an Android phone rather than needing its own. No frontend part — the device reports as an Appium remote and reuses the existing panel. Design: [TASK-20](../tasks/TASK-20-device-farm-integration.md); hooks + tests: `features/device-farm/README.md` |
+| `companion` | backend_server, backend_host (+service), frontend, lib | unit (lib, pipeline, service, host route, registration on/off) | Live-TV companion: what is on screen (screen type, category, programme) with zero setup, programme facts from a web-grounded AI lookup, live score + events for soccer/rugby/basketball (Labox match card) and time left for films/series. `vpt-companion` service reads capture files only; per-device opt-in `DEVICE{N}_COMPANION=true`. Web-grounded AI calls (`text.web`) and the `content-type` training family are core. Design: [TASK-05](../tasks/TASK-05-live-tv-ai-companion.md); hooks + tests: `features/companion/README.md` |
 
 Feature files import core code by relative path (`../../../frontend/src/...`,
 `shared.src.lib...`). Bare imports (`react`, `@mui/...`) resolve to `frontend/node_modules`
@@ -195,7 +201,7 @@ path `from ...<other>.lib.foo import x` is impossible with a hyphenated name —
 `importlib.import_module('features.<other>.lib.foo')` and document the direction in both
 manifests). The dependent feature must then be disabled whenever the other is. If both
 features need the same helper, put it in core `shared/` instead. Today no feature imports
-another (`ai-test` and `virtual-scripts` are independent).
+another (`ai-test`, `ai-dataset` and `virtual-scripts` are independent).
 
 ## Rules
 

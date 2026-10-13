@@ -9,7 +9,7 @@ they are displayed.
 
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from backend_server.src.lib.auth_middleware import require_user_auth, require_role
+from backend_server.src.lib.auth_middleware import require_permission, require_user_auth
 import os
 import re
 import shutil
@@ -17,6 +17,28 @@ import subprocess
 from datetime import datetime
 
 server_settings_bp = Blueprint('server_settings', __name__, url_prefix='/server/settings')
+
+# =====================================================
+# NEVER-EXPOSED-KEYS
+# =====================================================
+#
+# Internal signing/sealing secrets that must NEVER appear in the GET
+# /server/settings/config payload. The Settings UI posts back the whole
+# server/frontend section it loaded, so any key returned here is silently
+# re-saved on the next click of "Save" — a blank or stale value would
+# overwrite the live secret. Filtering the key out of the GET response
+# keeps it out of the round-trip entirely (see merge_env_text: it only
+# touches keys present in the updates dict, so a key never sent is
+# preserved on the next save). The list is intentionally narrow — only
+# keys that are purely internal signing material. Credentials used by the
+# Settings UI to edit (provider API keys, etc.) still flow through.
+NEVER_EXPOSED_KEYS = frozenset({
+    'SUPABASE_JWT_SECRET',     # JWT signing key used by host + server
+    'FLASK_SECRET_KEY',        # Flask session signing key
+    'MCP_SECRET_KEY',           # MCP server shared secret
+    'AUTO_SIGN_TOKEN',          # CI / browser auto-sign bypass token
+    'SUPABASE_SERVICE_ROLE_KEY',  # admin role key — server-only, never UI
+})
 
 # =====================================================
 # FRONTEND SSH BRIDGE
@@ -61,6 +83,19 @@ def get_project_root():
     """Get the project root directory"""
     current_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))
+
+
+# Env keys the AI stack read before TASK-30 moved AI routing into the database.
+REMOVED_AI_ENV_KEYS = frozenset({
+    'AI_PROVIDER',
+    'AI_AGENT_PROVIDER', 'AI_AGENT_MODEL',
+    'AI_VISION_PROVIDER', 'AI_VISION_MODEL',
+    'AI_TEXT_PROVIDER', 'AI_TEXT_MODEL',
+    'LOCAL_AI_BASE_URL', 'LOCAL_AI_MODEL', 'LOCAL_AI_API_KEY', 'LOCAL_AI_TIMEOUT',
+    'ANALYZER_OPENROUTER_MODEL', 'DOM_MODEL', 'DOM_EFFORT',
+    'VLM_PROVIDER', 'VLM_PROVIDER_FALLBACK', 'VLM_TIMEOUT_SECONDS',
+    'OPENAI_VLM_MODEL', 'ANTHROPIC_VLM_MODEL', 'GEMINI_VLM_MODEL',
+})
 
 
 def get_env_paths():
@@ -201,15 +236,29 @@ def get_frontend_env(server_env):
 
 @server_settings_bp.route('/config', methods=['GET'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.general:view')
 @handle_route_exceptions('server_settings:get_config')
 def get_config():
     """Get every key from all .env files. Admin-only — values are returned in full."""
     env_paths = get_env_paths()
-    server_env = parse_env_file(env_paths['server'])
+    # Retired AI keys (TASK-30) are not shown: the POST refuses them, and the page
+    # saves the whole server map it loaded.
+    server_env = {k: v for k, v in parse_env_file(env_paths['server']).items() if k not in REMOVED_AI_ENV_KEYS}
     frontend_env, frontend_source, frontend_warning = get_frontend_env(server_env)
     host_env = parse_env_file(env_paths['host'])
     host_flat = strip_device_keys(host_env)
+
+    # NEVER_EXPOSED_KEYS are dropped entirely from the GET response. The
+    # Settings UI re-saves the whole section it received, and update_config
+    # uses merge_env_text which only touches keys present in the updates
+    # dict — so a key never sent is preserved on disk. This avoids both the
+    # leak (value in JSON) and the destructive round-trip (blank overwrite).
+    # The frontend's server_sensitive_keys / frontend_sensitive_keys lists
+    # (built from is_sensitive_key) continue to drive input-mask rendering
+    # for non-NEVER keys like provider API keys.
+    server_env = {k: v for k, v in server_env.items() if k not in NEVER_EXPOSED_KEYS}
+    frontend_env = {k: v for k, v in frontend_env.items() if k not in NEVER_EXPOSED_KEYS}
+    host_flat = {k: v for k, v in host_flat.items() if k not in NEVER_EXPOSED_KEYS}
 
     return jsonify({
         'server': server_env,
@@ -226,7 +275,7 @@ def get_config():
 
 @server_settings_bp.route('/config', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.general:edit')
 @handle_route_exceptions('server_settings:update_config')
 def update_config():
     """Update .env keys. Every key sent for a section is written — no whitelist."""
@@ -238,16 +287,12 @@ def update_config():
 
     if data.get('server'):
         server_updates = dict(data['server'])
-        # Validate AI provider/model combo before writing. Resolve the effective
-        # values by overlaying this update on the current env — covers the case
-        # where only one of {provider, model} is being changed.
-        if 'AI_AGENT_PROVIDER' in server_updates or 'AI_AGENT_MODEL' in server_updates:
-            from shared.src.lib.ai.config import validate_provider_model
-            effective_provider = server_updates.get('AI_AGENT_PROVIDER') or os.getenv('AI_AGENT_PROVIDER', '')
-            effective_model = server_updates.get('AI_AGENT_MODEL') or os.getenv('AI_AGENT_MODEL', '')
-            model_error = validate_provider_model(effective_provider, effective_model)
-            if model_error:
-                return jsonify({'error': model_error}), 400
+        # AI models are routed from the database since TASK-30; these env keys are no
+        # longer read, so refuse them rather than store config that silently does nothing.
+        stale_ai_keys = sorted(k for k in server_updates if k in REMOVED_AI_ENV_KEYS)
+        if stale_ai_keys:
+            return jsonify({'error': f"{', '.join(stale_ai_keys)} no longer configure AI; "
+                                     "use Settings → AI (endpoints, profiles, routing)."}), 400
         write_env_file(env_paths['server'], server_updates)
         for key, value in server_updates.items():
             os.environ[key] = value
@@ -293,7 +338,7 @@ def update_config():
 
 @server_settings_bp.route('/host-config', methods=['GET', 'POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.general:edit')
 @handle_route_exceptions('server_settings:host_config')
 def host_config():
     """Read or save configuration on a selected registered host."""
@@ -316,9 +361,37 @@ def host_config():
     return jsonify(response_data), status_code
 
 
+@server_settings_bp.route('/host-grabbers', methods=['GET'])
+@require_user_auth
+@require_permission('settings.general:view')
+@handle_route_exceptions('server_settings:host_grabbers')
+def host_grabbers():
+    """List capture cards / bluetooth / IR peripherals detected on a host.
+
+    The Host & Devices UI calls this when the operator selects a host in
+    the Settings page so it can pre-fill ``DEVICE_VIDEO`` and
+    ``DEVICE_VIDEO_AUDIO`` together (one click on a row of the
+    "Detected Grabbers" panel). The endpoint is GET-only and read-only
+    on the host side; the host's `/host/system/grabbers` does the actual
+    ``v4l2-ctl`` + ``/sys`` walk.
+    """
+    host_name = request.args.get('host_name')
+    if not host_name:
+        return jsonify({'success': False, 'error': 'host_name is required'}), 400
+    from backend_server.src.lib.utils.server_utils import get_host_manager
+    host_data = get_host_manager().get_host(host_name)
+    if not host_data:
+        return jsonify({'success': False, 'error': f'Host {host_name} not found'}), 404
+    from shared.src.lib.utils.build_url_utils import call_host
+    response_data, status_code = call_host(
+        host_data, '/host/system/grabbers', method='GET', data=None, timeout=15,
+    )
+    return jsonify(response_data), status_code
+
+
 @server_settings_bp.route('/restart-host-service', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_settings:restart_host_service')
 def restart_host_settings_service():
     """Restart only the host services exposed by the Host & Devices settings UI."""
@@ -339,7 +412,7 @@ def restart_host_settings_service():
 
 @server_settings_bp.route('/restart-frontend', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_settings:restart_frontend')
 def restart_frontend():
     """Restart the real frontend VM's service over the SSH bridge (see CONTRACTS.md #18b).
@@ -360,7 +433,7 @@ def restart_frontend():
 
 @server_settings_bp.route('/backup', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.general:edit')
 @handle_route_exceptions('server_settings:backup')
 def backup_config():
     """Create a manual backup of every local .env file this process can see."""

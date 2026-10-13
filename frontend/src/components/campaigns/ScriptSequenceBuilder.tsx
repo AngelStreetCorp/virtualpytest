@@ -210,6 +210,13 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
         </Typography>
       );
     }
+    if (analysis.error) {
+      return (
+        <Typography variant="caption" color="error">
+          Could not load parameters: {analysis.error}
+        </Typography>
+      );
+    }
     if (!analysis.parameters) {
       return (
         <Typography variant="caption" color="text.secondary">
@@ -286,7 +293,7 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
         >
           <CardContent sx={{ textAlign: 'center', py: 4 }}>
             <Typography variant="body2" color="text.secondary">
-              No scripts added yet. Click the + button to add one.
+              {hideAddButton ? 'Nothing added yet. Pick tests in the list above to add them here, in run order.' : 'No scripts added yet. Click the + button to add one.'}
             </Typography>
           </CardContent>
         </Card>

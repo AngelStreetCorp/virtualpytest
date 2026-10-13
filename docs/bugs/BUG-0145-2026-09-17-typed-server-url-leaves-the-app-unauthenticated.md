@@ -80,7 +80,7 @@ returns already says whether the app ended up configured — no second `getStatu
 
 ## Not to be confused with
 
-[BUG-0144](BUG-0144-2026-09-17-signed-out-server-never-offers-a-login.md), fixed an hour earlier
+[BUG-0147](BUG-0147-2026-09-17-signed-out-server-never-offers-a-login.md), fixed an hour earlier
 in the same session. That one is why *no* prompt appeared at all; this one is why the prompt that
 did appear was the wrong one. Both had to be fixed before a typed-URL install could reach a
 normal login.

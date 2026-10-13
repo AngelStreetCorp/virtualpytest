@@ -267,7 +267,7 @@ Update existing node properties (including verifications).
     "verifications": [
       {
         "command": "waitForElementToAppear",
-        "params": {"search_term": "Settings", "timeout": 10},
+        "params": {"search_term": "Settings", "timeout": 10000},
         "verification_type": "adb"
       }
     ]

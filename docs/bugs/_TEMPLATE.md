@@ -9,7 +9,7 @@
 | Status    | Open / In progress / Fixed (pending deploy) / Closed         |
 | Severity  | Low / Medium / High / Critical                               |
 | Area      | e.g. frontend / backend / db / userinterface                 |
-| Fixed in  | Unreleased (the cut sets the build — never copy VERSION.txt)  |
+| Fixed in  | Unreleased                                                   |
 | Commit    | `shortHash` (or "TBD")                                       |
 
 ---

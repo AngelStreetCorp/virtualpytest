@@ -1,0 +1,21 @@
+{
+ "id": "rFkZxSoK0zM",
+ "title": "Every navigation timed, automatically: KPI measurement in VirtualPyTest",
+ "description": "Nobody writes a performance test here. Every time a navigation runs, VirtualPyTest times how long the screen took to arrive, from the captured frames, and keeps the evidence.\n\nWhat you see:\n1. The app mapped as a navigation tree: every edge is a transition the platform can time.\n2. One edge configured with what \"arrived\" looks like: a text or an image the screen must show.\n3. A normal test run crossing that edge. The KPI is measured in the background.\n4. The KPI back on the edge, green under its 3 s budget, and its report: the frame before, the frame at the action, and the frame where the results appeared.\n5. The scan mosaic: every frame it scanned, in one strip, with the match in green.\n6. The reference: what it looked for, where it found it, and the score.\n7. The test report's own mosaic: one tile per step of the run.\n\nChapters\n0:00 Every navigation, timed\n0:04 The map\n0:07 Configure\n0:14 Run\n0:23 The number\n0:36 Scan mosaic\n0:42 The reference\n0:56 Test mosaic",
+ "tags": [
+  "kpi measurement",
+  "ui performance",
+  "time to screen",
+  "navigation timing",
+  "test automation",
+  "set-top box testing",
+  "android tv testing",
+  "web automation",
+  "playwright",
+  "open source",
+  "virtualpytest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-28"
+}

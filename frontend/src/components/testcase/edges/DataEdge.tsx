@@ -4,11 +4,12 @@ import {
   EdgeProps,
   getBezierPath,
 } from 'reactflow';
+import { AGENT_CHAT_PALETTE } from '../../../constants/agentChatTheme';
 
 /**
  * Data Edge - Dashed connection showing data flow between blocks
  * 
- * Visual: Blue dashed line (distinct from FLOW edges)
+ * Visual: muted steel dashed line (distinct from FLOW edges)
  * Used for: Variable passing between blocks (IN/OUT connections)
  */
 export const DataEdge: React.FC<EdgeProps & { 
@@ -36,9 +37,9 @@ export const DataEdge: React.FC<EdgeProps & {
     targetPosition,
   });
 
-  // Data edges are always blue dashed
+  // Data edges are always steel dashed
   const edgeStyle = {
-    stroke: selected ? '#3b82f6' : '#60a5fa', // Blue (lighter when not selected)
+    stroke: selected ? AGENT_CHAT_PALETTE.accent : AGENT_CHAT_PALETTE.series[1],
     strokeWidth: selected ? 3 : 2,
     strokeDasharray: '8, 4', // Dashed line
     opacity: 0.8,

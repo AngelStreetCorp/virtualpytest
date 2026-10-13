@@ -114,9 +114,14 @@ The `install_host.sh` script performs these steps:
    - Installs backend_host requirements
    - Installs Playwright browsers
 
-4. **Configure LIRC**
-   - Sets up IR remote control support
-   - Configures `/etc/lirc/lirc_options.conf`
+4. **Configure IR remote control**
+   - Detects the platform (Raspberry Pi vs generic x86)
+   - Configures `/etc/lirc/lirc_options.conf` and starts `lircd`
+   - On a **non-Pi host with a USB IR Toy (`04d8:fd08`) attached**: installs
+     `udev/95-vpt-irtoy.rules` (stable `/dev/irtoy` symlink) and adds `vpt_user` to
+     `dialout` for the CDC serial node, then prints the `DEVICE{n}_IR_SERIAL=`
+     lines to add. No kernel module is needed — see
+     [INFRARED.md § 2c](../../../../docs/agent/devices/INFRARED.md).
 
 5. **Setup Environment**
    - Creates `.env` from template if not exists at `backend_host/src/.env`
@@ -166,6 +171,20 @@ All services use the naming convention `vpt-{service}.service`:
 | `vpt-vnc.service` | TigerVNC Server | 5901 |
 | `vpt-websockify.service` | noVNC WebSocket Proxy | 6080 |
 
+### Lite profile: one device on a 1 GB board
+
+Put `HOST_PROFILE=lite` in `backend_host/src/.env` **before** running `install_host.sh`
+([TASK-83](../../../../docs/tasks/TASK-83-lite-host-1gb.md)):
+
+- Only `vpt-host`, `vpt-stream`, `vpt-monitor` and `vpt-archiver` are installed. On a host that had the
+  full set, vpt-transcript / kpi / vnc / websockify / subtitle / rtsp / mediamtx / avq / companion are
+  stopped and disabled (`update_core.sh` only restarts units that are running, so they stay off).
+- No desktop, VNC, PulseAudio or browser packages; a lite host has no `host_vnc` device.
+- 512 MB zram swap (`zram-tools`, zstd); a `dphys-swapfile` on the SD card is turned off.
+- The capture ffmpeg runs HLS only (as `WEBRTC_ENABLED=false`) and single-threaded.
+- Navigation does not queue KPI scans; the dashboard shows KPI / transcript / VNC as optional.
+- Add `ARCHIVE_VIDEO=false` on an SD-card-only board (no Last 24h; report videos cover the ~60 s hot window).
+
 ## Configuration
 
 ### Data Directory
@@ -190,10 +209,17 @@ HOST_VIDEO_AUDIO=null
 HOST_VIDEO_CAPTURE_PATH=/var/www/html/stream/host
 HOST_VIDEO_FPS=2
 
-# Device configurations
+# Device configurations.
+# DEVICE*_VIDEO_AUDIO is no longer required to be set by hand: the
+# Host & Devices form auto-fills it from the host's UVC+UAC USB-topology
+# walk the next time the operator opens Settings. Leave the field blank
+# (or omit it entirely) and the form will write the detected value on
+# the first save. The form shows a small caption under the field
+# telling the operator which source is in effect.
 DEVICE1_VIDEO=/dev/video1
 DEVICE1_VIDEO_CAPTURE_PATH=/var/www/html/stream/device1
 DEVICE1_VIDEO_FPS=10
+# DEVICE1_VIDEO_AUDIO=plughw:1,0    # auto-detected — see "Detected Grabbers" in the form
 
 # Flask API
 HOST_PORT=6109
@@ -303,7 +329,16 @@ lsusb
 # List video devices
 v4l2-ctl --list-devices
 
-# List audio devices
+# Run the grabber detector — prints every UVC node pre-paired with its
+# USB UAC sibling (plughw:N,0), plus BT and IR. This is what the
+# Host & Devices form's "Detected Grabbers" panel reads.
+bash /opt/virtualpytest/scripts/detect_grabber.sh
+# (The matching JSON endpoint is GET /host/system/grabbers, surfaced
+#  as GET /server/settings/host-grabbers?host_name=<name> for the UI.)
+
+# List audio devices manually — only needed if you want to verify the
+# detected pairing or fill DEVICE*_VIDEO_AUDIO by hand (the form does
+# this automatically from the report above).
 arecord -l
 
 # Test video capture

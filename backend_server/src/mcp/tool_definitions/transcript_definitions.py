@@ -21,16 +21,35 @@ def get_tools() -> List[Dict[str, Any]]:
     return [
     {
         "name": "get_transcript",
-        "description": "Get audio transcript from device Fetches Whisper-generated transcripts with optional translation. MCP-formatted response with transcript segments and timestamps",
+        "description": "Get the audio transcript of a device (what was said on screen) for a time window, and WHY it is empty when it is. Window: the last `minutes` (default 10, max 120), or `hour` (0-23, local host time) with optional `chunk_index` (0-5 = 10-minute block) for its most recent occurrence. The transcript lags ~1-2 min behind live. Returns a summary line plus a JSON block with: status (ok | unavailable | empty | error), reason (transcribed | service_inactive | transcription_disabled | no_audio_stream | silent_audio | no_speech | no_audio_recorded | processing_pending | audio_status_missing | audio_check_stale | transcription_mode_unknown | mp3_missing | transcript_missing | host_not_found | host_unreachable | request_failed), message, transcription_enabled, service_active, audio {present, mean_volume_db, age_s}, window, language, segments [{time, text}], text. Only status=error is a fault worth reporting; 'unavailable' means the host is not set up to transcribe, 'empty' means there was nothing to transcribe. Summary text + JSON payload with status, reason, message, segments and text\n\nExample: get_transcript(device_id='device4', host_name='vpt-pi3', minutes=5)",
         "inputSchema": {
             "type": "object",
             "properties": {
-                "target_language": {
+                "device_id": {
                     "type": "string",
-                    "description": "For translation (e.g., 'fr', 'es'"
+                    "description": "device identifier, e.g. device1"
+                },
+                "host_name": {
+                    "type": "string",
+                    "description": "host the device is connected to"
+                },
+                "minutes": {
+                    "type": "integer",
+                    "description": "window back from now, 1-120, default 10"
+                },
+                "hour": {
+                    "type": "integer",
+                    "description": "hour of day 0-23 instead of minutes; most recent occurrence"
+                },
+                "chunk_index": {
+                    "type": "integer",
+                    "description": "10-minute block 0-5 within hour; needs hour"
                 }
             },
-            "required": []
+            "required": [
+                "device_id",
+                "host_name"
+            ]
         }
     }
 ]

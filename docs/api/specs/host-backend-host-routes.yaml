@@ -523,97 +523,6 @@ paths:
             schema:
               type: object
               additionalProperties: true
-  /host/ai/analyzeCompatibility:
-    post:
-      summary: Ai analyze compatibility
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_analyze_compatibility).
-        Check the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_analyze_compatibility_post_d48223c0
-      tags:
-      - host/ai
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /host/ai/analyzePrompt:
-    post:
-      summary: Ai analyze prompt disambiguation
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_analyze_prompt_disambiguation).
-        Check the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_analyze_prompt_disambiguation_post_0b448d02
-      tags:
-      - host/ai
-      parameters:
-      - name: team_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /host/ai/executePlan:
-    post:
-      summary: Ai execute plan
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_execute_plan). Check
-        the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_execute_plan_post_7e508d4b
-      tags:
-      - host/ai
-      parameters:
-      - name: team_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /host/ai/executeTestCase:
-    post:
-      summary: Ai execute test case
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_execute_test_case).
-        Check the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_execute_test_case_post_1afc89fb
-      tags:
-      - host/ai
-      parameters:
-      - name: team_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
   /host/ai/generatePlan:
     post:
       summary: Ai generate plan
@@ -628,126 +537,6 @@ paths:
         required: false
         schema:
           type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /host/ai/getDevicePosition:
-    get:
-      summary: Ai get device position
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_get_device_position).
-        Check the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_get_device_position_get_e93bb006
-      tags:
-      - host/ai
-      parameters:
-      - name: device_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /host/ai/getStatus:
-    post:
-      summary: Ai get status
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_get_status). Check
-        the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_get_status_post_508197e0
-      tags:
-      - host/ai
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /host/ai/saveDisambiguation:
-    post:
-      summary: Ai save disambiguation
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_save_disambiguation).
-        Check the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_save_disambiguation_post_f3d48faf
-      tags:
-      - host/ai
-      parameters:
-      - name: team_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /host/ai/status/{execution_id}:
-    get:
-      summary: Ai get execution status
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_get_execution_status).
-        Check the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_get_execution_status_get_7c8e12aa
-      tags:
-      - host/ai
-      parameters:
-      - name: execution_id
-        in: path
-        required: true
-        schema:
-          type: string
-      - name: device_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /host/ai/stopExecution:
-    post:
-      summary: Ai stop execution
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_stop_execution). Check
-        the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_stop_execution_post_104573dd
-      tags:
-      - host/ai
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /host/ai/updateDevicePosition:
-    post:
-      summary: Ai update device position
-      description: Route inventory entry from `backend_host/src/routes/host_ai_routes.py` (ai_update_device_position).
-        Check the handler for required payload fields and authorization rules.
-      operationId: host_ai_routes_ai_update_device_position_post_06e3d7be
-      tags:
-      - host/ai
-      parameters: []
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
@@ -1189,6 +978,25 @@ paths:
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
+  /host/companion/latest:
+    post:
+      summary: Latest
+      description: Route inventory entry from `features/companion/backend_host/__init__.py` (latest). Check the
+        handler for required payload fields and authorization rules.
+      operationId: __init___latest_post_16a29d92
+      tags:
+      - host/companion
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /host/controllerStatus:
     get:
       summary: Controller status
@@ -2812,6 +2620,25 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /host/system/vnc-info:
+    post:
+      summary: Hand the dashboard this host's VNC password so noVNC connects without a prompt
+      description: Route inventory entry from `backend_host/src/routes/host_system_routes.py` (get_vnc_info). Check
+        the handler for required payload fields and authorization rules.
+      operationId: host_system_routes_get_vnc_info_post_f2b20592
+      tags:
+      - host/system
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /host/takeControl:
     post:
       summary: Take control
@@ -2876,7 +2703,7 @@ paths:
               additionalProperties: true
   /host/testcase/execute-from-prompt:
     post:
-      summary: Execute from prompt
+      summary: Generate a testcase graph from a prompt (device.ai_builder), optionally save it,
       description: Route inventory entry from `backend_host/src/routes/host_testcase_routes.py` (execute_from_prompt).
         Check the handler for required payload fields and authorization rules.
       operationId: host_testcase_routes_execute_from_prompt_post_4d37dfa0
@@ -3060,12 +2887,12 @@ paths:
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
-  /host/testprompt/execute:
+  /host/testprompt/runningLog:
     post:
-      summary: Testprompt execute
-      description: Route inventory entry from `features/ai-test/backend_host/host_testprompt_routes.py` (testprompt_execute).
+      summary: Write (``log`` object) or remove (``log`` null) the device's running.log for an
+      description: Route inventory entry from `features/ai-test/backend_host/host_testprompt_routes.py` (testprompt_running_log).
         Check the handler for required payload fields and authorization rules.
-      operationId: host_testprompt_routes_testprompt_execute_post_b87fcb87
+      operationId: host_testprompt_routes_testprompt_running_log_post_dff120cd
       tags:
       - host/testprompt
       parameters: []
@@ -3839,6 +3666,65 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /host/{host_name}/stream/{device_folder}/{content_type}:
+    get:
+      summary: List stream directory for host
+      description: Route inventory entry from `backend_host/src/routes/host_stream_routes.py` (list_stream_directory_for_host).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_stream_routes_list_stream_directory_for_host_get_00201ab7
+      tags:
+      - host/{host_name}
+      parameters:
+      - name: host_name
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_folder
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: content_type
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /host/{host_name}/stream/{device_folder}/{content_type}/{filename}:
+    get:
+      summary: Serve stream file for host
+      description: Route inventory entry from `backend_host/src/routes/host_stream_routes.py` (serve_stream_file_for_host).
+        Check the handler for required payload fields and authorization rules.
+      operationId: host_stream_routes_serve_stream_file_for_host_get_c3b2a070
+      tags:
+      - host/{host_name}
+      parameters:
+      - name: host_name
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: device_folder
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: content_type
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: filename
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
   /stream/{device_folder}/{content_type}:
     get:
       summary: List stream directory

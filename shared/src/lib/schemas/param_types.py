@@ -195,7 +195,7 @@ COMMON_PARAMS = {
         ParamType.NUMBER,
         required=False,
         default=0,
-        description="Maximum time to wait (seconds)"
+        description="Maximum time to wait (ms)"
     ),
     
     "area": create_param(

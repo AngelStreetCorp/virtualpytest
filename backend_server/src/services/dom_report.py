@@ -28,6 +28,7 @@ from typing import Optional
 from shared.src.lib.database.navigation_trees_db import get_supabase, get_tree_nodes
 from shared.src.lib.database.userinterface_db import get_userinterface_by_name, list_variants
 from shared.src.lib.utils.cloudflare_utils import get_cloudflare_utils
+from shared.src.lib.utils.report_theme import report_theme_head
 
 
 def _to_key(s: str) -> str:
@@ -105,25 +106,25 @@ def _img_data_uri(key: str) -> str:
 
 
 _STYLE = """
-body{font:13px -apple-system,Segoe UI,Arial;background:#111;color:#ddd;margin:0;padding:0 16px 60px}
-#hdr{position:sticky;top:0;z-index:20;background:#181818;border-bottom:1px solid #333;
+body{font:13px -apple-system,Segoe UI,Arial;background:var(--vpt-page);color:var(--vpt-text);margin:0;padding:0 16px 60px}
+#hdr{position:sticky;top:0;z-index:20;background:var(--vpt-surface);border-bottom:1px solid var(--vpt-border);
      padding:8px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-#hdr b{font-size:15px} #hdr .sum{color:#888} #hdr select,#hdr button,#hdr a.btn{
-     background:#222;color:#ddd;border:1px solid #444;border-radius:4px;padding:3px 8px;font-size:12px;cursor:pointer}
-a{color:#6cf;text-decoration:none}
-details{border-top:1px solid #2a2a2a;margin-top:6px} details>summary{cursor:pointer;padding:8px 0;font-size:14px;color:#cde}
-details.node[data-focus="0"]>summary{color:#fb0}
-small{color:#888;font-weight:normal}
-table{border-collapse:collapse;width:100%;font-size:12px} td,th{border:1px solid #333;padding:3px 6px;text-align:left;vertical-align:top}
-tr.ok td:first-child{border-left:3px solid #2c2} tr.warn td:first-child{border-left:3px solid #fb0} tr.none td:first-child{border-left:3px solid #555}
+#hdr b{font-size:15px} #hdr .sum{color:var(--vpt-muted)} #hdr select,#hdr button,#hdr a.btn{
+     background:var(--vpt-surface);color:var(--vpt-text);border:1px solid var(--vpt-border);border-radius:4px;padding:3px 8px;font-size:12px;cursor:pointer}
+a{color:var(--vpt-accent-text);text-decoration:none}
+details{border-top:1px solid var(--vpt-border);margin-top:6px} details>summary{cursor:pointer;padding:8px 0;font-size:14px;color:var(--vpt-text)}
+details.node[data-focus="0"]>summary{color:var(--vpt-warning)}
+small{color:var(--vpt-muted);font-weight:normal}
+table{border-collapse:collapse;width:100%;font-size:12px} td,th{border:1px solid var(--vpt-border);padding:3px 6px;text-align:left;vertical-align:top}
+tr.ok td:first-child{border-left:3px solid var(--vpt-success)} tr.warn td:first-child{border-left:3px solid var(--vpt-warning)} tr.none td:first-child{border-left:3px solid var(--vpt-text-2)}
 .grid{display:grid;grid-template-columns:560px 1fr;gap:16px;align-items:start;padding:6px 0 14px}
-.grid img{width:560px;border:1px solid #333;border-radius:4px}
-h4{margin:8px 0 2px;color:#9cf} .elements tr.foc td,.navigation tr.foc td{color:#f66!important;font-weight:bold;background:#2a1010}
-code{color:#9cf} .box{color:#888;font-size:11px}
-.badge{display:inline-block;background:#243;color:#9f9;border:1px solid #365;border-radius:3px;padding:0 5px;font-size:11px;margin-left:4px}
+.grid img{width:560px;border:1px solid var(--vpt-border);border-radius:4px}
+h4{margin:8px 0 2px;color:var(--vpt-steel)} .elements tr.foc td,.navigation tr.foc td{color:var(--vpt-error)!important;font-weight:bold;background:var(--vpt-error-tint)}
+code{color:var(--vpt-accent-text)} .box{color:var(--vpt-muted);font-size:11px}
+.badge{display:inline-block;background:var(--vpt-success-tint);color:var(--vpt-success);border:1px solid var(--vpt-success);border-radius:3px;padding:0 5px;font-size:11px;margin-left:4px}
 #jump{position:fixed;right:16px;bottom:16px;display:flex;flex-direction:column;gap:6px;z-index:30}
-#jump a{background:#2a2a2a;border:1px solid #555;border-radius:50%;width:34px;height:34px;display:flex;
-        align-items:center;justify-content:center;font-size:16px;color:#cde}
+#jump a{background:var(--vpt-surface);border:1px solid var(--vpt-border);border-radius:50%;width:34px;height:34px;display:flex;
+        align-items:center;justify-content:center;font-size:16px;color:var(--vpt-text)}
 """
 
 _SCRIPT = """
@@ -227,7 +228,7 @@ def _build_html(ui_name: str, nodes_by_id: dict, vmap: dict, variants: list, img
     )
     jump = '<div id="jump"><a href="#top" title="Top">↑</a><a href="#bottom" title="Bottom">↓</a></div>'
     return (
-        f'<!doctype html><meta charset="utf-8"><title>DOM report — {html.escape(ui_name)}</title>'
+        f'<!doctype html><meta charset="utf-8">{report_theme_head()}<title>DOM report — {html.escape(ui_name)}</title>'
         f'<style>{_STYLE}</style>'
         f'{header}{summary_table}{"".join(sections)}<span id="bottom"></span>{jump}'
         f'<script>{_SCRIPT}</script>'

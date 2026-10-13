@@ -19,6 +19,8 @@ import numpy as np
 import subprocess
 from typing import Dict, Any, Optional, Tuple
 from urllib.parse import urlparse
+from shared.src.lib.utils.tesseract_env import tesseract_env
+from shared.src.lib.utils import cv2_io
 
 
 class TextHelpers:
@@ -149,7 +151,7 @@ class TextHelpers:
                 return {'extracted_text': '', 'error': 'Image not found', 'image_textdetected_path': ''}
             
             # Load image
-            img = cv2.imread(image_path)
+            img = cv2_io.imread(image_path)
             if img is None:
                 return {'extracted_text': '', 'error': 'Failed to load image', 'image_textdetected_path': ''}
             
@@ -179,7 +181,7 @@ class TextHelpers:
             # Save processed image path
             processed_filename = f'text_detection_{timestamp}.png'
             processed_path = os.path.join(self.captures_path, processed_filename)
-            cv2.imwrite(processed_path, img)
+            cv2_io.imwrite(processed_path, img)
             
             # Step 3: OCR text extraction
             if use_advanced_ocr:
@@ -189,7 +191,7 @@ class TextHelpers:
                 # Save grayscale for debugging
                 gray_filename = f'text_detection_{timestamp}_gray.png'
                 gray_path = os.path.join(self.captures_path, gray_filename)
-                cv2.imwrite(gray_path, gray)
+                cv2_io.imwrite(gray_path, gray)
                 print(f"[@text_helpers:OCR] Saved grayscale image: {gray_filename}")
                 
                 # Enhance contrast using CLAHE (Contrast Limited Adaptive Histogram Equalization)
@@ -199,7 +201,7 @@ class TextHelpers:
                 # Save enhanced image
                 enhanced_filename = f'text_detection_{timestamp}_enhanced.png'
                 enhanced_path = os.path.join(self.captures_path, enhanced_filename)
-                cv2.imwrite(enhanced_path, enhanced)
+                cv2_io.imwrite(enhanced_path, enhanced)
                 print(f"[@text_helpers:OCR] Saved contrast-enhanced image: {enhanced_filename}")
                 # Try multiple preprocessing approaches
                 binary_adaptive = cv2.adaptiveThreshold(
@@ -213,9 +215,9 @@ class TextHelpers:
                 otsu_filename = f'text_detection_{timestamp}_otsu.png'
                 otsu_inv_filename = f'text_detection_{timestamp}_otsu_inv.png'
                 
-                cv2.imwrite(os.path.join(self.captures_path, adaptive_filename), binary_adaptive)
-                cv2.imwrite(os.path.join(self.captures_path, otsu_filename), binary_otsu)
-                cv2.imwrite(os.path.join(self.captures_path, otsu_inv_filename), binary_otsu_inv)
+                cv2_io.imwrite(os.path.join(self.captures_path, adaptive_filename), binary_adaptive)
+                cv2_io.imwrite(os.path.join(self.captures_path, otsu_filename), binary_otsu)
+                cv2_io.imwrite(os.path.join(self.captures_path, otsu_inv_filename), binary_otsu_inv)
                 
                 print(f"[@text_helpers:OCR] Saved preprocessed images: {adaptive_filename}, {otsu_filename}, {otsu_inv_filename}")
                 
@@ -229,18 +231,20 @@ class TextHelpers:
                     ('grayscale', gray)
                 ]:
                     with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                        cv2.imwrite(tmp.name, binary_img)
+                        cv2_io.imwrite(tmp.name, binary_img)
                         ocr_temp_path = tmp.name
 
                     text_result = subprocess.run(
                         ['tesseract', ocr_temp_path, 'stdout', *wl_args],
-                        capture_output=True, text=True, timeout=30
+                        capture_output=True, text=True, timeout=30,
+                        env=tesseract_env(),
                     )
                     text = text_result.stdout.strip() if text_result.returncode == 0 else ""
 
                     tsv_result = subprocess.run(
                         ['tesseract', ocr_temp_path, 'stdout', *wl_args, 'tsv'],
-                        capture_output=True, text=True, timeout=30
+                        capture_output=True, text=True, timeout=30,
+                        env=tesseract_env(),
                     )
                     confidence = self._mean_tesseract_confidence(tsv_result.stdout) if tsv_result.returncode == 0 else 0.0
 
@@ -271,19 +275,19 @@ class TextHelpers:
                 
             else:
                 # SIMPLE OCR: Fast and reliable for regular text verification (waitForTextToAppear/Disappear)
-                print(f"[@text_helpers:OCR] Using SIMPLE binary threshold OCR")
-                
+
                 # Apply simple binarization (old algorithm - works great for regular text)
                 _, binary = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
                 
                 # Use the binary filtered version for OCR
                 with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                    cv2.imwrite(tmp.name, binary)
+                    cv2_io.imwrite(tmp.name, binary)
                     ocr_temp_path = tmp.name
                 
                 result = subprocess.run(
                     ['tesseract', ocr_temp_path, 'stdout', *wl_args],
-                    capture_output=True, text=True, timeout=30
+                    capture_output=True, text=True, timeout=30,
+                    env=tesseract_env(),
                 )
 
                 extracted_text = result.stdout.strip() if result.returncode == 0 else ""
@@ -293,7 +297,8 @@ class TextHelpers:
                 except:
                     pass
                 
-                print(f"[@text_helpers:OCR] Extracted: '{extracted_text.strip()}'")
+                if extracted_text.strip():
+                    print(f"[@text_helpers:OCR] Extracted: '{extracted_text.strip()}'")
             
             # Step 4: Language detection with confidence
             if extracted_text:
@@ -354,7 +359,7 @@ class TextHelpers:
         """
         if not os.path.exists(image_path):
             return ''
-        img = cv2.imread(image_path)
+        img = cv2_io.imread(image_path)
         if img is None:
             return ''
         if area:
@@ -371,7 +376,7 @@ class TextHelpers:
         _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-            cv2.imwrite(tmp.name, binary)
+            cv2_io.imwrite(tmp.name, binary)
             tmp_path = tmp.name
 
         cmd = ['tesseract', tmp_path, 'stdout', '--psm', str(psm), '--dpi', '300']
@@ -379,7 +384,7 @@ class TextHelpers:
             cmd.extend(['-c', f'tessedit_char_whitelist={whitelist}'])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, env=tesseract_env())
             return result.stdout.strip() if result.returncode == 0 else ''
         finally:
             try:
@@ -475,21 +480,45 @@ class TextHelpers:
             re.sub(r'[^\w\s]', ' ', s, flags=re.UNICODE).replace('_', ' ').split()
         ).lower()
 
+    # Scripts written without spaces between words: a word window is meaningless there.
+    _UNSPACED_SCRIPT = None
+
+    @classmethod
+    def _has_unspaced_script(cls, s: str) -> bool:
+        import re
+        if cls._UNSPACED_SCRIPT is None:
+            # Kana, CJK ideographs, Thai, Lao, Myanmar, Khmer (Hangul uses spaces).
+            cls._UNSPACED_SCRIPT = re.compile(
+                '[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\u0e00-\u0eff\u1000-\u109f\u1780-\u17ff]')
+        return bool(cls._UNSPACED_SCRIPT.search(s))
+
     def text_match_score(self, extracted_text: str, target_text: str) -> float:
         """
         Compute a 0.0-1.0 similarity between `target_text` and `extracted_text`,
-        after the same normalization used by `text_matches` (alphanumeric+space
-        only, lowercased, whitespace collapsed).
+        after the same normalization used by `text_matches` (letters+digits and
+        spaces only, accents folded, lowercased, whitespace collapsed).
+
+        Scoring is on WORD boundaries (BUG-0406). The old scorer slid a
+        target-length CHARACTER window over the OCR text, so a short target
+        scored high inside an unrelated longer word ("Home" inside
+        "Aufnahmen"), which made borderline checks pass falsely.
 
         Semantics — mirrors image-template scoring (score=1.0 means perfect):
         - Empty input on either side → 0.0
-        - Normalized target found as a substring of extracted → 1.0
-          (this is the existing matcher's positive case; preserved exactly so
-          callers that pass threshold=1.0 keep today's behavior)
-        - Otherwise, slide a target-length window across extracted and return
-          the best `difflib.SequenceMatcher.ratio()` against any window.
-          One-character OCR misreads in short strings (e.g. "Anrnelden" vs
-          "Anmelden") score ~0.875 — passes default threshold 0.8, fails 0.95.
+        - Normalized target found in extracted as whole word(s) → 1.0
+          (verbatim modulo punctuation/case; preserved so callers that pass
+          threshold=1.0 keep strict behavior). A target that only occurs
+          INSIDE a longer word ("home" in "aufnahmen") is not verbatim.
+        - Otherwise compare the target against every window of the extracted
+          WORDS that has the same number of words, ±1 (OCR merges and splits
+          words: "TV Guide" / "TVGuide"), and return the best
+          `difflib.SequenceMatcher.ratio()`. One-character OCR misreads
+          ("Anrnelden" vs "Anmelden") score ~0.875 — passes the default
+          threshold 0.8, fails 0.95; "Home" vs "Aufnahmen" scores far below 0.7.
+        - Languages written without spaces (kana, CJK ideographs, Thai, Lao,
+          Myanmar, Khmer): when the target or the extracted text contains such
+          a character there are no word boundaries, so the previous
+          character-window scoring is kept for that pair.
 
         difflib is already used in backend_host/src/services/ai/* — no new dep.
         """
@@ -502,13 +531,34 @@ class TextHelpers:
         if not extracted_clean or not target_clean:
             return 0.0
 
-        # Exact substring → perfect score. Short-circuit before difflib so
+        unspaced = (self._has_unspaced_script(target_clean)
+                    or self._has_unspaced_script(extracted_clean))
+
+        # Verbatim → perfect score. Short-circuit before difflib so
         # `score == 1.0` always means "we found the target verbatim (modulo
         # punctuation/case)", which is what threshold=1.0 callers expect.
-        if target_clean in extracted_clean:
+        if unspaced:
+            if target_clean in extracted_clean:
+                return 1.0
+        elif f' {target_clean} ' in f' {extracted_clean} ':
             return 1.0
 
         from difflib import SequenceMatcher
+
+        if not unspaced:
+            tgt_n = len(target_clean.split())
+            words = extracted_clean.split()
+            best = 0.0
+            for win in range(max(1, tgt_n - 1), tgt_n + 2):
+                win = min(win, len(words))
+                for i in range(len(words) - win + 1):
+                    r = SequenceMatcher(None, target_clean,
+                                        ' '.join(words[i:i + win]),
+                                        autojunk=False).ratio()
+                    if r > best:
+                        best = r
+            return best
+
         n = len(target_clean)
         m = len(extracted_clean)
 
@@ -517,14 +567,8 @@ class TextHelpers:
             return SequenceMatcher(None, target_clean, extracted_clean,
                                    autojunk=False).ratio()
 
-        # Sweep window sizes from n-2 to n+2. Fixed-n windows miss the common
-        # OCR case where a single letter is misread as two (e.g. 'm' → 'rn',
-        # giving "Anrnelden" for "Anmelden") or vice-versa — the target-sized
-        # window then always drops either the leading or trailing char and
-        # scores ~0.75 even though a 9-char window scores ~0.82. Sweeping ±2
-        # closes that gap and matches what rapidfuzz.partial_ratio returns.
-        # Bound: ~5 * m SequenceMatcher calls on ~n-sized strings, each O(n²).
-        # Fine for OCR text (n≤50, m≤a few thousand) — well under 100ms.
+        # Character windows n-2..n+2 (unspaced scripts only): see BUG-0406 for
+        # why the spaced path no longer uses them.
         best = 0.0
         for win_n in range(max(1, n - 2), min(m, n + 2) + 1):
             for i in range(m - win_n + 1):
@@ -671,7 +715,7 @@ class TextHelpers:
                 return []
             
             # Load image
-            img = cv2.imread(image_path)
+            img = cv2_io.imread(image_path)
             if img is None:
                 print(f"[@text_helpers:extract_full_ocr_dump] ERROR: Failed to load image with cv2.imread")
                 return []
@@ -682,7 +726,7 @@ class TextHelpers:
             
             # Save preprocessed image temporarily for pytesseract
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                cv2.imwrite(tmp.name, binary)
+                cv2_io.imwrite(tmp.name, binary)
                 temp_path = tmp.name
             
             try:
@@ -692,7 +736,8 @@ class TextHelpers:
                     ['tesseract', temp_path, 'stdout', '--psm', '11', 'tsv'],
                     capture_output=True,
                     text=True,
-                    timeout=30
+                    timeout=30,
+                    env=tesseract_env(),
                 )
                 
                 if result.returncode != 0:

@@ -211,6 +211,41 @@ it does not clean up `/data/stream/*` on backend_host machines. That's a separat
 mostly-unimplemented concern (see `backend_host/scripts/hot_cold_archiver.py` for the
 one local cleanup job that exists, covering `captures/verification_results/` only).
 
+### Dedicated training-data MinIO instance (TASK-27)
+
+`install_minio_training.sh` in this directory installs a **second, separate** MinIO
+instance for the AI training dataset (`docs/tasks/TASK-27-ai-training-dataset.md`), on its
+own systemd service (`minio-training`), own env file (`/etc/default/minio-training`, mode
+600), own ports (API `9100`, console `9101`) and its own disk
+(`/mnt/minio-training/data` — the script refuses to run unless that path is already a
+mountpoint). It never touches the default `minio` service, its `/etc/default/minio`, or its
+`virtualpytest` bucket.
+
+The bucket is `vpt-training`, capped with `mc quota set training/vpt-training --size
+50GiB`.
+
+**This bucket must NEVER get an ILM (lifecycle/expiry) rule.** Unlike every prefix in the
+table above, `vpt-training` holds the permanent training dataset, not a run artifact — the
+source captures it's built from already expire after 14 days elsewhere, so an expiry rule
+here would be a silent, unrecoverable data loss. `install_minio_training.sh` does not call
+`add_ilm_rule` at all, and the bucket-creation line in the script carries a comment saying
+so. Verify with:
+```bash
+mc ilm rule ls training/vpt-training     # must print "no rules" / an error, never a rule
+```
+
+The installer also creates one scoped read-write IAM user (used by the app, via
+`MINIO_TRAINING_ACCESS_KEY`/`MINIO_TRAINING_SECRET_KEY` in `.env`), so the instance's root key
+is never handed out.
+
+**No backup copy, on purpose.** The training data is not treated as critical (decided
+2026-09-28), so there is no nightly mirror. Losing the disk loses the collected samples, not
+anything the platform needs to run.
+
+A companion disk-space check, `scripts/storage/check_training_disk.sh`, runs as
+`vpt-training-disk-check.timer` (04:00 daily) on VM 101 itself and logs a warning at 80%
+full (`journalctl -t vpt-training-disk`).
+
 ### MinIO Configuration
 
 **Location**: `/etc/default/minio`

@@ -20,7 +20,7 @@ Verify device state with batch verifications (image, text, video, ADB).
   "verifications": [                      // REQUIRED
     {
       "command": "waitForElementToAppear",
-      "params": {"search_term": "Replay", "timeout": 5},
+      "params": {"search_term": "Replay", "timeout": 5000},
       "verification_type": "adb"
     }
   ],
@@ -49,7 +49,7 @@ verify_device_state({
     "userinterface_name": "example_mobile",
     "verifications": [{
         "command": "waitForElementToAppear",
-        "params": {"search_term": "Replay", "timeout": 5},
+        "params": {"search_term": "Replay", "timeout": 5000},
         "verification_type": "adb"
     }]
 })

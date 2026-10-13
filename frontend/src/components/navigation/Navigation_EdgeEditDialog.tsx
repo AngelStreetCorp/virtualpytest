@@ -52,6 +52,7 @@ import {
   Navigation_VariantToggle,
   type VariantScope,
 } from './Navigation_VariantToggle';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 type ActionRunSection = 'all' | 'main' | 'retry' | 'failure';
 
@@ -205,6 +206,7 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
   const [variantScope, setVariantScope] = useState<VariantScope>('base');
   const [localOverrides, setLocalOverrides] = useState<Record<string, EdgeVariantOverride>>({});
   const dirtyVariantsRef = useRef<Set<string>>(new Set());
+  const P = useAgentChatPalette();
 
   // A variant-only edge (`hidden_in_base`) is OWNED by its variant scope — there
   // is no base version to protect, so it must be fully editable and its edits
@@ -1077,7 +1079,7 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography
                     variant="body2"
-                    sx={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#1976d2' }}
+                    sx={{ fontSize: '0.8rem', fontWeight: 'bold', color: P.accentText }}
                   >
                     {fromLabel}
                   </Typography>
@@ -1086,7 +1088,7 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                   </Typography>
                   <Typography
                     variant="body2"
-                    sx={{ fontSize: '0.8rem', fontWeight: 'bold', color: '#4caf50' }}
+                    sx={{ fontSize: '0.8rem', fontWeight: 'bold', color: P.success }}
                   >
                     {toLabel}
                   </Typography>
@@ -1104,8 +1106,8 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                     px: 1,
                     py: 0.3,
                     borderRadius: 1,
-                    backgroundColor: conditionalRole === 'sibling' ? '#fff3e0' : '#e8f5e9',
-                    border: `1px solid ${conditionalRole === 'sibling' ? '#ff9800' : '#4caf50'}`,
+                    backgroundColor: conditionalRole === 'sibling' ? P.hoverBg : P.hoverBg,
+                    border: `1px solid ${conditionalRole === 'sibling' ? P.warning : P.success}`,
                   }}
                 >
                   <Typography
@@ -1113,7 +1115,7 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                     sx={{
                       fontSize: '0.7rem',
                       fontWeight: 'bold',
-                      color: conditionalRole === 'sibling' ? '#ff9800' : '#4caf50',
+                      color: conditionalRole === 'sibling' ? P.warning : P.success,
                     }}
                   >
                     {conditionalRole === 'sibling'
@@ -1659,7 +1661,7 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                 href={edgeHook.runReportUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                style={{ color: '#1976d2', textDecoration: 'underline', fontWeight: 'bold' }}
+                style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
               >
                 🔍 View verification report
               </a>

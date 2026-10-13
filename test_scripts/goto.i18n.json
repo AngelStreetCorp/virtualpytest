@@ -1,0 +1,74 @@
+{
+  "🎯 [GOTO_{node}] EXECUTION SUMMARY": {
+    "fr": "🎯 [GOTO_{node}] RÉSUMÉ DE L'EXÉCUTION",
+    "de": "🎯 [GOTO_{node}] AUSFÜHRUNGSZUSAMMENFASSUNG"
+  },
+  "📱 Device: {name} ({model})": {
+    "fr": "📱 Appareil : {name} ({model})",
+    "de": "📱 Gerät: {name} ({model})"
+  },
+  "📱 Device: Setup failed - no device selected": {
+    "fr": "📱 Appareil : Échec de la configuration - aucun appareil sélectionné",
+    "de": "📱 Gerät: Einrichtung fehlgeschlagen - kein Gerät ausgewählt"
+  },
+  "🖥️ Host: {name}": {
+    "fr": "🖥️ Hôte : {name}",
+    "de": "🖥️ Host: {name}"
+  },
+  "🖥️ Host: Setup failed - no host available": {
+    "fr": "🖥️ Hôte : Échec de la configuration - aucun hôte disponible",
+    "de": "🖥️ Host: Einrichtung fehlgeschlagen - kein Host verfügbar"
+  },
+  "📋 Interface: {name}": {
+    "fr": "📋 Interface : {name}",
+    "de": "📋 Oberfläche: {name}"
+  },
+  "🎭 Variant: {name}": {
+    "fr": "🎭 Variante : {name}",
+    "de": "🎭 Variante: {name}"
+  },
+  "🗺️ Target: {name}": {
+    "fr": "🗺️ Cible : {name}",
+    "de": "🗺️ Ziel: {name}"
+  },
+  "✅ Already at destination - no navigation needed": {
+    "fr": "✅ Déjà à destination - aucune navigation nécessaire",
+    "de": "✅ Bereits am Ziel - keine Navigation erforderlich"
+  },
+  "📍 Navigation steps: 0 (already verified at target)": {
+    "fr": "📍 Étapes de navigation : 0 (déjà vérifié à la cible)",
+    "de": "📍 Navigationsschritte: 0 (bereits am Ziel überprüft)"
+  },
+  "📍 Navigation steps: {count}": {
+    "fr": "📍 Étapes de navigation : {count}",
+    "de": "📍 Navigationsschritte: {count}"
+  },
+  "⏱️ Total Time: {seconds}s": {
+    "fr": "⏱️ Temps total : {seconds}s",
+    "de": "⏱️ Gesamtzeit: {seconds}s"
+  },
+  "📸 Screenshots: {count} captured": {
+    "fr": "📸 Captures d'écran : {count} prises",
+    "de": "📸 Screenshots: {count} erfasst"
+  },
+  "🎯 Result: SUCCESS": {
+    "fr": "🎯 Résultat : RÉUSSI",
+    "de": "🎯 Ergebnis: ERFOLGREICH"
+  },
+  "🎯 Result: FAILED": {
+    "fr": "🎯 Résultat : ÉCHOUÉ",
+    "de": "🎯 Ergebnis: FEHLGESCHLAGEN"
+  },
+  "❌ Error: {message}": {
+    "fr": "❌ Erreur : {message}",
+    "de": "❌ Fehler: {message}"
+  },
+  "Navigation tree loading failed: {error}": {
+    "fr": "Échec du chargement de l'arbre de navigation : {error}",
+    "de": "Laden des Navigationsbaums fehlgeschlagen: {error}"
+  },
+  "Navigation failed": {
+    "fr": "Échec de la navigation",
+    "de": "Navigation fehlgeschlagen"
+  }
+}

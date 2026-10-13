@@ -475,15 +475,18 @@ export const useCampaign = (): UseCampaignReturn => {
       return scriptAnalysisCache[scriptName];
     }
 
+    // POST /server/script/analyze returns the analysis itself:
+    // { success, parameters, script_name, has_parameters } (or { success: false, error }).
+    let failure = 'Could not load parameters';
     try {
-      const data = await api.get(buildServerUrl(`/server/script/analyze/${encodeURIComponent(scriptName)}`));
+      const data = await api.post(buildServerUrl('/server/script/analyze'), { script_name: scriptName });
 
-      if (data.success && data.analysis) {
+      if (data?.success) {
         const analysis: ScriptAnalysis = {
           script_name: scriptName,
-          parameters: data.analysis.parameters || [],
-          description: data.analysis.description,
-          estimated_duration: data.analysis.estimated_duration,
+          parameters: data.parameters || [],
+          description: data.description,
+          estimated_duration: data.estimated_duration,
         };
 
         // Cache the analysis
@@ -494,10 +497,17 @@ export const useCampaign = (): UseCampaignReturn => {
 
         return analysis;
       }
+      if (data?.error) failure = data.error;
     } catch (error) {
       console.error(`[@hook:useCampaign] Error analyzing script ${scriptName}:`, error);
+      if (error instanceof Error && error.message) failure = error.message;
     }
 
+    // Cache the failure so the panel shows an error instead of "Loading…" forever.
+    setScriptAnalysisCache(prev => ({
+      ...prev,
+      [scriptName]: { script_name: scriptName, parameters: [], error: failure },
+    }));
     return null;
   }, [scriptAnalysisCache]);
 

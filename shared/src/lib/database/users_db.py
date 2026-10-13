@@ -11,13 +11,40 @@ from typing import Dict, List, Optional
 from shared.src.lib.utils.supabase_utils import get_supabase_client, get_supabase_admin
 
 # Which platform administers an account. Everything created here is 'virtualpytest';
-# an external system provisioning over /server/users sends its own name (e.g. 'dmacp').
+# an external system provisioning over /server/users sends its own name (e.g. 'idp').
 # Must match the SQL DEFAULT on public.profiles.provider_type (schema 018).
 DEFAULT_PROVIDER_TYPE = 'virtualpytest'
 
 def get_supabase():
     """Get the Supabase client instance (anon key, RLS-bound)."""
     return get_supabase_client()
+
+def team_cap(teams: List[Dict], key: str) -> Optional[List[str]]:
+    """The ceiling a user's teams put on `key` ('permissions' or 'allowed_devices').
+
+    `teams` = [{'<key>': list | None, 'is_default': bool}, ...]. None or [] = no limit (a
+    team that has not been granted any permissions yet does not cap its members). The union
+    across the teams, a default team counting only when the user is in no other team (every
+    account lands in one), and any uncapped team lifting the limit. Same rule as the SQL
+    function public.team_cap() that writes the `team_ceiling` claim — keep them identical.
+    """
+    counted = [t for t in teams if not t.get('is_default')] or list(teams)
+    # Treat None and [] the same: an empty grant list means "nothing configured" and
+    # should not act as an "allow nothing" ceiling. Without this, migration 028's
+    # `UPDATE public.teams SET permissions = '[]'::jsonb WHERE permissions IS NULL`
+    # backfill makes every member of every team effectively hold no permissions at all
+    # — role defaults included, even though the teams have no reason to forbid them.
+    if not counted or any(t.get(key) is None or t.get(key) == [] for t in counted):
+        return None
+    return sorted({v for t in counted for v in (t.get(key) or [])})
+
+
+def _team_ids_of(primary_team_id: Optional[str], member_team_ids: List[str]) -> List[str]:
+    """Every team a user is in: their primary team plus each team_members row, deduplicated."""
+    ids = [primary_team_id] if primary_team_id else []
+    ids += [t for t in member_team_ids if t]
+    return list(dict.fromkeys(str(t) for t in ids))
+
 
 def get_all_users() -> List[Dict]:
     """Retrieve all users from Supabase using SECURITY DEFINER RPCs to bypass RLS."""
@@ -48,13 +75,9 @@ def get_all_users() -> List[Dict]:
             # Primary team name
             primary_team_name = team_names.get(profile.get('team_id', ''))
 
-            # Collect team permissions across all teams
-            team_permissions: list = []
-            for m in memberships:
-                perms = m.get('team_permissions', [])
-                if isinstance(perms, list):
-                    team_permissions.extend(perms)
-            team_permissions = list(dict.fromkeys(team_permissions))
+            caps = [{'permissions': m.get('team_permissions'),
+                     'allowed_devices': m.get('team_allowed_devices'),
+                     'is_default': m.get('team_is_default', False)} for m in memberships]
 
             users.append({
                 'id': uid,
@@ -66,9 +89,12 @@ def get_all_users() -> List[Dict]:
                 'team_id': profile.get('team_id'),
                 'team': primary_team_name,
                 'teams': [m['team_name'] for m in memberships],
+                'team_ids': _team_ids_of(profile.get('team_id'), [m['team_id'] for m in memberships]),
                 'permissions': profile.get('permissions', []),
                 'denied_permissions': profile.get('denied_permissions', []),
-                'team_permissions': team_permissions,
+                'team_ceiling': team_cap(caps, 'permissions'),
+                'team_device_ceiling': team_cap(caps, 'allowed_devices'),
+                'allowed_devices': profile.get('allowed_devices'),
                 'created_at': profile.get('created_at'),
                 'updated_at': profile.get('updated_at')
             })
@@ -89,7 +115,7 @@ def get_user(user_id: str) -> Optional[Dict]:
             
             # Get user's teams (including permissions for permission resolution)
             teams_result = supabase.table('team_members')\
-                .select('team_id, teams(name, permissions)')\
+                .select('team_id, teams(name, permissions, is_default, allowed_devices)')\
                 .eq('user_id', user_id)\
                 .execute()
 
@@ -104,12 +130,7 @@ def get_user(user_id: str) -> Optional[Dict]:
                 if team_result.data:
                     primary_team_name = team_result.data.get('name')
 
-            # Collect team permissions across all teams the user belongs to
-            team_permissions: list = []
-            for t in teams_result.data:
-                if t.get('teams') and isinstance(t['teams'], dict):
-                    team_permissions.extend(t['teams'].get('permissions', []))
-            team_permissions = list(dict.fromkeys(team_permissions))
+            caps = [t['teams'] for t in teams_result.data if isinstance(t.get('teams'), dict)]
 
             return {
                 'id': profile['id'],
@@ -121,9 +142,12 @@ def get_user(user_id: str) -> Optional[Dict]:
                 'team_id': profile.get('team_id'),
                 'team': primary_team_name,
                 'teams': [t['teams']['name'] for t in teams_result.data if t.get('teams')],
+                'team_ids': _team_ids_of(profile.get('team_id'), [t['team_id'] for t in teams_result.data]),
                 'permissions': profile.get('permissions', []),
                 'denied_permissions': profile.get('denied_permissions', []),
-                'team_permissions': team_permissions,
+                'team_ceiling': team_cap(caps, 'permissions'),
+                'team_device_ceiling': team_cap(caps, 'allowed_devices'),
+                'allowed_devices': profile.get('allowed_devices'),
                 'created_at': profile.get('created_at'),
                 'updated_at': profile.get('updated_at')
             }
@@ -150,6 +174,8 @@ def update_user(user_id: str, user_data: Dict) -> Optional[Dict]:
             update_data['permissions'] = user_data['permissions']
         if 'denied_permissions' in user_data:
             update_data['denied_permissions'] = user_data['denied_permissions']
+        if 'allowed_devices' in user_data:
+            update_data['allowed_devices'] = user_data['allowed_devices']
 
         if not update_data:
             return None
@@ -264,6 +290,7 @@ def get_user_by_email(email: str) -> Optional[Dict]:
         if not r.data:
             return None
         p = r.data[0]
+        member_of = admin.table('team_members').select('team_id').eq('user_id', p['id']).execute()
         return {
             'id': p['id'],
             'email': p.get('email', email),
@@ -271,6 +298,7 @@ def get_user_by_email(email: str) -> Optional[Dict]:
             'role': p.get('role', 'viewer'),
             'team_id': p.get('team_id'),
             'team': _team_name(admin, p.get('team_id')),
+            'team_ids': _team_ids_of(p.get('team_id'), [m['team_id'] for m in member_of.data]),
             'provider_type': p.get('provider_type') or DEFAULT_PROVIDER_TYPE,
         }
     except Exception as e:
@@ -373,14 +401,18 @@ def _clean_provider_type(provider_type: Optional[str]) -> Optional[str]:
 def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[str] = None,
                 group: Optional[str] = None, default_role: str = 'viewer',
                 provider_type: Optional[str] = None,
-                tenant: Optional[str] = None) -> Dict:
+                tenant: Optional[str] = None,
+                role: Optional[str] = None,
+                replace_teams: bool = False) -> Dict:
     """Create-or-update a user (external provisioning).
 
     - Create: auth.admin.create_user(email, password, email_confirm=True); on the
-      trigger-created profile set full_name + role=default_role.
-    - Update: optionally reset password; update full_name only.
-      NEVER touch role / permissions on update (VirtualPyTest owns them).
-    - group -> team auto-created by name (idempotent) + team_members membership.
+      trigger-created profile set full_name + role (`role`, else default_role).
+    - Update: optionally reset password; update full_name; set the role only when `role` is
+      given (an internal role id — the route resolves external aliases). Individual
+      permissions are never touched.
+    - group -> team auto-created by name (idempotent) + team_members membership, and made the
+      primary team. replace_teams -> also removed from every other team (needs group).
     - tenant -> user_tenants grant (TASK-23 Q7: explicit only; no implicit grant
       of the default tenant). When `group` is given without `tenant`, the team
       lands in the default tenant — the legacy behaviour. When `tenant` is
@@ -422,7 +454,7 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
         # the migration has the old trigger, so write them explicitly rather than
         # trusting what the trigger put there.
         resolved_provider = provider_type or DEFAULT_PROVIDER_TYPE
-        profile_update = {'role': default_role, 'email': email,
+        profile_update = {'role': role or default_role, 'email': email,
                           'full_name': resolved_full_name,
                           'provider_type': resolved_provider}
         written = admin.table('profiles').update(profile_update).eq('id', uid).execute()
@@ -432,7 +464,7 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
         # as BUG-0077, which only covered the `group` path).
         created_team_id = (written.data or [{}])[0].get('team_id')
         action = 'created'
-        role = default_role
+        role = role or default_role
     else:
         uid = existing['id']
 
@@ -445,6 +477,8 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
             profile_update['full_name'] = default_full_name(email)
         if provider_type is not None:
             profile_update['provider_type'] = provider_type
+        if role is not None and role != existing['role']:
+            profile_update['role'] = role
 
         # One auth write, not two: the password and the Studio-visible display name
         # both live on auth.users.
@@ -462,7 +496,7 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
         resolved_full_name = profile_update.get('full_name') or (existing.get('full_name') or '')
         resolved_provider = provider_type or existing.get('provider_type') or DEFAULT_PROVIDER_TYPE
         action = 'updated'
-        role = existing['role']  # untouched — VirtualPyTest owns role
+        role = role or existing['role']
 
     team_name = existing['team'] if existing else _team_name(admin, created_team_id)
     # TASK-23: resolve the caller's `tenant` (slug or UUID) into an id we can pass
@@ -501,6 +535,8 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
                 raise RuntimeError(
                     f"Could not add {email} to team '{group}': {e}"
                 ) from e
+        if replace_teams:
+            admin.table('team_members').delete().eq('user_id', uid).neq('team_id', team_id).execute()
         team_name = group
 
     # TASK-23 Q7: explicit tenant grant — never implicit. Without `tenant` we do
@@ -524,7 +560,11 @@ def upsert_user(email: str, password: Optional[str] = None, full_name: Optional[
                 f"Could not grant {email} to tenant '{tenant_id_for_grant}': {e}"
             ) from e
 
+    member_of = admin.table('team_members').select('teams(name)').eq('user_id', uid).execute()
+    teams = sorted({m['teams']['name'] for m in member_of.data if m.get('teams')})
+
     return {'action': action, 'user_id': uid, 'email': email, 'role': role, 'team': team_name,
+            'teams': teams,
             'full_name': resolved_full_name, 'provider_type': resolved_provider,
             'tenant': tenant_id_for_grant}  # TASK-23: echo back the resolved tenant
                                               # so the route can confirm the grant.

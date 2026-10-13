@@ -1,0 +1,22 @@
+{
+ "id": "PrxZpLWWo2A",
+ "title": "24 video streams monitored 24/7 on one small host",
+ "description": "Test your streams before they reach a device. VirtualPyTest monitors a stream directly (HLS, RTSP, a local file or a YouTube stream) with the same 24/7 checks it runs on devices: picture quality, freeze, black screen, sound, subtitles. Here, 24 live HLS streams run on a single host. Pick a few, open one, and its quality metrics are already there.\n\nSizing: a 300-channel lineup is about 30 hosts, roughly 6-8 k of hardware for 24/7 monitoring.\n\nOpen source and free.\n\nChapters\n00:00 Intro\n00:04 One host, 24 streams\n00:14 Pick some\n00:24 Open one, live in HD\n00:33 Its A/V quality\n00:46 Sizing\n00:50 End",
+ "tags": [
+  "stream monitoring",
+  "HLS monitoring",
+  "video quality monitoring",
+  "OTT monitoring",
+  "IPTV monitoring",
+  "24/7 monitoring",
+  "broadcast monitoring",
+  "quality of experience",
+  "RTSP",
+  "test automation",
+  "open source",
+  "VirtualPyTest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

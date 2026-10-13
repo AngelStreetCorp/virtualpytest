@@ -2,6 +2,8 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { getEnv } from '../config/constants';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { useTenantBranding } from '../hooks/brand/useTenantBranding';
+import { useAuthContext } from './auth/AuthContext';
+import { isAuthEnabled } from '../lib/supabase';
 
 export type Branding = {
   name: string;
@@ -10,6 +12,10 @@ export type Branding = {
   tagline: string;
   showFooter: boolean;
   showProjectName: boolean;
+  // Footer links; default on, hide with VITE_SHOW_GITHUB_LINK=false / VITE_SHOW_MOBILE_APP_LINK=false
+  // or from Settings > Branding (no rebuild needed).
+  showGithubLink: boolean;
+  showMobileAppLink: boolean;
   title: string;
   // TASK-23 footer-logo follow-up: per-tenant override applied on top of
   // the deployment-level branding. The footer reads these directly.
@@ -38,8 +44,10 @@ const buildDefaults = (): Branding => {
   // A wordmark logo already spells the name out; set VITE_SHOW_PROJECT_NAME=false so the
   // header/footer/mobile bar show the logo alone instead of printing the name twice.
   const showProjectName = getEnv('VITE_SHOW_PROJECT_NAME') !== 'false';
+  const showGithubLink = getEnv('VITE_SHOW_GITHUB_LINK') !== 'false';
+  const showMobileAppLink = getEnv('VITE_SHOW_MOBILE_APP_LINK') !== 'false';
   const title = getEnv('VITE_PROJECT_TITLE') || `${name} Web Interface`;
-  return { name, logoUrl, faviconUrl, tagline, showFooter, showProjectName, title };
+  return { name, logoUrl, faviconUrl, tagline, showFooter, showProjectName, showGithubLink, showMobileAppLink, title };
 };
 
 const DEFAULTS = buildDefaults();
@@ -73,6 +81,15 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // token pre-TASK-23).
   const tenantBranding = useTenantBranding();
 
+  // `/server/branding*` is behind the global /server/* auth guard like everything else
+  // that is not in UNAUTHENTICATED_SERVER_PREFIXES, and BrandingProvider mounts ABOVE the
+  // login gate — so on a Supabase deployment these two calls were a guaranteed 401 on
+  // every logged-out page load, silently falling back to the build-time defaults they
+  // already start from. Deployments with no Supabase (isAuthEnabled false) still load
+  // their branding before any login, as they always did.
+  const { isAuthenticated } = useAuthContext();
+  const canLoadBranding = !isAuthEnabled || isAuthenticated;
+
   const branding: Branding = {
     ...DEFAULTS,
     ...overrides,
@@ -91,8 +108,12 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     document.title = branding.title;
   }, [branding.title]);
 
-  // Load persisted branding from backend on mount
+  // Load persisted branding from backend once the server will actually answer us
   useEffect(() => {
+    if (!canLoadBranding) {
+      return;
+    }
+
     const load = async () => {
       try {
         const res = await fetch(buildServerUrl('/server/branding'));
@@ -116,7 +137,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
     };
     load();
-  }, []);
+  }, [canLoadBranding]);
 
   const setBranding = useCallback(async (updates: Partial<Branding>) => {
     const next = { ...overrides, ...updates };

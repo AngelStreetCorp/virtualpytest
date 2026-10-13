@@ -29,6 +29,7 @@ class ExecutionOrchestrator:
         team_id: str = None,
         context=None,
         verification_mode: str = 'end',
+        start_from_entry: bool = False,
     ) -> Dict[str, Any]:
         """
         Execute navigation with logging
@@ -64,6 +65,7 @@ class ExecutionOrchestrator:
                 team_id=team_id,
                 context=context,
                 verification_mode=verification_mode,
+                start_from_entry=start_from_entry,
             )
         
         return await LoggingManager.execute_with_logging(execute)

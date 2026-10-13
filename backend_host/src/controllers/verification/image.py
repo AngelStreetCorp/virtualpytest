@@ -16,7 +16,26 @@ from typing import Dict, Any, Optional, Tuple, List
 from .image_helpers import ImageHelpers
 from shared.src.lib.utils.reference_utils import reference_storage_key
 import logging
+from shared.src.lib.utils import cv2_io
 
+
+
+def _to_grey(img):
+    """BGR → grey, kept 3-channel so the matchers see the same shape."""
+    return cv2.cvtColor(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
+
+
+def _native_match(found, score, location):
+    """Return a match tuple in plain Python types.
+
+    The scores come out of numpy/cv2 (np.float64, and np.bool_ once compared to
+    the threshold). They end up in the verification details, which are served by
+    jsonify and posted as execution events: an np.bool_ there fails the whole
+    testcase status with "Object of type bool_ is not JSON serializable".
+    """
+    if location is not None:
+        location = {k: int(v) for k, v in location.items()}
+    return bool(found), float(score), location
 
 class ImageVerificationController:
     """Pure image verification controller that uses template matching to detect images on screen."""
@@ -126,7 +145,7 @@ class ImageVerificationController:
         # perimeter carries the accent. This makes ticking "Focus" take effect
         # immediately on the next Test, with no recapture required.
         if check_focus and not (isinstance(area, dict) and area.get('focus')):
-            color_ref = cv2.imread(resolved_image_path, cv2.IMREAD_COLOR)
+            color_ref = cv2_io.imread(resolved_image_path, cv2.IMREAD_COLOR)
             learned = self.helpers.learn_focus_accent(color_ref) if color_ref is not None else None
             if learned:
                 area['focus'] = learned
@@ -145,10 +164,15 @@ class ImageVerificationController:
                 # Filtered reference not found, using original
                 pass
         
-        ref_img = cv2.imread(filtered_reference_path, cv2.IMREAD_COLOR)
+        ref_img = cv2_io.imread(filtered_reference_path, cv2.IMREAD_COLOR)
         if ref_img is None:
             error_msg = f"Reference image corrupted or invalid format: '{os.path.basename(filtered_reference_path)}' (file exists but cannot be loaded)"
             return False, error_msg, {}
+        # greyscale = both sides grey. The stored `_greyscale` reference may be
+        # missing, and the source frame is always colour, so convert in memory.
+        greyscale = image_filter == 'greyscale'
+        if greyscale:
+            ref_img = _to_grey(ref_img)
         
         # Construct R2 URL for the reference image (for display purposes)
         reference_name = os.path.basename(image_path)
@@ -190,9 +214,11 @@ class ImageVerificationController:
                 nonlocal max_threshold_score, best_source_path, best_match_location, best_focus_score, best_mtime
                 if not os.path.exists(source_path):
                     return False, 0.0, None, None
-                source_img = cv2.imread(source_path, cv2.IMREAD_COLOR)
+                source_img = cv2_io.imread(source_path, cv2.IMREAD_COLOR)
                 if source_img is None:
                     return False, 0.0, None, None
+                if greyscale:
+                    source_img = _to_grey(source_img)
                 is_found, threshold_score, match_location = self._match_template(
                     ref_img, source_img, area, threshold
                 )
@@ -351,6 +377,18 @@ class ImageVerificationController:
             # Save best threshold score (separate from user threshold)
             additional_data["matching_result"] = max_threshold_score  # Actual threshold score
 
+            # Would the greyscale filter have matched? Same frame, same area,
+            # both sides converted to grey — reports suggest the filter when so.
+            # (Not when colour matched and only the focus gate failed.)
+            if (image_filter in (None, '', 'none') and best_source_path
+                    and max_threshold_score < threshold):
+                grey_src = cv2_io.imread(best_source_path, cv2.IMREAD_COLOR)
+                if grey_src is not None:
+                    _, grey_score, _ = self._match_template(
+                        _to_grey(ref_img), _to_grey(grey_src), area, threshold)
+                    additional_data["greyscale_score"] = grey_score
+                    additional_data["greyscale_found"] = bool(grey_score >= threshold)
+
             # Create detailed error message with source and reference info
             source_info = f"source: {os.path.basename(best_source_path)}" if best_source_path else "source: none"
             reference_info = f"reference: {os.path.basename(resolved_image_path)}"
@@ -403,53 +441,56 @@ class ImageVerificationController:
                 if next_path:
                     images_to_check.append(next_path)
         
-        # Check all images - need ALL to not match for true disappearance
+        # Frames in capture order: the image has disappeared at the first frame it is not in.
+        # (A frame that still shows it — e.g. a black frame while a channel tunes — does not
+        # fail the check; it fails only if the image is in every frame of the window.)
         wait_ms = int(1000 / getattr(self.av_controller, 'screenshot_fps', 5)) if timeout > 0 else 0
-        found_in_any = False
+        success = False
+        checked = 0
         last_found_idx = -1
         additional_data = {}
-        
+
         for idx, source_path in enumerate(images_to_check):
             if idx > 0 and not os.path.exists(source_path):
                 if wait_ms > 0:
                     time.sleep(wait_ms / 1000.0)
-            
+
             if not os.path.exists(source_path):
                 continue
-            
+
             # Check if image is present
             found, message, check_data = self.waitForImageToAppear(
-                image_path, 0, threshold, area, [source_path], 
+                image_path, 0, threshold, area, [source_path],
                 verification_index, image_filter, userinterface_name, team_id
             )
-            
+
             additional_data = check_data
-            
+            checked += 1
+
             if found:
-                found_in_any = True
                 last_found_idx = idx
-        
-        # Invert: success = NOT found in any image
-        success = not found_in_any
-        
+            else:
+                success = True
+                disappear_idx = idx
+                break
+
         if 'matching_result' in additional_data and additional_data['matching_result'] is not None:
             original_threshold_score = additional_data['matching_result']
             inverted_threshold_score = 1.0 - original_threshold_score
             additional_data['matching_result'] = inverted_threshold_score
             additional_data['original_threshold_score'] = original_threshold_score
         
-        # KPI: If disappeared after first check (found in earlier, not in later)
-        if success and last_found_idx >= 0 and last_found_idx < len(images_to_check) - 1:
-            disappear_path = images_to_check[last_found_idx + 1]
-            if os.path.exists(disappear_path):
-                additional_data["kpi_match_timestamp"] = os.path.getmtime(disappear_path)
-                additional_data["kpi_match_index"] = last_found_idx + 1
-                print(f"[@controller:ImageVerification] KPI: Disappeared at index {last_found_idx + 1}")
+        # KPI: it was there, then left — the first frame without it
+        if success and last_found_idx >= 0:
+            additional_data["kpi_match_timestamp"] = os.path.getmtime(images_to_check[disappear_idx])
+            additional_data["kpi_match_index"] = disappear_idx
+            print(f"[@controller:ImageVerification] KPI: Disappeared at index {disappear_idx}")
         
         if success:
             return True, f"Image disappeared", additional_data
-        else:
-            return False, f"Image still present", additional_data
+        if not checked:
+            return False, "No capture to check", additional_data
+        return False, f"Image still present", additional_data
 
     def waitForImageToAppearThenDisappear(self, image_path: str, timeout: float = 10.0, threshold: float = 0.8,
                                          area: dict = None, image_list: List[str] = None,
@@ -491,7 +532,7 @@ class ImageVerificationController:
             if os.path.exists(filtered_path):
                 filtered_reference_path = filtered_path
         
-        ref_img = cv2.imread(filtered_reference_path, cv2.IMREAD_COLOR)
+        ref_img = cv2_io.imread(filtered_reference_path, cv2.IMREAD_COLOR)
         if ref_img is None:
             error_msg = f"Reference image corrupted or invalid format: '{os.path.basename(filtered_reference_path)}'"
             return False, error_msg, {}
@@ -559,9 +600,9 @@ class ImageVerificationController:
                     time.sleep(min(poll_s, max(0.0, frame_deadline - time.time())))
 
             if os.path.exists(source_path):
-                source_img = cv2.imread(source_path, cv2.IMREAD_COLOR)
+                source_img = cv2_io.imread(source_path, cv2.IMREAD_COLOR)
                 if source_img is not None:
-                    threshold_score, match_location = self._match_template(ref_img, source_img, area)
+                    _, threshold_score, match_location = self._match_template(ref_img, source_img, area, threshold)
 
                     if state == "WAITING_FOR_APPEAR":
                         if threshold_score >= threshold:
@@ -685,7 +726,7 @@ class ImageVerificationController:
             nonlocal best_score, best_source, best_details
             if not os.path.exists(source_path):
                 return False, 0.0
-            img = cv2.imread(source_path, cv2.IMREAD_COLOR)
+            img = cv2_io.imread(source_path, cv2.IMREAD_COLOR)
             crop = self._crop_area(img, area)
             score, details = self.helpers.match_icon(crop, icon)
             if best_source is None or score > best_score:
@@ -789,7 +830,7 @@ class ImageVerificationController:
                 time.sleep(wait_ms / 1000.0)
             if not os.path.exists(source_path):
                 continue
-            img = cv2.imread(source_path, cv2.IMREAD_COLOR)
+            img = cv2_io.imread(source_path, cv2.IMREAD_COLOR)
             score, details = self.helpers.match_icon(self._crop_area(img, area), icon)
             if score > worst_score:
                 worst_score, worst_source, worst_details = score, source_path, details
@@ -864,7 +905,7 @@ class ImageVerificationController:
                     time.sleep(min(poll_s, max(0.0, frame_deadline - time.time())))
 
             if os.path.exists(source_path):
-                img = cv2.imread(source_path, cv2.IMREAD_COLOR)
+                img = cv2_io.imread(source_path, cv2.IMREAD_COLOR)
                 if img is not None:
                     score, details = self.helpers.match_icon(self._crop_area(img, area), icon)
                     if score > best_score:
@@ -923,24 +964,24 @@ class ImageVerificationController:
             reference_result_path = f'{results_dir}/icon_reference_{verification_index}_{ts}.png'
             overlay_result_path = f'{results_dir}/icon_overlay_{verification_index}_{ts}.png'
 
-            img = cv2.imread(source_path, cv2.IMREAD_COLOR)
+            img = cv2_io.imread(source_path, cv2.IMREAD_COLOR)
             crop = self._crop_area(img, area)
             if crop is not None:
-                cv2.imwrite(source_result_path, crop)
+                cv2_io.imwrite(source_result_path, crop)
 
             src_norm = (details or {}).get('source_norm')
             ref_norm = (details or {}).get('reference_norm')
             if ref_norm is None:
                 ref_norm = self.helpers._reference_glyph(icon)
             if ref_norm is not None:
-                cv2.imwrite(reference_result_path, ref_norm)
+                cv2_io.imwrite(reference_result_path, ref_norm)
                 # Overlay: reference in green, source silhouette in red, agreement yellow.
                 size = ref_norm.shape[0]
                 overlay = np.zeros((size, size, 3), dtype=np.uint8)
                 overlay[ref_norm > 0] = [0, 180, 0]
                 if src_norm is not None:
                     overlay[src_norm > 0, 2] = 200
-                cv2.imwrite(overlay_result_path, overlay)
+                cv2_io.imwrite(overlay_result_path, overlay)
 
             out = {}
             if os.path.exists(source_result_path):
@@ -1150,7 +1191,7 @@ class ImageVerificationController:
             # so it travels with the reference and is loaded at verify time.
             focus_warning = None
             if check_focus:
-                ref_crop = cv2.imread(image_saved_path, cv2.IMREAD_COLOR)
+                ref_crop = cv2_io.imread(image_saved_path, cv2.IMREAD_COLOR)
                 focus_params = self.helpers.learn_focus_accent(ref_crop) if ref_crop is not None else None
                 if focus_params:
                     if not isinstance(area, dict):
@@ -1239,11 +1280,15 @@ class ImageVerificationController:
                 source_path = self.av_controller.take_screenshot()
                 if not source_path or not os.path.exists(source_path):
                     reason = getattr(self.av_controller, 'last_screenshot_error', None)
+                    code = getattr(self.av_controller, 'last_screenshot_error_code', None)
                     return {
                         'success': False,
                         'message': 'Failed to capture screenshot automatically for image verification'
                                    + (f': {reason}' if reason else ''),
-                        'screenshot_path': None
+                        'screenshot_path': None,
+                        # A host out of disk is not a verification outcome: the executor
+                        # aborts the batch instead of scoring every leg as failed (BUG-0198).
+                        **({'execution_error': code} if code == 'no_space' else {}),
                     }
                 # Persist the captured original path so downstream consumers (failure-report
                 # generator) can upload it alongside the cropped source.
@@ -1289,7 +1334,7 @@ class ImageVerificationController:
                 fp = params.get('fingerprint') or {}
                 threshold_bits = int(params.get('threshold', 14))
                 node_label = params.get('node_label', '')
-                gray = cv2.cvtColor(cv2.imread(source_path), cv2.COLOR_BGR2GRAY)
+                gray = cv2.cvtColor(cv2_io.imread(source_path), cv2.COLOR_BGR2GRAY)
                 helpers = ImageHelpers(None, self.av_controller)
                 regions = helpers._region_dhashes(gray)
                 if fp.get('regions'):
@@ -1426,7 +1471,7 @@ class ImageVerificationController:
                         ParamType.NUMBER,
                         required=False,
                         default=0,
-                        description="Maximum time to wait (seconds)"
+                        description="Maximum time to wait (ms)"
                     ),
                     "threshold": create_param(
                         ParamType.NUMBER,
@@ -1461,7 +1506,7 @@ class ImageVerificationController:
                         ParamType.NUMBER,
                         required=False,
                         default=0,
-                        description="Maximum time to wait (seconds)"
+                        description="Maximum time to wait (ms)"
                     ),
                     "threshold": create_param(
                         ParamType.NUMBER,
@@ -1495,8 +1540,8 @@ class ImageVerificationController:
                     "timeout": create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=10,
-                        description="Maximum time to wait (seconds)"
+                        default=10000,
+                        description="Maximum time to wait (ms)"
                     ),
                     "threshold": create_param(
                         ParamType.NUMBER,
@@ -1531,7 +1576,7 @@ class ImageVerificationController:
                         ParamType.NUMBER,
                         required=False,
                         default=0,
-                        description="Maximum time to wait (seconds)"
+                        description="Maximum time to wait (ms)"
                     ),
                     "threshold": create_param(
                         ParamType.NUMBER,
@@ -1566,7 +1611,7 @@ class ImageVerificationController:
                         ParamType.NUMBER,
                         required=False,
                         default=0,
-                        description="Maximum time to wait (seconds)"
+                        description="Maximum time to wait (ms)"
                     ),
                     "threshold": create_param(
                         ParamType.NUMBER,
@@ -1600,8 +1645,8 @@ class ImageVerificationController:
                     "timeout": create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=10,
-                        description="Maximum time to wait (seconds)"
+                        default=10000,
+                        description="Maximum time to wait (ms)"
                     ),
                     "threshold": create_param(
                         ParamType.NUMBER,
@@ -1691,17 +1736,17 @@ class ImageVerificationController:
                     reference_image_for_overlay = filtered_reference_path
             
             # === STEP 4: Create Overlay ===
-            source_img = cv2.imread(source_result_path)
+            source_img = cv2_io.imread(source_result_path)
             if source_img is None:
                 return {}
             
-            ref_img = cv2.imread(reference_image_for_overlay)
+            ref_img = cv2_io.imread(reference_image_for_overlay)
             if ref_img is None:
                 return {}
             
             overlay_img = self._create_pixel_difference_overlay(source_img, ref_img)
             if overlay_img is not None:
-                cv2.imwrite(overlay_result_path, overlay_img)
+                cv2_io.imwrite(overlay_result_path, overlay_img)
             else:
                 return {}
             
@@ -1743,14 +1788,6 @@ class ImageVerificationController:
             pixel_threshold = 10  # Pixels with difference <= 10 are considered matching
             matching_mask = diff <= pixel_threshold
             
-            # Calculate pixel-based match percentage
-            matching_pixels = np.sum(matching_mask)
-            total_pixels = source_gray.shape[0] * source_gray.shape[1]
-            pixel_match_percentage = (matching_pixels / total_pixels) * 100
-            
-            print(f"[@overlay] Pixel comparison: {matching_pixels}/{total_pixels} = {pixel_match_percentage:.1f}% matching")
-            print(f"[@overlay] Image size: {source_img.shape[1]}x{source_img.shape[0]}, pixel threshold: {pixel_threshold}")
-            
             # Create BGRA overlay (BGR + Alpha channel for transparency)
             height, width = source_img.shape[:2]
             overlay = np.zeros((height, width, 4), dtype=np.uint8)
@@ -1769,9 +1806,6 @@ class ImageVerificationController:
             small_diff_mask = (diff > 0) & (diff <= 5)
             if np.any(small_diff_mask):
                 overlay[small_diff_mask] = [0, 255, 0, transparency // 2]  # More transparent green
-            
-            print(f"[@overlay] ⚠️  WARNING: Pixel-based match ({pixel_match_percentage:.1f}%) may differ from template matching score!")
-            print(f"[@overlay] Template matching (TM_CCOEFF_NORMED) is sensitive to contrast/brightness, while pixel comparison uses absolute difference")
             
             return overlay
             
@@ -1982,7 +2016,7 @@ class ImageVerificationController:
                 fuzzy_area = {'fx': area['fx'], 'fy': area['fy'], 'fwidth': area['fwidth'], 'fheight': area['fheight']}
                 # Pass threshold for early exit on exact match
                 found, confidence, location = self.helpers.smart_fuzzy_search(source_img, ref_img, exact_area, fuzzy_area, threshold)
-                return found, confidence, location  # Return 'found' flag for early exit!
+                return _native_match(found, confidence, location)  # Return 'found' flag for early exit!
             
             if area:
                 x, y, w, h = int(area['x']), int(area['y']), int(area['width']), int(area['height'])
@@ -2001,9 +2035,8 @@ class ImageVerificationController:
                 total_pixels = source_gray.shape[0] * source_gray.shape[1]
                 pixel_score = matching_pixels / total_pixels
                 
-                print(f"[@controller:ImageVerification] Pixel match: {matching_pixels}/{total_pixels} = {pixel_score:.1%}")
                 found = pixel_score >= threshold
-                return found, pixel_score, location
+                return _native_match(found, pixel_score, location)
             
             # No area specified - full image search
             result = cv2.matchTemplate(source_img, ref_img, cv2.TM_CCOEFF_NORMED)
@@ -2012,7 +2045,7 @@ class ImageVerificationController:
             ref_h, ref_w = ref_img.shape[:2]
             location = {'x': max_loc[0], 'y': max_loc[1], 'width': ref_w, 'height': ref_h}
             found = max_val >= threshold
-            return found, max_val, location
+            return _native_match(found, max_val, location)
             
         except Exception as e:
             print(f"[@controller:ImageVerification] ERROR: Template matching error: {e}")
@@ -2041,7 +2074,7 @@ class ImageVerificationController:
             focus_pass = focus_score >= focus_threshold
             print(f"[@controller:ImageVerification] Focus check: score={focus_score:.3f} "
                   f"threshold={focus_threshold:.2f} → {'FOCUSED' if focus_pass else 'NOT focused'}")
-            return focus_pass, focus_score
+            return bool(focus_pass), float(focus_score)
         except Exception as e:
             print(f"[@controller:ImageVerification] Focus check error: {e}")
             return False, 0.0

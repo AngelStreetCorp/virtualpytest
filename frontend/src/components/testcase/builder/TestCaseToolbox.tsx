@@ -134,14 +134,11 @@ export const TestCaseToolbox: React.FC<TestCaseToolboxProps> = ({
     }
   }, [selectedHost, selectedDeviceId, userinterface, scriptInputs.length]);
 
-  // Handle null/undefined toolboxConfig
-  if (!toolboxConfig || typeof toolboxConfig !== 'object') {
-    return null;
-  }
+  const hasToolboxConfig = Boolean(toolboxConfig) && typeof toolboxConfig === 'object';
 
   // Filter toolbox config based on search term
   const filteredToolboxConfig = useMemo(() => {
-    if (!searchTerm.trim()) {
+    if (!hasToolboxConfig || !searchTerm.trim()) {
       return toolboxConfig;
     }
 
@@ -170,7 +167,7 @@ export const TestCaseToolbox: React.FC<TestCaseToolboxProps> = ({
     });
 
     return filtered;
-  }, [toolboxConfig, searchTerm]);
+  }, [toolboxConfig, searchTerm, hasToolboxConfig]);
   
   // I/O Section Handlers
   const handleAddInput = () => {
@@ -225,6 +222,13 @@ export const TestCaseToolbox: React.FC<TestCaseToolboxProps> = ({
   }, [toolboxConfig]);
 
   const totalConfig = scriptInputs.length + scriptOutputs.length + scriptVariables.length + scriptMetadata.length;
+
+  // Nothing to show without a config. Checked here rather than above the hooks —
+  // both memos tolerate a missing config, and an early return above them would be
+  // a conditional hook call.
+  if (!hasToolboxConfig) {
+    return null;
+  }
 
   return (
     <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>

@@ -11,6 +11,7 @@ import {
   PlayArrow as StartIcon,
   Close as CancelIcon
 } from '@mui/icons-material';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface ValidationReadyPromptProps {
   nodesCreated: number;
@@ -31,6 +32,7 @@ export const ValidationReadyPrompt: React.FC<ValidationReadyPromptProps> = ({
   onStartValidation,
   onCancel
 }) => {
+  const P = useAgentChatPalette();
   return (
     <Paper
       elevation={8}
@@ -43,7 +45,7 @@ export const ValidationReadyPrompt: React.FC<ValidationReadyPromptProps> = ({
         zIndex: 1300,
         bgcolor: 'background.paper',
         border: '2px solid',
-        borderColor: 'primary.main',
+        borderColor: P.accent,
         borderRadius: 2
       }}
     >
@@ -66,7 +68,7 @@ export const ValidationReadyPrompt: React.FC<ValidationReadyPromptProps> = ({
       </Typography>
 
       {/* Stats */}
-      <Box sx={{ mb: 2, p: 1.5, bgcolor: 'rgba(0, 255, 0, 0.05)', borderRadius: 1 }}>
+      <Box sx={{ mb: 2, p: 1.5, bgcolor: `${P.success}0d`, borderRadius: 1 }}>
         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
           📊 {nodesCreated} nodes created
         </Typography>

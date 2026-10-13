@@ -6,13 +6,43 @@ Execute remote commands, ADB commands, web actions, and desktop actions.
 
 import json
 import time
-import uuid
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
+from ..utils.lock_ownership import auto_lock
 from ..utils.screenshot_capture import capture_image_block
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
 
+
+
+ELEMENTS_OUTPUT_MAX_CHARS = 8000
+_INTERACTIVE_ROLES = {'button', 'link', 'tab', 'menuitem', 'option', 'checkbox', 'textbox', 'slider', 'switch'}
+
+
+def _compact_elements(elements) -> str:
+    """One line per element, `tag#id [role]: text`. Drops what only repeats the page: wrapper
+    elements whose text is a cut-off summary of their children ('...'), unless they are
+    interactive, and repeated texts."""
+    lines, seen = [], set()
+    for el in elements:
+        if not isinstance(el, dict):
+            continue
+        attrs = el.get('attributes') or {}
+        role = (attrs.get('role') or '').strip()
+        tag = el.get('tagName') or el.get('tag') or '?'
+        text = ' '.join(str(el.get('textContent') or el.get('text') or '').split())
+        interactive = role in _INTERACTIVE_ROLES or tag in ('a', 'button', 'input', 'select')
+        if text.endswith('...') and not interactive:
+            continue
+        if not text and not interactive:
+            continue
+        key = (text, role) if text else (el.get('id'), role)
+        if key in seen:
+            continue
+        seen.add(key)
+        ident = f"#{el['id']}" if el.get('id') else ''
+        lines.append(f"- {tag}{ident}{f' [{role}]' if role else ''}: {text}")
+    return f"{len(lines)} elements:\n" + "\n".join(lines)
 
 class ActionTools:
     """Device action execution tools"""
@@ -137,66 +167,12 @@ class ActionTools:
                 filtered[category] = filtered_actions
         return filtered
     
-    def _auto_lock(self, host_name: str, device_id: str, team_id: str, force_unlock: bool = False) -> Dict[str, Any]:
-        """Auto-acquire device lock. Returns error dict on failure, None on success."""
-        device_key = f"{host_name}:{device_id}"
-
-        # Reuse existing session if we already hold the lock
-        if device_key in self._control_sessions:
-            return None
-
-        session_id = f"mcp-action-{uuid.uuid4()}"
-
-        data = {
-            'host_name': host_name,
-            'device_id': device_id,
-            'session_id': session_id,
-        }
-
-        result = self.api.post('/server/control/takeControl', data=data, params={'team_id': team_id})
-
-        # If locked and force requested, preempt the existing lock
-        if not result.get('success') and result.get('errorType') == 'device_locked' and force_unlock:
-            owner_type = result.get('owner_type') or (result.get('lock_info') or {}).get('owner_type')
-            # Graceful takeover for execution locks: aborts the running script/deployment first.
-            if owner_type in ('script_execution', 'deployment_execution', 'mcp'):
-                takeover_data = {
-                    'host_name': host_name,
-                    'device_id': device_id,
-                    'requested_by_session': session_id,
-                    'stop_running_execution': True,
-                    'reason': 'mcp_force_unlock',
-                }
-                result = self.api.post('/server/control/takeover', data=takeover_data, params={'team_id': team_id})
-
-            # Still locked (e.g. a manual_control lock, which /takeover refuses to preempt).
-            # force_unlock=true is an explicit override and a manual lock has no running
-            # execution to abort, so clear it unconditionally and retake.
-            if not result.get('success'):
-                self.api.post('/server/control/forceUnlock',
-                              data={'host_name': host_name, 'device_id': device_id},
-                              params={'team_id': team_id})
-                result = self.api.post('/server/control/takeControl', data=data, params={'team_id': team_id})
-
-        if not result.get('success'):
-            error_type = result.get('errorType', '')
-            if error_type == 'device_locked':
-                owner_type = result.get('owner_type') or (result.get('lock_info') or {}).get('owner_type', 'unknown')
-
-                # Piggyback on existing manual_control lock (e.g. from take_control).
-                # Don't store in _control_sessions so _auto_unlock becomes a no-op.
-                if owner_type == 'manual_control':
-                    print(f"[@MCP:_auto_lock] Device {device_key} held by manual_control — piggybacking")
-                    return None
-
-                msg = result.get('message', 'Device is currently in use')
-                error_msg = f"Device '{device_id}' on host '{host_name}' is locked by {owner_type}. {msg}"
-                error_msg += ". Retry with force_unlock=true to preempt."
-                return {"content": [{"type": "text", "text": error_msg}], "isError": True, "errorType": "device_locked"}
-            return {"content": [{"type": "text", "text": f"Failed to lock device: {result.get('error', 'Unknown error')}"}], "isError": True}
-
-        self._control_sessions[device_key] = session_id
-        return None
+    def _auto_lock(self, params: Dict[str, Any], host_name: str, device_id: str, team_id: str,
+                   force_unlock: bool = False) -> Optional[Dict[str, Any]]:
+        """Lock the device for this call, or run under the caller's own lock. Returns an error dict
+        when someone else holds it (never taken over), None to proceed. See lock_ownership."""
+        return auto_lock(self.api, self._control_sessions, params, host_name, device_id, team_id,
+                         force_unlock, 'action')
 
     def _auto_unlock(self, host_name: str, device_id: str, team_id: str) -> None:
         """Release device lock acquired by auto-lock."""
@@ -270,7 +246,8 @@ class ActionTools:
                 'host_name': str (REQUIRED - host name where device is connected),
                 'device_id': str (REQUIRED - device identifier),
                 'actions': list (REQUIRED - list of action dicts with command and params),
-                'force_unlock': bool (OPTIONAL - preempt existing lock if device is locked),
+                'force_unlock': bool (OPTIONAL - stop a running script/testcase/deployment holding the device; never another user's take-control),
+                'session_id': str (OPTIONAL - session_id from take_control; runs under that lock),
                 'include_screenshot': bool (OPTIONAL - include a device screenshot of the resulting screen in the response, default false)
             }
 
@@ -347,7 +324,7 @@ class ActionTools:
                 print(f"[@MCP:execute_device_action] action_type auto-detect failed: {e}")
 
         # Auto-lock device
-        lock_error = self._auto_lock(host_name, device_id, team_id, force_unlock)
+        lock_error = self._auto_lock(params, host_name, device_id, team_id, force_unlock)
         if lock_error:
             return lock_error
 
@@ -464,10 +441,18 @@ class ActionTools:
                         outputs.append({key: ar[key]})
 
         if outputs:
-            output_str = _json.dumps(outputs if len(outputs) > 1 else outputs[0], default=str)
-            # Limit to 3000 chars to avoid token bloat
-            if len(output_str) > 3000:
-                output_str = output_str[:3000] + '...(truncated)'
+            # An element dump as compact lines: in JSON, 3000 chars held ~12 elements (Flutter
+            # wrappers repeat the page text), so a page's content (e.g. a grid of movies) never
+            # reached the agent.
+            element_lists = [o['elements'] for o in outputs if isinstance(o, dict) and isinstance(o.get('elements'), list)]
+            if element_lists:
+                output_str = _compact_elements([e for lst in element_lists for e in lst])
+                limit = ELEMENTS_OUTPUT_MAX_CHARS
+            else:
+                output_str = _json.dumps(outputs if len(outputs) > 1 else outputs[0], default=str)
+                limit = 3000  # avoid token bloat
+            if len(output_str) > limit:
+                output_str = output_str[:limit] + '...(truncated)'
             msg += f"\n\nOutput:\n{output_str}"
 
         return msg

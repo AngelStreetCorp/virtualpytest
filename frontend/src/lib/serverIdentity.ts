@@ -21,7 +21,17 @@ import { STORAGE_KEYS } from '../config/constants';
 import { getAutoSignedSession } from './autoSign';
 import { unauthenticatedFetch } from '../utils/pristineFetch';
 
-import { getClientForIdentity, normalizeIdentity, supabase, isAuthEnabled, PRIMARY_IDENTITY } from './supabase';
+import {
+  getClientForIdentity,
+  getSessionWithTimeout,
+  normalizeIdentity,
+  supabase,
+  isAuthEnabled,
+  PRIMARY_IDENTITY,
+} from './supabase';
+
+/** Upper bound on one `/server/auth/check` probe. */
+const DISCOVERY_TIMEOUT_MS = 5000;
 
 export type ServerAuthMode = 'supabase' | 'open' | 'public_key' | 'closed';
 
@@ -69,6 +79,22 @@ function persist(): void {
   }
 }
 
+/**
+ * Event fired whenever the registry learns (or changes) a server's identity.
+ *
+ * Consumers that sit OUTSIDE ServerManagerProvider — WorkspaceProvider, for one — cannot
+ * read the auth state through context, and a plain module-level lookup would be read once
+ * and never re-read when discovery lands a moment later. Mirrors the `vpt:server-changed`
+ * event the server picker already dispatches.
+ */
+const IDENTITIES_CHANGED_EVENT = 'vpt:server-identities-changed';
+
+/** Subscribe to registry updates, for `useSyncExternalStore`. */
+export const subscribeToServerIdentities = (callback: () => void): (() => void) => {
+  window.addEventListener(IDENTITIES_CHANGED_EVENT, callback);
+  return () => window.removeEventListener(IDENTITIES_CHANGED_EVENT, callback);
+};
+
 /** Record what a server said about itself. Returns true when the identity changed. */
 export const registerServerIdentity = (serverUrl: string, info: ServerAuthInfo): boolean => {
   const key = normalizeServerKey(serverUrl);
@@ -83,6 +109,7 @@ export const registerServerIdentity = (serverUrl: string, info: ServerAuthInfo):
 
   registry[key] = normalized;
   persist();
+  window.dispatchEvent(new CustomEvent(IDENTITIES_CHANGED_EVENT));
   return changed;
 };
 
@@ -154,23 +181,35 @@ export const getClientForServer = (serverUrl: string): SupabaseClient | null => 
   return getClientForIdentity(info.identity, info.anonKey) ?? supabase;
 };
 
-/** Live session for a server's identity, or null when we hold none. */
+/**
+ * Live session for a server's identity, or null when we hold none.
+ *
+ * Time-bounded (see `getSessionWithTimeout`): an identity whose Supabase is unreachable
+ * makes supabase-js retry its refresh for ~30 s, and this is awaited on the request hot
+ * path — so without the bound, one dead deployment freezes calls to every other one.
+ */
 export const getSessionForServer = async (serverUrl: string): Promise<Session | null> => {
   const client = getClientForServer(serverUrl);
   if (!client) return null;
-  try {
-    const {
-      data: { session },
-    } = await client.auth.getSession();
-    return session ?? null;
-  } catch {
-    return null;
-  }
+  return getSessionWithTimeout(client);
 };
 
 /** Access token for a server, or null when we hold no session for its identity. */
 export const getAccessTokenForServer = async (serverUrl: string): Promise<string | null> =>
   (await getSessionForServer(serverUrl))?.access_token ?? null;
+
+/**
+ * Access token to authenticate one request with, chosen by the request's TARGET server.
+ *
+ * The single place `apiClient` and the `installFetchAuth` interceptor both go through, so
+ * the two can never disagree about which identity signs a request — and so the timeout
+ * above applies to both.
+ */
+export const getAccessTokenForRequest = async (requestUrl: string): Promise<string | null> => {
+  const client = getClientForRequest(requestUrl);
+  if (!client) return null;
+  return (await getSessionWithTimeout(client))?.access_token ?? null;
+};
 
 /**
  * Ask a server which Supabase it authenticates against, and remember the answer.
@@ -186,11 +225,42 @@ export const discoverServerIdentity = async (
   serverUrl: string,
   signal?: AbortSignal,
 ): Promise<ServerAuthInfo | null> => {
+  // Coalesce concurrent probes of the same server. On first load both the picker's
+  // discovery pass and the host fetch want a server's identity within milliseconds of
+  // each other; without this they each send their own /server/auth/check. A caller that
+  // brought its own signal opts out — cancelling a shared probe would cancel it for the
+  // other caller too.
+  if (!signal) {
+    const pending = inFlightDiscoveries.get(serverUrl);
+    if (pending) return pending;
+
+    const probe = probeServerIdentity(serverUrl).finally(() => {
+      inFlightDiscoveries.delete(serverUrl);
+    });
+    inFlightDiscoveries.set(serverUrl, probe);
+    return probe;
+  }
+
+  return probeServerIdentity(serverUrl, signal);
+};
+
+const inFlightDiscoveries = new Map<string, Promise<ServerAuthInfo | null>>();
+
+const probeServerIdentity = async (
+  serverUrl: string,
+  signal?: AbortSignal,
+): Promise<ServerAuthInfo | null> => {
   const base = (serverUrl || '').trim().replace(/\/+$/, '');
   const url = `${base}/server/auth/check`;
 
   try {
-    const response = await unauthenticatedFetch(url, { signal });
+    // Always bounded. A server that accepts the connection and then never answers (or an
+    // edge that black-holes it) would otherwise leave this promise pending forever, and
+    // every caller awaits one probe per configured server before it can report any of
+    // them. The caller's own signal still wins when it passes one.
+    const response = await unauthenticatedFetch(url, {
+      signal: signal ?? AbortSignal.timeout(DISCOVERY_TIMEOUT_MS),
+    });
     if (!response.ok) return null;
 
     const body = await response.json();

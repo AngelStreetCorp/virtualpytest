@@ -45,6 +45,61 @@ def test_remote_endpoint_requires_host_name(path, base_url, api_headers, verify_
     assert body.get("success") is False
 
 
+def test_execute_command_group_empty_body_returns_400(base_url, api_headers, verify_ssl, request_timeout):
+    """TASK-76 G10: /server/remote/executeCommandGroup must be live (not swallowed by
+    auto_proxy's generic /server/<endpoint> catch-all). Empty body returns 400 with the
+    route's own validation message, not auto_proxy's "host_name required".
+    Regression: the phase-2 commit landed the route handler but the blueprint was
+    never registered in app.py, so auto_proxy answered every call with 400 + the
+    wrong message and Test A's mocked Playwright spec could not detect it.
+    """
+    headers = {**api_headers, "X-Auto-Sign": os.environ.get("E2E_AUTO_SIGN_TOKEN", "")} \
+        if os.environ.get("E2E_AUTO_SIGN_TOKEN") else api_headers
+    response = requests.post(
+        f"{base_url}/server/remote/executeCommandGroup",
+        json={},
+        headers=headers,
+        timeout=request_timeout,
+        verify=verify_ssl,
+    )
+    assert response.status_code == 400, response.text
+    body = response.json()
+    assert body.get("success") is False
+    assert "targets" in body.get("error", ""), (
+        f"got auto_proxy's 'host_name required' fallback — the route is not registered "
+        f"before auto_proxy. body={body!r}"
+    )
+
+
+def test_execute_command_group_odd_profile_returns_400(base_url, api_headers, verify_ssl, request_timeout):
+    """TASK-76 G10 + G13: when one target lacks the requested remote profile, the route
+    returns 400 with a `mismatches` array naming the odd device — the mocked spec asserts
+    the same on the frontend side."""
+    headers = {**api_headers, "X-Auto-Sign": os.environ.get("E2E_AUTO_SIGN_TOKEN", "")} \
+        if os.environ.get("E2E_AUTO_SIGN_TOKEN") else api_headers
+    response = requests.post(
+        f"{base_url}/server/remote/executeCommandGroup",
+        json={
+            "targets": [
+                {"host_name": "host-clone-1", "device_id": "device3"},
+                {"host_name": "host-clone-1", "device_id": "device4"},
+            ],
+            "remote_profile": "ir:stb",
+            "command": "press_key",
+            "params": {"key": "HOME"},
+            "device_model": "cloud_android_mobile",
+        },
+        headers=headers,
+        timeout=request_timeout,
+        verify=verify_ssl,
+    )
+    assert response.status_code == 400, response.text
+    body = response.json()
+    assert body.get("success") is False
+    assert "mismatches" in body, body
+    assert any("ir:stb" in (m.get("reason") or "") for m in body["mismatches"]), body
+
+
 def test_stream_tap_unknown_host_returns_400(base_url, api_headers, verify_ssl, request_timeout):
     """stream_tap() used to reference an undefined `host` name in its
     validation guard, raising a NameError on every call regardless of

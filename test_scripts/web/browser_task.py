@@ -56,7 +56,6 @@ _script_args = [
     '--task:str:Launch funny cat video',  # Browser-use task description
     '--max_steps:int:10',                      # Maximum steps for browser-use (default: 20)
     '--wait_seconds:int:10',                   # Wait time before task execution
-    '--openrouter_api_key:str:',               # Optional OpenRouter API key for --local-debug browser-use
 ]
 _script_description = "Navigate to a URL and run an AI browser task."
 _arg_descriptions = {
@@ -64,7 +63,6 @@ _arg_descriptions = {
     'task': 'AI task description to execute',
     'max_steps': 'Max steps for browser-use agent',
     'wait_seconds': 'Wait before task execution',
-    'openrouter_api_key': 'OpenRouter API key for local debug',
 }
 
 
@@ -177,24 +175,13 @@ def capture_local_execution_summary(
     return "\n".join(lines)
 
 
-async def _run_local_browser_use_task(page, task: str, max_steps: int, openrouter_api_key: str = "") -> Dict[str, Any]:
-    """Execute browser-use task directly on existing Playwright page."""
+async def _run_local_browser_use_task(page, task: str, max_steps: int) -> Dict[str, Any]:
+    """Execute browser-use task directly on existing Playwright page (model: agent.browser AI route)."""
     start_time = time.time()
     execution_logs = []
 
-    api_key = (openrouter_api_key or '').strip() or os.getenv('OPENROUTER_API_KEY')
-    if not api_key:
-        return {
-            'success': False,
-            'error': 'OPENROUTER_API_KEY is not set',
-            'execution_time': 0,
-            'result_summary': '',
-            'execution_logs': '',
-        }
-
     try:
         from browser_use import Agent
-        from browser_use.llm import ChatOpenAI
         from browser_use.browser.profile import BrowserProfile
     except Exception as e:
         return {
@@ -236,12 +223,8 @@ async def _run_local_browser_use_task(page, task: str, max_steps: int, openroute
             no_viewport=False
         )
 
-        llm = ChatOpenAI(
-            model='o4-mini',
-            api_key=api_key,
-            base_url='https://openrouter.ai/api/v1',
-            temperature=1.0
-        )
+        from backend_host.src.lib.utils.browseruse_utils import build_browser_llm
+        llm = build_browser_llm()
 
         agent = Agent(
             task=task,
@@ -284,7 +267,6 @@ async def _run_local_playwright_browser_task(
     task: str,
     max_steps: int,
     wait_seconds: int,
-    openrouter_api_key: str = "",
     output_dir: str = "",
 ) -> Dict[str, Any]:
     """Playwright-only local debug flow for browser_task."""
@@ -399,7 +381,7 @@ async def _run_local_playwright_browser_task(
         # Local-debug: execute the real browser-use task to mirror controller flow.
         task_with_context = f"You are on website {page.url}\n\nExecute task: {task}"
         print(f"[PW] browser-use Agent.run(max_steps={max_steps})")
-        task_result = await _run_local_browser_use_task(page, task_with_context, max_steps, openrouter_api_key=openrouter_api_key)
+        task_result = await _run_local_browser_use_task(page, task_with_context, max_steps)
         task_shot = await shot(page, "after_task_execution")
         add_step(
             "Execute browser-use task",
@@ -454,7 +436,6 @@ def _run_local_debug_cli():
     parser.add_argument("--task", type=str, default="Launch funny cat video")
     parser.add_argument("--max_steps", type=int, default=10)
     parser.add_argument("--wait_seconds", type=int, default=10)
-    parser.add_argument("--openrouter_api_key", type=str, default="")
     parser.add_argument("--local-debug", "--local_debug", dest="local_debug", default=True)
     args, _ = parser.parse_known_args()
 
@@ -463,7 +444,6 @@ def _run_local_debug_cli():
         task=args.task,
         max_steps=int(args.max_steps),
         wait_seconds=int(args.wait_seconds),
-        openrouter_api_key=(args.openrouter_api_key or "").strip(),
         output_dir="",
     ))
     success = bool(result.get("success"))
@@ -487,7 +467,6 @@ def main():
     task = args.task
     max_steps = args.max_steps
     wait_seconds = args.wait_seconds
-    openrouter_api_key = (args.openrouter_api_key or '').strip()
 
     if getattr(args, 'local_debug', False):
         print(f"🧪 [browser_task] Running local Playwright-only mode")
@@ -499,7 +478,6 @@ def main():
                 task=task,
                 max_steps=max_steps,
                 wait_seconds=wait_seconds,
-                openrouter_api_key=openrouter_api_key,
                 output_dir=local_output_dir,
             ))
         except Exception as e:
@@ -519,7 +497,6 @@ def main():
             "url": result.get('normalized_url', url),
             "task": task,
             "max_steps": max_steps,
-            "openrouter_api_key_provided": bool(openrouter_api_key),
             "navigation_result": result.get('nav_result'),
             "task_result": result.get('task_result'),
             "trace_path": result.get('trace_path', ''),

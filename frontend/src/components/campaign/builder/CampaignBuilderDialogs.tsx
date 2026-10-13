@@ -18,6 +18,7 @@ import {
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CloseIcon from '@mui/icons-material/Close';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { buildServerUrl } from '../../../utils/buildUrlUtils';
 import { CampaignSelector } from '../CampaignSelector';
 import { StyledDialog } from '../../common/StyledDialog';
@@ -82,6 +83,7 @@ export const CampaignBuilderDialogs: React.FC<CampaignBuilderDialogsProps> = ({
   campaignTags = [],
   setCampaignTags = () => {},
 }) => {
+  const P = useAgentChatPalette();
   // State for folders and tags
   const [availableFolders, setAvailableFolders] = useState<Folder[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
@@ -268,7 +270,7 @@ export const CampaignBuilderDialogs: React.FC<CampaignBuilderDialogsProps> = ({
               value.map((option, index) => {
                 // Find tag color if exists, or use default for new tags
                 const existingTag = availableTags.find(t => t.name === option);
-                const color = existingTag?.color || '#9e9e9e';
+                const color = existingTag?.color || P.textMuted;
 
                 return (
                   <Chip

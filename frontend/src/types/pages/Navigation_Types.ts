@@ -267,16 +267,36 @@ export interface BreadcrumbItem {
   node_id?: string;
 }
 
+/**
+ * A navigation node as the server stores and returns it — the `navigation_nodes` row
+ * shape, used by NavigationConfigContext's `loadTreeNodes` / `saveNode`.
+ *
+ * This is the *persistence* shape. The canvas works in `UINavigationNode` (ReactFlow's
+ * `{ id, position, data }`), and `NavigationContext.saveNodeWithStateUpdate` converts
+ * one to the other before saving.
+ *
+ * Note where `verification_pass_condition` lives: inside `data`, not at the top level.
+ * An earlier version of this interface declared it as a top-level optional field, which
+ * contradicted the save path (see the "Store in data object" note in
+ * NavigationContext) — the two were never reconciled because nothing imported this
+ * type. Only `verifications` and `hidden_in_base` are promoted out of `data` to real
+ * columns.
+ */
 export interface NavigationNode {
   node_id: string;
   label: string;
   node_type: string;
   position_x: number;
   position_y: number;
-  verifications: Verification[]; // Embedded verifications
-  verification_pass_condition?: 'all' | 'any'; // Condition for passing verifications
-  data: any; // description goes in data.description
-  
+  verifications: Verification[];
+  /** description, display_name, verification_pass_condition, fingerprint, dom, … */
+  data: any;
+  /**
+   * Per-variant model: a real column on `navigation_nodes`, set for variant-only rows.
+   * Per-variant overrides themselves live on `userinterface_variants`, not here.
+   */
+  hidden_in_base?: boolean;
+
   // Optional fields
   screenshot?: string;
   menu_type?: string;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Card,
@@ -16,7 +16,6 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
   Select,
   MenuItem,
   FormControl,
@@ -27,73 +26,24 @@ import {
   Alert,
   Tabs,
   Tab,
-  Checkbox,
-  FormControlLabel,
-  FormGroup,
-  Divider,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   People as UsersIcon,
 } from '@mui/icons-material';
 import { useUsers, User } from '../hooks/pages/useUsers';
-import { useTeams } from '../hooks/pages/useTeams';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { usePermissions } from '../hooks/auth/usePermissions';
+import { useAuthContext } from '../contexts/auth/AuthContext';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { StyledDialog } from '../components/common/StyledDialog';
-import { ALL_PERMISSIONS, Permission } from '../types/auth';
-
-const PERMISSION_GROUPS: Record<string, string> = {
-  dashboard: 'Dashboard',
-  device_control: 'Device Control',
-  testcases: 'Test Cases',
-  campaigns: 'Campaigns',
-  'builder.test': 'Builder - Test',
-  'builder.campaign': 'Builder - Campaign',
-  'execution.run': 'Execution - Run',
-  'execution.monitor': 'Execution - Monitor',
-  'execution.build': 'Execution - Build',
-  'reports.tests': 'Reports - Tests',
-  'reports.campaigns': 'Reports - Campaigns',
-  'reports.models': 'Reports - Models',
-  'reports.dependency': 'Reports - Dependency',
-  'monitoring.incidents': 'Monitoring - Incidents',
-  'monitoring.heatmap': 'Monitoring - Heatmap',
-  'monitoring.ai_queue': 'Monitoring - AI Queue',
-  interface: 'Interface',
-  ai_agent: 'AI Agent',
-  'plugins.grafana': 'Plugins - Grafana',
-  'plugins.langfuse': 'Plugins - Langfuse',
-  'plugins.postman': 'Plugins - Postman',
-  'plugins.jira': 'Plugins - Jira',
-  'plugins.slack': 'Plugins - Slack',
-  'settings.general': 'Settings - General',
-  'settings.models': 'Settings - Models',
-  'settings.code_deploy': 'Settings - Code Deploy',
-  'settings.cicd': 'Settings - CI/CD',
-  'settings.branding': 'Settings - Branding',
-  'settings.status': 'Settings - Status',
-  'org.users': 'Org - Users',
-  'org.teams': 'Org - Teams',
-  'org.invite': 'Org - Invite',
-  'org.workspaces': 'Org - Workspaces',
-};
-
-function getPermissionPrefix(perm: Permission): string {
-  const colonIdx = perm.indexOf(':');
-  return colonIdx !== -1 ? perm.substring(0, colonIdx) : perm;
-}
-
-function groupPermissions(perms: Permission[]): Record<string, Permission[]> {
-  const groups: Record<string, Permission[]> = {};
-  for (const perm of perms) {
-    const prefix = getPermissionPrefix(perm);
-    if (!groups[prefix]) groups[prefix] = [];
-    groups[prefix].push(perm);
-  }
-  return groups;
-}
+import { Permission, computeEffectivePermissions, permissionSource } from '../types/auth';
+import { useRoles } from '../hooks/pages/useRoles';
+import { PermissionChecklist, PermissionLegend } from '../components/auth/PermissionChecklist';
+import { DeviceScopePicker } from '../components/auth/DeviceScopePicker';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -108,56 +58,50 @@ const TabPanel: React.FC<TabPanelProps> = ({ children, value, index }) => (
 );
 
 const Users: React.FC = () => {
+  const P = useAgentChatPalette();
   const {
     users,
     isLoading,
     error,
     updateUser,
     deleteUser,
-    assignUserToTeam,
     isUpdating,
     isDeleting,
     updateError,
     deleteError,
   } = useUsers();
 
-  const { teams } = useTeams();
+  const { hasPermission, role: callerRole } = usePermissions();
+  const { roles, catalog, roleLabel, roleRank } = useRoles();
+  const roleDevices = (r: string) => catalog.find((c) => c.role === r)?.allowed_devices ?? null;
+  const { profile } = useAuthContext();
+  const canEditUsers = hasPermission('org.users:edit');
+  const canDeleteUsers = hasPermission('org.users:delete');
+  // A non-admin only edits users, and gives roles, ranked strictly below their own
+  // (enforced server-side by forbid_role_assignment).
+  const callerIsAdmin = callerRole === 'admin';
+  const belowCaller = (target: string) => callerIsAdmin || roleRank(target) > roleRank(callerRole);
 
   const [openDialog, setOpenDialog] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState(0);
 
-  const [profileData, setProfileData] = useState({
-    fullName: '',
-    email: '',
-    role: 'tester' as 'admin' | 'tester' | 'viewer',
-  });
+  const [role, setRole] = useState<User['role']>('tester');
 
   const [grantedPerms, setGrantedPerms] = useState<Set<Permission>>(new Set());
   const [deniedPerms, setDeniedPerms] = useState<Set<Permission>>(new Set());
+  const [userDevices, setUserDevices] = useState<string[] | null>(null);
 
-  const [selectedAddTeamId, setSelectedAddTeamId] = useState('');
-  const [userTeamIds, setUserTeamIds] = useState<string[]>([]);
 
   const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
 
   const handleOpenDialog = (user: User) => {
     setEditingUser(user);
     setActiveTab(0);
-    setProfileData({
-      fullName: user.full_name,
-      email: user.email,
-      role: user.role,
-    });
+    setRole(user.role);
     setGrantedPerms(new Set((user.permissions ?? []) as Permission[]));
     setDeniedPerms(new Set((user.denied_permissions ?? []) as Permission[]));
-    const currentTeamIds = user.teams
-      ? teams.filter((t) => user.teams!.includes(t.name)).map((t) => t.id)
-      : user.team_id
-      ? [user.team_id]
-      : [];
-    setUserTeamIds(currentTeamIds);
-    setSelectedAddTeamId('');
+    setUserDevices(user.allowed_devices ?? null);
     setOpenDialog(true);
   };
 
@@ -166,35 +110,39 @@ const Users: React.FC = () => {
     setEditingUser(null);
   };
 
+  // What the user gets without any individual override: the role's defaults. A team never
+  // grants (TASK-31); its ceiling only caps. Follows the role picked in the Profile tab.
+  const basePerms = useMemo(() => new Set<string>(roles?.[role] ?? []), [role, roles]);
+  const teamCeiling = editingUser?.team_ceiling ?? null;
+  const isAdmin = role === 'admin';
+  const sourceOf = (perm: Permission) =>
+    permissionSource(perm, role, roles?.[role], teamCeiling, Array.from(grantedPerms), Array.from(deniedPerms));
+  const hasPerm = (perm: Permission) => ['role', 'grant'].includes(sourceOf(perm));
+  const outsideCeiling = (perm: Permission) => !isAdmin && teamCeiling !== null && !teamCeiling.includes(perm);
+  // The user's device limit must sit inside team ∩ role (the server refuses anything else).
+  const deviceLimit = useMemo(() => {
+    const levels = [editingUser?.team_device_ceiling ?? null, roleDevices(role)].filter(
+      (l): l is string[] => l !== null,
+    );
+    return levels.length === 0 ? null : levels.reduce((a, b) => a.filter((k) => b.includes(k)));
+  }, [editingUser, role, catalog]);
+
   const handleSaveUser = async () => {
     if (!editingUser) return;
     try {
       await updateUser({
         id: editingUser.id,
         payload: {
-          full_name: profileData.fullName,
-          role: profileData.role,
-          permissions: Array.from(grantedPerms),
-          denied_permissions: Array.from(deniedPerms),
+          role,
+          // Store only real overrides: grants outside the base, denials inside it.
+          permissions: isAdmin ? Array.from(grantedPerms) : Array.from(grantedPerms).filter((p) => !basePerms.has(p)),
+          denied_permissions: isAdmin ? Array.from(deniedPerms) : Array.from(deniedPerms).filter((p) => basePerms.has(p)),
+          ...(isAdmin ? {} : { allowed_devices: userDevices }),
         },
       });
       handleCloseDialog();
     } catch (err) {
       console.error('Error saving user:', err);
-    }
-  };
-
-  const handleAddTeam = async () => {
-    if (!editingUser || !selectedAddTeamId) return;
-    try {
-      await assignUserToTeam({
-        userId: editingUser.id,
-        payload: { team_id: selectedAddTeamId },
-      });
-      setUserTeamIds((prev) => [...prev, selectedAddTeamId]);
-      setSelectedAddTeamId('');
-    } catch (err) {
-      console.error('Error adding team:', err);
     }
   };
 
@@ -213,42 +161,37 @@ const Users: React.FC = () => {
     });
   };
 
-  const toggleGranted = (perm: Permission) => {
+  // One checkbox per permission, ticked when the user effectively holds it. Unticking a
+  // role/team permission records a denial; ticking one outside the base records a grant.
+  const togglePerm = (perm: Permission) => {
+    const holds = hasPerm(perm);
+    const inBase = basePerms.has(perm);
     setGrantedPerms((prev) => {
       const next = new Set(prev);
-      if (next.has(perm)) next.delete(perm);
+      if (holds || inBase) next.delete(perm);
       else next.add(perm);
       return next;
     });
-  };
-
-  const toggleDenied = (perm: Permission) => {
     setDeniedPerms((prev) => {
       const next = new Set(prev);
-      if (next.has(perm)) next.delete(perm);
-      else next.add(perm);
+      if (holds && inBase) next.add(perm);
+      else next.delete(perm);
       return next;
     });
   };
 
   const getRoleColor = (role: string): 'secondary' | 'primary' | 'default' => {
-    switch (role) {
-      case 'admin': return 'secondary';
-      case 'tester': return 'primary';
-      default: return 'default';
-    }
+    if (role === 'admin') return 'secondary';
+    return role === 'viewer' ? 'default' : 'primary';
   };
 
-  const permGroups = groupPermissions(ALL_PERMISSIONS);
-
-  const availableTeamsForAdd = teams.filter((t) => !userTeamIds.includes(t.id));
 
   return (
-    <Box>
+    <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <UsersIcon fontSize="large" color="primary" />
-          <Typography variant="h4" component="h1">
+          <UsersIcon sx={{ color: P.accentText, fontSize: 28 }} />
+          <Typography component="h1" sx={PAGE_TITLE_SX}>
             Users Management
           </Typography>
         </Box>
@@ -270,11 +213,13 @@ const Users: React.FC = () => {
             <TableContainer component={Paper} elevation={0}>
               <Table
                 sx={{
+                  tableLayout: 'fixed', minWidth: 900, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
                   '& .MuiTableRow-root:hover': {
                     backgroundColor: 'transparent !important',
                   },
                 }}
               >
+              <colgroup><col /><col style={{ width: 230 }} /><col style={{ width: 100 }} /><col style={{ width: 150 }} /><col style={{ width: 120 }} /><col style={{ width: 100 }} /><col style={{ width: 90 }} /></colgroup>
                 <TableHead>
                   <TableRow>
                     <TableCell><strong>User</strong></TableCell>
@@ -293,7 +238,7 @@ const Users: React.FC = () => {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Avatar
                             src={user.avatar_url}
-                            sx={{ width: 32, height: 32, bgcolor: 'primary.main' }}
+                            sx={{ width: 32, height: 32, bgcolor: P.accent }}
                           >
                             {user.full_name?.charAt(0).toUpperCase() || user.email?.charAt(0).toUpperCase()}
                           </Avatar>
@@ -305,7 +250,7 @@ const Users: React.FC = () => {
                       <TableCell>{user.email}</TableCell>
                       <TableCell>
                         <Chip
-                          label={user.role.toUpperCase()}
+                          label={roleLabel(user.role)}
                           size="small"
                           color={getRoleColor(user.role)}
                         />
@@ -322,12 +267,23 @@ const Users: React.FC = () => {
                         </Box>
                       </TableCell>
                       <TableCell>
-                        <Chip
-                          label={user.permissions?.length ?? 0}
-                          size="small"
-                          color="info"
-                          title={user.permissions?.join(', ')}
-                        />
+                        {(() => {
+                          const effective = computeEffectivePermissions(
+                            user.role,
+                            roles?.[user.role],
+                            user.team_ceiling ?? null,
+                            user.permissions,
+                            user.denied_permissions,
+                          );
+                          return (
+                            <Chip
+                              label={user.role === 'admin' ? 'All' : effective.length}
+                              size="small"
+                              sx={{ bgcolor: P.hoverBg, color: P.textSecondary, fontWeight: 600 }}
+                              title={effective.join(', ')}
+                            />
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>{new Date(user.created_at).toLocaleDateString()}</TableCell>
                       <TableCell align="right">
@@ -335,19 +291,21 @@ const Users: React.FC = () => {
                           size="small"
                           color="primary"
                           onClick={() => handleOpenDialog(user)}
-                          disabled={isUpdating || isDeleting}
+                          disabled={isUpdating || isDeleting || !canEditUsers || !belowCaller(user.role)}
                         >
                           <EditIcon fontSize="small" />
                         </IconButton>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => handleDeleteUser(user.id)}
-                          disabled
-                          title="Users are provisioned externally"
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+                        {canDeleteUsers && (
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => handleDeleteUser(user.id)}
+                            disabled={isUpdating || isDeleting || user.id === profile?.id || !belowCaller(user.role)}
+                            title={user.id === profile?.id ? 'You cannot delete yourself' : 'Delete user'}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -368,46 +326,35 @@ const Users: React.FC = () => {
       )}
 
       <StyledDialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
-        <DialogTitle>Edit User</DialogTitle>
+        <DialogTitle>
+          Edit User
+          {editingUser && (
+            <Typography component="span" variant="body2" color="text.secondary" sx={{ display: 'block' }}>
+              {editingUser.full_name ? `${editingUser.full_name} · ${editingUser.email}` : editingUser.email}
+            </Typography>
+          )}
+        </DialogTitle>
         <DialogContent>
           <Tabs value={activeTab} onChange={(_, v: number) => setActiveTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tab label="Profile" />
             <Tab label="Permissions" />
-            <Tab label="Teams" />
+            <Tab label="Devices" disabled={isAdmin} />
           </Tabs>
 
           <TabPanel value={activeTab} index={0}>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <TextField
-                label="Full Name"
-                value={profileData.fullName}
-                fullWidth
-                disabled
-                helperText="Managed externally"
-              />
-              <TextField
-                label="Email"
-                type="email"
-                value={profileData.email}
-                fullWidth
-                disabled
-                helperText="Email cannot be changed"
-              />
               <FormControl fullWidth>
                 <InputLabel>Role</InputLabel>
                 <Select
-                  value={profileData.role}
+                  value={role}
                   label="Role"
-                  onChange={(e) =>
-                    setProfileData({
-                      ...profileData,
-                      role: e.target.value as 'admin' | 'tester' | 'viewer',
-                    })
-                  }
+                  onChange={(e) => setRole(e.target.value as User['role'])}
                 >
-                  <MenuItem value="admin">Admin</MenuItem>
-                  <MenuItem value="tester">Tester</MenuItem>
-                  <MenuItem value="viewer">Viewer</MenuItem>
+                  {catalog.map((r) => (
+                    <MenuItem key={r.role} value={r.role} disabled={!belowCaller(r.role)}>
+                      {r.display_name}
+                    </MenuItem>
+                  ))}
                 </Select>
               </FormControl>
             </Box>
@@ -415,95 +362,65 @@ const Users: React.FC = () => {
 
           <TabPanel value={activeTab} index={1}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Individual permissions override the role defaults. Denied permissions block access even if the role grants it.
+              {isAdmin
+                ? 'Admins hold every permission; they cannot be restricted.'
+                : 'Ticked = the user has it. Untick a role permission to deny it; tick any other to grant it. A user never holds more than their teams allow.'}
             </Typography>
-            {Object.entries(permGroups).map(([prefix, perms]) => (
-              <Box key={prefix} sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 0.5 }}>
-                  {PERMISSION_GROUPS[prefix] ?? prefix}
-                </Typography>
-                <Divider sx={{ mb: 1 }} />
-                {perms.map((perm) => {
-                  const action = perm.substring(perm.indexOf(':') + 1);
-                  return (
-                    <Box key={perm} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                      <FormGroup row sx={{ flex: 1 }}>
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              size="small"
-                              checked={grantedPerms.has(perm)}
-                              onChange={() => toggleGranted(perm)}
-                              color="success"
-                            />
-                          }
-                          label={<Typography variant="body2">{action} (grant)</Typography>}
-                          sx={{ minWidth: 200 }}
-                        />
-                        <FormControlLabel
-                          control={
-                            <Checkbox
-                              size="small"
-                              checked={deniedPerms.has(perm)}
-                              onChange={() => toggleDenied(perm)}
-                              color="error"
-                            />
-                          }
-                          label={<Typography variant="body2">{action} (deny)</Typography>}
-                        />
-                      </FormGroup>
-                    </Box>
-                  );
-                })}
-              </Box>
-            ))}
+            {!isAdmin && (
+              <PermissionLegend
+                items={[
+                  { color: 'text.primary', label: 'From the role' },
+                  { color: 'success.main', label: 'Extra grant (beyond the role)' },
+                  { color: 'error.main', label: 'Denied' },
+                  { color: 'warning.main', label: 'Blocked by the team limit' },
+                  { color: 'text.disabled', label: 'Not held' },
+                ]}
+              />
+            )}
+            {!isAdmin && teamCeiling !== null && (
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                The user's teams allow {teamCeiling.length} permissions; everything else is locked.
+                Changing a team limit applies at the user's next sign-in.
+              </Typography>
+            )}
+            <PermissionChecklist
+              isChecked={hasPerm}
+              onToggle={togglePerm}
+              isDisabled={(perm) => isAdmin || outsideCeiling(perm)}
+              labelColor={(perm) => {
+                if (isAdmin) return undefined;
+                return {
+                  role: 'text.primary',
+                  grant: 'success.main',
+                  denied: 'error.main',
+                  capped: 'warning.main',
+                  none: 'text.disabled',
+                }[sourceOf(perm)];
+              }}
+              renderTag={(perm) => {
+                if (isAdmin) return null;
+                const tag = { grant: 'extra', denied: 'denied', capped: 'team limit' }[
+                  sourceOf(perm) as 'grant' | 'denied' | 'capped'
+                ];
+                return tag && (
+                  <Typography component="span" variant="caption" sx={{ ml: 1 }}>
+                    {tag}
+                  </Typography>
+                );
+              }}
+            />
           </TabPanel>
 
           <TabPanel value={activeTab} index={2}>
-            <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-              Current Teams
-            </Typography>
-            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-              {userTeamIds.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">No team memberships</Typography>
-              ) : (
-                userTeamIds.map((tid) => {
-                  const team = teams.find((t) => t.id === tid);
-                  return team ? (
-                    <Chip
-                      key={tid}
-                      label={team.name}
-                      size="small"
-                    />
-                  ) : null;
-                })
-              )}
-            </Box>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Team membership is derived from the upstream group and managed externally.
+              Devices this user works with, inside what their teams and role allow.
             </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <FormControl size="small" sx={{ minWidth: 200 }} disabled>
-                <InputLabel>Add to team</InputLabel>
-                <Select
-                  value={selectedAddTeamId}
-                  label="Add to team"
-                  onChange={(e) => setSelectedAddTeamId(e.target.value)}
-                >
-                  {availableTeamsForAdd.map((t) => (
-                    <MenuItem key={t.id} value={t.id}>{t.name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={handleAddTeam}
-                disabled
-              >
-                Add
-              </Button>
-            </Box>
+            <DeviceScopePicker
+              value={userDevices}
+              onChange={setUserDevices}
+              limit={deviceLimit}
+              limitLabel="team and role"
+            />
           </TabPanel>
         </DialogContent>
         <DialogActions>
@@ -511,7 +428,7 @@ const Users: React.FC = () => {
           <Button
             onClick={handleSaveUser}
             variant="contained"
-            disabled={!profileData.fullName.trim() || isUpdating}
+            disabled={isUpdating}
           >
             {isUpdating ? 'Saving...' : 'Update'}
           </Button>

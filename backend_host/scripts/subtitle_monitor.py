@@ -96,6 +96,7 @@ from shared.src.lib.utils.storage_path_utils import (
     get_metadata_path,
     get_captures_path
 )
+from shared.src.lib.utils import cv2_io
 
 logging.basicConfig(
     level=logging.INFO,
@@ -428,7 +429,7 @@ class SubtitleMonitor:
         
         try:
             start_total = time.perf_counter()
-            img = cv2.imread(frame_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2_io.imread(frame_path, cv2.IMREAD_GRAYSCALE)
             
             if img is None:
                 return

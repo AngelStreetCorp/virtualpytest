@@ -59,6 +59,10 @@ CREATE TABLE test_prompt_executions (
     host_name VARCHAR(255) NOT NULL,
     device_id VARCHAR(255) NOT NULL,
 
+    -- Engine: explore = Atlas agent, graph = the prompt's testcase graph on the testcase executor
+    run_mode VARCHAR(10) NOT NULL DEFAULT 'explore'
+        CONSTRAINT test_prompt_executions_run_mode_check CHECK (run_mode IN ('explore', 'graph')),
+
     -- Execution result
     status VARCHAR(20) NOT NULL DEFAULT 'running'
         CHECK (status IN ('running', 'passed', 'failed', 'error')),
@@ -66,6 +70,10 @@ CREATE TABLE test_prompt_executions (
     report_url TEXT,
     logs_url TEXT,
     execution_time_ms INT,
+    -- Exploration only: the successful device steps, so a passing run can be saved as a testcase
+    tool_trace JSONB,
+    -- What ran (prompt/criteria/target/version/edited) and how it ended (graph, verdict, error, saved testcase)
+    run_details JSONB,
 
     -- Feedback loop
     human_feedback TEXT,

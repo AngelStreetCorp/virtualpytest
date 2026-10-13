@@ -34,7 +34,7 @@ import logging
 import subprocess
 import threading
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Tuple, Optional, Dict
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -42,7 +42,7 @@ sys.path.insert(0, current_dir)
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.insert(0, project_root)
 
-from shared.src.lib.utils.storage_path_utils import get_capture_base_directories, is_ram_mode
+from shared.src.lib.utils.storage_path_utils import get_capture_base_directories, is_ram_mode, ARCHIVE_STAGE_ROOT
 from shared.src.lib.utils.storage_path_utils import get_active_captures_conf_path, parse_active_captures_conf
 from shared.src.lib.utils.video_utils import merge_progressive_batch
 
@@ -71,6 +71,9 @@ class Colors:
 # DUAL-THREAD ARCHITECTURE:
 # - HOT thread: Critical RAM management (fast, every 15s)
 # - COLD thread: Batch cleanup (slow, every 60s, max 200 files per device)
+# A late cycle archives every full minute waiting in hot, oldest first, up to this many
+# (hot holds ~2 minutes before ffmpeg deletes; the cap bounds one capture's cycle time).
+MAX_MINUTES_PER_CYCLE = 3
 HOT_THREAD_INTERVAL = 30    # 30s - hot storage cleanup + MP4 building (was 15s; halved spawn rate)
 COLD_THREAD_INTERVAL = 60   # 60s - cold storage cleanup (batched)
 COLD_BATCH_LIMIT = 5000     # Max files to delete per device per cold cycle (was 200 — too slow for backlogs)
@@ -80,12 +83,61 @@ VERIFICATION_CLEANUP_INTERVAL = 3600  # 1 hour - verification results cleanup
 last_verification_cleanup = {}  # capture_dir -> last cleanup time (per-channel, not shared)
 
 REPORTS_CLEANUP_INTERVAL = 3600        # 1 hour - reports cleanup check cadence
-REPORTS_MAX_AGE_SECONDS = 30 * 86400   # 30 days - mirrors the MinIO script-reports/ ILM rule
+# 14 days - matches the MinIO ILM rules (setup/local/linux/storage/install_minio.sh). A
+# local copy older than that is dead weight: the DB links to the MinIO copy, and the
+# images a host-served report embeds come from 14-day prefixes, so it renders broken.
+REPORTS_MAX_AGE_SECONDS = 14 * 86400
 last_reports_cleanup = {}  # capture_dir -> last cleanup time (per-channel)
+
+# Space-aware retention (BUG-0198)
+# ---------------------------------
+# The clock-based windows above assume the mount is big enough for the window.
+# A 960 GB /data still filled — 184 GB of reports inside the (then) 30-day window plus
+# artifacts a pre-fix build never swept — and nothing tightened as it filled.
+# Under pressure the reports/root-artifact windows shrink and, below the high
+# threshold, the sweeps stop waiting for their hourly slot.
+#
+# Reports and loose root artifacts absorb the pressure first: that is where the
+# space actually goes, and they are the only class with no live consumer. Cold
+# hour folders back the AVQ frame viewer's 24h promise, so they are trimmed only
+# at the critical tier and never below 24h.
+RETENTION_ELEVATED_FREE_PCT = float(os.getenv('RETENTION_ELEVATED_FREE_PCT', '20') or '20')
+RETENTION_HIGH_FREE_PCT = float(os.getenv('RETENTION_HIGH_FREE_PCT', '10') or '10')
+RETENTION_CRITICAL_FREE_PCT = float(os.getenv('RETENTION_CRITICAL_FREE_PCT', '5') or '5')
+ARCHIVE_STALE_MIN_AGE_SECONDS = 24 * 3600  # floor for cold hour folders
+last_pressure_label = {}  # capture_dir -> last logged tier, so the tier logs on change only
+
+
+def _retention_policy(capture_dir: str) -> dict:
+    """Retention windows for this mount, tightened by how full it is.
+
+    Returned once per cold cycle and passed down, so a cycle cannot mix a
+    'force the sweep' decision with a stale 'not under pressure' window.
+    """
+    free_pct = _cold_free_percent(capture_dir)
+    if free_pct is None:
+        return {'label': 'unknown', 'free_pct': None, 'reports_max_age': REPORTS_MAX_AGE_SECONDS,
+                'archive_max_age': ARCHIVE_STALE_MAX_AGE_SECONDS, 'force_sweep': False}
+    if free_pct < RETENTION_CRITICAL_FREE_PCT:
+        policy = {'label': 'critical', 'reports_max_age': 1 * 86400,
+                  'archive_max_age': ARCHIVE_STALE_MIN_AGE_SECONDS, 'force_sweep': True}
+    elif free_pct < RETENTION_HIGH_FREE_PCT:
+        policy = {'label': 'high', 'reports_max_age': 3 * 86400,
+                  'archive_max_age': ARCHIVE_STALE_MAX_AGE_SECONDS, 'force_sweep': True}
+    elif free_pct < RETENTION_ELEVATED_FREE_PCT:
+        # Tighter window, but still on the hourly cadence: a full recursive sweep
+        # every 60s over a reports tree with millions of files is its own problem.
+        policy = {'label': 'elevated', 'reports_max_age': 7 * 86400,
+                  'archive_max_age': ARCHIVE_STALE_MAX_AGE_SECONDS, 'force_sweep': False}
+    else:
+        policy = {'label': 'normal', 'reports_max_age': REPORTS_MAX_AGE_SECONDS,
+                  'archive_max_age': ARCHIVE_STALE_MAX_AGE_SECONDS, 'force_sweep': False}
+    policy['free_pct'] = free_pct
+    return policy
 
 # Hot storage limits
 # LIFECYCLE:
-# - Segments: HOT TS (FFmpeg auto-deletes @ 150, safety cleanup @ 200 if needed)  grouped as MP4 to COLD
+# - Segments: HOT TS (FFmpeg keeps 2 x its playlist: 600 x 0.4s / 300 x 1s, safety cleanup @ 700)  grouped as MP4 to COLD
 # - Captures: HOT only  deleted (uploaded to R2 cloud when needed)
 # - Thumbnails: HOT only  deleted (local freeze detection only)
 # - Metadata: HOT individual JSONs  grouped & saved to COLD /metadata/{hour}/
@@ -93,7 +145,8 @@ last_reports_cleanup = {}  # capture_dir -> last cleanup time (per-channel)
 # - Audio: Extracted directly to COLD /audio/{hour}/ (from 10min MP4 chunks)
 #
 # RAM Usage (HIGH QUALITY CAPTURES - Video content worst case):
-# - Segments: 150  38KB = 6MB (FFmpeg auto-deletes, 200 limit = safety net)
+# - Segments: 600  85KB = 51MB worst case, only while the archiver is behind; it deletes what it
+#   merges, so ~150-300 normally (FFmpeg keeps 300 listed + 300 past the playlist, 700 limit = safety net)
 # - Captures: 900  245KB = 220MB (180s buffer  deleted, R2 when needed)
 # - Thumbnails: 100  28KB = 3MB (freeze detection  deleted)
 # - Metadata: 750  1KB = 0.75MB (150s buffer  grouped to cold)
@@ -105,7 +158,10 @@ last_reports_cleanup = {}  # capture_dir -> last cleanup time (per-channel)
 # allocates on demand, so the mount only costs what is actually written.
 #
 HOT_LIMITS = {
-    'segments': 200,      # Safety limit > FFmpeg's 150 (only cleanup if FFmpeg fails)
+    'segments': 700,      # Safety limit > FFmpeg's on disk: 600 for 0.4s segments (300 listed +
+                          # -hls_delete_threshold 300, BUG-0297), 300 for 1s ones (150 + 150). Below
+                          # that it deletes the oldest minutes before the 1-min merge reads them,
+                          # the same minute loss the threshold fixes (BUG-0230). Only bites if FFmpeg fails.
     'captures': 900,      # 180s buffer  deleted (R2 cloud when needed)
                           # 900 rather than 300 so a KPI window up to 3 minutes stays on
                           # the live 5fps grid (+/-200ms). At 300 (60s) anything longer -
@@ -140,6 +196,11 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return v.strip().lower() in ('1', 'true', 'yes', 'on')
 
 ARCHIVE_CAPTURES = _env_bool('ARCHIVE_CAPTURES', False)
+# 24h review buffer (cold 10-min video chunks behind the archive player and report videos).
+# ARCHIVE_VIDEO=false: no video goes to cold storage, only the 1-min MP4 needed for the
+# transcript MP3 (in RAM). Archive mode is then off in the UI, and report videos only cover
+# the hot window (~60 s). For hosts whose SD card cannot take the writes (Raspberry Pi).
+ARCHIVE_VIDEO = _env_bool('ARCHIVE_VIDEO', True)
 try:
     ARCHIVE_CAPTURES_FPS = float(os.getenv('ARCHIVE_CAPTURES_FPS', '2') or '2')
 except ValueError:
@@ -848,7 +909,8 @@ def cleanup_stale_files(
         return 0
 
 
-def cleanup_cold_captures(capture_dir: str, batch_limit: Optional[int] = None) -> int:
+def cleanup_cold_captures(capture_dir: str, batch_limit: Optional[int] = None,
+                         max_age_seconds: Optional[int] = None) -> int:
     """
     Cleanup stale capture files in root and archived subfolders.
     
@@ -870,7 +932,7 @@ def cleanup_cold_captures(capture_dir: str, batch_limit: Optional[int] = None) -
     deleted_archive = cleanup_stale_files(
         captures_dir,
         'capture_*.jpg',
-        ARCHIVE_STALE_MAX_AGE_SECONDS,
+        max_age_seconds or ARCHIVE_STALE_MAX_AGE_SECONDS,
         batch_limit,
         subdirs_only=True,
         label="Cold captures(archive)",
@@ -878,7 +940,8 @@ def cleanup_cold_captures(capture_dir: str, batch_limit: Optional[int] = None) -
     return deleted_root + deleted_archive
 
 
-def cleanup_cold_thumbnails(capture_dir: str, batch_limit: Optional[int] = None) -> int:
+def cleanup_cold_thumbnails(capture_dir: str, batch_limit: Optional[int] = None,
+                         max_age_seconds: Optional[int] = None) -> int:
     """
     Delete thumbnails from cold root older than 1 HOUR (matches captures retention)
     
@@ -900,7 +963,7 @@ def cleanup_cold_thumbnails(capture_dir: str, batch_limit: Optional[int] = None)
     deleted_archive = cleanup_stale_files(
         thumbs_dir,
         'capture_*_thumbnail.jpg',
-        ARCHIVE_STALE_MAX_AGE_SECONDS,
+        max_age_seconds or ARCHIVE_STALE_MAX_AGE_SECONDS,
         batch_limit,
         subdirs_only=True,
         label="Cold thumbnails(archive)",
@@ -908,7 +971,8 @@ def cleanup_cold_thumbnails(capture_dir: str, batch_limit: Optional[int] = None)
     return deleted_root + deleted_archive
 
 
-def cleanup_cold_segments(capture_dir: str, batch_limit: Optional[int] = None) -> int:
+def cleanup_cold_segments(capture_dir: str, batch_limit: Optional[int] = None,
+                         max_age_seconds: Optional[int] = None) -> int:
     """
     Cleanup stale segment files in root and archived subfolders.
     """
@@ -924,7 +988,7 @@ def cleanup_cold_segments(capture_dir: str, batch_limit: Optional[int] = None) -
     deleted_archive = cleanup_stale_files(
         segments_dir,
         'chunk_10min_*.mp4',
-        ARCHIVE_STALE_MAX_AGE_SECONDS,
+        max_age_seconds or ARCHIVE_STALE_MAX_AGE_SECONDS,
         batch_limit,
         subdirs_only=True,
         label="Cold segments(archive)",
@@ -932,7 +996,8 @@ def cleanup_cold_segments(capture_dir: str, batch_limit: Optional[int] = None) -
     return deleted_root + deleted_archive
 
 
-def cleanup_cold_metadata(capture_dir: str, batch_limit: Optional[int] = None) -> int:
+def cleanup_cold_metadata(capture_dir: str, batch_limit: Optional[int] = None,
+                         max_age_seconds: Optional[int] = None) -> int:
     """
     Delete stale root metadata files older than 1 HOUR.
 
@@ -957,7 +1022,7 @@ def cleanup_cold_metadata(capture_dir: str, batch_limit: Optional[int] = None) -
     deleted_archive = cleanup_stale_files(
         metadata_dir,
         'chunk_10min_*.json',
-        ARCHIVE_STALE_MAX_AGE_SECONDS,
+        max_age_seconds or ARCHIVE_STALE_MAX_AGE_SECONDS,
         batch_limit,
         subdirs_only=True,
         label="Cold metadata(archive)",
@@ -997,13 +1062,14 @@ def cleanup_verification_results(capture_dir: str) -> int:
     return _delete_stale_recursive(verif_dir, 86400, "Verification")
 
 
-def cleanup_reports(capture_dir: str) -> int:
-    """Delete local report artifacts (HTML + embedded assets) older than 30 days.
-    Mirrors the script-reports/ 30-day MinIO ILM rule (setup/local/linux/storage) —
+def cleanup_reports(capture_dir: str, max_age_seconds: Optional[int] = None) -> int:
+    """Delete local report artifacts (HTML + embedded assets) older than 14 days.
+    Mirrors the script-reports/ 14-day MinIO ILM rule (setup/local/linux/storage) —
     these are never uploaded themselves (only the images they reference are), so
     without this they accumulated on local disk forever."""
     reports_dir = os.path.join(capture_dir, 'reports')
-    return _delete_stale_recursive(reports_dir, REPORTS_MAX_AGE_SECONDS, "Reports")
+    return _delete_stale_recursive(
+        reports_dir, max_age_seconds or REPORTS_MAX_AGE_SECONDS, "Reports")
 
 
 # Report artifacts written directly into the capture ROOT by verification and KPI
@@ -1019,15 +1085,15 @@ CAPTURE_ROOT_ARTIFACT_PREFIXES = (
 )
 
 
-def cleanup_capture_root_artifacts(capture_dir: str) -> int:
+def cleanup_capture_root_artifacts(capture_dir: str, max_age_seconds: Optional[int] = None) -> int:
     """Delete stale verification/KPI artifacts left loose in the capture root.
 
     Non-recursive and prefix-scoped by design — reports/ has its own sweep
     (cleanup_reports) and the hot subdirs have theirs (sweep_stale_hot_files).
-    Shares the 30-day reports retention: these are the same class of artifact,
+    Shares the 14-day reports retention: these are the same class of artifact,
     referenced by the same HTML reports.
     """
-    cutoff = time.time() - REPORTS_MAX_AGE_SECONDS
+    cutoff = time.time() - (max_age_seconds or REPORTS_MAX_AGE_SECONDS)
     deleted = 0
     try:
         with os.scandir(capture_dir) as it:
@@ -1044,7 +1110,8 @@ def cleanup_capture_root_artifacts(capture_dir: str) -> int:
     except OSError as e:
         logger.error(f"Error cleaning capture root artifacts in {capture_dir}: {e}")
     if deleted:
-        logger.info(f"Capture root: Deleted {deleted} stale artifacts older than {REPORTS_MAX_AGE_SECONDS / 86400:.0f}d")
+        logger.info(f"Capture root: Deleted {deleted} stale artifacts older than "
+                    f"{(max_age_seconds or REPORTS_MAX_AGE_SECONDS) / 86400:.0f}d")
     return deleted
 
 
@@ -1671,81 +1738,267 @@ def cleanup_temp_files(capture_dir: str) -> Tuple[int, int, int]:
     return segments_deleted, metadata_deleted, mp3_deleted
 
 
-def process_hot_storage(capture_dir: str):
+def batch_minute(segment_mtimes: List[float], count: int) -> Optional[datetime]:
+    """Minute a 1-min batch was recorded in: the minute of its middle segment.
+
+    The batch is the oldest `count` segments (merge_progressive_batch), so consecutive
+    batches are 60 s of media apart and their middles advance one minute each.
     """
-    HOT STORAGE PROCESSING (Fast, Critical, Every 15s)
-    
-    1. SAFETY CLEANUP: Delete old files from HOT storage (prevent RAM exhaustion)
-       - Segments: Keep 200 newest (safety net - FFmpeg normally auto-deletes @ 150)
-       - Captures: Keep 300 newest (deleted, uploaded to R2 when needed)
-       - Thumbnails: Keep 100 newest (deleted, local freeze detection only)
-       - Metadata: Keep 750 newest (individual JSONs, archived incrementally by capture_monitor)
-    2. Progressive MP4 building: HOT TS  1min MP4  append to growing 10min chunk in COLD
-    3. Audio extraction: COLD 10min MP4  direct to COLD /audio/{hour}/
-    
-    Progressive append: Same chunk URL grows from 1min to 10min (no timeline changes)
+    if len(segment_mtimes) < count:
+        return None
+    middle = sorted(segment_mtimes)[count // 2]
+    return datetime.fromtimestamp(middle).replace(second=0, microsecond=0)
+
+
+def hot_cycle_sleep(cycle_elapsed: float) -> float:
+    """Sleep before the next fast cycle: the rest of the interval, at least 5 s."""
+    return max(5.0, HOT_THREAD_INTERVAL - cycle_elapsed)
+
+
+# Last batch minute archived per capture dir, to name minutes that never made it (BUG-0291).
+_last_archived_minute: Dict[str, datetime] = {}
+
+
+def lost_minutes(prev: Optional[datetime], cur: datetime) -> List[datetime]:
+    """Minutes strictly between the previous archived batch and this one."""
+    if prev is None or cur <= prev:
+        return []
+    gap = int((cur - prev).total_seconds() // 60)
+    return [prev + timedelta(minutes=i) for i in range(1, gap)]
+
+
+# OPEN 10-MIN CHUNK IN RAM (stage), ONE WRITE TO COLD STORAGE WHEN ITS WINDOW CLOSES.
+# Appending a minute means ffmpeg rewrites the whole chunk (concat + faststart second pass), so
+# appending on the cold disk wrote ~110x one minute of video per chunk: at HD that is ~2 MB/s per
+# device, and the Pi SD cards stall for seconds under it. The open chunk lives in /dev/shm and the
+# cold path is a symlink to it, so readers (report videos, archive player via nginx, ffprobe) see
+# the same path growing; when the next chunk starts (or the device goes idle) it is copied to cold
+# once and the symlink is replaced by the real file. A host reboot loses the open chunk (<=10 min),
+# like the hot segments. No room in RAM: the chunk is written to cold and appended there.
+STAGE_ROOT = ARCHIVE_STAGE_ROOT
+STAGE_MIN_FREE_BYTES = 64 * 1024 * 1024    # free /dev/shm needed on top of a merge's own need
+STAGE_MEM_RESERVE_BYTES = 512 * 1024 * 1024  # MemAvailable that must remain for everything else
+STAGE_IDLE_FINALIZE_SECONDS = 660           # an open chunk not appended for 11 min is finished
+
+
+def _stage_dir(device_folder: str) -> str:
+    return os.path.join(STAGE_ROOT, device_folder)
+
+
+def _staged_chunk_path(device_folder: str, hour: int, chunk_index: int) -> str:
+    return os.path.join(_stage_dir(device_folder), f'{hour}_chunk_10min_{chunk_index}.mp4')
+
+
+def _mem_available_bytes() -> int:
+    try:
+        with open('/proc/meminfo') as f:
+            for row in f:
+                if row.startswith('MemAvailable:'):
+                    return int(row.split()[1]) * 1024
+    except OSError:
+        pass
+    return 0
+
+
+def _stage_has_room(need_bytes: int) -> bool:
+    """True when /dev/shm and system RAM can take need_bytes more with margin to spare."""
+    try:
+        os.makedirs(STAGE_ROOT, exist_ok=True)
+        st = os.statvfs(STAGE_ROOT)
+    except OSError:
+        return False
+    shm_free = st.f_bavail * st.f_frsize
+    return (shm_free > need_bytes + STAGE_MIN_FREE_BYTES
+            and _mem_available_bytes() > need_bytes + STAGE_MEM_RESERVE_BYTES)
+
+
+def _finalize_staged_chunk(capture_dir: str, staged: str, mp4_path: str, hour: int, chunk_index: int) -> bool:
+    """Copy a staged chunk to its cold path once (replacing the symlink), then drop the RAM copy."""
+    if not (os.path.islink(mp4_path) and os.readlink(mp4_path) == staged):
+        # The cold path no longer points here (removed, or reused by a new day's chunk): orphan.
+        os.remove(staged)
+        return False
+    start = time.time()
+    tmp = mp4_path + '.final.tmp'
+    try:
+        shutil.copy2(staged, tmp)  # copy2 keeps the last-append mtime (24h slot reuse check)
+        os.replace(tmp, mp4_path)
+    except OSError as e:
+        logger.error(f"Failed to write staged chunk to cold storage, kept in RAM: {mp4_path}: {e}")
+        if os.path.exists(tmp):
+            os.remove(tmp)
+        return False
+    size = os.path.getsize(mp4_path)
+    os.remove(staged)
+    logger.info(f"\033[34m Wrote 10min MP4 to cold storage:\033[0m {mp4_path} \033[90m({time.time() - start:.2f}s, {size/1024/1024:.2f}MB)\033[0m")
+    update_archive_manifest(capture_dir, hour, chunk_index, mp4_path)
+    return True
+
+
+def finalize_staged_chunks(capture_dir: str, keep: Optional[str] = None) -> int:
+    """Write finished staged chunks of this device to cold storage.
+
+    keep set: every staged chunk except keep is finished (a newer chunk has started).
+    keep None: only chunks idle for STAGE_IDLE_FINALIZE_SECONDS (the device stopped recording).
     """
-    ram_mode = is_ram_mode(capture_dir)
-    mode_label = "RAM (hot)" if ram_mode else "SD (cold)"
-    logger.info(f" FAST LOOP ({mode_label}): {os.path.basename(capture_dir)}")
-    
-    start_time = time.time()
-    
-    # SAFETY CLEANUP: Apply in both modes.
-    # cleanup_hot_files() resolves to /hot/* in RAM mode and root folders in SD mode.
-    # Segments are primarily handled by FFmpeg; this is an additional safety net.
-    deleted_segments = cleanup_hot_files(capture_dir, 'segments', 'segment_*.ts')
-    # Optionally archive sampled full-res stills to cold (24h) for the AVQ frame
-    # inspector — BEFORE rotate_hot_captures deletes them from the hot RAM buffer.
-    if ARCHIVE_CAPTURES:
-        archive_captures(capture_dir, ARCHIVE_CAPTURES_FPS)
-    deleted_captures = rotate_hot_captures(capture_dir)
-    deleted_thumbnails = clean_old_thumbnails(capture_dir)
-    deleted_metadata = cleanup_hot_files(capture_dir, 'metadata', 'capture_*.json')
-    sweep_stale_hot_files(capture_dir)  # catch-all for filenames the rotations above can't see
-    # Note: Cold cleanup moved to separate thread
-    # Note: Audio extracted directly to COLD - no hot cleanup needed
-    
-    if not ram_mode:
-        logger.info(f" SD mode detected for {capture_dir} (no /hot). Using cold folders directly for archiving.")
-    
-    # METADATA ARCHIVAL: Handled by capture_monitor.py (incremental append)
-    # Chunks are created/updated in real-time as frames arrive - no batch merging needed!
-    
+    stage_dir = _stage_dir(os.path.basename(capture_dir))
+    if not os.path.isdir(stage_dir):
+        return 0
+    done = 0
+    now = time.time()
+    for staged in Path(stage_dir).glob('*_chunk_10min_*.mp4'):
+        staged = str(staged)
+        if staged == keep:
+            continue
+        try:
+            if keep is None and now - os.path.getmtime(staged) < STAGE_IDLE_FINALIZE_SECONDS:
+                continue
+            hour_str, idx_str = os.path.basename(staged)[:-len('.mp4')].split('_chunk_10min_')
+            hour, chunk_index = int(hour_str), int(idx_str)
+        except (OSError, ValueError):
+            continue
+        mp4_path = os.path.join(capture_dir, 'segments', str(hour), f'chunk_10min_{chunk_index}.mp4')
+        if _finalize_staged_chunk(capture_dir, staged, mp4_path, hour, chunk_index):
+            done += 1
+    return done
+
+
+def drop_lost_staged_links(capture_dir: str) -> int:
+    """Remove cold-path symlinks whose staged chunk is gone (host rebooted: /dev/shm cleared)."""
+    segments_dir = os.path.join(capture_dir, 'segments')
+    dropped = 0
+    for link in Path(segments_dir).glob('*/chunk_10min_*.mp4'):
+        if link.is_symlink() and not link.exists():
+            link.unlink()
+            dropped += 1
+    if dropped:
+        logger.warning(f"[{os.path.basename(capture_dir)}] Dropped {dropped} open 10-min chunk(s) lost from RAM (host restart)")
+    return dropped
+
+
+def append_minute_to_chunk(capture_dir: str, mp4_path: str, mp4_1min: str, hour: int,
+                           chunk_index: int, now: datetime) -> Optional[str]:
+    """Append a 1-min MP4 to its 10-min chunk (staged in RAM when there is room).
+
+    Returns mp4_path when the chunk now holds the minute, None when the append failed.
+    """
+    device_folder = os.path.basename(capture_dir)
+    staged = _staged_chunk_path(device_folder, hour, chunk_index)
+    start = time.time()
+
+    if os.path.islink(mp4_path) and not os.path.exists(mp4_path):
+        os.remove(mp4_path)  # its staged copy was lost: this window restarts from this minute
+    # A file at the path from an earlier day's same slot is overwritten, not appended. The path
+    # names the hour and chunk, so a file written in the last 10 min is this window's; the last
+    # minute of a chunk is appended after the clock left it.
+    current = os.path.exists(mp4_path) and now.timestamp() - os.path.getmtime(mp4_path) < 600
+    staged_now = os.path.islink(mp4_path) and os.readlink(mp4_path) == staged
+    if staged_now and not current:
+        staged_now = False  # yesterday's link left over (finalize failed): start over
+    source = os.path.realpath(mp4_path) if current else None
+    source_size = os.path.getsize(source) if source else 0
+    new_size = os.path.getsize(mp4_1min)
+
+    # The merge holds the old and the new chunk at once.
+    use_stage = _stage_has_room(2 * (source_size + new_size))
+    if not use_stage and staged_now:
+        # RAM ran short mid-window: finish this chunk on cold storage from here on.
+        _finalize_staged_chunk(capture_dir, staged, mp4_path, hour, chunk_index)
+        source = mp4_path
+        staged_now = False
+    target = staged if use_stage else mp4_path
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    tmp = target + '.tmp'
+
+    if source is None:
+        shutil.copyfile(mp4_1min, tmp)
+        action = 'Created'
+    else:
+        from shared.src.lib.utils.video_utils import merge_video_files
+        # faststart keeps the chunk progressive-playable; in RAM its second pass costs nothing.
+        result = merge_video_files([source, mp4_1min], tmp, 'mp4', False, 60, None, False)
+        merged = os.path.getsize(tmp) if result and os.path.exists(tmp) else 0
+        if not result:
+            logger.error("merge_video_files returned False (FFmpeg process failed or timed out after 60s)")
+        if merged and merged < source_size + new_size * 0.95:
+            logger.error(f"\033[31m MP4 concat produced suspiciously small file:\033[0m {merged/1024/1024:.2f}MB (expected {(source_size + new_size*0.95)/1024/1024:.2f}MB, original={source_size/1024/1024:.2f}MB + new={new_size/1024/1024:.2f}MB)")
+            os.remove(tmp)
+            logger.warning("Discarded corrupted output, original file preserved")
+            return None
+        if not merged:
+            # The chunk is unreadable to ffmpeg: start it again from this minute.
+            logger.error("\033[31m Failed to append (likely corrupted), recreating from scratch\033[0m")
+            if os.path.exists(tmp):
+                os.remove(tmp)
+            shutil.copyfile(mp4_1min, tmp)
+            action = 'Recreated'
+        else:
+            action = 'Appended to'
+    os.replace(tmp, target)
+
+    if use_stage and not staged_now:
+        link_tmp = mp4_path + '.lnk'
+        if os.path.lexists(link_tmp):
+            os.remove(link_tmp)
+        os.symlink(staged, link_tmp)
+        os.replace(link_tmp, mp4_path)  # an old real file (cold copy, earlier day) goes away here
+    if not use_stage and os.path.exists(staged):
+        os.remove(staged)
+
+    final_size = os.path.getsize(mp4_path)
+    where = 'RAM' if use_stage else 'cold'
+    logger.info(f"\033[34m {action} 10min MP4 ({where}):\033[0m {mp4_path} \033[90m({time.time() - start:.2f}s, {source_size/1024/1024:.2f}MB  {final_size/1024/1024:.2f}MB, +{new_size/1024/1024:.2f}MB)\033[0m")
+    # A newer chunk has started: the previous ones are complete, write them to cold now.
+    finalize_staged_chunks(capture_dir, keep=staged if use_stage else None)
+    return mp4_path
+
+
+
+def archive_hot_minute(capture_dir: str, ram_mode: bool):
+    """Merge the oldest minute of hot segments into its 1-min MP4/MP3 and append it to its
+    10-min chunk. Returns (mp4_1min, mp4_10min, more): more = another full minute was already
+    waiting in hot behind this one.
+
+    The minute's hot segments are deleted only after the append (and in a finally, so a
+    failure cannot leave them to be archived twice): deleting them right after the 1-min
+    merge left 1-2 s per minute where that footage was in neither hot nor the 10-min chunk,
+    and a report video built then lost it."""
+    hot_batch: List[str] = []
+    try:
+        return _archive_hot_minute(capture_dir, ram_mode, hot_batch)
+    finally:
+        for seg in hot_batch:
+            try:
+                os.remove(seg)
+            except FileNotFoundError:
+                pass
+
+
+def _archive_hot_minute(capture_dir: str, ram_mode: bool, hot_batch: List[str]):
     # SEGMENTS PROGRESSIVE BUILDING: TS  1min MP4  append to growing 10min chunk
     hot_segments = os.path.join(capture_dir, 'hot', 'segments') if ram_mode else os.path.join(capture_dir, 'segments')
     logger.info(f" Segment source: {hot_segments}")
     if not os.path.isdir(hot_segments):
         logger.warning(f" Segments folder not found: {hot_segments}")
-        return
-    temp_dir = os.path.join(capture_dir, 'segments', 'temp')
+        return None, None, False
+    # The 1-min MP4 is only an input to the 10-min append: build it in RAM when there is room,
+    # so the SD card is not written for it.
+    stage_dir = _stage_dir(os.path.basename(capture_dir))
+    temp_dir = stage_dir if _stage_has_room(STAGE_MIN_FREE_BYTES) else os.path.join(capture_dir, 'segments', 'temp')
     if not os.path.isdir(temp_dir):
         os.makedirs(temp_dir, exist_ok=True)
         logger.info(f" Created temp dir: {temp_dir}")
     
     # Step 1: Merge 60 TS  1min MP4 (with rotating slot naming for individual playback)
-    # Calculate minute slot (0-9) for rotating filenames - same as MP3
-    current_minute = datetime.now().minute
-    minute_slot = current_minute % 10  # 0-9 rotating slot
-    
-    # Use rotating slot naming instead of timestamp - keeps last 10 files playable
-    mp4_1min_path = os.path.join(temp_dir, f'1min_{minute_slot}.mp4')
-    
-    # Delete old file in this slot BEFORE creating new one (prevents race condition)
-    if os.path.exists(mp4_1min_path):
-        try:
-            os.remove(mp4_1min_path)
-            logger.debug(f"Deleted old 1min_{minute_slot}.mp4 (rotating slot)")
-        except Exception as e:
-            logger.warning(f"Failed to delete old 1min MP4 slot: {e}")
-    
     mp4_start = time.time()
     # Quick visibility: count available segments before merge
-    try:
-        segment_count = len(list(Path(hot_segments).glob('segment_*.ts')))
-        logger.info(f" Segments available: {segment_count}")
-    except Exception:
-        segment_count = None
+    segment_mtimes = []
+    for seg in Path(hot_segments).glob('segment_*.ts'):
+        try:
+            segment_mtimes.append(seg.stat().st_mtime)
+        except FileNotFoundError:
+            continue
+    logger.info(f" Segments available: {len(segment_mtimes)}")
 
     # Determine how many segments make ~60s (prefer real m3u8 durations over device model)
     from shared.src.lib.utils.storage_path_utils import get_device_segment_duration
@@ -1783,10 +2036,35 @@ def process_hot_storage(capture_dir: str):
     # progressive append (which keeps faststart for streaming-friendly playback).
     # Skipping the second-pass moov relocation here halves disk I/O for the hot
     # build, where I/O — not CPU — is the bottleneck on the Pi's storage.
-    mp4_1min = merge_progressive_batch(hot_segments, 'segment_*.ts', mp4_1min_path, segments_needed, True, 20, skip_faststart=True)
+    # The minute slot (0-9) and the 10-min chunk are named after the minute the batch was
+    # recorded in, not the clock at merge time: merges land on cycle times (~30 s + work), so
+    # two can fall in one clock minute and none in the next (BUG-0277).
+    batch_dt = batch_minute(segment_mtimes, segments_needed)
+    mp4_1min = None
+    if batch_dt is not None:
+        minute_slot = batch_dt.minute % 10  # 0-9 rotating slot
+
+        # Use rotating slot naming instead of timestamp - keeps last 10 files playable
+        mp4_1min_path = os.path.join(temp_dir, f'1min_{minute_slot}.mp4')
+
+        # Delete old file in this slot BEFORE creating new one (prevents race condition)
+        if os.path.exists(mp4_1min_path):
+            try:
+                os.remove(mp4_1min_path)
+                logger.debug(f"Deleted old 1min_{minute_slot}.mp4 (rotating slot)")
+            except Exception as e:
+                logger.warning(f"Failed to delete old 1min MP4 slot: {e}")
+
+        mp4_1min = merge_progressive_batch(hot_segments, 'segment_*.ts', mp4_1min_path, segments_needed, False, 20,
+                                           skip_faststart=True, merged_batch=hot_batch)
     if mp4_1min:
         mp4_elapsed = time.time() - mp4_start
         logger.info(f"\033[34m Created 1min MP4 (slot {minute_slot}):\033[0m {mp4_1min} \033[90m({mp4_elapsed:.2f}s)\033[0m")
+        lost = lost_minutes(_last_archived_minute.get(capture_dir), batch_dt)
+        if lost:
+            span = lost[0].strftime('%H:%M') + (f"-{lost[-1].strftime('%H:%M')}" if len(lost) > 1 else '')
+            logger.warning(f"[{device_folder}] Lost {len(lost)} minute(s) {span}: their segments left hot before they were archived (or were never recorded)")
+        _last_archived_minute[capture_dir] = batch_dt
     else:
         logger.info("  1min MP4 not created (not enough segments yet or merge failed)")
     
@@ -1797,12 +2075,10 @@ def process_hot_storage(capture_dir: str):
         from shared.src.lib.utils.storage_path_utils import calculate_chunk_location, get_audio_path, get_device_info_from_capture_folder
         from pathlib import Path as PathLib
         
-        # Get device folder and calculate chunk location from current time
+        # Chunk location from the batch's minute, the same one that named the slot
         device_folder = os.path.basename(capture_dir)
         now = datetime.now()
-        hour, chunk_index = calculate_chunk_location(now)
-        
-        # minute_slot already calculated above at line 1004 - reuse it
+        hour, chunk_index = calculate_chunk_location(batch_dt)
         
         # Device info - audio is now supported for all devices including host/VNC
         device_info = get_device_info_from_capture_folder(device_folder)
@@ -1844,101 +2120,13 @@ def process_hot_storage(capture_dir: str):
             logger.warning(f"MP3 extraction error: {e}")
             mp3_1min = None
         
-        # Progressive append MP4
+        # Progressive append MP4 (24h review buffer)
         hour_dir = os.path.join(capture_dir, 'segments', str(hour))
-        if not os.path.isdir(hour_dir):
-            os.makedirs(hour_dir, exist_ok=True)
-            logger.info(f" Created archive hour dir: {hour_dir}")
         mp4_path = os.path.join(hour_dir, f'chunk_10min_{chunk_index}.mp4')
-        
-        mp4_append_start = time.time()
-        if os.path.exists(mp4_path):
-            # Check if existing chunk is from current 10-minute window (24h rolling buffer fix)
-            # If file is from yesterday's same time slot, OVERWRITE it instead of APPEND
-            file_mtime = os.path.getmtime(mp4_path)
-            file_dt = datetime.fromtimestamp(file_mtime)
-            file_hour, file_chunk = calculate_chunk_location(file_dt)
-            
-            # Check if file is from current window (within last 10 minutes)
-            is_current_window = (file_hour == hour and file_chunk == chunk_index and 
-                                now.timestamp() - file_mtime < 600)  # 10 minutes
-            
-            if not is_current_window:
-                # File is old (from yesterday or earlier) - OVERWRITE instead of append
-                logger.info(f" Old chunk detected (age: {(now.timestamp() - file_mtime)/3600:.1f}h), overwriting: {mp4_path}")
-                shutil.copy(mp4_1min, mp4_path)
-                mp4_append_elapsed = time.time() - mp4_append_start
-                created_size = os.path.getsize(mp4_path)
-                logger.info(f"\033[34m Overwritten 10min MP4:\033[0m {mp4_path} \033[90m({mp4_append_elapsed:.2f}s, {created_size/1024/1024:.2f}MB)\033[0m")
-                mp4_10min = mp4_path
-            else:
-                # File is current - APPEND as normal
-                from shared.src.lib.utils.video_utils import merge_video_files
-                # Use temporary file to prevent corruption from in-place overwrite
-                temp_output = mp4_path + '.tmp'
-                
-                # Log input file details for diagnostics
-                input1_size = os.path.getsize(mp4_path)
-                input2_size = os.path.getsize(mp4_1min)
-                logger.debug(f"MP4 merge inputs: {mp4_path} ({input1_size/1024/1024:.2f}MB) + {mp4_1min} ({input2_size/1024/1024:.2f}MB)")
-                
-                # Enable faststart flag for progressive chunks (prevents corruption from broken moov atoms)
-                result = merge_video_files([mp4_path, mp4_1min], temp_output, 'mp4', False, 60, None, False)
-                mp4_append_elapsed = time.time() - mp4_append_start
-                
-                # Enhanced diagnostics
-                if not result:
-                    logger.error(f"merge_video_files returned False (FFmpeg process failed or timed out after 60s)")
-                if result and not os.path.exists(temp_output):
-                    logger.error(f"merge_video_files returned True but temp file was not created: {temp_output}")
-                
-                if result and os.path.exists(temp_output):
-                    # Verify output file size before replacing
-                    temp_size = os.path.getsize(temp_output)
-                    original_size = input1_size  # Reuse from above
-                    new_chunk_size = input2_size  # Reuse from above
-                    
-                    # Expected size should be roughly original + new chunk (allow 5% variance for MP4 overhead)
-                    expected_min_size = original_size + (new_chunk_size * 0.95)
-                    
-                    if temp_size < expected_min_size:
-                        logger.error(f"\033[31m MP4 concat produced suspiciously small file:\033[0m {temp_size/1024/1024:.2f}MB (expected {expected_min_size/1024/1024:.2f}MB, original={original_size/1024/1024:.2f}MB + new={new_chunk_size/1024/1024:.2f}MB)")
-                        os.remove(temp_output)
-                        logger.warning(f"Discarded corrupted output, original file preserved")
-                    elif temp_size < 100000:  # Less than 100KB is definitely wrong
-                        logger.error(f"\033[31m MP4 concat produced tiny file:\033[0m {temp_size} bytes (likely corrupted)")
-                        os.remove(temp_output)
-                        logger.warning(f"Discarded corrupted output, original file preserved")
-                    else:
-                        # Atomic replace: only overwrite original if merge succeeded and size is valid
-                        os.replace(temp_output, mp4_path)
-                        final_size = os.path.getsize(mp4_path)
-                        logger.info(f"\033[34m Appended to 10min MP4:\033[0m {mp4_path} \033[90m({mp4_append_elapsed:.2f}s, {original_size/1024/1024:.2f}MB  {final_size/1024/1024:.2f}MB, +{(final_size-original_size)/1024/1024:.2f}MB)\033[0m")
-                        mp4_10min = mp4_path  # Mark success
-                else:
-                    logger.error(f"\033[31m Failed to append (likely corrupted), recreating from scratch\033[0m")
-                    # Clean up temp file
-                    if os.path.exists(temp_output):
-                        try:
-                            os.remove(temp_output)
-                        except:
-                            pass
-                    # Delete corrupted original and immediately start fresh with current 1min MP4
-                    try:
-                        os.remove(mp4_path)
-                        shutil.copy(mp4_1min, mp4_path)
-                        created_size = os.path.getsize(mp4_path)
-                        logger.info(f"\033[34m Recreated 10min MP4 from scratch:\033[0m {mp4_path} \033[90m({created_size/1024/1024:.2f}MB)\033[0m")
-                        mp4_10min = mp4_path  # Mark success
-                    except Exception as e:
-                        logger.error(f"Recovery failed: {e}")
-        else:
-            shutil.copy(mp4_1min, mp4_path)
-            mp4_append_elapsed = time.time() - mp4_append_start
-            created_size = os.path.getsize(mp4_path)
-            logger.info(f"\033[34m Created 10min MP4:\033[0m {mp4_path} \033[90m({mp4_append_elapsed:.2f}s, {created_size/1024/1024:.2f}MB)\033[0m")
-            mp4_10min = mp4_path  # Mark success
-        
+        if ARCHIVE_VIDEO:
+            os.makedirs(hour_dir, exist_ok=True)
+            mp4_10min = append_minute_to_chunk(capture_dir, mp4_path, mp4_1min, hour, chunk_index, now)
+
         # Progressive append MP3 to 10min chunk (after transcription happens via inotify)
         mp3_10min_path = None
         if mp3_1min and os.path.exists(mp3_1min):
@@ -1952,12 +2140,7 @@ def process_hot_storage(capture_dir: str):
                 # Check if existing MP3 chunk is from current 10-minute window (24h rolling buffer fix)
                 # If file is from yesterday's same time slot, OVERWRITE it instead of APPEND
                 file_mtime = os.path.getmtime(mp3_10min_path)
-                file_dt = datetime.fromtimestamp(file_mtime)
-                file_hour, file_chunk = calculate_chunk_location(file_dt)
-                
-                # Check if file is from current window (within last 10 minutes)
-                is_current_window = (file_hour == hour and file_chunk == chunk_index and 
-                                    now.timestamp() - file_mtime < 600)  # 10 minutes
+                is_current_window = now.timestamp() - file_mtime < 600  # 10 minutes (see MP4 above)
                 
                 if not is_current_window:
                     # File is old (from yesterday or earlier) - OVERWRITE instead of append
@@ -1967,45 +2150,19 @@ def process_hot_storage(capture_dir: str):
                     created_size = os.path.getsize(mp3_10min_path)
                     logger.info(f"\033[32m Overwritten 10min MP3:\033[0m {mp3_10min_path} \033[90m({mp3_append_elapsed:.3f}s, {created_size/1024:.1f}KB)\033[0m")
                 else:
-                    # File is current - APPEND as normal
+                    # MP3 frames are self-contained: append the minute in place. Copying the
+                    # whole chunk to a .tmp first rewrote it every minute on the SD card; a crash
+                    # mid-append leaves at worst one cut frame at the end, which players skip.
                     try:
-                        # Use temp file for atomic append (prevents corruption if process killed mid-write)
-                        temp_output = mp3_10min_path + '.tmp'
                         original_size = os.path.getsize(mp3_10min_path)
                         new_chunk_size = os.path.getsize(mp3_1min)
-                        
-                        shutil.copy(mp3_10min_path, temp_output)  # Copy existing file
-                        with open(temp_output, 'ab') as dest:
-                            with open(mp3_1min, 'rb') as src:
-                                dest.write(src.read())
-                        
-                        # Verify output file size before replacing
-                        temp_size = os.path.getsize(temp_output)
-                        expected_size = original_size + new_chunk_size
-                        
-                        if temp_size < expected_size:
-                            logger.error(f"\033[31m MP3 append produced wrong size:\033[0m {temp_size/1024:.1f}KB (expected {expected_size/1024:.1f}KB)")
-                            os.remove(temp_output)
-                            logger.warning(f"Discarded corrupted output, original file preserved")
-                        elif temp_size < 10000:  # Less than 10KB is definitely wrong
-                            logger.error(f"\033[31m MP3 append produced tiny file:\033[0m {temp_size} bytes (likely corrupted)")
-                            os.remove(temp_output)
-                            logger.warning(f"Discarded corrupted output, original file preserved")
-                        else:
-                            os.replace(temp_output, mp3_10min_path)  # Atomic replace
-                            final_size = os.path.getsize(mp3_10min_path)
-                            mp3_append_elapsed = time.time() - mp3_append_start
-                            logger.info(f"\033[32m Appended to 10min MP3:\033[0m {mp3_10min_path} \033[90m({mp3_append_elapsed:.3f}s, {original_size/1024:.1f}KB  {final_size/1024:.1f}KB, +{new_chunk_size/1024:.1f}KB)\033[0m")
+                        with open(mp3_1min, 'rb') as src, open(mp3_10min_path, 'ab') as dest:
+                            shutil.copyfileobj(src, dest)
+                        final_size = os.path.getsize(mp3_10min_path)
+                        mp3_append_elapsed = time.time() - mp3_append_start
+                        logger.info(f"\033[32m Appended to 10min MP3:\033[0m {mp3_10min_path} \033[90m({mp3_append_elapsed:.3f}s, {original_size/1024:.1f}KB  {final_size/1024:.1f}KB, +{new_chunk_size/1024:.1f}KB)\033[0m")
                     except Exception as e:
                         logger.warning(f"Failed to append MP3: {e}")
-                        # Clean up temp file on failure (original file remains intact)
-                        temp_output = mp3_10min_path + '.tmp'
-                        if os.path.exists(temp_output):
-                            try:
-                                os.remove(temp_output)
-                                logger.debug(f"Cleaned up failed MP3 temp file: {temp_output}")
-                            except Exception as cleanup_error:
-                                logger.warning(f"Failed to clean up MP3 temp file: {cleanup_error}")
             else:
                 shutil.copy(mp3_1min, mp3_10min_path)
                 mp3_append_elapsed = time.time() - mp3_append_start
@@ -2023,12 +2180,70 @@ def process_hot_storage(capture_dir: str):
         # Update manifest only if MP4 operation succeeded
         if mp4_10min:
             update_archive_manifest(capture_dir, hour, chunk_index, mp4_path)
+
+    backlog = len(segment_mtimes) - segments_needed if mp4_1min else 0
+    return mp4_1min, mp4_10min, backlog >= segments_needed
+
+
+def process_hot_storage(capture_dir: str):
+    """
+    HOT STORAGE PROCESSING (Fast, Critical, Every 15s)
+    
+    1. SAFETY CLEANUP: Delete old files from HOT storage (prevent RAM exhaustion)
+       - Segments: Keep 700 newest (safety net - FFmpeg normally deletes past its 600 / 300)
+       - Captures: Keep 300 newest (deleted, uploaded to R2 when needed)
+       - Thumbnails: Keep 100 newest (deleted, local freeze detection only)
+       - Metadata: Keep 750 newest (individual JSONs, archived incrementally by capture_monitor)
+    2. Progressive MP4 building: HOT TS  1min MP4  append to growing 10min chunk in COLD
+    3. Audio extraction: COLD 10min MP4  direct to COLD /audio/{hour}/
+    
+    Progressive append: Same chunk URL grows from 1min to 10min (no timeline changes)
+    """
+    ram_mode = is_ram_mode(capture_dir)
+    mode_label = "RAM (hot)" if ram_mode else "SD (cold)"
+    logger.info(f" FAST LOOP ({mode_label}): {os.path.basename(capture_dir)}")
+    
+    start_time = time.time()
+    
+    # SAFETY CLEANUP: Apply in both modes.
+    # cleanup_hot_files() resolves to /hot/* in RAM mode and root folders in SD mode.
+    # Segments are primarily handled by FFmpeg; this is an additional safety net.
+    deleted_segments = cleanup_hot_files(capture_dir, 'segments', 'segment_*.ts')
+    # Optionally archive sampled full-res stills to cold (24h) for the AVQ frame
+    # inspector — BEFORE rotate_hot_captures deletes them from the hot RAM buffer.
+    if ARCHIVE_CAPTURES:
+        archive_captures(capture_dir, ARCHIVE_CAPTURES_FPS)
+    deleted_captures = rotate_hot_captures(capture_dir)
+    deleted_thumbnails = clean_old_thumbnails(capture_dir)
+    deleted_metadata = cleanup_hot_files(capture_dir, 'metadata', 'capture_*.json')
+    sweep_stale_hot_files(capture_dir)  # catch-all for filenames the rotations above can't see
+    # Note: Cold cleanup moved to separate thread
+    # Note: Audio extracted directly to COLD - no hot cleanup needed
+    
+    if not ram_mode:
+        logger.info(f" SD mode detected for {capture_dir} (no /hot). Using cold folders directly for archiving.")
+    
+    # METADATA ARCHIVAL: Handled by capture_monitor.py (incremental append)
+    # Chunks are created/updated in real-time as frames arrive - no batch merging needed!
+    
+    # SEGMENTS PROGRESSIVE BUILDING, one minute per pass. A late cycle (slow appends, load)
+    # leaves more than one minute in hot; drain them oldest first in the same cycle, or the
+    # backlog reaches ffmpeg's on-disk ceiling and its oldest segments are deleted unarchived
+    # (BUG-0291). Steady state is one pass: the backlog after it is under one minute.
+    mp4_1min = mp4_10min = None
+    for _ in range(MAX_MINUTES_PER_CYCLE):
+        mp4_1min, mp4_10min, more = archive_hot_minute(capture_dir, ram_mode)
+        if not more:
+            break
+        logger.info(" Catching up: another full minute is waiting in hot, archiving it now")
     
     # SAFETY CLEANUP: Delete orphaned 1min files from temp/
     # MP4: Rotating slots (no cleanup - kept for playback)
     # JSON: 2h timeout (failed merges)
     # MP3: Rotating slots (15min safety net)
     deleted_temp_segments, deleted_temp_metadata, deleted_temp_mp3 = cleanup_temp_files(capture_dir)
+    # A device that stopped recording leaves its open chunk in RAM: finish it after 11 idle minutes.
+    finalize_staged_chunks(capture_dir)
     
     elapsed = time.time() - start_time
     
@@ -2062,7 +2277,7 @@ def process_hot_storage(capture_dir: str):
     logger.info(f"   FAST done in {elapsed:.2f}s ({cleanup_info}{mp4_info})")
 
 
-def process_cold_storage(capture_dir: str):
+def process_cold_storage(capture_dir: str, archive_max_age: Optional[int] = None):
     """
     COLD STORAGE PROCESSING (Slow, Batched, Every 60s)
     
@@ -2077,10 +2292,10 @@ def process_cold_storage(capture_dir: str):
     start_time = time.time()
     
     # Batch-limited cold cleanup (prevents hour-long cycles)
-    deleted_cold_segments = cleanup_cold_segments(capture_dir, COLD_BATCH_LIMIT)
-    deleted_cold_captures = cleanup_cold_captures(capture_dir, COLD_BATCH_LIMIT)
-    deleted_cold_thumbnails = cleanup_cold_thumbnails(capture_dir, COLD_BATCH_LIMIT)
-    deleted_cold_metadata = cleanup_cold_metadata(capture_dir, COLD_BATCH_LIMIT)
+    deleted_cold_segments = cleanup_cold_segments(capture_dir, COLD_BATCH_LIMIT, archive_max_age)
+    deleted_cold_captures = cleanup_cold_captures(capture_dir, COLD_BATCH_LIMIT, archive_max_age)
+    deleted_cold_thumbnails = cleanup_cold_thumbnails(capture_dir, COLD_BATCH_LIMIT, archive_max_age)
+    deleted_cold_metadata = cleanup_cold_metadata(capture_dir, COLD_BATCH_LIMIT, archive_max_age)
     
     elapsed = time.time() - start_time
     
@@ -2148,6 +2363,7 @@ def hot_storage_loop():
         try:
             import json
             
+            drop_lost_staged_links(capture_dir)
             # Rebuild video archive manifest
             manifest = rebuild_archive_manifest_from_disk(capture_dir)
             manifest_path = os.path.join(capture_dir, 'segments', 'archive_manifest.json')
@@ -2229,10 +2445,12 @@ def hot_storage_loop():
             print_ram_summary(capture_dirs, " AFTER FAST CYCLE")
             
             cycle_elapsed = time.time() - cycle_start
-            logger.info(f" FAST cycle completed in {cycle_elapsed:.2f}s (mode: {mode_label}, next in {HOT_THREAD_INTERVAL}s)")
+            logger.info(f" FAST cycle completed in {cycle_elapsed:.2f}s (mode: {mode_label}, next in {hot_cycle_sleep(cycle_elapsed):.0f}s)")
             
-            # Sleep until next cycle
-            time.sleep(HOT_THREAD_INTERVAL)
+            # Next cycle HOT_THREAD_INTERVAL after this one started, not after it ended: hot keeps
+            # ~2 minutes of segments and a batch needs one, so a loaded cycle's work must not be
+            # added to the gap on top of the full interval (BUG-0291).
+            time.sleep(hot_cycle_sleep(cycle_elapsed))
             
         except KeyboardInterrupt:
             logger.info(" HOT thread: Received interrupt signal, shutting down...")
@@ -2277,7 +2495,21 @@ def cold_storage_loop():
             # Process each directory (cold storage only)
             for capture_dir in capture_dirs:
                 try:
-                    process_cold_storage(capture_dir)
+                    # One policy for the whole cycle, so 'sweep now' and 'which window'
+                    # can never disagree (BUG-0198).
+                    policy = _retention_policy(capture_dir)
+                    if policy['label'] != last_pressure_label.get(capture_dir):
+                        free = policy['free_pct']
+                        logger.warning(
+                            f"{Colors.BLUE}Retention pressure '{policy['label']}' on {capture_dir} "
+                            f"(cold free {'unknown' if free is None else f'{free:.1f}%'}): reports/artifacts "
+                            f"{policy['reports_max_age'] / 86400:.0f}d, archive folders "
+                            f"{policy['archive_max_age'] / 3600:.0f}h"
+                            f"{', sweeping every cycle' if policy['force_sweep'] else ''}{Colors.RESET}"
+                        )
+                        last_pressure_label[capture_dir] = policy['label']
+
+                    process_cold_storage(capture_dir, policy['archive_max_age'])
                     
                     # Verification cleanup every 1 hour, tracked per capture_dir so one
                     # channel firing doesn't reset the clock for the other three.
@@ -2285,12 +2517,15 @@ def cold_storage_loop():
                         cleanup_verification_results(capture_dir)
                         last_verification_cleanup[capture_dir] = time.time()
 
-                    # Reports cleanup every 1 hour (30-day retention), same per-channel tracking.
-                    if time.time() - last_reports_cleanup.get(capture_dir, 0) > REPORTS_CLEANUP_INTERVAL:
-                        cleanup_reports(capture_dir)
-                        # Same cadence and retention for the loose artifacts that
-                        # sit in the capture root rather than under reports/.
-                        cleanup_capture_root_artifacts(capture_dir)
+                    # Reports cleanup hourly, or every cycle once the mount is under
+                    # real pressure — waiting up to an hour is how a mount goes from
+                    # tight to wedged.
+                    due = time.time() - last_reports_cleanup.get(capture_dir, 0) > REPORTS_CLEANUP_INTERVAL
+                    if due or policy['force_sweep']:
+                        cleanup_reports(capture_dir, policy['reports_max_age'])
+                        # Same cadence and window for the loose artifacts that sit in
+                        # the capture root rather than under reports/.
+                        cleanup_capture_root_artifacts(capture_dir, policy['reports_max_age'])
                         last_reports_cleanup[capture_dir] = time.time()
 
                 except Exception as e:
@@ -2353,6 +2588,7 @@ if __name__ == '__main__':
             logger.info(f" CAPTURE ARCHIVING: ON ({ARCHIVE_CAPTURES_FPS} fps → cold captures/{{hour}}/, 24h, min-free {ARCHIVE_CAPTURES_MIN_FREE_PCT}%)")
         else:
             logger.info(" CAPTURE ARCHIVING: off (set --keep-captures true or ARCHIVE_CAPTURES=true to keep 24h full-res stills)")
+        logger.info(f" 24H REVIEW BUFFER (video): {'on, open chunk staged in ' + STAGE_ROOT if ARCHIVE_VIDEO else 'off (ARCHIVE_VIDEO=false)'}")
         logger.info("=" * 80)
         
         # Create and start both threads

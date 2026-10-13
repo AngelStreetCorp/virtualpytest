@@ -10,8 +10,7 @@
 | Severity  | High                                                         |
 | Area      | backend_host, Linux VNC                                      |
 | Fixed in  | Unreleased                                                   |
-| Commit    | `TBD`                                                        |
-
+| Commit    | `3fd687987a`                                             |
 ---
 
 ## Symptom

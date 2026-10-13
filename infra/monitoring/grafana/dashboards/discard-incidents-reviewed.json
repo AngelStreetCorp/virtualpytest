@@ -76,7 +76,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(*) AS \"Reviewed Incidents\" FROM alerts WHERE checked = true AND $__timeFilter(updated_at)",
+          "rawSql": "SELECT COUNT(*) AS \"Reviewed Incidents\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE checked = true AND $__timeFilter(updated_at)",
           "refId": "A"
         }
       ],
@@ -143,7 +143,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(*) AS \"Discarded (FP)\" FROM alerts WHERE checked = true AND discard = true AND $__timeFilter(updated_at)",
+          "rawSql": "SELECT COUNT(*) AS \"Discarded (FP)\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE checked = true AND discard = true AND $__timeFilter(updated_at)",
           "refId": "A"
         }
       ],
@@ -206,7 +206,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT COUNT(*) AS \"Kept\" FROM alerts WHERE checked = true AND discard = false AND $__timeFilter(updated_at)",
+          "rawSql": "SELECT COUNT(*) AS \"Kept\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE checked = true AND discard = false AND $__timeFilter(updated_at)",
           "refId": "A"
         }
       ],
@@ -272,7 +272,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_trunc('hour', updated_at) AS \"time\", COUNT(*) AS \"reviewed\" FROM alerts WHERE checked = true AND $__timeFilter(updated_at) GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT date_trunc('hour', updated_at) AS \"time\", COUNT(*) AS \"reviewed\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE checked = true AND $__timeFilter(updated_at) GROUP BY 1 ORDER BY 1",
           "refId": "A"
         },
         {
@@ -283,7 +283,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT date_trunc('hour', updated_at) AS \"time\", COUNT(*) AS \"discarded\" FROM alerts WHERE checked = true AND discard = true AND $__timeFilter(updated_at) GROUP BY 1 ORDER BY 1",
+          "rawSql": "SELECT date_trunc('hour', updated_at) AS \"time\", COUNT(*) AS \"discarded\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE checked = true AND discard = true AND $__timeFilter(updated_at) GROUP BY 1 ORDER BY 1",
           "refId": "B"
         }
       ],
@@ -330,7 +330,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT updated_at, id, host_name, device_id, incident_type, status, discard, check_type, COALESCE(discard_comment, '') AS discard_comment FROM alerts WHERE checked = true AND $__timeFilter(updated_at) ORDER BY updated_at DESC LIMIT 50",
+          "rawSql": "SELECT updated_at, id, host_name, device_id, incident_type, status, discard, check_type, COALESCE(discard_comment, '') AS discard_comment FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE checked = true AND $__timeFilter(updated_at) ORDER BY updated_at DESC LIMIT 50",
           "refId": "A"
         }
       ],
@@ -346,7 +346,46 @@
     "incidents"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-24h",

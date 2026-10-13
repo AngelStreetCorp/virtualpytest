@@ -4,7 +4,6 @@ import {
   Storage as ServerIcon,
   Computer as HostIcon,
   Language as FrontendIcon,
-  SmartToy as AIIcon,
   Add as AddIcon,
   Delete as DeleteIcon,
   ExpandMore as ExpandIcon,
@@ -13,8 +12,14 @@ import {
   RestartAlt as ResetIcon,
   Tune as FeaturesIcon,
   Visibility as VisibilityIcon,
+  Android as AndroidIcon,
   VisibilityOff as VisibilityOffIcon,
+  Videocam as VideoIcon,
+  Bluetooth as BluetoothIcon,
+  SettingsRemote as IrIcon,
 } from '@mui/icons-material';
+import { AIIcon } from '../components/common/icons/CustomIcons';
+import { getEnv } from '../config/constants';
 import {
   Box,
   Typography,
@@ -44,18 +49,23 @@ import {
   TableCell,
   Snackbar,
   Chip,
+  FormControlLabel,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { useSettings, FrontendConfig } from '../hooks/pages';
-import type { ServerConfig } from '../hooks/pages/useSettings';
 import { useBranding } from '../contexts/BrandingContext';
 import { ALL_NAV_ITEMS } from '../config/navItems';
 import { TOAST_POSITION, TOAST_AUTO_HIDE_DURATION } from '../constants/toastConfig';
+import { featureSettingsNotices } from '../config/features';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
+import { AiRoutingSettings } from '../components/settings/AiRoutingSettings';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 
 // ─── Feature Visibility Tab ───────────────────────────────────────────────────
@@ -111,33 +121,6 @@ const writeRestartPending = (state: RestartPendingState) => {
   }
 };
 
-interface AiProviderOption {
-  value: string;
-  label: string;
-  apiKeyField: string;
-  placeholder: string;
-  // Field whose non-empty value makes the provider selectable. Defaults to apiKeyField;
-  // the local provider is enabled by its base URL, the key being optional.
-  enabledField?: string;
-}
-
-const LOCAL_PROVIDER = 'local';
-
-const AI_PROVIDER_OPTIONS: readonly AiProviderOption[] = [
-  { value: 'openrouter', label: 'OpenRouter', apiKeyField: 'OPENROUTER_API_KEY', placeholder: 'sk-or-v1-...' },
-  { value: 'anthropic', label: 'Anthropic', apiKeyField: 'ANTHROPIC_API_KEY', placeholder: 'sk-ant-...' },
-  { value: 'openai', label: 'OpenAI', apiKeyField: 'OPENAI_API_KEY', placeholder: 'sk-...' },
-  { value: 'minimax', label: 'MiniMax', apiKeyField: 'MINIMAX_API_KEY', placeholder: 'your-minimax-key' },
-  { value: 'google', label: 'Google', apiKeyField: 'GOOGLE_API_KEY', placeholder: 'your-google-api-key' },
-  {
-    value: LOCAL_PROVIDER,
-    label: 'Local (OpenAI-compatible)',
-    apiKeyField: 'LOCAL_AI_API_KEY',
-    placeholder: 'optional — only if the server requires one',
-    enabledField: 'LOCAL_AI_BASE_URL',
-  },
-];
-
 const SettingsTabPanel: React.FC<React.PropsWithChildren<{ active: boolean }>> = ({ active, children }) => (
   <Box
     role="tabpanel"
@@ -152,55 +135,16 @@ const SettingsTabPanel: React.FC<React.PropsWithChildren<{ active: boolean }>> =
   </Box>
 );
 
-// Per-task model configuration. Each task resolves to its own provider+model,
-// falling back to the primary provider (AI_PROVIDER) when left blank.
-const AI_TASKS = [
-  {
-    key: 'agent',
-    short: 'Agent',
-    label: 'Agent — chat & tools (Atlas)',
-    providerField: 'AI_AGENT_PROVIDER',
-    modelField: 'AI_AGENT_MODEL',
-  },
-  {
-    key: 'vision',
-    short: 'Vision',
-    label: 'Vision — subtitle / banner / screen detection',
-    providerField: 'AI_VISION_PROVIDER',
-    modelField: 'AI_VISION_MODEL',
-  },
-  {
-    key: 'text',
-    short: 'Text',
-    label: 'Text — translation / analysis',
-    providerField: 'AI_TEXT_PROVIDER',
-    modelField: 'AI_TEXT_MODEL',
-  },
-] as const;
-
-type ProviderModelMatrix = Record<string, Record<string, string | null>>;
-
-// Per-task fallback when no provider is configured (mirrors backend DEFAULT_PROVIDER_BY_TASK).
-const DEFAULT_PROVIDER_BY_TASK: Record<string, string> = {
-  agent: 'anthropic',
-  vision: 'openrouter',
-  text: 'openrouter',
-};
-
 // ─── Dynamic "every other key" rendering ──────────────────────────────────────
 // The backend now returns every key each .env file contains, not a fixed
 // whitelist. Keys with their own dedicated field elsewhere on the page (the
-// Server tab's Name/URL/Port, the AI tab, Frontend's known fields, Features'
+// Server tab's Name/URL/Port, Frontend's known fields, Features'
 // nav/feature toggles) are excluded here so they don't render twice.
 
 const KNOWN_SERVER_KEYS = new Set<string>([
   'SERVER_NAME',
   'SERVER_URL',
   'SERVER_PORT',
-  'AI_PROVIDER',
-  ...AI_PROVIDER_OPTIONS.map((o) => o.apiKeyField),
-  ...AI_PROVIDER_OPTIONS.map((o) => o.enabledField).filter((v): v is string => !!v),
-  ...AI_TASKS.flatMap((t) => [t.providerField, t.modelField]),
 ]);
 
 const KNOWN_FRONTEND_KEYS = new Set<string>([
@@ -216,8 +160,7 @@ const KNOWN_FRONTEND_KEYS = new Set<string>([
   'VITE_NAV_COMING_SOON',
 ]);
 
-// A masked TextField with an eye toggle — same pattern the AI tab already uses
-// for provider API keys, generalized for any credential-shaped .env key.
+// A masked TextField with an eye toggle for any credential-shaped .env key.
 const MaskedTextField: React.FC<{
   label: string;
   value: string;
@@ -291,245 +234,6 @@ const ExtraEnvFields: React.FC<{
   );
 };
 
-const AISettingsTab: React.FC<{
-  serverConfig: ServerConfig;
-  updateServerConfig: (field: string, value: string) => void;
-}> = ({ serverConfig, updateServerConfig }) => {
-  const [matrix, setMatrix] = useState<ProviderModelMatrix>({});
-  const [shownKeys, setShownKeys] = useState<Record<string, boolean>>({});
-  const toggleKey = (field: string) => setShownKeys((prev) => ({ ...prev, [field]: !prev[field] }));
-
-  // Load the per-provider × per-task default model matrix from the backend.
-  useEffect(() => {
-    fetch(buildServerUrl('/server/agent/models'))
-      .then((r) => r.json())
-      .then((d) => {
-        if (d?.success && d.provider_models) setMatrix(d.provider_models as ProviderModelMatrix);
-      })
-      .catch(() => undefined);
-  }, []);
-
-  // Only providers with a filled API key (or, for local, a base URL) can be selected.
-  const availableProviders = AI_PROVIDER_OPTIONS.filter(
-    (option) => !!(serverConfig[option.enabledField ?? option.apiKeyField] as string)?.trim(),
-  );
-
-  const primary = (serverConfig.AI_PROVIDER || '').trim();
-
-  // The local provider's model is whatever the operator typed (unsaved edits included);
-  // the backend matrix only knows it after a save.
-  const localModel = (serverConfig.LOCAL_AI_MODEL || '').trim() || null;
-
-  const defaultModelFor = (provider: string, task: string): string | null =>
-    provider === LOCAL_PROVIDER ? localModel : (matrix[provider]?.[task] ?? null);
-
-  // Whether a provider can serve a task (matrix not yet loaded → assume yes).
-  const taskCapable = (provider: string, task: string): boolean => {
-    if (provider === LOCAL_PROVIDER) return localModel !== null;
-    return matrix[provider] === undefined ? true : matrix[provider][task] != null;
-  };
-
-  // Resolve the provider a task will actually use (mirrors backend resolution):
-  // explicit task provider -> primary (if it can serve the task) -> per-task default.
-  const effectiveProvider = (task: string, taskProvider: string): string => {
-    if (taskProvider) return taskProvider;
-    if (primary && taskCapable(primary, task)) return primary;
-    return DEFAULT_PROVIDER_BY_TASK[task] || 'anthropic';
-  };
-
-  const providerLabel = (value: string): string =>
-    AI_PROVIDER_OPTIONS.find((o) => o.value === value)?.label || value;
-
-  return (
-    <Card>
-      <CardContent sx={{ '& .MuiTextField-root': { mt: 0 } }}>
-        <Box display="flex" alignItems="center" mb={0.5}>
-          <AIIcon sx={{ mr: 1 }} color="primary" />
-          <Typography variant="h6">AI Provider Configuration</Typography>
-        </Box>
-        <Typography variant="caption" color="text.secondary">
-          Every field has a working default — nothing is required. Set a provider only to override.
-        </Typography>
-        <Divider sx={{ my: 1.5 }} />
-
-        {/* Primary provider */}
-        <Box display="flex" alignItems="center" gap={1.5} mb={1.5}>
-          <Typography variant="body2" sx={{ minWidth: 110, color: 'text.secondary' }}>
-            Primary
-          </Typography>
-          <TextField
-            value={availableProviders.some((o) => o.value === primary) ? primary : ''}
-            onChange={(e) => updateServerConfig('AI_PROVIDER', e.target.value)}
-            size="small"
-            select
-            sx={{ width: 220 }}
-            disabled={availableProviders.length === 0}
-            SelectProps={{ displayEmpty: true }}
-          >
-            <MenuItem value="">
-              <em>Per-task defaults</em>
-            </MenuItem>
-            {availableProviders.map((option) => (
-              <MenuItem key={option.value} value={option.value}>
-                {option.label}
-              </MenuItem>
-            ))}
-          </TextField>
-          <Typography variant="caption" color="text.secondary">
-            {availableProviders.length === 0
-              ? 'Add an API key below to enable.'
-              : 'Applied to any task that can use it.'}
-          </Typography>
-        </Box>
-
-        {/* Per-task rows: label | provider | model (compact, one row each) */}
-        {AI_TASKS.map((task) => {
-          const taskProvider = (serverConfig[task.providerField] as string) || '';
-          const resolvedProvider = effectiveProvider(task.key, taskProvider);
-          const defaultModel = defaultModelFor(resolvedProvider, task.key);
-          const noModel =
-            resolvedProvider === LOCAL_PROVIDER
-              ? defaultModel === null && !(serverConfig[task.modelField] as string)?.trim()
-              : matrix[resolvedProvider] !== undefined && defaultModel === null;
-          return (
-            <Box key={task.key} display="flex" alignItems="center" gap={1.5} mb={1}>
-              <Tooltip title={task.label}>
-                <Typography variant="body2" noWrap sx={{ minWidth: 110, color: 'text.secondary' }}>
-                  {task.short}
-                </Typography>
-              </Tooltip>
-              <TextField
-                value={availableProviders.some((o) => o.value === taskProvider) ? taskProvider : ''}
-                onChange={(e) => updateServerConfig(task.providerField, e.target.value)}
-                size="small"
-                select
-                sx={{ width: 220 }}
-                disabled={availableProviders.length === 0}
-                SelectProps={{ displayEmpty: true }}
-              >
-                <MenuItem value="">
-                  <em>{`Default (${providerLabel(resolvedProvider)})`}</em>
-                </MenuItem>
-                {availableProviders.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-              <TextField
-                value={(serverConfig[task.modelField] as string) || defaultModel || ''}
-                onChange={(e) => updateServerConfig(task.modelField, e.target.value)}
-                placeholder={defaultModel || `${resolvedProvider} default`}
-                size="small"
-                error={noModel}
-                helperText={noModel ? `⚠️ ${resolvedProvider} has no ${task.key} model` : undefined}
-                sx={{ flex: 1, minWidth: 200 }}
-              />
-            </Box>
-          );
-        })}
-
-        {/* API keys (one per provider, shared across tasks) */}
-        <Divider sx={{ my: 1.5 }} />
-        <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>
-          Provider API keys
-        </Typography>
-        <Grid container spacing={1.5}>
-          {AI_PROVIDER_OPTIONS.filter((option) => option.value !== LOCAL_PROVIDER).map((option) => {
-            const shown = !!shownKeys[option.apiKeyField];
-            return (
-              <Grid item xs={12} sm={6} md={4} key={option.value}>
-                <TextField
-                  label={option.label}
-                  value={serverConfig[option.apiKeyField] || ''}
-                  onChange={(e) => updateServerConfig(option.apiKeyField, e.target.value)}
-                  placeholder={option.placeholder}
-                  fullWidth
-                  size="small"
-                  type={shown ? 'text' : 'password'}
-                  InputProps={{
-                    endAdornment: (
-                      <InputAdornment position="end">
-                        <IconButton
-                          aria-label={shown ? 'Hide key' : 'Show key'}
-                          onClick={() => toggleKey(option.apiKeyField)}
-                          edge="end"
-                          size="small"
-                          tabIndex={-1}
-                        >
-                          {shown ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-                        </IconButton>
-                      </InputAdornment>
-                    ),
-                  }}
-                />
-              </Grid>
-            );
-          })}
-        </Grid>
-
-        {/* Local OpenAI-compatible server (Ollama, vLLM, llama.cpp, LM Studio...) */}
-        <Divider sx={{ my: 1.5 }} />
-        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-          Local model server
-        </Typography>
-        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-          Any OpenAI-compatible endpoint on your network. Set the URL and a model name to enable the
-          &quot;Local&quot; provider above. No key needed unless the server enforces one.
-        </Typography>
-        <Grid container spacing={1.5}>
-          <Grid item xs={12} sm={6} md={5}>
-            <TextField
-              label="Base URL"
-              value={serverConfig.LOCAL_AI_BASE_URL || ''}
-              onChange={(e) => updateServerConfig('LOCAL_AI_BASE_URL', e.target.value)}
-              placeholder="http://10.10.10.10:8000/v1"
-              fullWidth
-              size="small"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={3}>
-            <TextField
-              label="Model"
-              value={serverConfig.LOCAL_AI_MODEL || ''}
-              onChange={(e) => updateServerConfig('LOCAL_AI_MODEL', e.target.value)}
-              placeholder="qwen3:8b"
-              fullWidth
-              size="small"
-            />
-          </Grid>
-          <Grid item xs={12} sm={6} md={4}>
-            <TextField
-              label="API key (optional)"
-              value={serverConfig.LOCAL_AI_API_KEY || ''}
-              onChange={(e) => updateServerConfig('LOCAL_AI_API_KEY', e.target.value)}
-              placeholder="only if the server requires one"
-              fullWidth
-              size="small"
-              type={shownKeys.LOCAL_AI_API_KEY ? 'text' : 'password'}
-              InputProps={{
-                endAdornment: (
-                  <InputAdornment position="end">
-                    <IconButton
-                      aria-label={shownKeys.LOCAL_AI_API_KEY ? 'Hide key' : 'Show key'}
-                      onClick={() => toggleKey('LOCAL_AI_API_KEY')}
-                      edge="end"
-                      size="small"
-                      tabIndex={-1}
-                    >
-                      {shownKeys.LOCAL_AI_API_KEY ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
-                    </IconButton>
-                  </InputAdornment>
-                ),
-              }}
-            />
-          </Grid>
-        </Grid>
-      </CardContent>
-    </Card>
-  );
-};
-
 // ─── Branding Tab ─────────────────────────────────────────────────────────────
 
 const BrandingTab: React.FC = () => {
@@ -538,6 +242,8 @@ const BrandingTab: React.FC = () => {
   const [tagline, setTagline] = useState(branding.tagline);
   const [logoUrl, setLogoUrl] = useState(branding.logoUrl);
   const [faviconUrl, setFaviconUrl] = useState(branding.faviconUrl);
+  const [showGithubLink, setShowGithubLink] = useState(branding.showGithubLink);
+  const [showMobileAppLink, setShowMobileAppLink] = useState(branding.showMobileAppLink);
   const [saving, setSaving] = useState(false);
   const [reverting, setReverting] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -552,6 +258,8 @@ const BrandingTab: React.FC = () => {
       setTagline(branding.tagline);
       setLogoUrl(branding.logoUrl);
       setFaviconUrl(branding.faviconUrl);
+      setShowGithubLink(branding.showGithubLink);
+      setShowMobileAppLink(branding.showMobileAppLink);
     }
   }, [isLoaded]);
 
@@ -590,7 +298,7 @@ const BrandingTab: React.FC = () => {
 
   const handleSave = async () => {
     setSaving(true);
-    await setBranding({ name, tagline, logoUrl, faviconUrl });
+    await setBranding({ name, tagline, logoUrl, faviconUrl, showGithubLink, showMobileAppLink });
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 4000);
@@ -745,6 +453,23 @@ const BrandingTab: React.FC = () => {
             </Box>
           </Grid>
 
+          {/* Footer links */}
+          <Grid item xs={12}>
+            <Typography variant="subtitle2" gutterBottom sx={{ mt: 1 }}>
+              Footer links
+            </Typography>
+            <Box display="flex" flexDirection="column">
+              <FormControlLabel
+                control={<Switch size="small" checked={showMobileAppLink} onChange={(e) => setShowMobileAppLink(e.target.checked)} />}
+                label="Show “Get the mobile app”"
+              />
+              <FormControlLabel
+                control={<Switch size="small" checked={showGithubLink} onChange={(e) => setShowGithubLink(e.target.checked)} />}
+                label="Show “View on GitHub”"
+              />
+            </Box>
+          </Grid>
+
           {/* Live preview */}
           <Grid item xs={12}>
             <Typography variant="subtitle2" gutterBottom sx={{ mt: 1 }}>
@@ -752,7 +477,7 @@ const BrandingTab: React.FC = () => {
             </Typography>
             <Paper
               variant="outlined"
-              sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'primary.main', borderRadius: 1 }}
+              sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1, backgroundColor: 'divider', borderRadius: 1 }}
             >
               {logoUrl ? (
                 <Box
@@ -788,6 +513,8 @@ const BrandingTab: React.FC = () => {
 // ─── Main Settings Page ────────────────────────────────────────────────────────
 
 const Settings: React.FC = () => {
+  const P = useAgentChatPalette();
+  const { isMobile } = useResponsiveMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTab = searchParams.get('tab') === 'ai' ? 5 : 0;
   const [activeTab, setActiveTab] = useState(initialTab);
@@ -902,6 +629,13 @@ const Settings: React.FC = () => {
     deleteDevice,
     setError,
     setSuccess,
+    grabbers,
+    grabbersLoading,
+    grabbersError,
+    loadGrabbers,
+    usedGrabberVideoPaths,
+    applyGrabberToDevice,
+    getAudioSource,
   } = useSettings();
 
   useEffect(() => {
@@ -924,7 +658,10 @@ const Settings: React.FC = () => {
     setHostConfigSaved(false);
     setHostConfigReady(false);
     void loadHostConfig(selectedHostName).then(setHostConfigReady);
-  }, [selectedHostName, loadHostConfig]);
+    // Detected grabbers come from the host's own /sys + v4l2-ctl walk, so
+    // they refresh whenever the operator picks a different registered host.
+    void loadGrabbers(selectedHostName);
+  }, [selectedHostName, loadHostConfig, loadGrabbers]);
 
   const handleSave = async () => {
     if (activeTab === 2) {
@@ -959,11 +696,11 @@ const Settings: React.FC = () => {
   }
 
   return (
-    <Box>
+    <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ mb: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
-          <Typography variant="h4" gutterBottom>
-            System Settings
+          <Typography component="h1" sx={PAGE_TITLE_SX}>
+            Settings
           </Typography>
         </Box>
         <Box display="flex" gap={1}>
@@ -981,12 +718,29 @@ const Settings: React.FC = () => {
             variant="contained"
             startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
             onClick={handleSave}
-            disabled={saving || (activeTab === 2 && !hostConfigReady)}
+            disabled={saving || activeTab === 5 || (activeTab === 2 && !hostConfigReady)}
           >
             Save
           </Button>
         </Box>
       </Box>
+
+      {getEnv('VITE_MOBILE_APP_URL') && (
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={<AndroidIcon />}
+          component="a"
+          href={getEnv('VITE_MOBILE_APP_URL')}
+          sx={{ mb: 1, alignSelf: 'flex-start' }}
+        >
+          {isMobile ? 'Download APK' : 'Download Android app (APK)'}
+        </Button>
+      )}
+
+      {featureSettingsNotices().map((Notice, i) => (
+        <Notice key={i} />
+      ))}
 
       {error && (
         <Alert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
@@ -1020,8 +774,13 @@ const Settings: React.FC = () => {
         }}
         variant="scrollable"
         scrollButtons="auto"
-        allowScrollButtonsMobile
-        sx={{ mb: 1 }}
+        sx={{
+          mb: 1,
+          minHeight: 48,
+          // MUI forces minHeight 72 on icon+label tabs and pads them 16px: on a phone that is a
+          // tall band and pushes the first tab visibly right of the card edge below it.
+          '& .MuiTab-root': { minHeight: 48, py: 0.5, px: { xs: 1, sm: 2 } },
+        }}
       >
         <Tab
           icon={<ServerIcon />}
@@ -1047,7 +806,7 @@ const Settings: React.FC = () => {
             </Box>
           }
         />
-        <Tab icon={<HostIcon />} label="Host & Devices" iconPosition="start" />
+        <Tab icon={<HostIcon />} label="Host" iconPosition="start" />
         <Tab icon={<BrandingIcon />} label="Branding" iconPosition="start" />
         <Tab icon={<FeaturesIcon />} label="Features" iconPosition="start" />
         <Tab icon={<AIIcon />} label="AI" iconPosition="start" />
@@ -1082,11 +841,15 @@ const Settings: React.FC = () => {
         )}
         <Card>
           <CardContent>
-            <Box display="flex" alignItems="center" mb={1}>
-              <ServerIcon sx={{ mr: 1 }} color="primary" />
-              <Typography variant="h6">Server</Typography>
-            </Box>
-            <Divider sx={{ mb: 2 }} />
+            {!isMobile && (
+              <>
+                <Box display="flex" alignItems="center" mb={1}>
+                  <ServerIcon sx={{ mr: 1 }} color="primary" />
+                  <Typography variant="h6">Server</Typography>
+                </Box>
+                <Divider sx={{ mb: 2 }} />
+              </>
+            )}
 
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
@@ -1168,11 +931,15 @@ const Settings: React.FC = () => {
         )}
         <Card>
           <CardContent>
-            <Box display="flex" alignItems="center" mb={1}>
-              <FrontendIcon sx={{ mr: 1 }} color="primary" />
-              <Typography variant="h6">Frontend Configuration</Typography>
-            </Box>
-            <Divider sx={{ mb: 2 }} />
+            {!isMobile && (
+              <>
+                <Box display="flex" alignItems="center" mb={1}>
+                  <FrontendIcon sx={{ mr: 1 }} color="primary" />
+                  <Typography variant="h6">Frontend</Typography>
+                </Box>
+                <Divider sx={{ mb: 2 }} />
+              </>
+            )}
 
             <Grid container spacing={2}>
               <Grid item xs={12} md={6}>
@@ -1208,6 +975,7 @@ const Settings: React.FC = () => {
                   helperText="Grafana dashboard URL"
                 />
               </Grid>
+              {config.frontend.VITE_CLOUDFLARE_R2_PUBLIC_URL && (
               <Grid item xs={12} md={6}>
                 <TextField
                   label="R2 Public URL"
@@ -1221,6 +989,7 @@ const Settings: React.FC = () => {
                   helperText="Cloudflare R2 public URL for assets"
                 />
               </Grid>
+              )}
             </Grid>
 
             <ExtraEnvFields
@@ -1359,7 +1128,7 @@ const Settings: React.FC = () => {
         </Card>
       </SettingsTabPanel>
 
-      {/* Tab 3: Host & Devices */}
+      {/* Tab 3: Host */}
       <SettingsTabPanel active={activeTab === 2}>
         <Box>
           <Card sx={{ mb: 1 }}>
@@ -1394,11 +1163,15 @@ const Settings: React.FC = () => {
           </Card>
           <Card sx={{ mb: 1}}>
             <CardContent>
-              <Box display="flex" alignItems="center" mb={1}>
-                <HostIcon sx={{ mr: 1 }} color="primary" />
-                <Typography variant="h6">Host Configuration</Typography>
-              </Box>
-              <Divider sx={{ mb: 2 }} />
+              {!isMobile && (
+                <>
+                  <Box display="flex" alignItems="center" mb={1}>
+                    <HostIcon sx={{ mr: 1 }} color="primary" />
+                    <Typography variant="h6">Host Configuration</Typography>
+                  </Box>
+                  <Divider sx={{ mb: 2 }} />
+                </>
+              )}
 
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
@@ -1462,6 +1235,125 @@ const Settings: React.FC = () => {
                 </Alert>
               )}
 
+              {/* Detected Grabbers — host's live UVC + UAC inventory. Each row's
+                  "Use" button fills the next free device's DEVICE_VIDEO +
+                  DEVICE_VIDEO_AUDIO together, so the operator never types the
+                  ALSA card by hand. Audio pairing is the same logic the
+                  operator-facing scripts/detect_grabber.sh prints. */}
+              <Box sx={{ mt: 2, mb: 1, p: 1.5, border: `1px solid ${P.borderColor}`, borderRadius: 1, background: P.surface }}>
+                <Box display="flex" alignItems="center" gap={1} mb={1}>
+                  <VideoIcon fontSize="small" sx={{ color: P.accentText }} />
+                  <Typography variant="subtitle2" sx={{ color: P.accentText }}>
+                    Detected Grabbers
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                    {grabbersLoading
+                      ? 'detecting…'
+                      : grabbersError
+                        ? `detection failed: ${grabbersError}`
+                        : `${grabbers.grabbers.length} capture card(s), ${grabbers.bluetooth.length} BT, ${grabbers.infrared.length} IR on ${selectedHostName ?? 'host'}`}
+                  </Typography>
+                  <Button
+                    size="small"
+                    startIcon={<RefreshIcon fontSize="small" />}
+                    onClick={() => selectedHostName && void loadGrabbers(selectedHostName)}
+                    disabled={grabbersLoading || !selectedHostName}
+                    sx={{ ml: 'auto' }}
+                  >
+                    Rescan
+                  </Button>
+                </Box>
+                {!grabbersLoading && !grabbersError && grabbers.grabbers.length === 0 && (
+                  <Typography variant="body2" color="text.secondary">
+                    No capture cards reported by this host. The vpt-host user may need to be
+                    added to the <code>video</code> and <code>audio</code> groups (see{' '}
+                    <code>setup/local/linux/backend_host/setup_permissions.sh</code>); without
+                    those, <code>v4l2-ctl</code> cannot enumerate the device and the panel
+                    stays empty.
+                  </Typography>
+                )}
+                {grabbers.grabbers.length > 0 && (() => {
+                  const used = usedGrabberVideoPaths();
+                  return (
+                    <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
+                      <Box component="thead">
+                        <Box component="tr" sx={{ '& th': { textAlign: 'left', py: 0.5, pr: 2, fontSize: 12, color: 'text.secondary' } }}>
+                          <Box component="th">Video</Box>
+                          <Box component="th">Audio</Box>
+                          <Box component="th">USB</Box>
+                          <Box component="th">Port</Box>
+                          <Box component="th" />
+                        </Box>
+                      </Box>
+                      <Box component="tbody">
+                        {grabbers.grabbers.map((g) => {
+                          const inUse = used.has(g.video);
+                          const usedBy = Object.entries(config.devices).find(
+                            ([, d]) => d.DEVICE_VIDEO === g.video,
+                          )?.[0];
+                          return (
+                            <Box
+                              component="tr"
+                              key={g.video}
+                              sx={{ '& td': { py: 0.5, pr: 2, fontSize: 13, borderTop: `1px solid ${P.borderColor}` } }}
+                            >
+                              <Box component="td"><code>{g.video}</code></Box>
+                              <Box component="td">
+                                {g.has_audio ? <code>{g.audio}</code> : <Typography component="span" variant="caption" color="text.secondary">no ALSA on this port</Typography>}
+                              </Box>
+                              <Box component="td"><code>{g.usb_id}</code></Box>
+                              <Box component="td"><code>{g.usb_path}</code></Box>
+                              <Box component="td">
+                                {inUse ? (
+                                  <Typography component="span" variant="caption" color="text.secondary">
+                                    in use by {usedBy}
+                                  </Typography>
+                                ) : (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => {
+                                      const applied = applyGrabberToDevice(g);
+                                      if (!applied) {
+                                        setError('Add a device first, then click "Use" to attach a grabber.');
+                                      }
+                                    }}
+                                  >
+                                    Use
+                                  </Button>
+                                )}
+                              </Box>
+                            </Box>
+                          );
+                        })}
+                      </Box>
+                    </Box>
+                  );
+                })()}
+                {grabbers.bluetooth.length > 0 && (
+                  <Box mt={1.5}>
+                    <Box display="flex" alignItems="center" gap={0.5} mb={0.5}>
+                      <BluetoothIcon fontSize="small" sx={{ color: P.accentText }} />
+                      <Typography variant="caption" sx={{ color: P.accentText }}>Bluetooth</Typography>
+                    </Box>
+                    <Typography variant="caption" component="div" color="text.secondary">
+                      {grabbers.bluetooth.map((b) => `${b.name} (${b.mac || 'no MAC'}) @ ${b.usb_path || 'non-USB'}`).join(' · ')}
+                    </Typography>
+                  </Box>
+                )}
+                {grabbers.infrared.length > 0 && (
+                  <Box mt={1.5}>
+                    <Box display="flex" alignItems="center" gap={0.5} mb={0.5}>
+                      <IrIcon fontSize="small" sx={{ color: P.accentText }} />
+                      <Typography variant="caption" sx={{ color: P.accentText }}>Infrared</Typography>
+                    </Box>
+                    <Typography variant="caption" component="div" color="text.secondary">
+                      {grabbers.infrared.map((i) => `${i.name} @ ${i.usb_path || 'non-USB'}`).join(' · ')}
+                    </Typography>
+                  </Box>
+                )}
+              </Box>
+
               {Object.entries(config.devices).map(([deviceKey, device]) => (
                 <Accordion key={deviceKey} defaultExpanded={Object.keys(config.devices).length === 1}>
                   <AccordionSummary
@@ -1495,7 +1387,7 @@ const Settings: React.FC = () => {
                   <AccordionDetails>
                     <Grid container spacing={1}>
                       <Grid item xs={12}>
-                        <Typography variant="subtitle2" color="primary" gutterBottom>
+                        <Typography variant="subtitle2" sx={{ color: P.accentText }} gutterBottom>
                           Basic Information
                         </Typography>
                       </Grid>
@@ -1541,7 +1433,7 @@ const Settings: React.FC = () => {
                       </Grid>
 
                       <Grid item xs={12}>
-                        <Typography variant="subtitle2" color="primary" gutterBottom>
+                        <Typography variant="subtitle2" sx={{ color: P.accentText }} gutterBottom>
                           Video Configuration
                         </Typography>
                       </Grid>
@@ -1565,6 +1457,26 @@ const Settings: React.FC = () => {
                           placeholder="plughw:2,0"
                           fullWidth
                           size="small"
+                          helperText={(() => {
+                            // The audio field is auto-derived from the host's
+                            // detected grabber for the selected video path.
+                            // Show a small caption so the operator knows
+                            // whether their typed value will stick or be
+                            // overridden next time grabbers reload.
+                            const source = getAudioSource(deviceKey);
+                            if (source === 'detected') {
+                              const detected = grabbers.grabbers.find((g) => g.video === device.DEVICE_VIDEO);
+                              return detected
+                                ? `auto-detected from USB ${detected.usb_path} — overrides any manual value on save`
+                                : 'auto-detected';
+                            }
+                            if (source === 'env') {
+                              return device.DEVICE_VIDEO_AUDIO
+                                ? 'from .env (no detection for this video; manual value kept)'
+                                : 'no audio detected for this video';
+                            }
+                            return 'no audio detected for this video — type one only if you need a cross-port pairing';
+                          })()}
                         />
                       </Grid>
                       <Grid item xs={12} md={6}>
@@ -1604,7 +1516,7 @@ const Settings: React.FC = () => {
                       </Grid>
 
                       <Grid item xs={12}>
-                        <Typography variant="subtitle2" color="primary" gutterBottom>
+                        <Typography variant="subtitle2" sx={{ color: P.accentText }} gutterBottom>
                           Power Control
                         </Typography>
                       </Grid>
@@ -1644,10 +1556,7 @@ const Settings: React.FC = () => {
 
       {/* Tab 6: AI */}
       <SettingsTabPanel active={activeTab === 5}>
-        <AISettingsTab
-          serverConfig={config.server}
-          updateServerConfig={updateServerConfig}
-        />
+        <AiRoutingSettings />
       </SettingsTabPanel>
 
       <ConfirmDialog

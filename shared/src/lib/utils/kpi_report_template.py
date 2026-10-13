@@ -3,6 +3,28 @@ KPI Report Template
 
 Minimal HTML template for KPI measurement reports with thumbnail evidence.
 """
+import os
+from datetime import datetime
+
+from shared.src.lib.utils.report_theme import report_theme_head
+
+
+class _KPITemplate(str):
+    """str subclass that splices the report theme head after .format() runs.
+
+    The KPI templates use str.format() to substitute runtime fields (kpi_ms,
+    execution_result_id, ...). report_theme_head() embeds a <style> block whose
+    CSS contains literal ``{`` and ``}`` that would collide with str.format's
+    replacement-field syntax, so the head lives outside the format string and is
+    injected AFTER .format() completes via a unique HTML comment sentinel that the
+    format() pass leaves untouched. Keeps the generator (kpi_report_generator.py)
+    on its existing ``template.format(...)`` contract without modification.
+    """
+    _THEME_MARKER = '<!--VPT_THEME_HEAD-->'
+
+    def format(self, **kwargs) -> str:  # type: ignore[override]
+        return str.format(self, **kwargs).replace(self._THEME_MARKER, report_theme_head())
+
 
 def _full_capture_panel(full_url: str) -> str:
     """Left panel — the full frame with the red (and yellow, when fuzzy) search
@@ -52,6 +74,27 @@ def _area_details(area: dict, focus_score=None, focus_threshold=None) -> str:
     return '<div class="area-details">' + ''.join(rows) + '</div>'
 
 
+def _reference_label(verification: dict) -> str:
+    """Reference name the verifier used (params.image_path), plus its filter
+    when one is set — e.g. `play_icon (greyscale)`."""
+    params = verification.get('params') or {}
+    name = os.path.splitext(os.path.basename(str(params.get('image_path') or '')))[0]
+    image_filter = verification.get('image_filter') or params.get('image_filter') or 'none'
+    label = name or 'Reference'
+    return f'{label} ({image_filter})' if image_filter != 'none' else label
+
+
+def _greyscale_line(verification: dict) -> str:
+    """Score the same frame got with image_filter=greyscale (failure reports
+    only — set by kpi_executor's greyscale retry)."""
+    score = verification.get('greyscale_score')
+    if not isinstance(score, (int, float)):
+        return ''
+    if verification.get('greyscale_success'):
+        return f'<div class="greyscale-score ok">greyscale: {score:.3f} ✓ would match</div>'
+    return f'<div class="greyscale-score">greyscale: {score:.3f} ✗</div>'
+
+
 def create_verification_card(index: int, verification: dict) -> str:
     """Create HTML for a single verification evidence card.
 
@@ -67,6 +110,10 @@ def create_verification_card(index: int, verification: dict) -> str:
     # frame (name · offset) so it lines up with the mosaic's bordered tile.
     frame_label = verification.get('frame_label', '')
     frame_suffix = f' · {frame_label}' if frame_label else ''
+    # Wall-clock time of the probed capture (HH:MM:SS.mmm).
+    frame_ts = verification.get('frame_timestamp')
+    if isinstance(frame_ts, (int, float)):
+        frame_suffix = f" · {datetime.fromtimestamp(frame_ts).strftime('%H:%M:%S.%f')[:-3]}{frame_suffix}"
     full_url = verification.get('full_url', '')
     area = verification.get('search_area') or verification.get('area') or {}
     focus_score = verification.get('focus_score')
@@ -98,12 +145,13 @@ def create_verification_card(index: int, verification: dict) -> str:
                         <div class="comparison-vs">VS</div>
                         <div class="comparison-image">
                             <img src="{ref_url}" onclick="openModal(this.src)" alt="Reference">
-                            <div class="comparison-label">Reference (cropped)</div>
+                            <div class="comparison-label">{_reference_label(verification)}</div>
                         </div>
                     </div>
                     <div class="comparison-result">
                         <div class="score">{score:.3f}</div>
                         <div class="threshold">threshold: {threshold}</div>
+                        {_greyscale_line(verification)}
                     </div>
                     {area_details}
                 </div>
@@ -200,13 +248,13 @@ def create_frame_selector_section(frames_meta: list, frame_cards: list) -> str:
     style = (
         '<style>'
         '.frame-chips { margin: 12px 0 4px; }'
-        '.chips-label { display: block; font-size: 12px; color: #666; margin-bottom: 6px; }'
+        '.chips-label { display: block; font-size: 12px; color: var(--vpt-text-2); margin-bottom: 6px; }'
         '.chips-row { display: flex; flex-wrap: wrap; gap: 6px; }'
         '.frame-chip { font-family: "Courier New", monospace; font-size: 12px;'
         ' padding: 4px 10px; border-radius: 14px; border: 2px solid transparent;'
-        ' cursor: pointer; background: #fdecea; color: #c62828; }'
-        '.frame-chip.pass { background: #e8f5e9; color: #2e7d32; }'
-        '.frame-chip.selected { border-color: #333; font-weight: 700; }'
+        ' cursor: pointer; background: var(--vpt-error-tint); color: var(--vpt-error); }'
+        '.frame-chip.pass { background: var(--vpt-success-tint); color: var(--vpt-success); }'
+        '.frame-chip.selected { border-color: var(--vpt-text); font-weight: 700; }'
         '</style>'
     )
     script = (
@@ -237,34 +285,35 @@ def create_frame_selector_section(frames_meta: list, frame_cards: list) -> str:
 def create_kpi_report_template() -> str:
     """Create the KPI success report: two rows of three frames (action trio,
     match trio), the scan mosaic, and modal zoom."""
-    return """<!DOCTYPE html>
+    return _KPITemplate("""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KPI Report - {execution_result_id}</title>
+    <!--VPT_THEME_HEAD-->
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #f5f5f5;
+            background: var(--vpt-page);
             padding: 20px;
-            color: #333;
+            color: var(--vpt-text);
         }}
-        
+
         .container {{
             max-width: 1000px;
             margin: 0 auto;
-            background: white;
+            background: var(--vpt-surface);
             border-radius: 12px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            box-shadow: var(--vpt-shadow);
             overflow: hidden;
         }}
-        
+
         .header {{
-            background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
-            color: white;
+            background: var(--vpt-success);
+            color: #fff;
             padding: 15px 25px;
             position: relative;
         }}
@@ -340,12 +389,12 @@ def create_kpi_report_template() -> str:
         
         .section h2 {{
             font-size: 18px;
-            color: #666;
+            color: var(--vpt-text-2);
             margin-bottom: 20px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }}
-        
+
         /* Two rows of three, fixed: the action trio (before / at the press /
            after the wait) on top, the match trio (before / match / after)
            underneath. auto-fit used to reflow them into one row of four, which
@@ -362,91 +411,91 @@ def create_kpi_report_template() -> str:
                 grid-template-columns: 1fr;
             }}
         }}
-        
+
         .thumb-card {{
-            background: #fafafa;
+            background: var(--vpt-subtle);
             border-radius: 8px;
             padding: 15px;
-            border: 2px solid #e0e0e0;
+            border: 2px solid var(--vpt-border);
             transition: all 0.2s;
         }}
-        
+
         .thumb-card:hover {{
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            box-shadow: var(--vpt-shadow);
         }}
-        
+
         .thumb-card h3 {{
             font-size: 13px;
-            color: #666;
+            color: var(--vpt-text-2);
             margin-bottom: 10px;
             text-transform: uppercase;
             font-weight: 600;
         }}
-        
+
         .thumb-card.match {{
-            border-color: #4CAF50;
-            background: #f1f8f4;
+            border-color: var(--vpt-success);
+            background: var(--vpt-success-tint);
         }}
-        
+
         .thumb-card.match h3 {{
-            color: #4CAF50;
+            color: var(--vpt-success);
         }}
-        
+
         .thumb-card img {{
             width: 100%;
             border-radius: 4px;
             cursor: pointer;
             display: block;
-            border: 1px solid #ddd;
+            border: 1px solid var(--vpt-border);
         }}
-        
+
         .thumb-card img:hover {{
             opacity: 0.9;
         }}
-        
+
         .thumb-card .timestamp {{
             font-size: 12px;
-            color: #999;
+            color: var(--vpt-muted);
             margin-top: 8px;
             font-family: 'Courier New', monospace;
         }}
-        
+
         .details {{
-            background: #fafafa;
+            background: var(--vpt-subtle);
             padding: 20px;
             border-radius: 8px;
-            border-left: 4px solid #4CAF50;
+            border-left: 4px solid var(--vpt-success);
         }}
-        
+
         .details h2 {{
-            color: #333;
+            color: var(--vpt-text);
             font-size: 16px;
             margin-bottom: 15px;
         }}
-        
+
         .details-grid {{
             display: grid;
             grid-template-columns: repeat(2, 1fr);
             gap: 15px;
         }}
-        
+
         .detail-item {{
             display: flex;
             flex-direction: column;
         }}
-        
+
         .detail-label {{
             font-size: 12px;
-            color: #666;
+            color: var(--vpt-text-2);
             text-transform: uppercase;
             margin-bottom: 4px;
             font-weight: 600;
         }}
-        
+
         .detail-value {{
             font-size: 14px;
-            color: #333;
+            color: var(--vpt-text);
             font-family: 'Courier New', monospace;
         }}
         
@@ -462,71 +511,71 @@ def create_kpi_report_template() -> str:
             background: rgba(0,0,0,0.9);
             cursor: pointer;
         }}
-        
+
         .modal.active {{
             display: flex;
             align-items: center;
             justify-content: center;
         }}
-        
+
         .modal img {{
             max-width: 95%;
             max-height: 95%;
-            box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+            box-shadow: var(--vpt-shadow);
             cursor: default;
         }}
-        
+
         .close {{
             position: absolute;
             top: 20px;
             right: 40px;
-            color: white;
+            color: #fff;
             font-size: 40px;
             font-weight: bold;
             cursor: pointer;
             z-index: 10000;
         }}
-        
+
         .close:hover {{
             color: #ccc;
         }}
-        
+
         .hint {{
             text-align: center;
-            color: #999;
+            color: var(--vpt-muted);
             font-size: 13px;
             margin-top: 10px;
         }}
-        
+
         /* Collapsible sections */
         details {{
-            background: #fafafa;
+            background: var(--vpt-subtle);
             border-radius: 8px;
             padding: 15px;
             margin-bottom: 20px;
         }}
-        
+
         details[open] {{
             padding-bottom: 20px;
         }}
-        
+
         details.action-details {{
-            border-left: 4px solid #2196F3;
+            border-left: 4px solid var(--vpt-accent);
         }}
-        
+
         details.verification-evidence {{
-            border-left: 4px solid #FF9800;
+            border-left: 4px solid var(--vpt-warning);
         }}
 
         details.measurement-log {{
-            border-left: 4px solid #9E9E9E;
+            border-left: 4px solid var(--vpt-text-2);
         }}
 
         .log-pre {{
             margin-top: 12px;
             padding: 14px;
-            background: #1e1e1e;
-            color: #d4d4d4;
+            background: var(--vpt-subtle);
+            color: var(--vpt-text);
             border-radius: 6px;
             font-family: 'SF Mono', Menlo, Consolas, monospace;
             font-size: 12px;
@@ -563,47 +612,47 @@ def create_kpi_report_template() -> str:
         .action-params {{
             margin-top: 15px;
             padding: 15px;
-            background: white;
+            background: var(--vpt-surface);
             border-radius: 6px;
-            border: 1px solid #e0e0e0;
+            border: 1px solid var(--vpt-border);
         }}
-        
+
         .param-row {{
             display: flex;
             padding: 8px 0;
-            border-bottom: 1px solid #f0f0f0;
+            border-bottom: 1px solid var(--vpt-border);
         }}
-        
+
         .param-row:last-child {{
             border-bottom: none;
         }}
-        
+
         .param-key {{
             font-weight: 600;
-            color: #666;
+            color: var(--vpt-text-2);
             min-width: 120px;
             font-size: 13px;
         }}
-        
+
         .param-value {{
-            color: #333;
+            color: var(--vpt-text);
             font-family: 'Courier New', monospace;
             font-size: 13px;
         }}
-        
+
         .verification-card {{
-            background: white;
-            border: 2px solid #e0e0e0;
+            background: var(--vpt-surface);
+            border: 2px solid var(--vpt-border);
             border-radius: 8px;
             padding: 15px;
             margin-top: 15px;
         }}
-        
+
         .verification-card.success {{
-            border-color: #4CAF50;
-            background: #f1f8f4;
+            border-color: var(--vpt-success);
+            background: var(--vpt-success-tint);
         }}
-        
+
         .verification-header {{
             font-size: 14px;
             font-weight: 600;
@@ -612,15 +661,15 @@ def create_kpi_report_template() -> str:
             justify-content: space-between;
             align-items: center;
         }}
-        
+
         .verification-status {{
             font-size: 12px;
             padding: 4px 10px;
             border-radius: 4px;
-            background: #4CAF50;
-            color: white;
+            background: var(--vpt-success);
+            color: #fff;
         }}
-        
+
         .comparison-grid {{
             display: grid;
             grid-template-columns: 1fr auto 1fr auto;
@@ -628,49 +677,49 @@ def create_kpi_report_template() -> str:
             align-items: center;
             margin: 15px 0;
         }}
-        
+
         .comparison-image {{
             text-align: center;
         }}
-        
+
         .comparison-image img {{
             max-width: 180px;
-            border: 2px solid #ddd;
+            border: 2px solid var(--vpt-border);
             border-radius: 6px;
             cursor: zoom-in;
         }}
-        
+
         .comparison-image img:hover {{
-            border-color: #2196F3;
+            border-color: var(--vpt-accent);
         }}
-        
+
         .comparison-label {{
             font-size: 12px;
-            color: #666;
+            color: var(--vpt-text-2);
             margin-top: 5px;
             font-weight: 600;
         }}
-        
+
         .comparison-vs {{
             font-size: 18px;
-            color: #999;
+            color: var(--vpt-muted);
             font-weight: bold;
         }}
-        
+
         .comparison-result {{
             text-align: center;
             font-size: 14px;
         }}
-        
+
         .score {{
             font-size: 24px;
             font-weight: bold;
-            color: #4CAF50;
+            color: var(--vpt-success);
         }}
-        
+
         .threshold {{
             font-size: 12px;
-            color: #666;
+            color: var(--vpt-text-2);
         }}
 
         /* Failure-view evidence layout: full capture (with search rectangle) on
@@ -688,12 +737,12 @@ def create_kpi_report_template() -> str:
         .full-capture-panel img {{
             width: 100%;
             max-width: 520px;
-            border: 2px solid #ddd;
+            border: 2px solid var(--vpt-border);
             border-radius: 6px;
             cursor: zoom-in;
             display: block;
         }}
-        .full-capture-panel img:hover {{ border-color: #2196F3; }}
+        .full-capture-panel img:hover {{ border-color: var(--vpt-accent); }}
         .side-panel {{ display: flex; flex-direction: column; gap: 14px; }}
         /* Source/Reference crops vary wildly in shape (wide banners like 300x12,
            but also narrow vertical strips like 40x123). Stack them vertically so
@@ -719,12 +768,17 @@ def create_kpi_report_template() -> str:
             gap: 6px;
             font-family: 'Courier New', monospace;
             font-size: 12px;
-            color: #444;
+            color: var(--vpt-text-2);
         }}
         .area-row {{ display: flex; align-items: center; gap: 8px; }}
-        .area-key {{ min-width: 48px; font-weight: 600; color: #666; }}
-        .area-val {{ color: #333; }}
+        .area-key {{ min-width: 48px; font-weight: 600; color: var(--vpt-text-2); }}
+        .area-val {{ color: var(--vpt-text); }}
         .swatch {{ display: inline-block; width: 12px; height: 12px; border-radius: 2px; flex: 0 0 auto; }}
+        /* .swatch-red / .swatch-yellow are intentionally NOT themed: they are
+           the legend dots that map each row to the red/yellow search rectangle
+           DRAWN ON the full-capture screenshot, so they must stay the same
+           colour as the rectangle on the image. (Rule 3: anything drawn over
+           an image stays readable on the image, not on the theme.) */
         .swatch-red {{ background: #ff3b30; }}
         .swatch-yellow {{ background: #ffd60a; }}
 
@@ -831,7 +885,7 @@ def create_kpi_report_template() -> str:
                         <h3>✓ Match Found</h3>
                         <img src="{match_thumb}" onclick="openModal('{match_original}')" alt="Match found" style="cursor: zoom-in;">
                         <div class="timestamp">{match_time}</div>
-                        <div class="hint" style="font-size: 11px; margin-top: 4px; color: #4CAF50;">Click to view original</div>
+                        <div class="hint" style="font-size: 11px; margin-top: 4px; color: var(--vpt-success);">Click to view original</div>
                     </div>
                     <div class="thumb-card">
                         <h3>After Match</h3>
@@ -973,7 +1027,7 @@ def create_kpi_report_template() -> str:
         }});
     </script>
 </body>
-</html>"""
+</html>""")
 
 
 def create_kpi_failure_report_template() -> str:
@@ -991,19 +1045,20 @@ def create_kpi_failure_report_template() -> str:
     last_action, host_name, device_name, device_model, navigation_path,
     tree_id, action_set_id, algorithm, captures_scanned, late_scan_banner,
     thumbnail_cards, verification_count, verification_cards, scan_window,
-    action_timestamp, scan_end_timestamp, measurement_log.
+    action_timestamp, scan_end_timestamp, measurement_log, greyscale_hint_banner.
     """
-    return """<!DOCTYPE html>
+    return _KPITemplate("""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KPI Failure - {execution_result_id}</title>
+    <!--VPT_THEME_HEAD-->
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; padding: 20px; color: #333; }}
-        .container {{ max-width: 1000px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }}
-        .header {{ background: linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%); color: white; padding: 15px 25px; position: relative; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--vpt-page); padding: 20px; color: var(--vpt-text); }}
+        .container {{ max-width: 1000px; margin: 0 auto; background: var(--vpt-surface); border-radius: 12px; box-shadow: var(--vpt-shadow); overflow: hidden; }}
+        .header {{ background: var(--vpt-error); color: #fff; padding: 15px 25px; position: relative; }}
         .download-btn {{ position: absolute; top: 15px; right: 20px; background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; width: 40px; height: 40px; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; padding: 0; }}
         .download-btn:hover {{ background: rgba(255,255,255,0.3); }}
         .download-btn svg {{ width: 20px; height: 20px; fill: white; }}
@@ -1014,58 +1069,60 @@ def create_kpi_failure_report_template() -> str:
         .content {{ padding: 30px; }}
         .section {{ margin-bottom: 30px; }}
         .thumbnails {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px; }}
-        .thumb-card {{ background: #fafafa; border-radius: 8px; padding: 15px; border: 2px solid #e0e0e0; transition: all 0.2s; }}
-        .thumb-card:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }}
-        .thumb-card h3 {{ font-size: 13px; color: #666; margin-bottom: 10px; text-transform: uppercase; font-weight: 600; }}
-        .thumb-card img {{ width: 100%; border-radius: 4px; cursor: zoom-in; display: block; border: 1px solid #ddd; }}
+        .thumb-card {{ background: var(--vpt-subtle); border-radius: 8px; padding: 15px; border: 2px solid var(--vpt-border); transition: all 0.2s; }}
+        .thumb-card:hover {{ transform: translateY(-2px); box-shadow: var(--vpt-shadow); }}
+        .thumb-card h3 {{ font-size: 13px; color: var(--vpt-text-2); margin-bottom: 10px; text-transform: uppercase; font-weight: 600; }}
+        .thumb-card img {{ width: 100%; border-radius: 4px; cursor: zoom-in; display: block; border: 1px solid var(--vpt-border); }}
         .thumb-card img:hover {{ opacity: 0.9; }}
-        .thumb-card .timestamp {{ font-size: 12px; color: #999; margin-top: 8px; font-family: 'Courier New', monospace; }}
+        .thumb-card .timestamp {{ font-size: 12px; color: var(--vpt-muted); margin-top: 8px; font-family: 'Courier New', monospace; }}
         /* Scan-window cards (first/middle/last) get a red accent + elapsed badge to
-           distinguish them from the blue-badged before/after action context cards. */
-        .scan-rail {{ font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: .5px; margin: 0 0 10px; font-weight: 600; }}
-        .thumb-card.scan {{ border-color: #ef9a9a; background: #fff6f6; }}
-        .thumb-card.scan h3 {{ color: #c62828; }}
-        .elapsed {{ display: inline-block; font-size: 11px; font-weight: 700; color: #c62828; background: #ffe3e3; border-radius: 10px; padding: 1px 8px; margin-left: 6px; }}
-        .action-badge {{ display: inline-block; font-size: 11px; font-weight: 700; color: #1565c0; background: #e3f0ff; border-radius: 10px; padding: 1px 8px; margin-left: 6px; }}
-        .rail-note {{ font-size: 11px; color: #999; margin: 6px 0 0; }}
-        .details {{ background: #fafafa; padding: 20px; border-radius: 8px; border-left: 4px solid #d32f2f; }}
-        .details h2 {{ color: #333; font-size: 16px; margin-bottom: 15px; }}
+           distinguish them from the gold-badged before/after action context cards. */
+        .scan-rail {{ font-size: 12px; color: var(--vpt-text-2); text-transform: uppercase; letter-spacing: .5px; margin: 0 0 10px; font-weight: 600; }}
+        .thumb-card.scan {{ border-color: var(--vpt-error); background: var(--vpt-error-tint); }}
+        .thumb-card.scan h3 {{ color: var(--vpt-error); }}
+        .elapsed {{ display: inline-block; font-size: 11px; font-weight: 700; color: var(--vpt-error); background: var(--vpt-error-tint); border-radius: 10px; padding: 1px 8px; margin-left: 6px; }}
+        .action-badge {{ display: inline-block; font-size: 11px; font-weight: 700; color: var(--vpt-accent-text); background: var(--vpt-accent-tint); border-radius: 10px; padding: 1px 8px; margin-left: 6px; }}
+        .rail-note {{ font-size: 11px; color: var(--vpt-muted); margin: 6px 0 0; }}
+        .details {{ background: var(--vpt-subtle); padding: 20px; border-radius: 8px; border-left: 4px solid var(--vpt-error); }}
+        .details h2 {{ color: var(--vpt-text); font-size: 16px; margin-bottom: 15px; }}
         .details-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 15px; }}
         .detail-item {{ display: flex; flex-direction: column; }}
-        .detail-label {{ font-size: 12px; color: #666; text-transform: uppercase; margin-bottom: 4px; font-weight: 600; }}
-        .detail-value {{ font-size: 14px; color: #333; font-family: 'Courier New', monospace; word-break: break-word; }}
+        .detail-label {{ font-size: 12px; color: var(--vpt-text-2); text-transform: uppercase; margin-bottom: 4px; font-weight: 600; }}
+        .detail-value {{ font-size: 14px; color: var(--vpt-text); font-family: 'Courier New', monospace; word-break: break-word; }}
         .modal {{ display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); cursor: pointer; }}
         .modal.active {{ display: flex; align-items: center; justify-content: center; }}
-        .modal img {{ max-width: 95%; max-height: 95%; box-shadow: 0 4px 24px rgba(0,0,0,0.5); cursor: default; }}
-        .close {{ position: absolute; top: 20px; right: 40px; color: white; font-size: 40px; font-weight: bold; cursor: pointer; z-index: 10000; }}
+        .modal img {{ max-width: 95%; max-height: 95%; box-shadow: var(--vpt-shadow); cursor: default; }}
+        .close {{ position: absolute; top: 20px; right: 40px; color: #fff; font-size: 40px; font-weight: bold; cursor: pointer; z-index: 10000; }}
         .close:hover {{ color: #ccc; }}
-        details {{ background: #fafafa; border-radius: 8px; padding: 15px; margin-bottom: 20px; }}
-        details.verification-evidence {{ border-left: 4px solid #FF9800; }}
-        details.measurement-log {{ border-left: 4px solid #9E9E9E; }}
-        .log-pre {{ margin-top: 12px; padding: 14px; background: #1e1e1e; color: #d4d4d4; border-radius: 6px; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; }}
+        details {{ background: var(--vpt-subtle); border-radius: 8px; padding: 15px; margin-bottom: 20px; }}
+        details.verification-evidence {{ border-left: 4px solid var(--vpt-warning); }}
+        details.measurement-log {{ border-left: 4px solid var(--vpt-text-2); }}
+        .log-pre {{ margin-top: 12px; padding: 14px; background: var(--vpt-subtle); color: var(--vpt-text); border-radius: 6px; font-family: 'SF Mono', Menlo, Consolas, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-height: 420px; overflow: auto; }}
         summary {{ font-size: 16px; font-weight: 600; cursor: pointer; padding: 5px 0; user-select: none; list-style: none; }}
         summary::-webkit-details-marker {{ display: none; }}
         summary::before {{ content: '▶ '; display: inline-block; transition: transform 0.2s; }}
         details[open] summary::before {{ transform: rotate(90deg); }}
-        .verification-card {{ background: white; border: 2px solid #e0e0e0; border-radius: 8px; padding: 15px; margin-top: 15px; }}
-        .verification-card.success {{ border-color: #4CAF50; background: #f1f8f4; }}
+        .verification-card {{ background: var(--vpt-surface); border: 2px solid var(--vpt-border); border-radius: 8px; padding: 15px; margin-top: 15px; }}
+        .verification-card.success {{ border-color: var(--vpt-success); background: var(--vpt-success-tint); }}
         .verification-header {{ font-size: 14px; font-weight: 600; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
-        .verification-status {{ font-size: 12px; padding: 4px 10px; border-radius: 4px; background: #4CAF50; color: white; }}
-        .verification-card:not(.success) .verification-status {{ background: #f44336; }}
+        .verification-status {{ font-size: 12px; padding: 4px 10px; border-radius: 4px; background: var(--vpt-success); color: #fff; }}
+        .verification-card:not(.success) .verification-status {{ background: var(--vpt-error); }}
         .comparison-grid {{ display: grid; grid-template-columns: 1fr auto 1fr auto; gap: 15px; align-items: center; margin: 15px 0; }}
         .comparison-image {{ text-align: center; }}
-        .comparison-image img {{ max-width: 180px; border: 2px solid #ddd; border-radius: 6px; cursor: zoom-in; }}
-        .comparison-image img:hover {{ border-color: #2196F3; }}
-        .comparison-label {{ font-size: 12px; color: #666; margin-top: 5px; font-weight: 600; }}
-        .comparison-vs {{ font-size: 18px; color: #999; font-weight: bold; }}
+        .comparison-image img {{ max-width: 180px; border: 2px solid var(--vpt-border); border-radius: 6px; cursor: zoom-in; }}
+        .comparison-image img:hover {{ border-color: var(--vpt-accent); }}
+        .comparison-label {{ font-size: 12px; color: var(--vpt-muted); margin-top: 5px; font-weight: 600; }}
+        .comparison-vs {{ font-size: 18px; color: var(--vpt-muted); font-weight: bold; }}
         .comparison-result {{ text-align: center; font-size: 14px; }}
-        .score {{ font-size: 24px; font-weight: bold; color: #d32f2f; }}
-        .threshold {{ font-size: 12px; color: #666; }}
+        .score {{ font-size: 24px; font-weight: bold; color: var(--vpt-error); }}
+        .threshold {{ font-size: 12px; color: var(--vpt-muted); }}
+        .greyscale-score {{ font-size: 12px; color: var(--vpt-muted); margin-top: 4px; font-family: 'Courier New', monospace; }}
+        .greyscale-score.ok {{ color: var(--vpt-success); font-weight: 700; }}
         .evidence-layout {{ display: grid; grid-template-columns: minmax(280px, 1.5fr) minmax(220px, 1fr); gap: 20px; align-items: start; margin: 15px 0; }}
         .evidence-layout.no-full {{ grid-template-columns: 1fr; }}
         .full-capture-panel {{ text-align: center; }}
-        .full-capture-panel img {{ width: 100%; max-width: 520px; border: 2px solid #ddd; border-radius: 6px; cursor: zoom-in; display: block; }}
-        .full-capture-panel img:hover {{ border-color: #2196F3; }}
+        .full-capture-panel img {{ width: 100%; max-width: 520px; border: 2px solid var(--vpt-border); border-radius: 6px; cursor: zoom-in; display: block; }}
+        .full-capture-panel img:hover {{ border-color: var(--vpt-accent); }}
         .side-panel {{ display: flex; flex-direction: column; gap: 14px; }}
         /* Crops vary in shape (wide banners and narrow vertical strips). Stack
            vertically; show each at native size, scaling DOWN only (never up) so a
@@ -1076,16 +1133,16 @@ def create_kpi_failure_report_template() -> str:
         .text-fields {{ padding: 4px 0; }}
         .area-details {{ margin-top: 4px; display: flex; flex-direction: column; gap: 6px; font-family: 'Courier New', monospace; font-size: 12px; color: #444; }}
         .area-row {{ display: flex; align-items: center; gap: 8px; }}
-        .area-key {{ min-width: 48px; font-weight: 600; color: #666; }}
-        .area-val {{ color: #333; }}
+        .area-key {{ min-width: 48px; font-weight: 600; color: var(--vpt-muted); }}
+        .area-val {{ color: var(--vpt-text); }}
         .swatch {{ display: inline-block; width: 12px; height: 12px; border-radius: 2px; flex: 0 0 auto; }}
         .swatch-red {{ background: #ff3b30; }}
         .swatch-yellow {{ background: #ffd60a; }}
         .verif-report-link {{ display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 8px 14px; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.45); border-radius: 6px; color: #fff; text-decoration: none; font-size: 13px; font-weight: 600; }}
         .verif-report-link:hover {{ background: rgba(255,255,255,0.32); }}
-        .param-row {{ display: flex; padding: 8px 0; border-bottom: 1px solid #f0f0f0; }}
-        .param-key {{ font-weight: 600; color: #666; min-width: 120px; font-size: 13px; }}
-        .param-value {{ color: #333; font-family: 'Courier New', monospace; font-size: 13px; }}
+        .param-row {{ display: flex; padding: 8px 0; border-bottom: 1px solid var(--vpt-border); }}
+        .param-key {{ font-weight: 600; color: var(--vpt-muted); min-width: 120px; font-size: 13px; }}
+        .param-value {{ color: var(--vpt-text); font-family: 'Courier New', monospace; font-size: 13px; }}
         @media print {{ body {{ background: white; padding: 0; }} .container {{ box-shadow: none; border-radius: 0; max-width: 100%; }} .header {{ -webkit-print-color-adjust: exact; print-color-adjust: exact; }} .download-btn, .modal {{ display: none !important; }} .thumb-card, .verification-card, .details, details {{ break-inside: avoid; page-break-inside: avoid; }} img {{ max-width: 100% !important; }} }}
     </style>
 </head>
@@ -1105,6 +1162,7 @@ def create_kpi_failure_report_template() -> str:
                 <div class="meta-line"><strong>Tree:</strong> {tree_id} &nbsp;|&nbsp; <strong>Action Set:</strong> {action_set_id} &nbsp;|&nbsp; <strong>Algorithm:</strong> {algorithm} &nbsp;|&nbsp; <strong>Scanned:</strong> {captures_scanned} frames</div>
                 <div class="meta-line"><strong>Pass condition:</strong> {pass_condition} &nbsp;|&nbsp; <strong>KPI source:</strong> {kpi_source}</div>
                 {late_scan_banner}
+                {greyscale_hint_banner}
                 {verification_report_link}
             </div>
         </div>
@@ -1154,5 +1212,5 @@ def create_kpi_failure_report_template() -> str:
         document.addEventListener('keydown', function(event) {{ if (event.key === 'Escape') {{ closeModal(); }} }});
     </script>
 </body>
-</html>"""
+</html>""")
 

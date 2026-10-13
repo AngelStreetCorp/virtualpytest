@@ -1,0 +1,21 @@
+{
+ "id": "6GwIDvqtlVI",
+ "title": "Write a test script in the browser and run it on a real device",
+ "description": "No setup, no deploy: write a test script right in the browser. Create a new script, paste the code (here, \"go to live TV\"), save it, pick a device and run it. The device is driven live in the page, and the report comes back with the screenshots, the video and every step.\n\nOpen source and free.\n\nChapters\n00:00 Intro\n00:04 A new script\n00:09 Paste and save\n00:17 Pick a device\n00:22 Run it\n00:34 The report\n00:47 End",
+ "tags": [
+  "test scripts",
+  "virtual scripts",
+  "test automation",
+  "set-top box testing",
+  "IPTV testing",
+  "browser-based testing",
+  "Python test automation",
+  "real device testing",
+  "QA automation",
+  "open source",
+  "VirtualPyTest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

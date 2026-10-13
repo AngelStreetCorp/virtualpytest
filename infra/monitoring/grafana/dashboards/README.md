@@ -3,6 +3,39 @@
 Exported Grafana dashboards (JSON) for VirtualPyTest. Import them into any Grafana
 instance backed by the VirtualPyTest Postgres/Supabase schema.
 
+## Device scope — every dashboard shows the viewer only their devices
+
+Each dashboard (all but `system-server-monitoring.json` and `system-service-status.json`, which are about
+the platform's own server and VMs) starts
+with two variables:
+
+- **Workspace** — a visible drop-down: "None" plus the viewer's workspaces,
+  `grafana_user_workspaces('${__user.email}', '${__user.login}')` — every workspace for a
+  VirtualPyTest admin and for Grafana's built-in `admin` login. Links from the app pass the active
+  one (`var-workspace=<id>`).
+- **allowed_devices** — hidden. `grafana_device_scope('${__user.email}', '${__user.login}', '${workspace}')`
+  returns the devices the viewer's team, role and user limits (and the chosen workspace) allow,
+  matched by **email** to the VirtualPyTest account. `*` = everything (VirtualPyTest admins and
+  Grafana's built-in `admin`), `-` = nothing (no VirtualPyTest account).
+
+Every read of a device table is wrapped as `(SELECT * FROM <table> /*device-scope*/ WHERE …) alias`.
+**Never write a device-table query by hand without it** — run the transform instead:
+
+```bash
+python3 _apply_device_scope.py          # adds the variables and wraps every read (idempotent);
+                                        # covers this folder and features/*/grafana/*.json
+python3 _check_device_scope.py          # fails on any unscoped read; pinned by
+                                        # tests/backend_server/test_dashboard_device_scope.py
+```
+
+This filters what dashboards show; it is not authorization (one shared DB login). Only admins are
+Grafana Editors, so nobody else can edit a panel's query. Needs migration
+`setup/db/migrations/20260929f_grafana_device_scope.sql` on the database.
+
+## `template.json` — not a dashboard
+
+The house style Atlas starts generated dashboards from (variables, time, styling, grid, example query patterns; contract in its `description`, details in `docs/agent/ai/ATLAS_ANALYTICS.md`). The backend reads it from this path; a customer overlay that ships its own `template.json` replaces it. It is never pushed (`_push_dashboard.py` skips it) and the device-scope tools ignore it.
+
 ## Dashboards
 
 **Test execution & results**
@@ -14,6 +47,7 @@ instance backed by the VirtualPyTest Postgres/Supabase schema.
 - `kpi-measurement.json` — navigation KPI measurements per action set
 - `navigation-metrics.json` — navigation node/edge execution metrics
 - `device-information-get-info.json` — device inventory from `get_info` (model, firmware, versions)
+- `game-2048.json` — 2048 showcase (TASK-33, script `game/game_2048`): score, max tile, speed and pass rate per platform and player, plus a table of runs with report links
 
 **Network / gateway tests**
 - `dns-lookup.json` — DNS resolution time
@@ -23,6 +57,7 @@ instance backed by the VirtualPyTest Postgres/Supabase schema.
 **System monitoring**
 - `system-host-monitoring.json` — per-host CPU / memory / disk / services
 - `system-server-monitoring.json` — backend server metrics
+- `system-service-status.json` — the `/status` page as history: server services, Supabase, Redis, DB backup and every infra VM (CPU / RAM / disk + its services) via the [VM agent](../../vm_agent/README.md); needs migrations `setup/db/migrations/20261001e_infra_status.sql` + `20261001f_infra_status_compact.sql`
 - `device-alerts-dashboard.json` — device alert overview
 
 **Operations**

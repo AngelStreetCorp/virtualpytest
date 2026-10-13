@@ -18,6 +18,8 @@ import {
   Paper,
   Snackbar,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import React, { useState } from 'react';
 
 import CreateModelDialog from '../components/models/Models_CreateDialog';
@@ -27,8 +29,10 @@ import { ModelCreatePayload } from '../types/pages/Models_Types';
 import { useDeviceModels } from '../hooks/pages/useDeviceModels';
 
 const Models: React.FC = () => {
+  const P = useAgentChatPalette();
   const {
     models,
+    supportedModels,
     isLoading: loading,
     error: queryError,
     createModel,
@@ -38,6 +42,10 @@ const Models: React.FC = () => {
   } = useDeviceModels();
   const submitting = isCreating || isDeleting;
   const [openDialog, setOpenDialog] = useState(false);
+  const availableNames = supportedModels.filter((name) => !models.some((m) => m.name === name));
+  // A row whose name no host knows (created as free text before names were checked)
+  const isUnsupported = (name: string) =>
+    supportedModels.length > 0 && !supportedModels.includes(name);
   const [mutationError, setMutationError] = useState<string | null>(null);
   const error = mutationError ?? queryError;
   const setError = setMutationError;
@@ -134,10 +142,10 @@ const Models: React.FC = () => {
   );
 
   return (
-    <Box>
+    <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
-          <Typography variant="h4" gutterBottom>
+          <Typography component="h1" sx={PAGE_TITLE_SX}>
             Device Models
           </Typography>
           <Typography variant="body1" color="textSecondary">
@@ -172,15 +180,14 @@ const Models: React.FC = () => {
               <Table
                 size="small"
                 sx={{
-                  '& .MuiTableCell-root': { py: 0.5, px: 1 },
+                  tableLayout: 'fixed', minWidth: 900,
+                  '& .MuiTableCell-root': { py: 0.5, px: 1, overflowWrap: 'anywhere' },
                   '& .MuiTableRow-root:hover': {
-                    backgroundColor: (theme) =>
-                      theme.palette.mode === 'dark'
-                        ? 'rgba(255, 255, 255, 0.08) !important'
-                        : 'rgba(0, 0, 0, 0.04) !important',
+                    backgroundColor: 'transparent !important',
                   },
                 }}
               >
+              <colgroup><col style={{ width: 220 }} /><col style={{ width: 200 }} /><col style={{ width: 100 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 120 }} /></colgroup>
                 <TableHead>
                   <TableRow>
                     <TableCell>
@@ -206,7 +213,19 @@ const Models: React.FC = () => {
                 <TableBody>
                   {models.map((model) => (
                     <TableRow key={model.id}>
-                      <TableCell>{model.name}</TableCell>
+                      <TableCell>
+                        {model.name}
+                        {isUnsupported(model.name) && (
+                          <Chip
+                            label="no host runs it"
+                            size="small"
+                            color="warning"
+                            variant="outlined"
+                            sx={{ ml: 1 }}
+                            title="No host model has this name, so a device cannot be created with it. Delete it, or add the matching supported model."
+                          />
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                           {model.types.map((type) => (
@@ -255,6 +274,7 @@ const Models: React.FC = () => {
         onClose={handleCloseDialog}
         onSubmit={handleAddNew}
         error={error}
+        availableNames={availableNames}
       />
 
       {/* Success Message */}

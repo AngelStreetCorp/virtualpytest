@@ -1,0 +1,26 @@
+{
+  "id": "series",
+  "category": "series",
+  "hints": "a TV series episode (drama, sitcom, crime...); the banner often shows season and episode",
+  "entity": [
+    "title",
+    "season",
+    "episode"
+  ],
+  "identify_interval_s": 120,
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "episode_title": "title of this episode",
+      "synopsis": "two-sentence spoiler-free synopsis of this episode",
+      "previously_on": "what happened in the previous episode, three sentences",
+      "cast": "list of the 5 main actors",
+      "network": "original network or platform",
+      "similar_series": "list of 3 similar series"
+    }
+  },
+  "track": {
+    "type": "time_window"
+  },
+  "render": "title"
+}

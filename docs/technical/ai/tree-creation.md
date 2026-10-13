@@ -1,8 +1,26 @@
-# AI Tree Creation - Automated 2-Level Navigation Tree Generation
+# Build Map - Automated Navigation-Tree Mapping
 
 ## Overview
 
-AI Tree Creation automatically explores user interfaces and generates complete navigation trees with nodes, edges, and subtrees. The system uses a **UNIVERSAL algorithm** that works identically for mobile, web, TV, and STB platforms by focusing on **destinations (nodes)** and **navigation actions (edges)**.
+**Build Map** (the navigation editor button, formerly "AI Generate"; MCP `auto_discover_screen`) maps the
+device's current screen into a navigation tree: nodes, edges, every edge validated on the device. It
+uses a **UNIVERSAL algorithm** for mobile, web, TV and STB, built on **destinations (nodes)** and
+**navigation actions (edges)**.
+
+### Is it AI?
+
+**No, except for TV/STB.** Build Map is a rule-based mapping process:
+
+- **Android and web: no model call.** Targets come from the UI dump of the app's own window (tappable
+  elements, tab bar and toolbar before list items); ways back are found by trying, in a fixed order,
+  the entry edge's taps, BACK and BACK ×2; node checks are text only that screen shows (`dump_analyzer`).
+- **TV/STB:** there is no UI dump, so a vision model reads the menu items from the screenshot
+  (AI routing usage `vision.dom`). Everything after that is the same fixed process.
+
+The **agent pipeline** is different: an LLM agent plans and calls tools. That is Atlas with the
+`build-tree-*` skills, and QualiAI (a separate product that drives VPT over REST and `/server/mcp`).
+An agent may call Build Map (`auto_discover_screen`) as one step; choosing what to keep and repairing
+failed edges stays the agent's job. See [Map builder vs agent pipeline](../../mcp/mcp_tools_exploration.md#map-builder-vs-agent-pipeline).
 
 **🎯 Fixed 2-Level Exploration:** The system always explores **2 levels deep**:
 - **Level 1**: Main navigation items (Home, Settings, TV Guide, etc.)
@@ -12,13 +30,13 @@ This provides an immediate, usable navigation tree without requiring configurati
 
 ## Architecture: 3-Component Design
 
-The AI generation flow uses **3 separate components** for clean separation of concerns:
+The Build Map flow uses **3 separate components** for clean separation of concerns:
 
 ```
 ┌─────────────────────────────────────────┐
-│  AIGenerationModal (Phase 1)            │
+│  AIGenerationModal "Build Map" (Ph. 1)  │
 │  ├─ Configuration (depth)               │
-│  ├─ AI explores & analyzes screen       │
+│  ├─ Reads the screen (dump / TV vision) │
 │  ├─ Shows plan preview                  │
 │  └─ Buttons: Abort | Retry | Create     │
 └──────────────┬──────────────────────────┘

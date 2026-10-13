@@ -8,12 +8,33 @@ Server-authoritative in-memory lock manager with device-scoped keys:
 """
 
 import threading
+import uuid
 import time
 from typing import Any, Dict, Optional, Tuple
 
 from flask import request
 
 from backend_server.src.lib.utils import lock_session_recorder as session_recorder
+
+
+def resolve_lock_owner(data: Dict[str, Any], user_key: str = 'user_id') -> tuple:
+    """(user_id, user_name) for a lock: the verified login when there is one.
+
+    The browser sends its own user_id, and falls back to the built-in default
+    user when its auth context has no id, so a logged-in person was recorded
+    as that default and could not be identified (BUG-0424). A login verified
+    by the auth guard (a JWT subject, always a UUID) wins; the request body is
+    used only when there is no personal login (open mode, service key).
+    """
+    verified = getattr(request, 'user_id', None)
+    try:
+        uuid.UUID(str(verified))
+    except ValueError:
+        verified = None
+    if verified:
+        return verified, data.get('user_name') or getattr(request, 'user_email', None)
+    return (data.get(user_key) or data.get('user_id') or request.headers.get('X-User-ID'),
+            data.get('user_name'))
 
 
 def get_client_ip() -> Optional[str]:
@@ -161,7 +182,11 @@ class DeviceLockManager:
                     and owner_user_id == existing.get("owner_user_id")
                 )
 
-                if allow_same_user_takeover and same_user:
+                # The caller's own Take Control, matched by user or, for callers that
+                # take control without a user id (MCP), by session.
+                same_session = existing.get("owner_session_id") == owner_session_id
+
+                if allow_same_user_takeover and (same_user or same_session):
                     existing_owner_type = existing.get("owner_type")
 
                     if existing_owner_type == "manual_control":
@@ -522,7 +547,7 @@ class DeviceLockManager:
         self,
         host_name: str,
         process_start_time: float,
-        owner_types: Tuple[str, ...] = ("script_execution", "deployment_execution"),
+        owner_types: Tuple[str, ...] = ("script_execution", "deployment_execution", "testcase_execution"),
     ) -> list:
         """Reap execution locks left behind by a host's previous process.
 
@@ -756,9 +781,9 @@ def abort_running_execution(
     """
     from shared.src.lib.utils.build_url_utils import call_host
 
-    # Testcases run as an in-process thread on the host and take NO device lock, so
-    # owner_type is None for them and there is nothing to key off. They still drive the
-    # device through the same controllers, so this is attempted unconditionally —
+    # Testcases run as an in-process thread on the host. /server/testcase/execute locks
+    # them as testcase_execution (or runs them under the caller's manual_control), but
+    # other testcase routes take no lock, so this is attempted unconditionally —
     # otherwise a testcase keeps issuing actions after a human has taken the device.
     # Cooperative flag: it lands at the next block boundary, not instantly.
     targets = [("testcase", "/host/testcase/abortRunning")]

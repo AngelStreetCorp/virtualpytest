@@ -1,0 +1,94 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>VPT Game Boy</title>
+<!-- TASK-33 phase 4. The emulator is GameBoy-Online (Grant Galitz, MIT), loaded from jsDelivr at a pinned
+     commit so no emulator code (it embeds a boot ROM) or game data is stored in this repo. The ROM is
+     handed in by the runner from memory (vptGB.load); it is never served by this page. -->
+<style>
+  html, body { margin: 0; background: #111; height: 100%; }
+  #wrap { display: flex; align-items: center; justify-content: center; height: 100%; }
+  canvas { width: 640px; height: 576px; image-rendering: pixelated; background: #000; }
+</style></head>
+<body><div id="wrap"><canvas id="screen" width="160" height="144"></canvas></div>
+<script>
+  // Stubs for the helpers GameBoyIO expects from GameBoy-Online's index page.
+  function cout(msg, level) { if (level >= 2) console.warn("[gb]", msg); }
+  const store = {};
+  function setValue(k, v) { store[k] = v; }
+  function findValue(k) { return store[k] === undefined ? null : store[k]; }
+  function deleteValue(k) { delete store[k]; }
+</script>
+<script src="https://cdn.jsdelivr.net/gh/taisel/GameBoy-Online@47f9f638a8a9445aaa75050f634e437baa34aae0/js/GameBoyCore.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/taisel/GameBoy-Online@47f9f638a8a9445aaa75050f634e437baa34aae0/js/GameBoyIO.js"></script>
+<script>
+  settings[0] = false;   // no sound (no XAudioJS)
+  settings[1] = false;   // no boot ROM
+  // Keyboard -> Game Boy buttons, so VirtualPyTest's press_key can play (keydown / keyup).
+  const KEYS = {ArrowRight: "right", ArrowLeft: "left", ArrowUp: "up", ArrowDown: "down",
+                z: "a", Z: "a", x: "b", X: "b", Enter: "start", Backspace: "select"};
+  document.addEventListener("keydown", e => { if (KEYS[e.key]) { GameBoyKeyDown(KEYS[e.key]); e.preventDefault(); } });
+  document.addEventListener("keyup", e => { if (KEYS[e.key]) { GameBoyKeyUp(KEYS[e.key]); e.preventDefault(); } });
+  // Helpers for the harness (execute_javascript).
+  window.vptGB = {
+    load(romBinaryString) {
+      start(document.getElementById("screen"), romBinaryString);
+      window.__vptRom = Array.from(gameboy.ROM);
+      return GameBoyEmulatorInitialized();
+    },
+    ready() { return GameBoyEmulatorInitialized() && GameBoyEmulatorPlaying(); },
+    // Work RAM C000-DFFF in one call (the harness reads everything it needs from this snapshot).
+    wram() { return Array.from(gameboy.memory.slice(0xC000, 0xE000)); },
+    // Hold a Game Boy button for `ms` (the game polls the joypad once a frame; a key tap is too short).
+    hold(button, ms) { GameBoyKeyDown(button); setTimeout(() => GameBoyKeyUp(button), ms || 90); return true; },
+    loadRomBase64(b64) { return this.load(atob(b64)); },
+    // Served by serve.GameServer (127.0.0.1 only): fetch the ROM and the save, post the new save.
+    async boot() {
+      const rom = new Uint8Array(await (await fetch("/rom")).arrayBuffer());
+      let s = ""; for (let i = 0; i < rom.length; i++) s += String.fromCharCode(rom[i]);
+      this.load(s);
+      const st = await fetch("/state");
+      if (st.ok) this.loadState(await st.text());
+      return {loaded: this.ready(), resumed: st.ok};
+    },
+    // Record the game screen (the canvas, 15 fps WebM) for the run's game report; the clock is the
+    // same as the harness's decision events (Date.now on the same machine).
+    startRecording() {
+      const stream = document.getElementById("screen").captureStream(15);
+      const types = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+      const mimeType = types.find(t => MediaRecorder.isTypeSupported(t)) || "";
+      this._chunks = [];
+      this._rec = new MediaRecorder(stream, mimeType ? {mimeType, videoBitsPerSecond: 400000} : {});
+      this._rec.ondataavailable = e => { if (e.data && e.data.size) this._chunks.push(e.data); };
+      this._rec.start(1000);
+      this._recStart = Date.now() / 1000;
+      return this._recStart;
+    },
+    async stopRecording() {
+      if (!this._rec) return null;
+      await new Promise(res => { this._rec.onstop = res; this._rec.stop(); });
+      const blob = new Blob(this._chunks, {type: this._rec.mimeType || "video/webm"});
+      const r = await fetch("/video", {method: "POST", body: blob, headers: {"Content-Type": blob.type}});
+      return {ok: r.ok, bytes: blob.size, start: this._recStart, end: Date.now() / 1000, type: blob.type};
+    },
+    async upload() {
+      const r = await fetch("/state", {method: "POST", body: this.saveState()});
+      return r.ok;
+    },
+    read(addr, n) { const m = gameboy.memory; const out = []; for (let i = 0; i < (n || 1); i++) out.push(m[addr + i]); return out; },
+    // The game's OPTIONS, as a player sets them: text FAST, battle animations OFF, battle style SET (no
+    // "switch Pokémon?" after each knock-out). wOptions: US D355, French ROM D35A (+5); default 0x03.
+    fastOptions() { gameboy.memory[0xD35A] = 0xC1; return gameboy.memory[0xD35A]; },
+    // A raw GameBoy-Online state starts with the whole ROM (entry 0). Lean states drop it, so a
+    // state holds no game data; loadState puts back the ROM already loaded in this page.
+    saveState() { const st = gameboy.saveState(); st[0] = null; return JSON.stringify(st); },
+    loadState(json) {
+      clearLastEmulation();
+      gameboy = new GameBoyCore(document.getElementById("screen"), "");
+      const st = JSON.parse(json);
+      if (st[0] === null) st[0] = window.__vptRom;
+      gameboy.returnFromState(st);
+      run();
+      return true;
+    },
+  };
+</script>
+</body></html>

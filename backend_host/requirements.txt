@@ -5,6 +5,9 @@ Flask>=2.3.0
 Flask-CORS>=4.0.0
 Flask-SocketIO>=5.3.0
 
+# Transitive security floor (aiohttp)
+aiohttp>=3.14.3
+
 # HTTP client for server communication
 requests>=2.28.0
 
@@ -43,11 +46,13 @@ inotify>=0.2.10; platform_system == "Linux"  # Linux-only file system events
 
 # Hardware interface dependencies (from backend_host)
 # These are for direct hardware access on the host
-# Fixed versions for numpy binary compatibility.
-# Windows note: prefer Python 3.10-3.12 so pip can use prebuilt numpy wheels (no MSVC build).
-numpy>=1.24.0,<2.0.0
+# numpy 2 + opencv 4.13: opencv <4.13 leaks every filename passed to cv2.imread/imwrite
+# (BUG-0474, fixed upstream in opencv#28047) and 4.13+ needs numpy>=2. numpy 2 also has
+# wheels for Python 3.13 (Debian 13), which numpy 1.26 never had. Prebuilt wheels: 3.10-3.13.
+# Parity 2026-10-12 on vpt-pi1: 210 real frames, detector + cv2 ops identical under 1.26/4.11 and 2.3/4.13.
+numpy>=2.0.0,<3.0.0
 pyautogui>=0.9.54
-Pillow>=10.0.0,<11.0.0
+Pillow>=12.3.0,<13.0.0
 # opencv-python removed - use opencv-contrib-python instead (includes cv2.quality for BRISQUE)
 ffmpeg-python>=0.2.0
 PyP100>=0.1.2  # Tapo power control
@@ -94,5 +99,12 @@ networkx
 tapo
 
 #sudo apt install epiphany-browser
-opencv-contrib-python>=4.8.0,<5.0.0
+opencv-contrib-python>=4.13.0,<5.0.0
 defusedxml>=0.7.1
+
+# TASK-71: FX voice modem (Conexant CX93001, 0572:1349). The AT channel in
+# backend_host/src/controllers/remote/fx/at_channel.py imports pyserial lazily,
+# so a host with no FX dongle does not need it — but a host WITH one cannot
+# talk to it without it, and the import error would only surface on the first
+# call. Declared here so the venv has it before a test run or a first call.
+pyserial>=3.5

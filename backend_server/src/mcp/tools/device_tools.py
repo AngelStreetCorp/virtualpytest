@@ -348,7 +348,7 @@ class DeviceTools:
         elif operation_type == 'ai':
             endpoint = f'/host/ai/getExecutionStatus/{execution_id}'
         else:
-            return format_tool_result({'success': False, 'error': f'Unknown operation_type: {operation_type}'})
+            return {"content": [{"type": "text", "text": f"Error: Unknown operation_type: {operation_type}"}], "isError": True}
         
         # Call API
         result = self.api.get(endpoint)

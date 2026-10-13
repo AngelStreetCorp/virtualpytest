@@ -11,7 +11,7 @@ This script **actually captures real photos using the device camera hardware** a
 ## Usage
 
 ```bash
-# Basic usage with default settings (includes AI analysis if OPENROUTER_API_KEY is set)
+# Basic usage with default settings (includes AI analysis when a vision AI route is configured)
 python test_scripts/mobile/camera_quality.py
 
 # Specify output file
@@ -162,8 +162,8 @@ This ensures analysis of genuine camera-captured images, not display screenshots
 - Android device with camera access
 - ADB (Android Debug Bridge) for device control
 - AI Analysis (Optional):
-  - OpenRouter API key (`OPENROUTER_API_KEY` environment variable)
-  - Internet connection for AI vision API calls
+  - A working `vision` AI route in Settings → AI (the host calls it through the server gateway;
+    no provider key on the host)
   - `shared.src.lib.utils.ai_utils` module
 
 ## Error Handling

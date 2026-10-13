@@ -35,6 +35,7 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | `SERVER_NAME` | label shown in the UI and in host registrations | installer |
 | `SERVER_URL` | address browsers and hosts use for the server API | `http://<PUBLIC_HOST>:5109`, installer |
 | `SERVER_PORT` | listen port | `5109` |
+| `INFRA_VM_AGENTS` | infra VMs whose [VM agent](../../infra/vm_agent/README.md) the server pulls once a minute for the **System Service Status** dashboard, `name=host:port` comma-separated (e.g. `database=192.168.x.102:9110`). Set on **one** server per database; that server also records the DB backup status | unset (only the server's own services are recorded) |
 | `API_KEY` | shared secret between the server and every host (`X-API-Key`). **Identical on all hosts.** | generated |
 | `FLASK_SECRET_KEY` | Flask session secret | generated |
 | `SERVER_OPEN_MODE` | `true` = no browser **login** on `/server/*` (default for fresh installs, trusted network only). Direct non-browser calls still send `X-API-Key` when `API_KEY` is set | `true`, installer |
@@ -51,9 +52,32 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | `REDIS_URL` (+ `REDIS_TOKEN` for Upstash) | alert / script queues | `redis://:<REDIS_PASSWORD>@localhost:6379/0` (password generated per install) |
 | `GRAFANA_URL` | internal Grafana base the server calls (with sub-path when behind nginx) | `http://localhost:3000` |
 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | Grafana admin the server uses | `admin` / generated |
-| `AI_AGENT_PROVIDER` / `AI_AGENT_MODEL` / `OPENROUTER_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY` / `MINIMAX_API_KEY` | AI features (optional) | empty = AI features off |
+| *(AI models and API keys)* | **not in `.env` any more.** Configure them in **Settings → AI** (Endpoints: provider + API key; Profiles: model + parameters; Routing: which model serves each use case). Keys are stored server-side in `~/.config/virtualpytest/ai_secrets.json`. Upgrading an install that had `AI_*` / `LOCAL_AI_*` / `VLM_*` / `*_API_KEY` keys: run `scripts/ai_routing_import_env.py` once, then delete them (see [AI routing](../agent/ai/AI_ROUTING.md)) | seeded default: Anthropic for agents, OpenRouter for vision/text — AI off until a key is entered |
 | `MCP_SECRET_KEY` | bearer token for the MCP endpoint | generated |
+| `VPT_CONFIG_DIR` | where the server keeps credentials entered in the UI (TestRail, JIRA, Slack). Must be outside the project folder, which deploys wipe | `~/.config/virtualpytest` of the service user |
 | `ENVIRONMENT` / `DEBUG` | `production` / `0` | |
+
+### AI configuration lives in the database (since TASK-30)
+
+Which model serves each AI use case, and the provider API keys, are set in **Settings → AI**, not in
+any `.env`: **Endpoints** (provider preset, base URL, write-only API key, Test), **Profiles** (model +
+parameters, Test) and **Routing** (use case → profile, server default + per-team overrides, 24 h
+stats). A fresh install is seeded with Anthropic `claude-sonnet-4` for agents and OpenRouter
+`qwen3-vl-8b` / `gpt-4.1-mini` for vision / text; AI stays off until a key is entered. Hosts need no
+AI key — they call models through the server. Details: [AI routing](../agent/ai/AI_ROUTING.md).
+
+**Upgrading an install that still has AI keys in `.env`** — in this order:
+
+1. Apply `setup/db/migrations/20260929e_ai_routing.sql`.
+2. On the server: `python3 scripts/ai_routing_import_env.py --dry-run --host-env <a host's backend_host/src/.env>`,
+   check the plan, then run it again without `--dry-run`.
+3. Deploy the new code to the server **first**, then to every host (new host code calls the server's AI gateway).
+4. Delete from the server and host `.env` files: `AI_PROVIDER`, `AI_{AGENT,VISION,TEXT}_{PROVIDER,MODEL}`,
+   `LOCAL_AI_*`, `ANALYZER_OPENROUTER_MODEL`, `DOM_MODEL`, `DOM_EFFORT`, `VLM_PROVIDER`,
+   `VLM_PROVIDER_FALLBACK`, `VLM_TIMEOUT_SECONDS`, `OPENAI_VLM_MODEL`, `ANTHROPIC_VLM_MODEL`,
+   `GEMINI_VLM_MODEL`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, `MINIMAX_API_KEY`,
+   `GOOGLE_API_KEY`, `GEMINI_API_KEY`. The Settings `.env` editor refuses to write the model keys back.
+5. Settings → AI → Routing must show the same models as before; press the Test buttons.
 
 ## Host — `backend_host/src/.env`
 
@@ -73,11 +97,12 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | `HOST_URL` / `HOST_SESSION_SECRET` | Docker stack: browser-facing base URL of the host. `/host/<HOST_NAME>` (nginx-style) when a proxy/tunnel routes that prefix to `:6109`; the host then checks the server-minted stream cookie, signed with `HOST_SESSION_SECRET` (defaults to `JWT_SECRET`) | `http://<PUBLIC_HOST>:6109` / `JWT_SECRET` |
 | `HOST_VNC_AUTOCONNECT` | `true` lets the dashboard pass `HOST_VNC_PASSWORD` to noVNC so app users connect without a prompt. Opening `vnc_lite.html` directly still asks. The password lands in the iframe URL and proxy logs | `false` |
 | `DEVICEn_NAME` / `_MODEL` / `_IP` / `_PORT` / `_VIDEO` / `_VIDEO_AUDIO` / `_VIDEO_CAPTURE_PATH` / `_VIDEO_FPS` / `_VIDEO_STREAM_PATH` | device *n* (1–10): identity, network address, capture card, audio, output paths | template examples, disabled with the `x` prefix |
-| `DEVICEn_IR_PATH` / `_IR_TYPE` or `_IR_IP` / `_IR_PORT` / `_IR_LED` / `_IR_REMOTE` | infrared control: local `lirc` transmitter or networked IRTrans box | |
+| `DEVICEn_IR_PATH` / `_IR_TYPE`, `_IR_SERIAL` / `_IR_TYPE`, or `_IR_IP` / `_IR_PORT` / `_IR_LED` / `_IR_REMOTE` | infrared control: local `lirc` transmitter (`_IR_PATH`, Pi), USB IR Toy over CDC serial (`_IR_SERIAL`, non-Pi — the udev rule gives it `/dev/irtoy`), or a networked IRTrans box (`_IR_IP`) | |
 | `DEVICEn_BLE_TYPE` / `_BLE_ADAPTER_HCI` | Bluetooth remote emulation | |
 | `DEVICEn_POWER_NAME` / `_POWER_IP` / `_POWER_EMAIL` / `_POWER_PWD` or `_POWER_API_URL` / `_POWER_API_KEY` | power control: Tapo plug or a REST API | |
 | `DEVICEn_USERINTERFACE` / `_VARIANT` | default navigation model for scripts run on this device | |
 | `VPT_KEEP_BROWSER_OPEN` | keep Playwright's browser between web scripts | unset |
+| `VPT_POSITION_TRUST_SECONDS` | how long a just-verified position is trusted before the next hop without checking it again (`0` = always check) | `10` |
 
 The template `backend_host/src/.env.example` documents every device option inline.
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuthContext } from '../../contexts/auth/AuthContext';
+import { isAuthEnabled } from '../../lib/supabase';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { tenantBrandingCacheKey } from '../../config/tenantBrandingCacheVersion';
 
@@ -50,6 +51,17 @@ export const useTenantBranding = (): TenantBranding => {
       } catch {
         // ignore — fall through to the fetch
       }
+    }
+
+    // `/server/branding/tenant` is @require_user_auth: it resolves the tenant FROM the
+    // JWT, so without a signed-in user there is nothing for it to resolve and the call is
+    // a guaranteed 401. It used to fire on every logged-out page load. `isAuthEnabled`
+    // false means the deployment has no Supabase at all, where the endpoint is reachable
+    // like any other.
+    if (isAuthEnabled && !user?.id) {
+      return () => {
+        cancelled = true;
+      };
     }
 
     const load = async () => {

@@ -20,12 +20,16 @@ vi.mock('../../frontend/src/hooks/pages/useAlerts', () => {
   const updateCheckedStatus = vi.fn();
   const updateDiscardStatus = vi.fn();
   const deleteAllAlerts = vi.fn(async () => ({ success: true, deleted_count: 0 }));
+  const deleteAlert = vi.fn();
+  const getTriageStats = async () => ({ success: false });
   return {
     useAlerts: () => ({
       getAllAlerts,
       updateCheckedStatus,
       updateDiscardStatus,
       deleteAllAlerts,
+      deleteAlert,
+      getTriageStats,
     }),
   };
 });

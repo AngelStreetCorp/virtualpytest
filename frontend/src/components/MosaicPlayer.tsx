@@ -11,11 +11,14 @@ import {
   Slider,
   Typography,
   Alert,
+  IconButton,
   Tooltip
 } from '@mui/material';
+import { ChevronLeft, ChevronRight } from '@mui/icons-material';
 
 import { TimelineItem } from '../hooks/useHeatmap';
 import { useR2Url } from '../hooks/storage/useR2Url';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 // Add type alias for filter
 type FilterType = 'ALL' | 'OK' | 'KO';
@@ -47,6 +50,7 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   getMosaicUrl,
   isCompactLayout = false
 }) => {
+  const P = useAgentChatPalette();
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(true);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null); // For drag preview
@@ -65,6 +69,8 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   }>>([]);
   
   const currentItem = timeline[currentIndex];
+  // Timeline colour = the hour's status: no data muted, incidents red, clean green.
+  const sliderColor = (!currentItem || hasDataError) ? P.textMuted : (hasIncidents ? P.error : P.success);
   // Show the mosaic of the frame that was actually loaded. Files are keyed by HHMM
   // in a 24h circular buffer, so the slot's image can be a previous-day leftover the
   // loader rejected - rendering it would contradict the "no data" state.
@@ -304,6 +310,21 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   };
   
   
+  // One mark per hour (every 4th on compact layouts); the timeline holds one frame per minute.
+  const hourStep = isCompactLayout ? 4 : 1;
+  const hourMarks = Array.from({ length: Math.ceil(24 / hourStep) }, (_, i) => {
+    const index = i * hourStep * 60;
+    const item = timeline[index];
+    return {
+      index,
+      item,
+      hour: item ? item.displayTime.getHours() : 0,
+      isCurrent: currentIndex >= index && currentIndex < index + hourStep * 60,
+    };
+  });
+  const midnightPos = hourMarks.findIndex((m, i) => i > 0 && m.item && m.hour < hourStep);
+  const midnightMark = midnightPos > 0 ? { pos: midnightPos } : null;
+
   if (!currentItem) {
     return (
       <Alert severity="warning">
@@ -429,35 +450,46 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
         )}
       </Box>
       
-      {/* Timeline Controls */}
-      <Box 
-        sx={{ 
-          mt: 0,
-          mb: 0,
-          ml: isCompactLayout ? 0 : 2,
-          pl: 1,
-          pr: 1,
-          backgroundColor: 'rgba(0,0,0,0.05)',
-          borderRadius: 1
+      {/* Timeline Controls: readout + prev/next, slider, one segment + label per hour */}
+      <Box
+        sx={{
+          mt: 1.5,
+          p: 1.5,
+          backgroundColor: P.surface,
+          border: `1px solid ${P.borderColor}`,
+          borderRadius: 3,
         }}
       >
-        {isCompactLayout && (
-          <Box sx={{ pt: 0.5, display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-            <Typography variant="caption" color="text.secondary">
-              {formatDisplayTime(currentItem)}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <IconButton
+              size="small"
+              aria-label="Previous frame"
+              disabled={currentIndex <= 0}
+              onClick={() => onIndexChange(Math.max(0, currentIndex - 1))}
+              sx={{ border: `1px solid ${P.borderColor}`, borderRadius: 2 }}
+            >
+              <ChevronLeft fontSize="small" />
+            </IconButton>
+            <Typography sx={{ width: 150, textAlign: 'center', fontSize: '1.1rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+              {formatDisplayTime(timeline[isDragging && previewIndex !== null ? previewIndex : currentIndex] || currentItem)}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
-              Frame {currentIndex + 1} / {timeline.length}
-            </Typography>
+            <IconButton
+              size="small"
+              aria-label="Next frame"
+              disabled={currentIndex >= timeline.length - 1}
+              onClick={() => onIndexChange(Math.min(timeline.length - 1, currentIndex + 1))}
+              sx={{ border: `1px solid ${P.borderColor}`, borderRadius: 2 }}
+            >
+              <ChevronRight fontSize="small" />
+            </IconButton>
           </Box>
-        )}
-        
-        {/* Timeline Scrubber */}
-        <Box 
-          ref={sliderRef}
-          sx={{ position: 'relative', pb: 0 }}
-          onMouseMove={handleMouseMove}
-        >
+          {!isCompactLayout && (
+            <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>Click an hour or drag the bar</Typography>
+          )}
+        </Box>
+
+        <Box ref={sliderRef} sx={{ position: 'relative' }} onMouseMove={handleMouseMove}>
           <Tooltip
             title={isDragging && previewIndex !== null ? formatTimeForTooltip(previewIndex) : ''}
             open={isDragging}
@@ -467,20 +499,14 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
               anchorEl: null,
               style: isDragging ? {
                 position: 'fixed',
-                left: `${mousePosition.x - 50}px`, // Center tooltip on mouse
-                top: `${mousePosition.y - 60}px`,  // Position above mouse
+                left: `${mousePosition.x - 50}px`,
+                top: `${mousePosition.y - 60}px`,
                 zIndex: 9999,
                 pointerEvents: 'none'
               } : undefined,
               modifiers: [
-                {
-                  name: 'offset',
-                  enabled: false,
-                },
-                {
-                  name: 'preventOverflow',
-                  enabled: false,
-                },
+                { name: 'offset', enabled: false },
+                { name: 'preventOverflow', enabled: false },
               ],
             }}
           >
@@ -491,76 +517,56 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
               onChange={handleSliderChange}
               onChangeCommitted={handleSliderChangeCommitted}
               sx={{
-                color: (!currentItem || hasDataError) ? '#888888' : (hasIncidents ? '#FF0000' : '#00AA00'),
-                '& .MuiSlider-thumb': {
-                  width: 16,
-                  height: 16,
-                  backgroundColor: (!currentItem || hasDataError) ? '#888888' : (hasIncidents ? '#FF0000' : '#00AA00'),
-                },
-                '& .MuiSlider-track': {
-                  backgroundColor: (!currentItem || hasDataError) ? '#888888' : (hasIncidents ? '#FF0000' : '#00AA00'),
-                },
-                '& .MuiSlider-rail': {
-                  backgroundColor: '#CCCCCC',
-                }
+                color: P.accent,
+                py: 1,
+                '& .MuiSlider-thumb': { width: 14, height: 14, backgroundColor: P.accent, border: `2px solid ${P.surface}` },
+                '& .MuiSlider-track': { backgroundColor: P.accent, border: 'none' },
+                '& .MuiSlider-rail': { backgroundColor: P.borderColor, opacity: 1 },
               }}
             />
           </Tooltip>
-          
-          
-          {/* Hour Marks with Date/Time Display */}
-          <Box sx={{ position: 'absolute', top: 25, left: 0, right: 0, height: 40 }}>
-            {Array.from({ length: isCompactLayout ? 6 : 24 }, (_, i) => {
-              const hourStep = isCompactLayout ? 4 : 1;
-              const hourIndex = i * hourStep * 60;
-              const position = (hourIndex / Math.max(1, timeline.length - 1)) * 100;
-              const timelineItem = timeline[hourIndex];
-              
-              // Get the actual hour from the timeline item at this position
-              const displayHour = timelineItem ? timelineItem.displayTime.getHours() : 0;
-              
-              // Check if this hour mark corresponds to the current timeline position
-              // We need to check if the current timeline index falls within this hour range
-              const isCurrentHour = currentIndex >= hourIndex && currentIndex < hourIndex + 60;
-              
-              return (
-                <Tooltip 
-                  key={i}
-                  title={timelineItem ? formatDisplayTime(timelineItem) : ''}
-                  arrow
-                >
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      left: `${position}%`,
-                      transform: 'translateX(-50%)',
-                      fontSize: '10px',
-                      cursor: 'pointer',
-                      textAlign: 'center',
-                      padding: '2px 4px',
-                      borderRadius: '4px',
-                      border: isCurrentHour ? '2px solid #4a90e2' : '2px solid transparent',
-                      backgroundColor: isCurrentHour ? 'rgba(74, 144, 226, 0.1)' : 'transparent',
-                      fontWeight: isCurrentHour ? 'bold' : 'normal',
-                      color: isCurrentHour ? '#4a90e2' : 'inherit',
-                      '&:hover': { fontWeight: 'bold' }
-                    }}
-                    onClick={() => onIndexChange(hourIndex)}
-                  >
-                    <Typography variant="caption" sx={{ fontSize: isCompactLayout ? '9px' : '10px', display: 'block' }}>
-                      {String(displayHour).padStart(2, '0')}{isCompactLayout ? '' : 'h'}
-                    </Typography>
-                    {!isCompactLayout && timelineItem && (
-                      <Typography variant="caption" sx={{ fontSize: '8px', color: 'text.secondary', display: 'block' }}>
-                        {timelineItem.isToday ? 'Today' : 'Yesterday'}
-                      </Typography>
-                    )}
-                  </Box>
-                </Tooltip>
-              );
-            })}
-          </Box>
         </Box>
+
+        {/* One segment per hour: the selected hour carries the frame's status colour. */}
+        <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${hourMarks.length}, 1fr)`, gap: '2px', mt: 0.5 }}>
+          {hourMarks.map((m) => (
+            <Tooltip key={m.index} title={m.item ? formatDisplayTime(m.item) : ''} arrow>
+              <Box
+                onClick={() => onIndexChange(m.index)}
+                sx={{
+                  cursor: 'pointer',
+                  textAlign: 'center',
+                  borderRadius: '4px',
+                  py: 0.25,
+                  bgcolor: m.isCurrent ? `${P.accent}26` : 'transparent',
+                  '&:hover': { bgcolor: m.isCurrent ? `${P.accent}26` : P.hoverBg },
+                }}
+              >
+                <Box sx={{ height: 6, borderRadius: '2px', mb: 0.5, bgcolor: m.isCurrent ? sliderColor : P.borderColor }} />
+                <Typography
+                  sx={{
+                    fontSize: isCompactLayout ? '0.6rem' : '0.65rem',
+                    lineHeight: 1.2,
+                    fontVariantNumeric: 'tabular-nums',
+                    color: m.isCurrent ? P.accentText : P.textMuted,
+                    fontWeight: m.isCurrent ? 600 : 400,
+                  }}
+                >
+                  {String(m.hour).padStart(2, '0')}
+                </Typography>
+              </Box>
+            </Tooltip>
+          ))}
+        </Box>
+
+        {/* Day divider at midnight, instead of repeating Yesterday/Today on every hour */}
+        {midnightMark && (
+          <Box sx={{ position: 'relative', height: 18, mt: 0.25 }}>
+            <Box sx={{ position: 'absolute', top: 0, bottom: 0, left: `${(midnightMark.pos / hourMarks.length) * 100}%`, borderLeft: `1px dashed ${P.textMuted}` }} />
+            <Typography sx={{ position: 'absolute', right: `${100 - (midnightMark.pos / hourMarks.length) * 100 + 0.5}%`, fontSize: '0.65rem', color: P.textMuted }}>Yesterday</Typography>
+            <Typography sx={{ position: 'absolute', left: `${(midnightMark.pos / hourMarks.length) * 100 + 0.5}%`, fontSize: '0.65rem', color: P.textMuted }}>Today</Typography>
+          </Box>
+        )}
       </Box>
     </Box>
   );

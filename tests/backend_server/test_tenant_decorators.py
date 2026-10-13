@@ -14,7 +14,7 @@ no DB is touched.
 """
 
 import pytest
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 
 from backend_server.src.lib import auth_middleware as am
 
@@ -42,23 +42,26 @@ def caller(monkeypatch):
         user_email: str = 'caller@vpt.local',
         role: str = 'admin',
         tenant_ids=None,
-        is_platform_admin: bool = False,
+        is_platform_admin: bool | None = False,
         user_app_metadata=None,
     ):
         tenant_ids = list(tenant_ids or [])
+        app_metadata = dict(user_app_metadata or {})
+        app_metadata['role'] = role
+        app_metadata['tenant_ids'] = tenant_ids
+        # None means "no is_platform_admin key at all" — a token minted before
+        # the claim existed. am._caller_is_platform_admin() reads the raw
+        # claim, so omitting the key (rather than defaulting it to False) is
+        # the only way to exercise its DB fallback.
+        if is_platform_admin is not None:
+            app_metadata['is_platform_admin'] = is_platform_admin
         ctx = {
             'user_id': user_id,
             'user_email': user_email,
             'user_role': role,
-            'user_app_metadata': dict(user_app_metadata or {}) | {
-                'role': role,
-                'tenant_ids': tenant_ids,
-                'is_platform_admin': is_platform_admin,
-            },
+            'user_app_metadata': app_metadata,
             'user_tenant_ids': tenant_ids,
-            'user_is_platform_admin': is_platform_admin,
             'request_user_role': role,
-            'request_is_platform_admin': is_platform_admin,
             'request_tenant_ids': tenant_ids,
         }
         return ctx
@@ -99,9 +102,9 @@ def test_is_platform_admin_false_when_claim_missing(monkeypatch, app, caller):
 
 
 def test_is_platform_admin_db_fallback_on_missing_claim(monkeypatch, app, caller):
-    # user_app_metadata has no is_platform_admin key.
-    ctx = caller(user_app_metadata={'role': 'admin'})
-    ctx['user_is_platform_admin'] = False  # the decode block defaults missing to False
+    # user_app_metadata has no is_platform_admin key — a token minted before
+    # the claim existed.
+    ctx = caller(is_platform_admin=None, user_app_metadata={'role': 'admin'})
     with app.test_request_context('/server/tenants'):
         from flask import request
         for k, v in ctx.items():
@@ -114,9 +117,22 @@ def test_is_platform_admin_db_fallback_on_missing_claim(monkeypatch, app, caller
 # ---- @require_platform_admin ---------------------------------------------
 
 
-def _route_response_decorator(decorator, *, path, method='GET', headers=None, **caller_kwargs):
-    """Apply the decorator to a tiny route and return the actual response."""
+def _route_response_decorator(decorator, caller, *, path, method='GET', headers=None, **caller_kwargs):
+    """Apply the decorator to a tiny route and return (response, status_code).
+
+    A real request through the test client runs in its own request context —
+    attributes set on a separately-pushed `test_request_context()` never reach
+    it. So the caller context is seeded via `before_request`, the same way the
+    real JWT-decode block populates `request.user_*` before route decorators run.
+    """
     app = Flask(__name__)
+    ctx = caller(**caller_kwargs)
+
+    @app.before_request
+    def _seed_caller_context():
+        for k, v in ctx.items():
+            if k.startswith('user_'):
+                setattr(request, k, v)
 
     @decorator
     def _h():
@@ -124,15 +140,9 @@ def _route_response_decorator(decorator, *, path, method='GET', headers=None, **
 
     app.add_url_rule(path, endpoint='h', view_func=_h, methods=[method])
 
-    # Set up the caller context the way the JWT-decode block would.
-    from flask import request
-    ctx = caller(**caller_kwargs)
-    with app.test_request_context(path, method=method, headers=headers or {}):
-        for k, v in ctx.items():
-            if k.startswith('user_'):
-                setattr(request, k, v)
-        with app.test_client() as client:
-            return client.get(path)
+    with app.test_client() as client:
+        response = client.get(path, headers=headers or {})
+        return response, response.status_code
 
 
 def test_require_platform_admin_blocks_regular_admin(monkeypatch, app, caller):
@@ -140,6 +150,7 @@ def test_require_platform_admin_blocks_regular_admin(monkeypatch, app, caller):
     monkeypatch.setattr(am, '_caller_is_platform_admin', lambda: False)
     resp, status = _route_response_decorator(
         am.require_platform_admin,
+        caller,
         path='/server/tenants',
         role='admin',
         is_platform_admin=False,
@@ -151,6 +162,7 @@ def test_require_platform_admin_allows_super_admin(monkeypatch, app, caller):
     monkeypatch.setattr(am, '_caller_is_platform_admin', lambda: True)
     resp, status = _route_response_decorator(
         am.require_platform_admin,
+        caller,
         path='/server/tenants',
         role='admin',
         is_platform_admin=True,
@@ -163,6 +175,7 @@ def test_require_platform_admin_allows_service_role(monkeypatch, app, caller):
     monkeypatch.setattr(am, '_caller_is_platform_admin', lambda: False)
     resp, status = _route_response_decorator(
         am.require_platform_admin,
+        caller,
         path='/server/tenants',
         role='service',
         is_platform_admin=False,
@@ -183,6 +196,7 @@ def test_require_team_in_tenant_blocks_cross_tenant(monkeypatch, app, caller):
 
     resp, status = _route_response_decorator(
         am.require_team_in_tenant,
+        caller,
         path='/server/teams/<team_id>',
         role='admin',
         is_platform_admin=False,

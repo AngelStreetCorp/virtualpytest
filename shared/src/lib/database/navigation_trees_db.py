@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Any, Set
 from uuid import UUID, uuid4
 
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import IN_FILTER_CHUNK, chunked_in
 
 def get_supabase():
     """Get the Supabase client instance."""
@@ -396,18 +397,18 @@ def get_root_trees_for_interfaces(userinterface_ids: List[str], team_id: str) ->
     try:
         supabase = get_supabase()
         out: Dict[str, Dict] = {}
-        CHUNK = 100
-        for i in range(0, len(userinterface_ids), CHUNK):
-            result = supabase.table('navigation_trees').select('*')\
-                .in_('userinterface_id', userinterface_ids[i:i + CHUNK])\
-                .eq('team_id', team_id)\
-                .eq('is_root_tree', True)\
-                .order('created_at')\
-                .execute()
-            for row in (result.data or []):
-                # rows come back created_at-ascending, so the first one seen
-                # for an interface is the oldest — same pick as the single-id fn
-                out.setdefault(row['userinterface_id'], row)
+        rows = chunked_in(
+            lambda chunk: supabase.table('navigation_trees').select('*')
+            .in_('userinterface_id', chunk)
+            .eq('team_id', team_id)
+            .eq('is_root_tree', True)
+            .order('created_at'),
+            userinterface_ids)
+        for row in rows:
+            # rows come back created_at-ascending (per chunk, and an interface
+            # lives in one chunk), so the first one seen is the oldest — same
+            # pick as the single-id fn
+            out.setdefault(row['userinterface_id'], row)
         return out
     except Exception as e:
         print(f"[@db:navigation_trees:get_root_trees_for_interfaces] Error: {e}")
@@ -423,16 +424,12 @@ def get_tree_ids_with_nodes(tree_ids: List[str], team_id: str) -> Set[str]:
         return set()
     try:
         supabase = get_supabase()
-        found: Set[str] = set()
-        CHUNK = 100
-        for i in range(0, len(tree_ids), CHUNK):
-            result = supabase.table('navigation_nodes').select('tree_id')\
-                .in_('tree_id', tree_ids[i:i + CHUNK])\
-                .eq('team_id', team_id)\
-                .execute()
-            for row in (result.data or []):
-                found.add(row['tree_id'])
-        return found
+        rows = chunked_in(
+            lambda chunk: supabase.table('navigation_nodes').select('tree_id')
+            .in_('tree_id', chunk)
+            .eq('team_id', team_id),
+            tree_ids)
+        return {row['tree_id'] for row in rows}
     except Exception as e:
         print(f"[@db:navigation_trees:get_tree_ids_with_nodes] Error: {e}")
         return set()
@@ -598,14 +595,15 @@ def get_nodes_batch(tree_id: str, node_ids: list, team_id: str) -> Dict:
             return {'success': True, 'nodes': {}}
         
         supabase = get_supabase()
-        result = supabase.table('navigation_nodes').select('*')\
-            .eq('tree_id', tree_id)\
-            .in_('node_id', node_ids)\
-            .eq('team_id', team_id)\
-            .execute()
+        rows = chunked_in(
+            lambda chunk: supabase.table('navigation_nodes').select('*')
+            .eq('tree_id', tree_id)
+            .in_('node_id', chunk)
+            .eq('team_id', team_id),
+            node_ids)
         
         # Create a dict for fast lookup: node_id -> node_data
-        nodes_dict = {node['node_id']: node for node in result.data} if result.data else {}
+        nodes_dict = {node['node_id']: node for node in rows}
         
         print(f"[@db:navigation_trees:get_nodes_batch] Retrieved {len(nodes_dict)}/{len(node_ids)} nodes in single query")
         return {'success': True, 'nodes': nodes_dict}
@@ -1975,18 +1973,15 @@ def _get_full_trees_batch(tree_ids: List[str], team_id: str) -> Dict[str, Dict]:
         return {}
 
     supabase = get_supabase()
-    out: Dict[str, Dict] = {}
-    CHUNK = 100  # bound the URL length on very large hierarchies
-    for i in range(0, len(tree_ids), CHUNK):
-        result = supabase.table('mv_full_navigation_trees')\
-            .select('tree_id,full_tree_data')\
-            .in_('tree_id', tree_ids[i:i + CHUNK])\
-            .eq('team_id', team_id)\
-            .execute()
-        for row in result.data or []:
-            out[row['tree_id']] = row['full_tree_data']
+    rows = chunked_in(
+        lambda chunk: supabase.table('mv_full_navigation_trees')
+        .select('tree_id,full_tree_data')
+        .in_('tree_id', chunk)
+        .eq('team_id', team_id),
+        tree_ids)
+    out: Dict[str, Dict] = {row['tree_id']: row['full_tree_data'] for row in rows}
 
-    print(f"[@db:navigation_trees:_get_full_trees_batch] ⚡ Retrieved {len(out)}/{len(tree_ids)} trees in {(len(tree_ids) + CHUNK - 1) // CHUNK} query(s)")
+    print(f"[@db:navigation_trees:_get_full_trees_batch] ⚡ Retrieved {len(out)}/{len(tree_ids)} trees in {(len(tree_ids) + IN_FILTER_CHUNK - 1) // IN_FILTER_CHUNK} query(s)")
     return out
 
 def get_full_tree(tree_id: str, team_id: str) -> Dict:
@@ -2020,5 +2015,54 @@ def get_full_tree(tree_id: str, team_id: str) -> Dict:
     else:
         print(f"[@db:navigation_trees:get_full_tree] ERROR: Tree {tree_id} not found in materialized view")
         return {'success': False, 'error': 'Tree not found'}
+
+
+def refresh_navigation_mv() -> Dict:
+    """Refresh mv_full_navigation_trees now, via refresh_navigation_trees_mv().
+
+    Hosts build their graph from the view, which on the live databases is
+    refreshed by pg_cron once a minute (the per-statement triggers are off), so
+    a tree write is invisible to hosts until the next refresh. The SQL function
+    (migration 20261003a) serializes with that cron job via an advisory lock.
+
+    Returns {'success': True, 'refreshed_at': <iso ts>} or {'success': False, 'error'}.
+    """
+    try:
+        result = get_supabase().rpc('refresh_navigation_trees_mv', {}).execute()
+        refreshed_at = result.data[0] if isinstance(result.data, list) and result.data else result.data
+        return {'success': True, 'refreshed_at': refreshed_at}
+    except Exception as e:
+        print(f"[@db:navigation_trees:refresh_navigation_mv] Error: {e}")
+        return {'success': False, 'error': str(e)}
+
+
+def get_mv_tree_summary(tree_id: str, team_id: str) -> Dict:
+    """What the hosts will read for this tree: its mv_full_navigation_trees row.
+
+    Returns {'success': True, 'mv_present', 'node_count', 'edge_count', 'last_refreshed'};
+    mv_present is False (counts 0) when the view has no row for the tree.
+    """
+    try:
+        result = get_supabase().table('mv_full_navigation_trees')\
+            .select('tree_id,full_tree_data,last_refreshed')\
+            .eq('tree_id', tree_id)\
+            .eq('team_id', team_id)\
+            .limit(1)\
+            .execute()
+        if not result.data:
+            return {'success': True, 'mv_present': False, 'node_count': 0,
+                    'edge_count': 0, 'last_refreshed': None}
+        row = result.data[0]
+        full = row.get('full_tree_data') or {}
+        return {
+            'success': True,
+            'mv_present': True,
+            'node_count': len(full.get('nodes') or []),
+            'edge_count': len(full.get('edges') or []),
+            'last_refreshed': row.get('last_refreshed'),
+        }
+    except Exception as e:
+        print(f"[@db:navigation_trees:get_mv_tree_summary] Error: {e}")
+        return {'success': False, 'error': str(e)}
 
  

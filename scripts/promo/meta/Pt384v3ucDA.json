@@ -1,0 +1,39 @@
+{
+ "title": "Group control: one remote drives two phones at once | VirtualPyTest",
+ "description": "Group control drives several devices with one remote. On the Device page, turn it on and pick the phones to drive. From one remote, open Chrome on two phones, type a web address once and scroll the page: every command reaches both at the same time, and each device confirms it.\n\nOpen source & free\n\nChapters\n0:00 Group control: one remote, two phones\n0:13 Pick the phones, one remote for the group\n0:24 Home and Chrome on both\n0:41 Type once, scroll both\n1:02 Release them in one click",
+ "tags": [
+  "virtualpytest",
+  "group control",
+  "remote control",
+  "android",
+  "multi-device",
+  "test automation",
+  "device page",
+  "chrome",
+  "qa",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "28",
+ "promo_check_allow_dark": [
+  "0-80"
+ ],
+ "promo_check_allow_dark_note": "owner 2026-10-12: the black strips beside the portrait phones in Side by side are the layout",
+ "promo_check": {
+  "at": "2026-10-13T10:50:11+0200",
+  "passed": true,
+  "counters": {
+   "banned_text": 0,
+   "black_frames": 0,
+   "dark_tiles": 0,
+   "flashes": 0,
+   "caption_overflow": 0,
+   "duration_over_90s": 0,
+   "voice_mismatch": 0,
+   "voice_silent": 0
+  },
+  "allow_dark": [
+   "0-80"
+  ]
+ }
+}

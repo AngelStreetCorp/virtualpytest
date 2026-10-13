@@ -438,8 +438,10 @@ export const useGenerateModel = ({
         selected_items: Array.from(selectedNodes),
         selected_screen_items: selectedScreenNodes ? Array.from(selectedScreenNodes) : Array.from(selectedNodes),
         // ✅ Send cleaned data if user edited the plan (deleted AI mistakes)
-        cleaned_lines: editedPlan ? planToSend?.lines : undefined,
-        cleaned_duplicate_positions: editedPlan ? planToSend?.duplicate_positions : undefined
+        // Only line-based (TV) plans carry lines; an empty list would replace the items of a
+        // click-based plan with nothing (the host rebuilds items from cleaned_lines).
+        cleaned_lines: editedPlan && planToSend?.lines?.length ? planToSend.lines : undefined,
+        cleaned_duplicate_positions: editedPlan && planToSend?.lines?.length ? planToSend?.duplicate_positions : undefined
       });
 
       if (data.success) {
@@ -679,52 +681,6 @@ export const useGenerateModel = ({
     }
   }, [explorationId, selectedHost, resetState]);
 
-  const approveGeneration = useCallback(async (nodeIds: string[], edgeIds: string[]) => {
-    if (!explorationId || !treeId || !selectedHost) {
-      setError('Missing required parameters for generation');
-      return;
-    }
-
-    try {
-      setIsGenerating(true);
-      setError(null);
-      
-      console.log('[@useGenerateModel:approveGeneration] Approving generation:', {
-        nodeIds,
-        edgeIds,
-        explorationId,
-        treeId
-      });
-
-      const data = await api.post(buildServerUrl(`/server/ai-generation/approve-generation?host_name=${encodeURIComponent(selectedHost.host_name)}`), {
-        exploration_id: explorationId,
-        device_id: selectedDeviceId,  // ← ADDED
-        tree_id: treeId,
-        approved_nodes: nodeIds,
-        approved_edges: edgeIds
-      });
-
-      if (data.success) {
-        console.log('[@useGenerateModel:approveGeneration] Generation completed:', {
-          nodes_created: data.nodes_created,
-          edges_created: data.edges_created
-        });
-        
-        // Reset state after successful generation
-        resetState();
-        return data;
-      } else {
-        throw new Error(data.error || 'Failed to approve generation');
-      }
-    } catch (err: any) {
-      console.error('[@useGenerateModel:approveGeneration] Error:', err);
-      setError(err.message || 'Failed to approve generation');
-      return null;
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [explorationId, treeId, selectedHost, resetState]);
-
   // ========== NEW v2.0: MCP-FIRST METHODS ==========
   
   /**
@@ -866,7 +822,6 @@ export const useGenerateModel = ({
     startValidation,
     validateNextItem,
     cancelExploration,
-    approveGeneration,
     resetState,
     
     // ✅ NEW: Node verification methods

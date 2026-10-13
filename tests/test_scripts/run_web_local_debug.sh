@@ -54,11 +54,12 @@ run_dailymotion_check() {
 # Always run the playback check in smoke/full.
 run_dailymotion_check
 
-# browser_task depends on OPENROUTER_API_KEY; run only when available.
-if [[ -n "${OPENROUTER_API_KEY:-}" ]]; then
+# browser_task gets its model through the server AI gateway (usage agent.browser):
+# run only when a server is reachable.
+if [[ -n "${SERVER_URL:-}" && -n "${API_KEY:-}" ]]; then
   run_browser_task
 else
-  echo "[web-local-debug] ⚠️ OPENROUTER_API_KEY is not set - skipping browser_task"
+  echo "[web-local-debug] ⚠️ SERVER_URL / API_KEY not set - skipping browser_task (needs the AI gateway)"
 fi
 
 echo "[web-local-debug] Recent local-debug artifacts:"

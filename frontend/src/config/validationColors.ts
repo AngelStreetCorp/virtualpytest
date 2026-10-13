@@ -3,148 +3,157 @@
  * Centralized color management for React Flow nodes and edges based on validation status
  */
 
+// Static palette import — these colours are baked into SVGs/CSS for React Flow nodes
+// and must read on both themes, so we use the dark palette's categorical series.
+// (No hooks possible in this .ts module.)
+import { AGENT_CHAT_PALETTE } from '../constants/agentChatTheme';
+
+const STEEL = AGENT_CHAT_PALETTE.series[1];
+const GOLD = AGENT_CHAT_PALETTE.accent;
+const GOLD_HOVER = AGENT_CHAT_PALETTE.accentHover;
+
 // Node type base colors - these define the visual identity of different node types
 export const NODE_TYPE_COLORS = {
   entry: {
-    background: 'linear-gradient(135deg, #d32f2f 0%, #f44336 100%)',
-    border: '#ffc107',
+    background: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}cc, ${AGENT_CHAT_PALETTE.error})`,
+    border: AGENT_CHAT_PALETTE.accent,
     textColor: '#ffffff',
-    badgeColor: '#ffc107',
+    badgeColor: AGENT_CHAT_PALETTE.accent,
   },
   menu: {
-    background: 'linear-gradient(135deg, #fff8e1 0%, #ffecb3 100%)',
-    border: '#ffc107',
-    textColor: '#e65100',
-    badgeColor: '#ff8f00',
+    background: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}1a, ${AGENT_CHAT_PALETTE.warning}33)`,
+    border: AGENT_CHAT_PALETTE.accent,
+    textColor: AGENT_CHAT_PALETTE.warning,
+    badgeColor: AGENT_CHAT_PALETTE.warning,
   },
   screen: {
-    background: 'linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%)',
-    border: '#2196f3',
-    textColor: '#0d47a1',
-    badgeColor: '#1976d2',
+    background: `linear-gradient(135deg, ${STEEL}1a, ${STEEL}33)`,
+    border: STEEL,
+    textColor: STEEL,
+    badgeColor: STEEL,
   },
   dialog: {
-    background: 'linear-gradient(135deg, #f3e5f5 0%, #e1bee7 100%)',
-    border: '#9c27b0',
-    textColor: '#4a148c',
-    badgeColor: '#7b1fa2',
+    background: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.series[2]}1a, ${AGENT_CHAT_PALETTE.series[2]}33)`,
+    border: AGENT_CHAT_PALETTE.series[2],
+    textColor: AGENT_CHAT_PALETTE.series[2],
+    badgeColor: AGENT_CHAT_PALETTE.series[2],
   },
   popup: {
-    background: 'linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%)',
-    border: '#ff9800',
-    textColor: '#e65100',
-    badgeColor: '#f57c00',
+    background: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}1a, ${AGENT_CHAT_PALETTE.warning}33)`,
+    border: AGENT_CHAT_PALETTE.warning,
+    textColor: AGENT_CHAT_PALETTE.warning,
+    badgeColor: AGENT_CHAT_PALETTE.warning,
   },
   overlay: {
-    background: 'linear-gradient(135deg, #e8f5e8 0%, #c8e6c9 100%)',
-    border: '#4caf50',
-    textColor: '#1b5e20',
-    badgeColor: '#388e3c',
+    background: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}1a, ${AGENT_CHAT_PALETTE.success}33)`,
+    border: AGENT_CHAT_PALETTE.success,
+    textColor: AGENT_CHAT_PALETTE.success,
+    badgeColor: AGENT_CHAT_PALETTE.success,
   },
   action: {
-    background: 'linear-gradient(135deg, #fff3e0 0%, #ffcc80 100%)',
-    border: '#ff9800',
-    textColor: '#e65100',
-    badgeColor: '#f57c00',
+    background: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}1a, ${AGENT_CHAT_PALETTE.warning}33)`,
+    border: AGENT_CHAT_PALETTE.warning,
+    textColor: AGENT_CHAT_PALETTE.warning,
+    badgeColor: AGENT_CHAT_PALETTE.warning,
   },
 } as const;
 
 // UI Badge colors for different badge types
 export const UI_BADGE_COLORS = {
   root: {
-    background: '#d32f2f',
+    background: AGENT_CHAT_PALETTE.error,
     textColor: '#ffffff',
   },
   menu: {
-    background: '#ff8f00',
+    background: AGENT_CHAT_PALETTE.warning,
     textColor: '#ffffff',
   },
   entry: {
-    background: '#ffc107',
+    background: AGENT_CHAT_PALETTE.accent,
     textColor: '#ffffff',
   },
-  verification: '#9c27b0',
-  subtree: '#2196f3',
+  verification: AGENT_CHAT_PALETTE.series[2],
+  subtree: STEEL,
 } as const;
 
 // Status colors based on validation confidence levels
 export const VALIDATION_STATUS_COLORS = {
   untested: {
-    border: '#9e9e9e',
-    background: 'rgba(158, 158, 158, 0.1)',
-    handle: '#9e9e9e',
-    glow: 'rgba(158, 158, 158, 0.3)',
-    textColor: '#757575',
+    border: AGENT_CHAT_PALETTE.textMuted,
+    background: `${AGENT_CHAT_PALETTE.textMuted}1a`,
+    handle: AGENT_CHAT_PALETTE.textMuted,
+    glow: `${AGENT_CHAT_PALETTE.textMuted}4d`,
+    textColor: AGENT_CHAT_PALETTE.textMuted,
   },
   testing: {
-    border: '#2196f3',
-    background: 'rgba(33, 150, 243, 0.15)',
-    handle: '#2196f3',
-    glow: 'rgba(33, 150, 243, 0.6)',
-    textColor: '#1976d2',
+    border: GOLD,
+    background: `${GOLD}26`,
+    handle: GOLD,
+    glow: `${GOLD}99`,
+    textColor: GOLD_HOVER,
     animation: 'testing-pulse 2s ease-in-out infinite',
   },
   high: {
     // >70% confidence
-    border: '#4caf50',
-    background: 'rgba(76, 175, 80, 0.1)',
-    handle: '#4caf50',
-    glow: 'rgba(76, 175, 80, 0.4)',
-    textColor: '#2e7d32',
+    border: AGENT_CHAT_PALETTE.success,
+    background: `${AGENT_CHAT_PALETTE.success}1a`,
+    handle: AGENT_CHAT_PALETTE.success,
+    glow: `${AGENT_CHAT_PALETTE.success}66`,
+    textColor: AGENT_CHAT_PALETTE.success,
   },
   medium: {
     // 50-70% confidence
-    border: '#ff9800',
-    background: 'rgba(255, 152, 0, 0.1)',
-    handle: '#ff9800',
-    glow: 'rgba(255, 152, 0, 0.4)',
-    textColor: '#f57c00',
+    border: AGENT_CHAT_PALETTE.warning,
+    background: `${AGENT_CHAT_PALETTE.warning}1a`,
+    handle: AGENT_CHAT_PALETTE.warning,
+    glow: `${AGENT_CHAT_PALETTE.warning}66`,
+    textColor: AGENT_CHAT_PALETTE.warning,
   },
   low: {
     // <50% confidence
-    border: '#f44336',
-    background: 'rgba(244, 67, 54, 0.1)',
-    handle: '#f44336',
-    glow: 'rgba(244, 67, 54, 0.4)',
-    textColor: '#d32f2f',
+    border: AGENT_CHAT_PALETTE.error,
+    background: `${AGENT_CHAT_PALETTE.error}1a`,
+    handle: AGENT_CHAT_PALETTE.error,
+    glow: `${AGENT_CHAT_PALETTE.error}66`,
+    textColor: AGENT_CHAT_PALETTE.error,
   },
 } as const;
 
 // Edge colors for different validation states
 export const EDGE_COLORS = {
   untested: {
-    stroke: '#9e9e9e',
+    stroke: AGENT_CHAT_PALETTE.textMuted,
     strokeWidth: 3,
     strokeDasharray: '',
     opacity: 0.6,
   },
   testing: {
-    stroke: '#2196f3',
+    stroke: GOLD,
     strokeWidth: 3,
     strokeDasharray: '',
     opacity: 1,
     animation: 'edge-pulse 1.5s ease-in-out infinite',
   },
   high: {
-    stroke: '#4caf50',
+    stroke: AGENT_CHAT_PALETTE.success,
     strokeWidth: 3,
     strokeDasharray: '',
     opacity: 1,
   },
   medium: {
-    stroke: '#ff9800',
+    stroke: AGENT_CHAT_PALETTE.warning,
     strokeWidth: 3,
     strokeDasharray: '',
     opacity: 1,
   },
   low: {
-    stroke: '#f44336',
+    stroke: AGENT_CHAT_PALETTE.error,
     strokeWidth: 3,
     strokeDasharray: '5,5',
     opacity: 1,
   },
   entry: {
-    stroke: '#ffc107',
+    stroke: GOLD,
     strokeWidth: 3,
     strokeDasharray: '',
     opacity: 1,
@@ -155,63 +164,63 @@ export const EDGE_COLORS = {
 export const HANDLE_COLORS = {
   // Left handles (horizontal navigation)
   leftTop: {
-    untested: 'linear-gradient(135deg, #90caf9, #64b5f6)',
-    testing: 'linear-gradient(135deg, #2196f3, #42a5f5)',
-    high: 'linear-gradient(135deg, #81c784, #66bb6a)',
-    medium: 'linear-gradient(135deg, #ffb74d, #ffa726)',
-    low: 'linear-gradient(135deg, #ef9a9a, #e57373)',
+    untested: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.textMuted}, ${AGENT_CHAT_PALETTE.borderColor})`,
+    testing: `linear-gradient(135deg, ${GOLD}, ${AGENT_CHAT_PALETTE.accentHover})`,
+    high: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}cc, ${AGENT_CHAT_PALETTE.success})`,
+    medium: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}cc, ${AGENT_CHAT_PALETTE.warning})`,
+    low: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}cc, ${AGENT_CHAT_PALETTE.error}b3)`,
   },
   leftBottom: {
-    untested: 'linear-gradient(135deg, #ff8a65, #ff7043)',
-    testing: 'linear-gradient(135deg, #2196f3, #42a5f5)',
-    high: 'linear-gradient(135deg, #66bb6a, #4caf50)',
-    medium: 'linear-gradient(135deg, #ffa726, #ff9800)',
-    low: 'linear-gradient(135deg, #e57373, #f44336)',
+    untested: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}cc, ${AGENT_CHAT_PALETTE.warning}b3)`,
+    testing: `linear-gradient(135deg, ${GOLD}, ${AGENT_CHAT_PALETTE.accentHover})`,
+    high: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}, ${AGENT_CHAT_PALETTE.success}b3)`,
+    medium: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}, ${AGENT_CHAT_PALETTE.warning}b3)`,
+    low: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}b3, ${AGENT_CHAT_PALETTE.error})`,
   },
   // Right handles (horizontal navigation)
   rightTop: {
-    untested: 'linear-gradient(135deg, #42a5f5, #1976d2)',
-    testing: 'linear-gradient(135deg, #2196f3, #1565c0)',
-    high: 'linear-gradient(135deg, #4caf50, #388e3c)',
-    medium: 'linear-gradient(135deg, #ff9800, #f57c00)',
-    low: 'linear-gradient(135deg, #f44336, #d32f2f)',
+    untested: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.textMuted}, ${AGENT_CHAT_PALETTE.borderColor})`,
+    testing: `linear-gradient(135deg, ${GOLD}, ${AGENT_CHAT_PALETTE.accentHover})`,
+    high: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}, ${AGENT_CHAT_PALETTE.success}b3)`,
+    medium: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}, ${AGENT_CHAT_PALETTE.warning}b3)`,
+    low: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}, ${AGENT_CHAT_PALETTE.error}b3)`,
   },
   rightBottom: {
-    untested: 'linear-gradient(135deg, #ef9a9a, #e57373)',
-    testing: 'linear-gradient(135deg, #2196f3, #42a5f5)',
-    high: 'linear-gradient(135deg, #81c784, #66bb6a)',
-    medium: 'linear-gradient(135deg, #ffb74d, #ffa726)',
-    low: 'linear-gradient(135deg, #e57373, #ef5350)',
+    untested: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}cc, ${AGENT_CHAT_PALETTE.error}b3)`,
+    testing: `linear-gradient(135deg, ${GOLD}, ${AGENT_CHAT_PALETTE.accentHover})`,
+    high: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}cc, ${AGENT_CHAT_PALETTE.success})`,
+    medium: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}cc, ${AGENT_CHAT_PALETTE.warning})`,
+    low: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}b3, ${AGENT_CHAT_PALETTE.error}cc)`,
   },
   // Top handles (menu navigation)
   topLeft: {
-    untested: 'linear-gradient(135deg, #ba68c8, #9c27b0)',
-    testing: 'linear-gradient(135deg, #2196f3, #1976d2)',
-    high: 'linear-gradient(135deg, #66bb6a, #4caf50)',
-    medium: 'linear-gradient(135deg, #ffa726, #ff9800)',
-    low: 'linear-gradient(135deg, #ef5350, #f44336)',
+    untested: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.series[2]}cc, ${AGENT_CHAT_PALETTE.series[2]})`,
+    testing: `linear-gradient(135deg, ${GOLD}, ${AGENT_CHAT_PALETTE.accentHover})`,
+    high: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}, ${AGENT_CHAT_PALETTE.success}b3)`,
+    medium: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}, ${AGENT_CHAT_PALETTE.warning}b3)`,
+    low: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}cc, ${AGENT_CHAT_PALETTE.error})`,
   },
   topRight: {
-    untested: 'linear-gradient(135deg, #a5d6a7, #81c784)',
-    testing: 'linear-gradient(135deg, #2196f3, #42a5f5)',
-    high: 'linear-gradient(135deg, #4caf50, #388e3c)',
-    medium: 'linear-gradient(135deg, #ff9800, #f57c00)',
-    low: 'linear-gradient(135deg, #f44336, #d32f2f)',
+    untested: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}cc, ${AGENT_CHAT_PALETTE.success}b3)`,
+    testing: `linear-gradient(135deg, ${GOLD}, ${AGENT_CHAT_PALETTE.accentHover})`,
+    high: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}, ${AGENT_CHAT_PALETTE.success}b3)`,
+    medium: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}, ${AGENT_CHAT_PALETTE.warning}b3)`,
+    low: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}, ${AGENT_CHAT_PALETTE.error}b3)`,
   },
   // Bottom handles (menu navigation)
   bottomLeft: {
-    untested: 'linear-gradient(135deg, #ce93d8, #ba68c8)',
-    testing: 'linear-gradient(135deg, #2196f3, #42a5f5)',
-    high: 'linear-gradient(135deg, #81c784, #66bb6a)',
-    medium: 'linear-gradient(135deg, #ffb74d, #ffa726)',
-    low: 'linear-gradient(135deg, #ef9a9a, #e57373)',
+    untested: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.series[2]}cc, ${AGENT_CHAT_PALETTE.series[2]}b3)`,
+    testing: `linear-gradient(135deg, ${GOLD}, ${AGENT_CHAT_PALETTE.accentHover})`,
+    high: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}cc, ${AGENT_CHAT_PALETTE.success})`,
+    medium: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}cc, ${AGENT_CHAT_PALETTE.warning})`,
+    low: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}cc, ${AGENT_CHAT_PALETTE.error}b3)`,
   },
   bottomRight: {
-    untested: 'linear-gradient(135deg, #4caf50, #66bb6a)',
-    testing: 'linear-gradient(135deg, #2196f3, #1976d2)',
-    high: 'linear-gradient(135deg, #388e3c, #2e7d32)',
-    medium: 'linear-gradient(135deg, #f57c00, #ef6c00)',
-    low: 'linear-gradient(135deg, #d32f2f, #c62828)',
+    untested: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}, ${AGENT_CHAT_PALETTE.success}cc)`,
+    testing: `linear-gradient(135deg, ${GOLD}, ${AGENT_CHAT_PALETTE.accentHover})`,
+    high: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.success}b3, ${AGENT_CHAT_PALETTE.success}e6)`,
+    medium: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.warning}b3, ${AGENT_CHAT_PALETTE.warning}e6)`,
+    low: `linear-gradient(135deg, ${AGENT_CHAT_PALETTE.error}b3, ${AGENT_CHAT_PALETTE.error}cc)`,
   },
 } as const;
 
@@ -288,7 +297,7 @@ export type HandlePosition = keyof typeof HANDLE_COLORS;
 export function getValidationStatusFromConfidence(confidence: number, volume?: number): ValidationStatus {
   // If volume is 0, it's untested (grey), not low confidence (red)
   if (volume !== undefined && volume === 0) return 'untested';
-  
+
   if (confidence >= CONFIDENCE_THRESHOLDS.HIGH) return 'high';
   if (confidence >= CONFIDENCE_THRESHOLDS.MEDIUM) return 'medium';
   return 'low';
@@ -300,23 +309,23 @@ export function getAnimationCSS(): string {
     @keyframes ${VALIDATION_ANIMATIONS.testingPulse.name} {
       ${VALIDATION_ANIMATIONS.testingPulse.keyframes}
     }
-    
+
     @keyframes ${VALIDATION_ANIMATIONS.edgePulse.name} {
       ${VALIDATION_ANIMATIONS.edgePulse.keyframes}
     }
-    
+
     @keyframes ${VALIDATION_ANIMATIONS.handleGlow.name} {
       ${VALIDATION_ANIMATIONS.handleGlow.keyframes}
     }
-    
+
     .node-testing {
       animation: ${VALIDATION_ANIMATIONS.testingPulse.name} ${VALIDATION_ANIMATIONS.testingPulse.duration} ${VALIDATION_ANIMATIONS.testingPulse.timing} ${VALIDATION_ANIMATIONS.testingPulse.iteration};
     }
-    
+
     .edge-testing {
       animation: ${VALIDATION_ANIMATIONS.edgePulse.name} ${VALIDATION_ANIMATIONS.edgePulse.duration} ${VALIDATION_ANIMATIONS.edgePulse.timing} ${VALIDATION_ANIMATIONS.edgePulse.iteration};
     }
-    
+
     .handle-testing {
       animation: ${VALIDATION_ANIMATIONS.handleGlow.name} ${VALIDATION_ANIMATIONS.handleGlow.duration} ${VALIDATION_ANIMATIONS.handleGlow.timing} ${VALIDATION_ANIMATIONS.handleGlow.iteration};
     }

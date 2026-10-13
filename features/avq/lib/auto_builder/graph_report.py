@@ -7,7 +7,14 @@ single self-contained file.
 """
 import os
 import base64
+import sys
+from pathlib import Path
 from typing import Dict, List, Optional, Any
+
+_REPO = Path(__file__).resolve().parents[4]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+from shared.src.lib.utils.report_theme import report_theme_head  # noqa: E402
 
 
 def _adjacency(edges: Dict[str, Dict]) -> Dict[str, List]:
@@ -211,30 +218,30 @@ def html_report(nodes: Dict[str, Dict], edges: Dict[str, Dict],
                 dom_dir: Optional[str] = None) -> str:
     adj = _adjacency(edges)
     parts: List[str] = []
-    parts.append(f"<!doctype html><meta charset=utf-8><title>{title}</title>")
-    parts.append("<style>body{font:13px -apple-system,Arial;background:#111;color:#ddd;"
-                 "margin:0;padding:16px}h2{border-bottom:1px solid #333;padding-top:14px}"
-                 ".n{display:flex;gap:12px;border:1px solid #2a2a2a;border-radius:6px;"
-                 "padding:8px;margin:8px 0;background:#181818}.n img{width:240px;height:auto;"
-                 "border:1px solid #333;border-radius:4px}.meta{flex:1}code{color:#6cf}"
+    parts.append(f"<!doctype html><meta charset=utf-8>{report_theme_head()}<title>{title}</title>")
+    parts.append("<style>body{font:13px -apple-system,Arial;background:var(--vpt-page);color:var(--vpt-text);"
+                 "margin:0;padding:16px}h2{border-bottom:1px solid var(--vpt-border);padding-top:14px}"
+                 ".n{display:flex;gap:12px;border:1px solid var(--vpt-border);border-radius:6px;"
+                 "padding:8px;margin:8px 0;background:var(--vpt-surface)}.n img{width:240px;height:auto;"
+                 "border:1px solid var(--vpt-border);border-radius:4px}.meta{flex:1}code{color:var(--vpt-accent-text)}"
                  ".ph{width:240px;min-height:135px;display:flex;flex-direction:column;"
-                 "align-items:center;justify-content:center;border:1px dashed #444;"
-                 "border-radius:4px;color:#666;font-size:12px;text-align:center}"
-                 ".k{color:#fc6}.miss{color:#f77}.ok{color:#7d7}pre{background:#0c0c0c;"
+                 "align-items:center;justify-content:center;border:1px dashed var(--vpt-border);"
+                 "border-radius:4px;color:var(--vpt-muted);font-size:12px;text-align:center}"
+                 ".k{color:var(--vpt-warning)}.miss{color:var(--vpt-error)}.ok{color:var(--vpt-success)}pre{background:var(--vpt-subtle);"
                  "padding:10px;border-radius:6px;overflow:auto;line-height:1.4}"
-                 ".tag{font-size:11px;color:#888}"
+                 ".tag{font-size:11px;color:var(--vpt-muted)}"
                  "summary{cursor:pointer;font-size:15px;font-weight:bold;padding:8px 0;"
-                 "border-bottom:1px solid #333;margin-top:8px}"
+                 "border-bottom:1px solid var(--vpt-border);margin-top:8px}"
                  "details>:not(summary){margin-top:8px}"
                  ".domtab{width:520px;font-size:11px;overflow:auto;max-height:380px}"
                  "table.dom{border-collapse:collapse;width:100%;margin-top:2px}"
-                 "table.dom th,table.dom td{border:1px solid #2a2a2a;padding:1px 4px;"
-                 "text-align:left;white-space:nowrap}table.dom th{color:#888;font-weight:normal}"
-                 "table.dom tr.foc{background:#3a1414}"
+                 "table.dom th,table.dom td{border:1px solid var(--vpt-border);padding:1px 4px;"
+                 "text-align:left;white-space:nowrap}table.dom th{color:var(--vpt-muted);font-weight:normal}"
+                 "table.dom tr.foc{background:var(--vpt-error-tint)}"
                  "table.walk{border-collapse:collapse;width:100%;font-size:12px}"
-                 "table.walk th,table.walk td{border:1px solid #2a2a2a;padding:4px 6px;"
-                 "text-align:left;vertical-align:top}table.walk th{color:#888;font-weight:normal}"
-                 "table.walk img{width:220px;border:1px solid #333;border-radius:3px;display:block}"
+                 "table.walk th,table.walk td{border:1px solid var(--vpt-border);padding:4px 6px;"
+                 "text-align:left;vertical-align:top}table.walk th{color:var(--vpt-muted);font-weight:normal}"
+                 "table.walk img{width:220px;border:1px solid var(--vpt-border);border-radius:3px;display:block}"
                  "</style>")
     parts.append(f"<h1>{title}</h1>")
 

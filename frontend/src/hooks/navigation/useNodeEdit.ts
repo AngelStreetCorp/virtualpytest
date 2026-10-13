@@ -35,7 +35,7 @@ export const useNodeEdit = ({
   const { showError } = useToastContext();
   
   // Get navigation context for save and treeId
-  const { userInterface, saveNodeWithStateUpdate, parentChain } = useNavigation();
+  const { userInterface, saveNodeWithStateUpdate, parentChain, runVariant } = useNavigation();
   // The editor route is /navigation-editor/<interfaceId>; useParams' treeId
   // is undefined here. The actual canonical tree UUID is owned by
   // NavigationConfigContext as actualTreeId — that's what flows into all
@@ -85,6 +85,9 @@ export const useNodeEdit = ({
     userinterfaceName: referenceKey,
     verificationPassCondition: nodeForm?.verification_pass_condition || 'all',
     recordAs,
+    // Same source useEdge uses for edge runs, so a node Run is attributed to the
+    // scope on screen instead of leftover device state (BUG-0200).
+    variant: runVariant ?? null,
   });
 
   // Local state for dialog-specific concerns

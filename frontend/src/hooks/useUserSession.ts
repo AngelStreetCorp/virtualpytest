@@ -1,66 +1,41 @@
 import { useState, useCallback } from 'react';
 import { APP_CONFIG } from '../config/constants';
+import { useAuthContext } from '../contexts/auth/AuthContext';
 
-// Singleton session data to prevent multiple instances
-let globalSessionData: { userId: string; sessionId: string } | null = null;
+// Singleton browser session id, shared by every hook instance in this tab
+let globalSessionId: string | null = null;
 const BROWSER_SESSION_STORAGE_KEY = 'vpt_browser_session_id';
+
+export const getBrowserSessionId = (): string => {
+  if (globalSessionId) return globalSessionId;
+
+  let sessionId = '';
+  if (typeof window !== 'undefined') {
+    sessionId = localStorage.getItem(BROWSER_SESSION_STORAGE_KEY) || '';
+  }
+  if (!sessionId) {
+    const timestamp = Date.now();
+    const random = Math.random().toString(36).substring(2, 8);
+    sessionId = `browser-${timestamp}-${random}`;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(BROWSER_SESSION_STORAGE_KEY, sessionId);
+    }
+  }
+  globalSessionId = sessionId;
+  return sessionId;
+};
 
 /**
  * Shared User Session Hook - Consistent User Identification
  *
  * Provides unified user identification for device control and tree locking systems.
+ * userId is the logged-in Supabase user; deployments without a login (open mode,
+ * public key) fall back to APP_CONFIG.DEFAULT_USER_ID.
  */
 export const useUserSession = () => {
-  // Use singleton pattern to ensure only one session is created
-  const [sessionData] = useState(() => {
-    if (globalSessionData) {
-      return globalSessionData;
-    }
-
-    // Use hardcoded default user ID for demo mode (no browser-user fallback)
-    let userId = APP_CONFIG.DEFAULT_USER_ID;
-
-    // Try to get user ID from browser storage if available (optional enhancement)
-    if (typeof window !== 'undefined') {
-      const storedUser = localStorage.getItem('cached_user');
-      if (storedUser) {
-        try {
-          const user = JSON.parse(storedUser);
-          if (user.id && user.id !== 'browser-user') {
-            userId = user.id;
-          }
-        } catch (e) {
-          // Use default user ID
-        }
-      }
-    }
-
-    // Generate a stable session ID using the resolved userId
-    let sessionId = '';
-    if (typeof window !== 'undefined') {
-      const storedSessionId = localStorage.getItem(BROWSER_SESSION_STORAGE_KEY);
-      if (storedSessionId && storedSessionId.startsWith(`${userId}-`)) {
-        sessionId = storedSessionId;
-      }
-    }
-
-    if (!sessionId) {
-      const timestamp = Date.now();
-      const random = Math.random().toString(36).substring(2, 8);
-      sessionId = `${userId}-${timestamp}-${random}`;
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(BROWSER_SESSION_STORAGE_KEY, sessionId);
-      }
-    }
-
-    // Store in singleton
-    globalSessionData = {
-      userId,
-      sessionId,
-    };
-
-    return globalSessionData;
-  });
+  const { user } = useAuthContext();
+  const userId = user?.id || APP_CONFIG.DEFAULT_USER_ID;
+  const [sessionId] = useState(getBrowserSessionId);
 
   // Check if a lock belongs to our user
   const isOurLock = useCallback(
@@ -72,14 +47,14 @@ export const useUserSession = () => {
       const ownerSessionId =
         lockInfo.owner_session_id || lockInfo.session_id || lockInfo.lockedBy;
 
-      return ownerUserId === sessionData.userId || ownerSessionId === sessionData.sessionId;
+      return ownerUserId === userId || ownerSessionId === sessionId;
     },
-    [sessionData.userId, sessionData.sessionId],
+    [userId, sessionId],
   );
 
   return {
-    userId: sessionData.userId,
-    sessionId: sessionData.sessionId,
+    userId,
+    sessionId,
     isOurLock,
   };
 };

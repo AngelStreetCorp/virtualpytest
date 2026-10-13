@@ -1,4 +1,5 @@
 import React from 'react';
+import { AGENT_CHAT_PALETTE, AGENT_CHAT_PALETTE_LIGHT } from '../../../constants/agentChatTheme';
 import { Box } from '@mui/material';
 
 /**
@@ -7,7 +8,7 @@ import { Box } from '@mui/material';
  * CONTAINER ONLY - styling matches TestCaseBuilder exactly.
  * Content is passed as children.
  * 
- * Styling: height: 32px, background: dark #1e293b / light #f1f5f9
+ * Styling: height: 32px, background: palette sidebarBg
  */
 
 interface BuilderStatsBarContainerProps {
@@ -19,6 +20,7 @@ export const BuilderStatsBarContainer: React.FC<BuilderStatsBarContainerProps> =
   actualMode,
   children,
 }) => {
+  const P = actualMode === 'dark' ? AGENT_CHAT_PALETTE : AGENT_CHAT_PALETTE_LIGHT;
   return (
     <Box
       sx={{
@@ -29,7 +31,7 @@ export const BuilderStatsBarContainer: React.FC<BuilderStatsBarContainerProps> =
         alignItems: 'center',
         justifyContent: 'space-between',
         px: 2,
-        background: actualMode === 'dark' ? '#1e293b' : '#f1f5f9',
+        background: P.sidebarBg,
         flexShrink: 0,
       }}
     >

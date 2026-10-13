@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography, Chip } from '@mui/material';
 import { ArrowBack, Home, ChevronRight } from '@mui/icons-material';
 import { useNavigationStack } from '../../contexts/navigation/NavigationStackContext';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface NavigationBreadcrumbCompactProps {
   onNavigateBack: () => void;
@@ -14,6 +15,7 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
   onNavigateToLevel,
   onNavigateToRoot,
 }) => {
+  const P = useAgentChatPalette();
   const { stack, isNested, currentLevel } = useNavigationStack();
 
   if (!isNested || !currentLevel) return null;
@@ -27,23 +29,23 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
         display: 'flex',
         alignItems: 'center',
         gap: 0.5,
-        backgroundColor: '#f5f5f5', // Match navigation header default background
-        border: '1px solid #e0e0e0', // Match navigation header border style
-        borderRadius: '8px', // Rectangle with round border
+        backgroundColor: P.surface,
+        border: `1px solid ${P.borderColor}`,
+        borderRadius: '8px',
         padding: '8px 16px',
-        margin: '8px 16px 0 16px', // Top margin for spacing below header, left/right margin for alignment
-        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.12)', // Subtle shadow similar to AppBar elevation={1}
-        fontSize: '0.9rem', // Increased from 0.8rem (+0.1)
+        margin: '8px 16px 0 16px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.12)',
+        fontSize: '0.9rem',
         maxWidth: 'fit-content',
       }}
     >
       {/* Back Button */}
       <ArrowBack
         sx={{
-          fontSize: '16px', // Increased from 14px
-          color: '#666',
+          fontSize: '16px',
+          color: P.textMuted,
           cursor: 'pointer',
-          '&:hover': { color: '#2196f3' },
+          '&:hover': { color: P.accentText },
         }}
         onClick={onNavigateBack}
       />
@@ -51,10 +53,10 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
       <Home
         sx={{
           fontSize: '16px',
-          color: '#666',
+          color: P.textMuted,
           mx: 0.5,
           cursor: 'pointer',
-          '&:hover': { color: '#2196f3' },
+          '&:hover': { color: P.accentText },
         }}
         onClick={onNavigateToRoot}
         titleAccess="Go to root navigation"
@@ -63,11 +65,11 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
       <Typography
         variant="caption"
         sx={{
-          color: '#666',
-          fontSize: '0.85rem', // Increased from 0.75rem (+0.1)
+          color: P.textMuted,
+          fontSize: '0.85rem',
           fontWeight: 500,
           cursor: 'pointer',
-          '&:hover': { color: '#2196f3' },
+          '&:hover': { color: P.accentText },
         }}
         onClick={onNavigateToRoot}
         title="Go to root navigation"
@@ -79,16 +81,16 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
         stack.slice(0, -1).map((level, index) => (
           <React.Fragment key={index}>
             {/* Separator */}
-            <ChevronRight sx={{ fontSize: '14px', color: '#999' }} /> {/* Increased from 12px */}
+            <ChevronRight sx={{ fontSize: '14px', color: P.textMuted }} />
             {/* Intermediate Level - Clickable */}
             <Typography
               variant="caption"
               sx={{
-                color: '#666',
-                fontSize: '0.85rem', // Increased from 0.75rem (+0.1)
+                color: P.textMuted,
+                fontSize: '0.85rem',
                 fontWeight: 500,
                 cursor: 'pointer',
-                '&:hover': { color: '#2196f3' },
+                '&:hover': { color: P.accentText },
               }}
               onClick={() => onNavigateToLevel(index)}
               title={`Go to ${level.parentNodeLabel}`}
@@ -98,17 +100,17 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
           </React.Fragment>
         ))}
       {/* Final Separator */}
-      <ChevronRight sx={{ fontSize: '14px', color: '#999' }} /> {/* Increased from 12px */}
+      <ChevronRight sx={{ fontSize: '14px', color: P.textMuted }} />
       {/* Current Level */}
       <Chip
         label={currentLevel.parentNodeLabel}
         size="small"
         sx={{
-          height: '22px', // Increased from 20px
-          fontSize: '0.8rem', // Increased from 0.7rem (+0.1)
+          height: '22px',
+          fontSize: '0.8rem',
           fontWeight: 600,
-          backgroundColor: '#e3f2fd',
-          color: '#1976d2',
+          backgroundColor: P.hoverBg,
+          color: P.accentText,
           '& .MuiChip-label': {
             padding: '0 8px',
           },

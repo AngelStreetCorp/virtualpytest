@@ -1,0 +1,23 @@
+{
+ "id": "DR8IX3Y_rCs",
+ "title": "Automatic incident detection + 24 h review buffer on every device",
+ "description": "Monitoring runs on its own: no test to write, no script to run, and every device keeps a 24 h review buffer.\n\nA set-top box froze in the evening. Nobody was watching. The heatmap keeps one frame a minute from every device; scrub back to the minute, click the red tile, and the device's own recording replays its last 24 hours: stuck on a channel banner for four and a half minutes, then back on air. The freeze was detected and logged as an incident on its own, with the frames it compared and why it called it a freeze.\n\nChapters\n0:00 Intro\n0:04 Heatmap: every device, one frame a minute\n0:17 The device, live\n0:23 24 h review buffer: replay the freeze\n0:47 The incident, detected automatically\n\n#VirtualPyTest #TestAutomation #Monitoring #IncidentDetection #SetTopBox #QA #OpenSource",
+ "tags": [
+  "virtualpytest",
+  "test automation",
+  "video monitoring",
+  "freeze detection",
+  "set-top box testing",
+  "stb",
+  "heatmap",
+  "qa automation",
+  "device monitoring",
+  "open source",
+  "automatic incident detection",
+  "24h review buffer",
+  "no code test automation"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-29"
+}

@@ -3,7 +3,7 @@ Simple Task Manager for Async Browser-Use Tasks
 """
 import threading
 import time
-from typing import Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 import uuid
 
 class TaskManager:
@@ -54,8 +54,32 @@ class TaskManager:
         with self._lock:
             return self._tasks.get(task_id)
     
-    # Removed progress tracking - no longer needed
+    def record_progress(self, task_id: str, progress: Dict[str, Any]):
+        """Keep the latest progress event of a running task (served by the live status adapter)."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is not None:
+                task['progress'] = progress
+                task['progress_at'] = time.time()
+
+    def mark_stop_requested(self, task_id: str, requested_by: str):
+        """Record that a user asked to stop this task; the host completion still decides the end."""
+        with self._lock:
+            task = self._tasks.get(task_id)
+            if task is not None:
+                task['stop_requested_by'] = requested_by
+                task['stop_requested_at'] = time.time()
     
+    def running_tasks(self, command: str, team_id: str) -> List[Dict[str, Any]]:
+        """Copies of one team's tasks of `command` that have not completed yet."""
+        with self._lock:
+            return [
+                dict(task) for task in self._tasks.values()
+                if task['command'] == command
+                and task['status'] == 'started'
+                and str((task.get('params') or {}).get('team_id')) == str(team_id)
+            ]
+
     def cleanup_old_tasks(self, max_age_seconds: int = 3600):
         """Remove tasks older than max_age_seconds"""
         current_time = time.time()

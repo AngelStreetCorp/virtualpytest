@@ -13,12 +13,38 @@ This is for USER authentication: Frontend → Backend Server
 """
 
 import os
+import time
 import jwt
 import requests
 from functools import wraps
 from flask import request, jsonify
 from typing import Optional, Callable
 from urllib.parse import urljoin
+
+# System roles, most privileged first (TASK-31). The ids are fixed — they are in JWT claims and
+# the roles(role) foreign key; what an installation *calls* them is data (public.roles).
+# A non-admin may only edit users, and hand out roles, ranked strictly below their own.
+ROLE_RANK = {'admin': 0, 'manager': 1, 'developer': 2, 'tester': 3, 'viewer': 4}
+ROLES = tuple(ROLE_RANK)
+# Roles whose default permissions live in public.role_permissions. Admin holds everything.
+EDITABLE_ROLES = ROLES[1:]
+
+# Never in an editable role's defaults, whatever an admin ticks on the Roles page: the manager
+# is the most privileged non-admin role, and these stay admin business (roles, team ceilings,
+# server configuration, deploys, hosts, security, AI training data).
+ADMIN_ONLY_PERMISSIONS = frozenset({
+    'org.roles:view', 'org.roles:edit',
+    'org.teams:create', 'org.teams:edit', 'org.teams:delete',
+    'org.users:delete', 'org.workspaces:delete',
+    'settings.general:view', 'settings.general:edit',
+    'settings.models:edit', 'settings.branding:edit',
+    'settings.code_deploy:view', 'settings.code_deploy:use',
+    'settings.cicd:edit', 'settings.logs:view',
+    'system.services:restart', 'system.hosts:run_command',
+    'security:view',
+    'ai.training:view', 'ai.training:review',
+    'monitoring.public_ask:view',
+})
 
 # IMPORTANT: This must be the actual JWT SECRET from Supabase Dashboard:
 #   Project Settings → API → JWT Secret
@@ -179,7 +205,7 @@ def _get_server_public_role() -> str:
     deployment stays fully functional (it has no per-user identity to distinguish);
     lower it via SERVER_PUBLIC_ROLE where the deployment wants a reduced posture."""
     role = (os.getenv('SERVER_PUBLIC_ROLE') or 'admin').strip().lower()
-    return role if role in {'admin', 'tester', 'viewer'} else 'admin'
+    return role if role in ROLE_RANK else 'admin'
 
 
 def _get_auto_sign_token() -> Optional[str]:
@@ -189,7 +215,7 @@ def _get_auto_sign_token() -> Optional[str]:
 
 def _get_auto_sign_role() -> str:
     role = (os.getenv('AUTO_SIGN_ROLE') or 'tester').strip().lower()
-    return role if role in {'admin', 'tester', 'viewer'} else 'tester'
+    return role if role in ROLE_RANK else 'tester'
 
 
 def _get_auto_sign_token_from_request() -> Optional[str]:
@@ -216,7 +242,7 @@ def _apply_auto_sign_context() -> None:
     request.user_role = _get_auto_sign_role()
     request.user_metadata = {'auto_sign': True}
     request.user_permissions = []
-    request.user_team_permissions = []
+    request.user_team_ceiling = None
     request.user_denied_permissions = []
 
 
@@ -446,17 +472,17 @@ def require_user_auth(f: Callable) -> Callable:
             request.user_metadata = meta
             request.user_app_metadata = app_meta
             request.user_permissions = app_meta.get('permissions', [])
-            request.user_team_permissions = app_meta.get('team_permissions', [])
+            request.user_team_ceiling = team_ceiling_claim(app_meta)
             request.user_denied_permissions = app_meta.get('denied_permissions', [])
             # TASK-23: tenant_ids + is_platform_admin land in app_metadata via the
-            # sync_user_claims_to_auth() trigger. Read them here so route code and
-            # decorators can gate without a second DB round trip. Fallbacks land in
-            # _caller_tenant_ids() / _caller_is_platform_admin() below.
+            # sync_user_claims_to_auth() trigger. request.user_app_metadata (set
+            # above) is enough for _caller_tenant_ids() / _caller_is_platform_admin()
+            # to read the raw claim and fall back to a DB lookup for tokens minted
+            # before the claim existed — a plain bool here couldn't tell "claim is
+            # False" from "claim is absent", so we don't pre-coerce one.
             request.user_tenant_ids = app_meta.get('tenant_ids', []) or []
-            request.user_is_platform_admin = bool(app_meta.get('is_platform_admin', False))
-            
-            # Log successful authentication
-            print(f"[@auth_middleware] ✅ User authenticated: {request.user_email} (role: {request.user_role})")
+
+            # No per-request success line: it was one journald write per API call (failures still log).
             
         except jwt.ExpiredSignatureError:
             return jsonify({
@@ -518,6 +544,9 @@ VIEWER_WRITE_EXEMPT_PREFIXES: tuple = (
     # Without them a viewer's device page 403s on every stream URL (BUG-0168).
     '/server/av/getStreamUrl',
     '/server/av/getStatus',
+    # Structured run-report queries (TASK-42): POST only because the validated filter
+    # model travels as JSON. They read script_results and return rows/CSV, write nothing.
+    '/server/run-management/query',
 )
 
 
@@ -638,12 +667,18 @@ def _caller_is_platform_admin() -> bool:
     A platform admin is exempt from the tenant boundary check — they see
     every tenant's teams, like the existing `role = 'admin'` exemption in
     enforce_team_scope().
+
+    Reads the raw claim out of `request.user_app_metadata` (same pattern as
+    `_caller_team_ids()`) rather than a pre-coerced top-level attribute: the
+    claim is a bool, so coercing a missing key to False at decode time would
+    make "claim is False" indistinguishable from "claim is absent", and the
+    DB fallback below would never fire for legacy tokens.
     """
     cached = getattr(request, '_vpt_is_platform_admin', None)
     if cached is not None:
         return cached
 
-    claim = getattr(request, 'user_is_platform_admin', None)
+    claim = (getattr(request, 'user_app_metadata', None) or {}).get('is_platform_admin')
     if isinstance(claim, bool):
         is_pa = claim
     else:
@@ -772,9 +807,28 @@ def principal_from_jwt_claims(payload: dict) -> dict:
         'user_metadata': payload.get('user_metadata', {}) or {},
         'user_app_metadata': app_meta,
         'user_permissions': app_meta.get('permissions', []),
-        'user_team_permissions': app_meta.get('team_permissions', []),
+        'user_team_ceiling': team_ceiling_claim(app_meta),
         'user_denied_permissions': app_meta.get('denied_permissions', []),
     }
+
+
+def team_ids_for_principal(principal: Optional[dict]) -> set:
+    """Resolve the trusted team ceiling for a Socket.IO principal.
+
+    Socket handlers cannot use Flask's request-scoped `_caller_team_ids()`.  This
+    equivalent reads the signed app_metadata claim and uses the same fail-closed DB
+    fallback for older tokens.  Shared service/open-mode principals intentionally
+    return an empty set; their deployment-wide role is handled by the caller.
+    """
+    principal = principal or {}
+    claim = (principal.get('user_app_metadata') or {}).get('team_ids')
+    if isinstance(claim, list):
+        return {str(value) for value in claim if value}
+    return _team_ids_from_db(principal.get('user_id'))
+
+
+# user_id of the principals that are not one person (see _shared_principal callers).
+SHARED_PRINCIPAL_USER_IDS = frozenset({'service_api_key', 'auto_sign', 'open_mode', 'public_key'})
 
 
 def _shared_principal(user_id: str, email: str, role: str, marker: str) -> dict:
@@ -786,7 +840,7 @@ def _shared_principal(user_id: str, email: str, role: str, marker: str) -> dict:
         'user_metadata': {marker: True},
         'user_app_metadata': {},
         'user_permissions': [],
-        'user_team_permissions': [],
+        'user_team_ceiling': None,
         'user_denied_permissions': [],
         'shared': True,
     }
@@ -922,53 +976,43 @@ def require_role(*allowed_roles: str) -> Callable:
     return decorator
 
 
-ROLE_DEFAULT_PERMISSIONS: dict = {
-    'tester': {
-        'dashboard:view',
-        'device_control:view', 'device_control:execute',
-        'testcases:view', 'testcases:create', 'testcases:edit', 'testcases:hide',
-        'campaigns:view', 'campaigns:create', 'campaigns:edit', 'campaigns:execute',
-        'builder.test:view', 'builder.test:use',
-        'builder.campaign:view', 'builder.campaign:use',
-        'execution.run:view', 'execution.run:run_test', 'execution.run:run_campaign',
-        'execution.monitor:view',
-        'reports.tests:view', 'reports.campaigns:view',
-        'reports.models:view', 'reports.dependency:view',
-        'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
-        'interface:view',
-        'ai_agent:view', 'ai_agent:use',
-        'plugins.postman:view',
-        'plugins.jira:view', 'plugins.jira:manage', 'plugins.testrail:view',
-        'settings.status:view',
-    },
-    'viewer': {
-        # Read-only everywhere a tester is also read-only, so a viewer can
-        # audit the system and integrations but cannot mutate state. Write
-        # verbs (`*:manage`, `device_control:execute/reboot/restart_streams`)
-        # stay admin/tester-only — TASK-23 + the global read-only floor on
-        # the /server/* guard means a viewer cannot change anything anyway,
-        # but listing the read verbs here keeps the matrix honest (BUG-0154)
-        # and stops the /server/integrations/* GET endpoints returning 403 to
-        # a viewer who only wants to read the configured status.
-        'dashboard:view',
-        'testcases:view', 'campaigns:view',
-        'reports.tests:view', 'reports.campaigns:view',
-        'reports.models:view', 'reports.dependency:view',
-        'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
-        'device_control:view',  # see host cards / status; :execute/:reboot/:restart_streams stay tester+admin-only
-        'plugins.postman:view',
-        'plugins.jira:view',
-        'plugins.testrail:view',
-        'plugins.slack:view',
-        'plugins.grafana:view',
-        'plugins.langfuse:view',
-        'settings.status:view',
-    },
-}
+# Role defaults live in public.role_permissions (edited on the Roles page), one row per
+# editable role. 'admin' has no row: it never consults the table (principal_holds_permission
+# answers True before reaching it).
+ROLE_DEFAULTS_TTL_SECONDS = 30
+_role_defaults_cache: dict = {'value': None, 'loaded_at': None}
 
-# 'admin' is deliberately absent: it never consults this table (principal_holds_permission
-# answers True before reaching it), and spelling out every permission here would be a fourth
-# copy of the vocabulary to keep in step with frontend/src/types/auth.ts.
+
+def _load_role_defaults() -> Optional[dict]:
+    """role -> permission list from the database, or None if it cannot be read."""
+    from shared.src.lib.database import role_permissions_db
+    return role_permissions_db.get_role_permissions()
+
+
+def invalidate_role_defaults_cache() -> None:
+    """Drop the cached role defaults so the next check re-reads them (after an edit)."""
+    _role_defaults_cache['loaded_at'] = None
+
+
+def role_default_permissions(role: Optional[str]) -> set:
+    """Default permissions of `role`, cached for ROLE_DEFAULTS_TTL_SECONDS.
+
+    Edits made in another server process show up within the TTL. When the database is
+    unreachable the last good copy is kept; with no copy at all the answer is the empty
+    set (fail-closed) — never a hard-coded fallback, which is how the three drifted
+    copies of this table came about (BUG-0154).
+    """
+    now = time.monotonic()
+    loaded_at = _role_defaults_cache['loaded_at']
+    if loaded_at is None or now - loaded_at > ROLE_DEFAULTS_TTL_SECONDS:
+        loaded = _load_role_defaults()
+        if loaded is not None:
+            _role_defaults_cache['value'] = {r: set(perms) for r, perms in loaded.items()}
+            _role_defaults_cache['loaded_at'] = now
+        elif _role_defaults_cache['value'] is None:
+            print("[@auth_middleware] ⚠️ role_permissions unreadable and nothing cached: "
+                  "role defaults resolve to none (is migration 20260929a applied?)")
+    return set((_role_defaults_cache['value'] or {}).get(role, set()))
 
 
 def principal_holds_permission(permission: str) -> bool:
@@ -979,7 +1023,8 @@ def principal_holds_permission(permission: str) -> bool:
 
       1. admin / service  -> always true, denials never consulted
       2. explicit denial  -> false
-      3. role defaults | team grants | individual grants -> membership
+      3. role defaults | individual grants -> membership
+      4. team ceiling (TASK-31) -> the permission must also be inside it, when there is one
 
     One implementation on purpose. This arithmetic had already been written out three times
     (here, the matrix API, the frontend PermissionContext) and the copies disagreed - see
@@ -993,11 +1038,104 @@ def principal_holds_permission(permission: str) -> bool:
         return False
 
     allowed = (
-        ROLE_DEFAULT_PERMISSIONS.get(user_role, set())
-        | set(getattr(request, 'user_team_permissions', []) or [])
+        role_default_permissions(user_role)
         | set(getattr(request, 'user_permissions', []) or [])
     )
-    return permission in allowed
+    if permission not in allowed:
+        return False
+    ceiling = getattr(request, 'user_team_ceiling', None)
+    return ceiling is None or permission in set(ceiling)
+
+
+def team_ceiling_claim(app_meta: dict) -> Optional[list]:
+    """The `team_ceiling` claim: a list, or None for "no limit".
+
+    None also when the claim is absent — a token minted before the claim existed must not be
+    read as "allowed nothing". The old `team_permissions` claim meant *extra grants*, a
+    different thing, and is deliberately not read.
+    """
+    value = (app_meta or {}).get('team_ceiling')
+    return list(value) if isinstance(value, list) else None
+
+
+def caller_is_admin() -> bool:
+    """Is the current principal an admin (or the service key)?"""
+    return getattr(request, 'user_role', None) in ADMIN_ROLES
+
+
+def ungrantable_permissions(permissions) -> list:
+    """Of `permissions`, the ones the caller could not hand out: those they do not hold.
+
+    org.users:edit / org.teams:* / org.roles:edit can be given to non-admins, and each is a
+    way to hand out permissions (a user grant, a team's permissions or membership, a role's
+    defaults). Without this check any of them is a path to every permission — grant it to
+    your own team or role. Admins and the service key hold everything, so nothing is
+    ungrantable for them.
+    """
+    if caller_is_admin():
+        return []
+    return sorted(p for p in set(permissions or []) if not principal_holds_permission(p))
+
+
+def role_rank(role: Optional[str]) -> int:
+    """Rank of `role` (0 = admin). Anything unknown ranks below every real role."""
+    return ROLE_RANK.get(role or '', len(ROLE_RANK))
+
+
+def forbid_role_assignment(current_role: Optional[str], new_role: Optional[str]):
+    """A 403 when the caller may not touch a user holding `current_role` or give `new_role`.
+
+    Admins and the service key may do anything. Anyone else only works on users ranked
+    strictly below themselves and only hands out roles ranked strictly below themselves, so a
+    manager can never create, promote or edit an admin or another manager. `None` skips a side
+    (a new user has no current role; an edit that leaves the role alone has no new one).
+    """
+    if caller_is_admin():
+        return None
+    own = role_rank(getattr(request, 'user_role', None))
+    for role, what in ((current_role, 'edit a user whose role is'), (new_role, 'give the role')):
+        if role is not None and role_rank(role) <= own:
+            return jsonify({
+                'error': 'Forbidden',
+                'message': f"You cannot {what} '{role}': it is not below your own role",
+            }), 403
+    return None
+
+
+def org_scope_team_ids() -> Optional[set]:
+    """The teams whose people the caller may see and manage, or None for "every team".
+
+    Admins and the service key are not limited. Anyone else (a manager) works inside the teams
+    they belong to. The default team is left out as soon as they belong to another one:
+    every account lands in it at signup, so counting it would put everybody in scope
+    (TASK-31, decision 5). Fails closed: default teams unreadable -> only non-default
+    membership can't be told apart, so the caller's scope is empty.
+    """
+    if caller_is_admin():
+        return None
+    own = set(_caller_team_ids())
+    from shared.src.lib.database import teams_db
+    defaults = teams_db.get_default_team_ids()
+    if defaults is None:
+        return set()
+    return own - defaults if own - defaults else own
+
+
+def in_org_scope(team_ids, scope: Optional[set]) -> bool:
+    """Is a user in `team_ids` inside `scope` (from org_scope_team_ids)?"""
+    return scope is None or bool({str(t) for t in (team_ids or [])} & scope)
+
+
+def forbid_escalation(permissions, action: str):
+    """A 403 response when the caller may not grant `permissions`, else None."""
+    missing = ungrantable_permissions(permissions)
+    if not missing:
+        return None
+    return jsonify({
+        'error': 'Forbidden',
+        'message': f'You cannot {action}: it grants permissions you do not hold',
+        'permissions': missing,
+    }), 403
 
 
 def require_permission(permission: str) -> Callable:
@@ -1107,7 +1245,7 @@ def optional_user_auth(f: Callable) -> Callable:
                 request.user_metadata = meta
                 request.user_app_metadata = app_meta
                 request.user_permissions = app_meta.get('permissions', [])
-                request.user_team_permissions = app_meta.get('team_permissions', [])
+                request.user_team_ceiling = team_ceiling_claim(app_meta)
                 request.user_denied_permissions = app_meta.get('denied_permissions', [])
 
             except Exception as e:
@@ -1192,7 +1330,7 @@ def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
         request.user_role = 'service'
         request.user_metadata = {'service_api_key': True}
         request.user_permissions = []
-        request.user_team_permissions = []
+        request.user_team_ceiling = None
         request.user_denied_permissions = []
         return None
 
@@ -1222,7 +1360,7 @@ def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
         request.user_role = _get_server_public_role()
         request.user_metadata = {'server_open_mode': True}
         request.user_permissions = []
-        request.user_team_permissions = []
+        request.user_team_ceiling = None
         request.user_denied_permissions = []
         return None
 
@@ -1245,7 +1383,7 @@ def enforce_user_auth_if_enabled_for_request() -> Optional[tuple]:
         request.user_role = _get_server_public_role()
         request.user_metadata = {'server_public_key': True}
         request.user_permissions = []
-        request.user_team_permissions = []
+        request.user_team_ceiling = None
         request.user_denied_permissions = []
         return None
 

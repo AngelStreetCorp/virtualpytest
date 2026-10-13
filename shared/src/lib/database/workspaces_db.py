@@ -4,8 +4,13 @@ Workspaces Database Operations
 This module provides functions for managing workspaces in the database.
 Workspaces are named scoped contexts that restrict a user's permissions,
 devices, and project visibility.
+
+Several servers can share one database (vpt-pi1's RPI1-server reads the same Supabase as
+Awesomation), so a workspace belongs to the server that created it: `server_name` holds that
+server's SERVER_NAME, and a server lists, reads and edits only its own workspaces.
 """
 
+import os
 import re
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -15,6 +20,16 @@ from shared.src.lib.utils.supabase_utils import get_supabase_client
 def get_supabase():
     """Get the Supabase client instance."""
     return get_supabase_client()
+
+def this_server_name() -> Optional[str]:
+    """This server's SERVER_NAME, or None when it has none (then it owns no workspace)."""
+    return (os.getenv('SERVER_NAME') or '').strip() or None
+
+
+def _visible_here(workspace: Dict) -> bool:
+    owner = this_server_name()
+    return owner is not None and workspace.get('server_name') == owner
+
 
 def _make_slug(name: str) -> str:
     """Generate a URL-safe slug from a workspace name."""
@@ -28,6 +43,8 @@ def get_all_workspaces() -> List[Dict]:
 
         workspaces = []
         for workspace in result.data:
+            if not _visible_here(workspace):
+                continue
             count_result = supabase.table('workspace_members')\
                 .select('id', count='exact')\
                 .eq('workspace_id', workspace['id'])\
@@ -46,6 +63,7 @@ def get_all_workspaces() -> List[Dict]:
                 'project_tags': workspace.get('project_tags', []),
                 'hidden_pages': workspace.get('hidden_pages', []),
                 'is_public': workspace.get('is_public', False),
+                'server_name': workspace.get('server_name'),
                 'member_count': member_count,
                 'created_at': workspace['created_at'],
                 'updated_at': workspace['updated_at'],
@@ -62,7 +80,7 @@ def get_workspace(workspace_id: str) -> Optional[Dict]:
     try:
         result = supabase.table('workspaces').select('*').eq('id', workspace_id).single().execute()
 
-        if result.data:
+        if result.data and _visible_here(result.data):
             workspace = result.data
             count_result = supabase.table('workspace_members')\
                 .select('id', count='exact')\
@@ -82,6 +100,7 @@ def get_workspace(workspace_id: str) -> Optional[Dict]:
                 'project_tags': workspace.get('project_tags', []),
                 'hidden_pages': workspace.get('hidden_pages', []),
                 'is_public': workspace.get('is_public', False),
+                'server_name': workspace.get('server_name'),
                 'member_count': member_count,
                 'created_at': workspace['created_at'],
                 'updated_at': workspace['updated_at'],
@@ -92,28 +111,39 @@ def get_workspace(workspace_id: str) -> Optional[Dict]:
         return None
 
 class DuplicateSlugError(Exception):
-    """A workspace with this slug already exists (unique violation on workspaces.slug)."""
+    """This server already has a workspace with this slug (unique per server, not per database)."""
 
     def __init__(self, slug: str):
         self.slug = slug
-        super().__init__(f"A workspace with slug '{slug}' already exists")
+        super().__init__(f"A workspace with slug '{slug}' already exists on this server")
+
+
+class NoServerNameError(Exception):
+    """This server has no SERVER_NAME, so a workspace it created would belong to no server."""
+
+    def __init__(self):
+        super().__init__("This server has no SERVER_NAME set, so it cannot own a workspace")
 
 
 def _is_duplicate_slug(error: Exception) -> bool:
-    """True for postgres 23505 on the workspaces_slug_key constraint.
+    """True for postgres 23505 on the workspaces_server_name_slug_key constraint.
 
     postgrest reports it as a dict-ish payload on the exception, so match on the code and
     the constraint name in the string form rather than on an exception type.
     """
     text = str(error)
-    return '23505' in text and 'workspaces_slug_key' in text
+    return '23505' in text and 'workspaces_server_name_slug_key' in text
 
 
 def create_workspace(data: Dict) -> Optional[Dict]:
     """Create a new workspace.
 
-    Raises DuplicateSlugError when the slug is taken; returns None for any other failure.
+    Raises DuplicateSlugError when the slug is taken, NoServerNameError when this server has no
+    SERVER_NAME to own it; returns None for any other failure.
     """
+    owner = this_server_name()
+    if owner is None:
+        raise NoServerNameError()
     supabase = get_supabase()
     try:
         name = data['name']
@@ -130,6 +160,7 @@ def create_workspace(data: Dict) -> Optional[Dict]:
         for field in ('permissions', 'denied_permissions', 'device_filter', 'script_filter', 'project_tags', 'hidden_pages', 'is_public'):
             if field in data:
                 insert_data[field] = data[field]
+        insert_data['server_name'] = owner   # always this server: callers never choose the owner
 
         result = supabase.table('workspaces').insert(insert_data).execute()
 
@@ -147,6 +178,7 @@ def create_workspace(data: Dict) -> Optional[Dict]:
                 'project_tags': workspace.get('project_tags', []),
                 'hidden_pages': workspace.get('hidden_pages', []),
                 'is_public': workspace.get('is_public', False),
+                'server_name': workspace.get('server_name'),
                 'member_count': 0,
                 'created_at': workspace['created_at'],
                 'updated_at': workspace['updated_at'],
@@ -196,6 +228,7 @@ def update_workspace(workspace_id: str, data: Dict) -> Optional[Dict]:
                 'project_tags': workspace.get('project_tags', []),
                 'hidden_pages': workspace.get('hidden_pages', []),
                 'is_public': workspace.get('is_public', False),
+                'server_name': workspace.get('server_name'),
                 'member_count': member_count,
                 'created_at': workspace['created_at'],
                 'updated_at': workspace['updated_at'],

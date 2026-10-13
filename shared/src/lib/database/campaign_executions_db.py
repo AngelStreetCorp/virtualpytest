@@ -19,6 +19,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import chunked_in
 
 
 def get_supabase():
@@ -249,17 +250,12 @@ def reconcile_stale_campaign_executions(
 
             result_ids = [str(value) for value in (campaign.get('script_result_ids') or [])]
             expected_scripts = len(campaign.get('script_configurations') or [])
-            script_rows = []
-            if result_ids:
-                for offset in range(0, len(result_ids), 200):
-                    response = (
-                        supabase.table('script_results')
-                        .select('id, success, execution_time_ms, completed_at')
-                        .eq('team_id', team_id)
-                        .in_('id', result_ids[offset:offset + 200])
-                        .execute()
-                    )
-                    script_rows.extend(response.data or [])
+            script_rows = chunked_in(
+                lambda chunk: supabase.table('script_results')
+                .select('id, success, execution_time_ms, completed_at')
+                .eq('team_id', team_id)
+                .in_('id', chunk),
+                result_ids)
 
             all_scripts_final = (
                 bool(script_rows)
@@ -329,15 +325,10 @@ def get_campaign_execution_with_scripts(campaign_execution_id: str) -> Optional[
         campaign = campaign_result.data[0]
         script_result_ids = campaign.get('script_result_ids', [])
         
-        # Get all linked script results (batched to avoid 414 URI Too Long)
-        script_results = []
-        if script_result_ids:
-            BATCH_SIZE = 50
-            for i in range(0, len(script_result_ids), BATCH_SIZE):
-                batch = script_result_ids[i:i + BATCH_SIZE]
-                scripts_result = supabase.table('script_results').select('*').in_('id', batch).execute()
-                if scripts_result.data:
-                    script_results.extend(scripts_result.data)
+        # Get all linked script results (chunked to avoid 414 URI Too Long)
+        script_results = chunked_in(
+            lambda chunk: supabase.table('script_results').select('*').in_('id', chunk),
+            script_result_ids or [])
         
         campaign['script_results'] = script_results
         return campaign
@@ -409,14 +400,10 @@ def get_campaign_results(
 
         scripts_by_id: Dict[str, Any] = {}
         if all_ids:
-            # 200 UUIDs ≈ 7.4KB of query string, well under typical 8KB proxy limits.
-            BATCH_SIZE = 200
-            unique_ids = list(set(all_ids))
-            for i in range(0, len(unique_ids), BATCH_SIZE):
-                batch = unique_ids[i:i + BATCH_SIZE]
-                script_response = supabase.table('script_results').select(script_columns).in_('id', batch).execute()
-                for s in script_response.data or []:
-                    scripts_by_id[s['id']] = s
+            for s in chunked_in(
+                    lambda chunk: supabase.table('script_results').select(script_columns).in_('id', chunk),
+                    set(all_ids)):
+                scripts_by_id[s['id']] = s
 
         enriched_campaigns = []
         for campaign in campaign_result.data:

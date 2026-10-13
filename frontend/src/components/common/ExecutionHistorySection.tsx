@@ -19,6 +19,7 @@ import ExecutionHistoryTable, {
   getExecutionHistoryStatusChip,
 } from './ExecutionHistoryTable';
 import type { RerunPayload } from '../../types/common/Rerun_Types';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface ExecutionHistorySectionProps {
   title: string;
@@ -64,6 +65,8 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
   titleExtra,
   tableSx,
 }) => {
+  const P = useAgentChatPalette();
+  const titleSx = { fontSize: '1rem', fontWeight: 600 };
   const content = rows.length === 0 ? (
     <Box
       sx={{
@@ -147,7 +150,7 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
   );
 
   return (
-    <Card sx={cardSx}>
+    <Card variant="outlined" sx={{ borderRadius: 3, borderColor: P.borderColor, ...(cardSx as object) }}>
       <CardContent sx={contentSx}>
         {collapsible ? (
           <>
@@ -158,7 +161,7 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
               <IconButton size="small" sx={{ mr: 0.5, p: 0.25 }}>
                 {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
               </IconButton>
-              <Typography variant="h6">{title}</Typography>
+              <Typography sx={titleSx}>{title}</Typography>
               {titleExtra ? (
                 <Box sx={{ ml: 'auto' }} onClick={(e) => e.stopPropagation()}>{titleExtra}</Box>
               ) : null}
@@ -170,7 +173,7 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
         ) : (
           <>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, flexWrap: 'wrap' }}>
-              <Typography variant="h6">{title}</Typography>
+              <Typography sx={titleSx}>{title}</Typography>
               {titleExtra ? <Box sx={{ ml: 'auto' }}>{titleExtra}</Box> : null}
             </Box>
             {content}

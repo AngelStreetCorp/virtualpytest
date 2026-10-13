@@ -14,7 +14,10 @@ export interface RecModalModesState {
 export interface RecModalModesActions {
   setShowRemote: Dispatch<SetStateAction<boolean>>;
   setShowWeb: Dispatch<SetStateAction<boolean>>;
-  handleToggleRemote: () => void;
+  // handleToggleRemote was removed — the Show/Hide Remote button was dropped from
+  // the toolbar because the panel auto-shows when control is taken and auto-hides
+  // when control is released (see the useEffect below). The panel itself still
+  // reads `showRemote`; only the user-facing toggle is gone.
   handleToggleWeb: () => void;
   handleToggleMonitoring: () => void;
   handleToggleAiAgent: () => void;
@@ -41,6 +44,8 @@ export const useRecModalModes = (
   const [isLiveMode, setIsLiveMode] = useState<boolean>(true);
   const { showWarning } = useToast();
 
+  const remoteBeforeAiRef = useRef<boolean>(false);
+
   const prevControlActiveRef = useRef<boolean>(isControlActive);
   useEffect(() => {
     if (isControlActive && !prevControlActiveRef.current) {
@@ -52,14 +57,6 @@ export const useRecModalModes = (
     }
     prevControlActiveRef.current = isControlActive;
   }, [isControlActive, isDesktopDevice]);
-
-  const handleToggleRemote = useCallback(() => {
-    if (!isControlActive) {
-      showWarning('Please take control of the device first');
-      return;
-    }
-    setShowRemote((prev) => !prev);
-  }, [isControlActive, showWarning]);
 
   const handleToggleWeb = useCallback(() => {
     if (!isControlActive) {
@@ -85,15 +82,19 @@ export const useRecModalModes = (
       showWarning('Please take control of the device first to enable AI agent');
       return;
     }
-    setAiAgentMode((prev) => {
-      const newMode = !prev;
-      if (newMode) {
-        setMonitoringMode(false);
-        setRestartMode(false);
-      }
-      return newMode;
-    });
-  }, [isControlActive, showWarning]);
+    const newMode = !aiAgentMode;
+    if (newMode) {
+      setMonitoringMode(false);
+      setRestartMode(false);
+      // The AI prompt panel sits top-right over the remote: hide the remote while it is
+      // open and bring it back on close if it was showing.
+      remoteBeforeAiRef.current = showRemote;
+      setShowRemote(false);
+    } else if (remoteBeforeAiRef.current) {
+      setShowRemote(true);
+    }
+    setAiAgentMode(newMode);
+  }, [isControlActive, showWarning, aiAgentMode, showRemote]);
 
   const handleToggleRestart = useCallback(() => {
     if (!isControlActive) {
@@ -145,7 +146,6 @@ export const useRecModalModes = (
     isLiveMode,
     setShowRemote,
     setShowWeb,
-    handleToggleRemote,
     handleToggleWeb,
     handleToggleMonitoring,
     handleToggleAiAgent,

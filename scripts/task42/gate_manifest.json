@@ -1,0 +1,254 @@
+{
+  "base_sha": "origin/main",
+  "candidate_sha": "HEAD",
+  "test_environment": "codebox local: disposable Postgres 15 (unix socket), venv, vite preview + Playwright with intercepted API",
+  "scope": [
+    "setup/db/schema/061_run_management.sql",
+    "setup/db/schema/062_run_management_permissions.sql",
+    "setup/db/migrations/20261005a_run_management.sql",
+    "setup/db/migrations/20261005b_run_management_permissions.sql",
+    "shared/src/lib/database/run_management_db.py",
+    "backend_server/src/routes/server_run_management_routes.py",
+    "backend_server/src/routes/server_run_share_routes.py",
+    "backend_server/src/routes/server_live_routes.py",
+    "frontend/src/pages/RunSummary.tsx",
+    "frontend/src/hooks/reports/runManagementApi.ts",
+    "frontend/src/types/reports/index.ts",
+    "frontend/src/App.tsx",
+    "frontend/src/pages/TestReports.tsx",
+    "shared/src/lib/executors/campaign_executor.py"
+  ],
+  "worker_commits": [
+    "task42-w1a-data:5a81bba4e",
+    "task42-w1b-api:ab31cf7da",
+    "task42-w1c-ui:c31e490a0",
+    "task42-r1-core:6bfd604f9",
+    "task42-r2-services:b61311ede",
+    "task42-r3-ui:22cfac4a2"
+  ],
+  "migration_files": [
+    "setup/db/migrations/20261005a_run_management.sql",
+    "setup/db/migrations/20261005b_run_management_permissions.sql"
+  ],
+  "catalog_tables": [
+    "run_groups",
+    "run_milestones",
+    "run_label_definitions",
+    "script_result_labels",
+    "testcase_labels",
+    "script_results",
+    "defects",
+    "defect_script_results",
+    "run_share_snapshots",
+    "custom_reports",
+    "manual_sessions",
+    "manual_session_steps",
+    "run_group_rerun_requests",
+    "defect_jira_pushes",
+    "testcase_definitions",
+    "role_permissions"
+  ],
+  "fixture_ids": [
+    "scripts/task42/upgrade_fixture.sql (teams 4a420000-\u2026-a1 / -b1, 40 script_results, 1 campaign execution, 1 testcase)"
+  ],
+  "required_capabilities": [
+    "TASK42_PG_BIN",
+    "TASK42_PY",
+    "frontend/node_modules (+ vitest no-save)",
+    "tests/e2e/playwright/node_modules"
+  ],
+  "stub_allowlist": [],
+  "test_commands": [
+    {
+      "name": "pytest_task42_unit_and_routes",
+      "cmd": [
+        "$TASK42_PY",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-rs",
+        "tests/backend_server/test_run_management_db.py",
+        "tests/backend_server/test_run_management_routes.py",
+        "tests/backend_server/test_defects.py",
+        "tests/backend_server/test_share.py",
+        "tests/backend_server/test_quality.py",
+        "tests/backend_server/test_quality_metrics.py",
+        "tests/backend_server/test_tql.py",
+        "tests/backend_server/test_custom_reports.py",
+        "tests/backend_server/test_manual.py",
+        "tests/backend_server/test_live.py"
+      ],
+      "env": {
+        "SERVER_URL": "http://127.0.0.1:9"
+      },
+      "fail_on_skip": true,
+      "covers": [
+        "summary",
+        "governance",
+        "group-rerun",
+        "defects",
+        "quality",
+        "share",
+        "reports",
+        "manual",
+        "live"
+      ]
+    },
+    {
+      "name": "pytest_task42_postgres",
+      "cmd": [
+        "$TASK42_PY",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-rs",
+        "tests/backend_server/test_run_management_pg.py",
+        "tests/backend_server/test_run_services_pg.py"
+      ],
+      "env": {
+        "SERVER_URL": "http://127.0.0.1:9"
+      },
+      "fail_on_skip": true,
+      "covers": [
+        "schema",
+        "rls",
+        "governance",
+        "manual",
+        "defects",
+        "share"
+      ]
+    },
+    {
+      "name": "pytest_regression_auth_permissions_campaign",
+      "cmd": [
+        "$TASK42_PY",
+        "-m",
+        "pytest",
+        "-q",
+        "-p",
+        "no:cacheprovider",
+        "-rs",
+        "-m",
+        "unit",
+        "tests/backend_server/test_auth_guard.py",
+        "tests/backend_server/test_permission_resolution.py",
+        "tests/backend_server/test_access_ceilings.py",
+        "tests/backend_server/test_permission_escalation.py",
+        "tests/backend_server/test_campaign_virtual_script_steps.py"
+      ],
+      "env": {
+        "SERVER_URL": "http://127.0.0.1:9"
+      },
+      "fail_on_skip": true,
+      "covers": [
+        "regression"
+      ]
+    },
+    {
+      "name": "frontend_tsc",
+      "cmd": [
+        "./node_modules/.bin/tsc",
+        "--noEmit"
+      ],
+      "cwd": "frontend",
+      "covers": [
+        "frontend"
+      ]
+    },
+    {
+      "name": "frontend_vitest_full",
+      "cmd": [
+        "./node_modules/.bin/vitest",
+        "run",
+        "--config",
+        "../tests/frontend/vitest.config.ts"
+      ],
+      "cwd": "frontend",
+      "timeout_sec": 2400,
+      "fail_on_skip": false,
+      "covers": [
+        "frontend",
+        "regression"
+      ],
+      "baseline_failures": [
+        "tests/frontend/Models.test.tsx",
+        "tests/frontend/RunTests.test.tsx",
+        "tests/frontend/TrainingReview.test.tsx"
+      ],
+      "baseline_cmd": [
+        "./node_modules/.bin/vitest",
+        "run",
+        "--config",
+        "../tests/frontend/vitest.config.ts"
+      ],
+      "baseline_sparse": [
+        "/frontend/",
+        "/tests/frontend/",
+        "/features/",
+        "/shared/src/config/"
+      ],
+      "baseline_links": [
+        "frontend/node_modules",
+        "tests/node_modules"
+      ],
+      "baseline_link_target": "frontend/node_modules"
+    },
+    {
+      "name": "frontend_vite_build",
+      "cmd": [
+        "./node_modules/.bin/vite",
+        "build"
+      ],
+      "cwd": "frontend",
+      "timeout_sec": 1800,
+      "covers": [
+        "frontend"
+      ]
+    },
+    {
+      "name": "playwright_task42_mocked_api",
+      "cmd": [
+        "bash",
+        "scripts/task42/run_playwright.sh"
+      ],
+      "timeout_sec": 900,
+      "covers": [
+        "summary",
+        "share",
+        "export",
+        "regression"
+      ]
+    },
+    {
+      "name": "python_compile_all_changed",
+      "cmd": [
+        "$TASK42_PY",
+        "-m",
+        "compileall",
+        "-q",
+        "backend_server/src",
+        "shared/src",
+        "backend_host/src"
+      ],
+      "covers": [
+        "backend"
+      ]
+    },
+    {
+      "name": "leak_gate_range",
+      "cmd": [
+        "bash",
+        "scripts/security/leak_gate.sh",
+        "--range",
+        "origin/main..HEAD"
+      ],
+      "covers": [
+        "security"
+      ]
+    }
+  ]
+}

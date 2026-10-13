@@ -9,14 +9,15 @@ read values off a captured frame because the image never reaches the next turn.
 
 import base64
 import logging
-import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional, Tuple
 
 import requests
 
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
+from shared.src.lib.utils.build_url_utils import call_host
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
+from shared.src.lib.utils import cv2_io
 
 logger = logging.getLogger(__name__)
 
@@ -25,16 +26,56 @@ logger = logging.getLogger(__name__)
 # blow up the MCP payload).
 _MAX_EMBED_BYTES = 2 * 1024 * 1024  # 2 MB
 
+
+def _host_name_from_url(screenshot_url: str) -> Optional[str]:
+    """`/host/<name>/stream/...` -> `<name>`; None for any other shape."""
+    parts = [p for p in screenshot_url.split('?', 1)[0].split('/') if p]
+    if len(parts) >= 3 and parts[0] == 'host' and parts[2] == 'stream':
+        return parts[1]
+    return None
+
+
+def _fetch_screenshot_bytes(screenshot_url: str, host_name: Optional[str] = None) -> Tuple[Optional[bytes], Optional[str]]:
+    """Fetch a capture's bytes. Returns (bytes, None) or (None, reason).
+
+    A relative `/host/<name>/stream/...` URL is fetched from that host with call_host() —
+    the host answers the nginx-shaped path itself and accepts the service key. An absolute
+    URL (cloud storage) is fetched as-is, with TLS verification on.
+    """
+    if not screenshot_url:
+        return None, "no screenshot URL"
+    try:
+        if screenshot_url.startswith(('http://', 'https://')):
+            resp = requests.get(screenshot_url, timeout=10, allow_redirects=True)
+            if resp.status_code == 200 and resp.content:
+                return resp.content, None
+            return None, f"HTTP {resp.status_code} from {screenshot_url}"
+
+        name = _host_name_from_url(screenshot_url) or host_name
+        if not name:
+            return None, f"cannot tell which host serves {screenshot_url}"
+        from backend_server.src.lib.utils.server_utils import get_host_manager
+        host_info = get_host_manager().get_host(name)
+        if not host_info:
+            return None, f"host {name} is not registered"
+        content, status = call_host(host_info, screenshot_url, method='GET', timeout=10, raw_response=True)
+        if status == 200 and isinstance(content, (bytes, bytearray)) and content:
+            return bytes(content), None
+        detail = content.get('error') if isinstance(content, dict) else ''
+        return None, f"HTTP {status} from host {name}{': ' + detail if detail else ''}"
+    except Exception as e:  # noqa: BLE001 — embed is best-effort, reported to the caller
+        return None, f"{type(e).__name__}: {e}"
+
 # Vision-LLM (VLM) dispatcher
 # ------------------------------------------------------------------
 # The capture pipeline injects a text description of the frame alongside the
 # JPEG so the calling chat LLM can reason about focus / popups / low-contrast
 # values without needing native multimodal support. The chat LLM (Atlas) and
-# the VLM are DECOUPLED — the VLM is picked independently via VLM_PROVIDER.
+# the VLM are DECOUPLED — the VLM is the AI route for usage ``vision.screenshot``
+# (TASK-30), picked independently of the agent's model in Settings → AI.
 #
-# This lets us pair any tool-calling chat LLM (Minimax, Claude, OpenAI,
-# OpenRouter-hosted models) with any vision backend (Minimax VLM, OCR-only
-# tesseract fallback, future: Gemini/Claude Haiku/self-hosted Florence-2).
+# When the AI call fails, the local tesseract OCR description below is used
+# instead (no focus/popup reasoning, but never unavailable).
 #
 # Each provider returns the description as 4 labelled sections (a)/(b)/(c)/(d)
 # so the pack's observation rules ("read focused item from (b)") are provider-agnostic.
@@ -86,7 +127,7 @@ def _ocr_advanced(image_bytes: bytes) -> str:
         best_variant = ""
         for name, variant in variants:
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
-                cv2.imwrite(tmp.name, variant)
+                cv2_io.imwrite(tmp.name, variant)
                 tmp_path = tmp.name
             try:
                 result = subprocess.run(
@@ -123,37 +164,6 @@ _VLM_PROMPT = (
     "white labels (e.g. version numbers, IDs). If there are none, say 'no fields'."
 )
 
-_VLM_TIMEOUT = int(os.environ.get("VLM_TIMEOUT_SECONDS", "15"))
-
-# ---- Per-provider adapters ---------------------------------------------------
-
-_MINIMAX_VLM_URL = "https://api.minimax.io/v1/coding_plan/vlm"
-
-
-def _vlm_minimax(image_bytes: bytes) -> str | None:
-    api_key = os.environ.get("MINIMAX_API_KEY")
-    if not api_key:
-        return None
-    try:
-        b64 = base64.b64encode(image_bytes).decode("ascii")
-        resp = requests.post(
-            _MINIMAX_VLM_URL,
-            json={"prompt": _VLM_PROMPT, "image_url": f"data:image/jpeg;base64,{b64}"},
-            headers={"content-type": "application/json", "authorization": f"Bearer {api_key}"},
-            timeout=_VLM_TIMEOUT,
-        )
-        if resp.status_code != 200:
-            logger.warning("vlm[minimax] HTTP %s: %s", resp.status_code, resp.text[:200])
-            return None
-        content = (resp.json() or {}).get("content")
-        if not isinstance(content, str) or not content.strip():
-            return None
-        return content.strip()[:1500]
-    except Exception as err:
-        logger.warning("vlm[minimax] failed: %s", err)
-        return None
-
-
 def _vlm_tesseract(image_bytes: bytes) -> str | None:
     """
     OCR-only fallback. No focus / popup reasoning — just the raw text.
@@ -161,10 +171,8 @@ def _vlm_tesseract(image_bytes: bytes) -> str | None:
     but (b) always reports 'no focus' (tesseract doesn't see colour indicators),
     and (d) gets the full OCR dump as LABEL: VALUE guesses where possible.
 
-    Use this when VLM_PROVIDER is unset, when upstream VLM APIs are unreachable,
-    or for pack steps that genuinely only need verbatim text (e.g. the About
-    modal — which ironically doesn't work with tesseract-only on Example because
-    the values are gray-on-dark, but works fine on high-contrast screens).
+    Used when the vision.screenshot AI call fails (endpoint unreachable, no key,
+    empty answer).
     """
     try:
         import io
@@ -188,164 +196,31 @@ def _vlm_tesseract(image_bytes: bytes) -> str | None:
         return None
 
 
-def _vlm_openai(image_bytes: bytes) -> str | None:
+def _describe_via_vlm(image_bytes: bytes, team_id: str | None = None) -> tuple[str | None, str]:
     """
-    OpenAI chat completions with vision (GPT-4o, GPT-4o-mini). Model selected
-    via OPENAI_VLM_MODEL (default gpt-4o-mini: fast + cheap + good on UI).
+    Describe a frame with the ``vision.screenshot`` AI route; tesseract OCR if that fails.
+
+    Returns (text, source_label) — the label goes into the Vision block so the agent
+    logs / JSONL trace make the VLM source explicit.
     """
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        return None
-    model = os.environ.get("OPENAI_VLM_MODEL", "gpt-4o-mini")
-    try:
-        b64 = base64.b64encode(image_bytes).decode("ascii")
-        resp = requests.post(
-            "https://api.openai.com/v1/chat/completions",
-            json={
-                "model": model,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": _VLM_PROMPT},
-                        {"type": "image_url",
-                         "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                    ],
-                }],
-                "max_tokens": 500,
-            },
-            headers={"Authorization": f"Bearer {api_key}", "content-type": "application/json"},
-            timeout=_VLM_TIMEOUT,
-        )
-        if resp.status_code != 200:
-            logger.warning("vlm[openai] HTTP %s: %s", resp.status_code, resp.text[:200])
-            return None
-        content = resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
-        return content.strip()[:1500] if content.strip() else None
-    except Exception as err:
-        logger.warning("vlm[openai] failed: %s", err)
-        return None
+    from shared.src.lib.ai import gateway
 
-
-def _vlm_anthropic(image_bytes: bytes) -> str | None:
-    """Anthropic Messages API (Claude Haiku by default — fast + cheap)."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        return None
-    model = os.environ.get("ANTHROPIC_VLM_MODEL", "claude-haiku-4-5-20251001")
-    try:
-        b64 = base64.b64encode(image_bytes).decode("ascii")
-        resp = requests.post(
-            "https://api.anthropic.com/v1/messages",
-            json={
-                "model": model,
-                "max_tokens": 500,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {"type": "image",
-                         "source": {"type": "base64", "media_type": "image/jpeg", "data": b64}},
-                        {"type": "text", "text": _VLM_PROMPT},
-                    ],
-                }],
-            },
-            headers={
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-                "content-type": "application/json",
-            },
-            timeout=_VLM_TIMEOUT,
-        )
-        if resp.status_code != 200:
-            logger.warning("vlm[anthropic] HTTP %s: %s", resp.status_code, resp.text[:200])
-            return None
-        blocks = resp.json().get("content") or []
-        text = "".join(b.get("text", "") for b in blocks if b.get("type") == "text")
-        return text.strip()[:1500] if text.strip() else None
-    except Exception as err:
-        logger.warning("vlm[anthropic] failed: %s", err)
-        return None
-
-
-def _vlm_gemini(image_bytes: bytes) -> str | None:
-    """Google Gemini (Gemini 2.5 Flash default — strong latency, good on UI)."""
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        return None
-    model = os.environ.get("GEMINI_VLM_MODEL", "gemini-2.5-flash")
-    try:
-        b64 = base64.b64encode(image_bytes).decode("ascii")
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
-        resp = requests.post(
-            url,
-            json={
-                "contents": [{
-                    "parts": [
-                        {"text": _VLM_PROMPT},
-                        {"inline_data": {"mime_type": "image/jpeg", "data": b64}},
-                    ]
-                }],
-                "generationConfig": {"maxOutputTokens": 500},
-            },
-            headers={"content-type": "application/json"},
-            timeout=_VLM_TIMEOUT,
-        )
-        if resp.status_code != 200:
-            logger.warning("vlm[gemini] HTTP %s: %s", resp.status_code, resp.text[:200])
-            return None
-        cands = resp.json().get("candidates") or []
-        if not cands:
-            return None
-        parts = (cands[0].get("content") or {}).get("parts") or []
-        text = "".join(p.get("text", "") for p in parts)
-        return text.strip()[:1500] if text.strip() else None
-    except Exception as err:
-        logger.warning("vlm[gemini] failed: %s", err)
-        return None
-
-
-# ---- Dispatcher --------------------------------------------------------------
-
-_VLM_PROVIDERS = {
-    "minimax":   _vlm_minimax,
-    "tesseract": _vlm_tesseract,
-    "openai":    _vlm_openai,
-    "anthropic": _vlm_anthropic,
-    "gemini":    _vlm_gemini,
-}
-
-
-def _describe_via_vlm(image_bytes: bytes) -> tuple[str | None, str]:
-    """
-    Dispatch to the VLM backend selected by the VLM_PROVIDER env var.
-    Default: 'minimax' (the provider we validated end-to-end).
-
-    Returns (text, provider_label) — label goes into the Vision block so the
-    agent logs / JSONL trace make the VLM source explicit.
-
-    Fallback chain: if the primary provider returns None (API unreachable,
-    no API key, empty response), optionally fall back to VLM_PROVIDER_FALLBACK
-    (e.g. 'tesseract' always works because it's local and needs no key).
-    """
-    primary = os.environ.get("VLM_PROVIDER", "minimax").lower().strip()
-    fallback = os.environ.get("VLM_PROVIDER_FALLBACK", "").lower().strip() or None
-
-    fn = _VLM_PROVIDERS.get(primary)
-    if fn is None:
-        logger.warning("vlm: unknown VLM_PROVIDER=%r, valid=%s", primary, list(_VLM_PROVIDERS))
-        fn = _vlm_minimax
-        primary = "minimax"
-
-    text = fn(image_bytes)
-    if text:
-        return text, primary
-
-    if fallback and fallback in _VLM_PROVIDERS and fallback != primary:
-        logger.info("vlm: primary=%s returned None, trying fallback=%s", primary, fallback)
-        text = _VLM_PROVIDERS[fallback](image_bytes)
-        if text:
-            return text, f"{fallback}(fallback from {primary})"
-
-    return None, primary
+    result = gateway.complete(
+        "vision.screenshot",
+        _VLM_PROMPT,
+        image_b64=base64.b64encode(image_bytes).decode("ascii"),
+        media_type="image/jpeg",
+        max_tokens=500,
+        temperature=0.0,
+        team_id=team_id,
+    )
+    if result.get("success") and result.get("content"):
+        # Packs/skills match the historical 'Vision (minimax vlm)' tag.
+        label = "minimax vlm" if result.get("provider_used") == "minimax_vlm" else result.get("profile") or "vlm"
+        return result["content"].strip()[:1500], label
+    logger.warning("vlm[vision.screenshot] failed: %s — falling back to tesseract", result.get("error"))
+    text = _vlm_tesseract(image_bytes)
+    return (text, "tesseract(fallback)") if text else (None, "vision.screenshot")
 
 
 class ScreenshotTools:
@@ -373,7 +248,7 @@ class ScreenshotTools:
                 'device_id': str (REQUIRED - device identifier),
                 'host_name': str (OPTIONAL - host name where device is connected),
                 'include_ui_dump': bool (OPTIONAL - include UI hierarchy dump),
-                'vlm': bool (OPTIONAL - if true, include a concise vision description from Minimax VLM. Adds up to 3s latency. Default false. Use true at navigation CHECKPOINTS when you need focus/popup info the OCR cannot see (e.g. which tab is underlined red). Do NOT use between every key press.)
+                'vlm': bool (OPTIONAL - if true, include a concise vision description from the vision.screenshot AI route. Adds up to 3s latency. Default false. Use true at navigation CHECKPOINTS when you need focus/popup info the OCR cannot see (e.g. which tab is underlined red). Do NOT use between every key press.)
             }
 
         Returns:
@@ -425,44 +300,25 @@ class ScreenshotTools:
         # Without this, Atlas's vision capability is effectively disabled —
         # every 'what's on screen?' question is backfilled by hallucination.
         #
-        # The screenshot_url is a relative nginx path like
-        #   /host/<host_name>/stream/<capture_dir>/captures/<file>
-        # served by nginx (NOT by the backend_server itself on port 5109).
-        # Try local URL options in order; first hit wins.
+        # The screenshot_url is a relative path like /host/<host_name>/stream/<dev>/captures/<file>.
+        # It used to be fetched from https://localhost — the server VM's own nginx — which does
+        # not exist where the server runs without one (production: connection refused, so no
+        # image ever reached the caller, BUG-0388). The host serves that exact path itself
+        # (host_stream_routes, service key accepted), so fetch it from the host via call_host().
         image_block = None
         fetch_error: str | None = None
-        candidate_urls = []
-        if screenshot_url.startswith('http'):
-            candidate_urls.append(screenshot_url)
-        else:
-            candidate_urls.extend([
-                f"https://localhost{screenshot_url}",  # nginx (every VM) — primary
-                f"http://localhost{screenshot_url}",   # in case nginx didn't redirect
-            ])
-        last_status: str = "no candidate URL"
-        for url in candidate_urls:
-            try:
-                # Only the local nginx uses a self-signed cert; keep TLS verification
-                # on for any absolute (possibly remote) screenshot URL.
-                verify_tls = not url.startswith('https://localhost')
-                img_resp = requests.get(url, timeout=10, verify=verify_tls, allow_redirects=True)
-                if img_resp.status_code == 200 and img_resp.content:
-                    if len(img_resp.content) > _MAX_EMBED_BYTES:
-                        fetch_error = (
-                            f"image too large to embed ({len(img_resp.content)} bytes > {_MAX_EMBED_BYTES})"
-                        )
-                    else:
-                        image_block = {
-                            "type": "image",
-                            "data": base64.b64encode(img_resp.content).decode('ascii'),
-                            "mimeType": "image/jpeg",
-                        }
-                    break
-                last_status = f"HTTP {img_resp.status_code} from {url}"
-            except Exception as e:
-                last_status = f"{type(e).__name__} from {url}: {e}"
-        if image_block is None and fetch_error is None:
-            fetch_error = last_status
+        image_bytes, fetch_error = _fetch_screenshot_bytes(screenshot_url, host_name)
+        if image_bytes is not None:
+            if len(image_bytes) > _MAX_EMBED_BYTES:
+                fetch_error = (
+                    f"image too large to embed ({len(image_bytes)} bytes > {_MAX_EMBED_BYTES})"
+                )
+            else:
+                image_block = {
+                    "type": "image",
+                    "data": base64.b64encode(image_bytes).decode('ascii'),
+                    "mimeType": "image/jpeg",
+                }
 
         if fetch_error:
             response_text += f"\n⚠ Image embed failed: {fetch_error} — caller can still GET the URL directly."
@@ -499,18 +355,12 @@ class ScreenshotTools:
             # highlights) that tesseract cannot see. OPT-IN via `vlm: true`
             # param because of 3–15 s latency per call. Agents should only
             # request it at navigation checkpoints where focus info actually
-            # matters, not between every key press. Provider is decoupled from
-            # the chat LLM — select via VLM_PROVIDER env var. Default: minimax.
+            # matters, not between every key press. The model is decoupled from
+            # the chat LLM — AI route for usage vision.screenshot.
             if want_vlm:
                 try:
-                    vlm_text, vlm_provider = _describe_via_vlm(img_bytes)
+                    vlm_text, tag = _describe_via_vlm(img_bytes, team_id)
                     if vlm_text:
-                        # NOTE: pack/skill text matches against the string
-                        # 'Vision (minimax vlm)' historically. The new format
-                        # writes the actual provider label AND keeps a
-                        # backward-compatible 'minimax vlm' tag when the
-                        # provider IS minimax, so old packs still recognize it.
-                        tag = "minimax vlm" if vlm_provider == "minimax" else vlm_provider
                         response_text += (
                             f"\n\n--- Vision ({tag}) ---\n"
                             f"{vlm_text}\n"

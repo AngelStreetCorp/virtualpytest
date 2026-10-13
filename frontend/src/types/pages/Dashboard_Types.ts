@@ -12,14 +12,31 @@ export interface SystemStats {
   cpu_percent: number;
   memory_percent: number;
   disk_percent: number;
+  // The fullest monitored mount, not necessarily `/` — hosts keep captures,
+  // references and reports on their own filesystem, which is the one that fills.
+  disk_worst_mount?: string | null;
   platform: string;
   architecture: string;
+  // What the vpt-host process is actually running on vs the machine underneath.
+  // A Windows PC running vpt-host in Docker Desktop reports platform 'Linux'
+  // (the container kernel), so the card shows `physical_platform` + a Docker
+  // badge instead of the misleading bare "Linux". Absent on hosts that predate
+  // the detection — the card falls back to `platform` alone.
+  physical_platform?: string;
+  in_container?: boolean;
+  container_runtime?: string | null;
+  is_wsl?: boolean;
+  os_mismatch?: boolean;
   python_version?: string;
   cpu_temperature_celsius?: number;  // CPU temperature (optional, only on supported hardware)
   hardware_encode?: boolean;  // VAAPI H.264 hardware encode available → enables the HD+ stream tier
+  archive_video?: boolean;  // host keeps the 24h review buffer (ARCHIVE_VIDEO); false disables Last 24h
   load_average_1m?: number;
   load_average_5m?: number;
   load_average_15m?: number;
+  // Capture write throughput, from get_host_system_stats / get_enhanced_system_stats.
+  // The backend has always sent this; it was simply never declared here.
+  disk_write_mb_per_sec?: number;
   uptime_seconds?: number;
   download_mbps?: number;
   upload_mbps?: number;

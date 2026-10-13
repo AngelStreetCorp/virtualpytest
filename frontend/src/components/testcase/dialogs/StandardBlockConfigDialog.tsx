@@ -27,6 +27,7 @@ import {
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 
 import { StyledDialog } from '../../common/StyledDialog';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 // Available variable for insertion
 interface AvailableVariable {
@@ -71,6 +72,10 @@ export const StandardBlockConfigDialog: React.FC<StandardBlockConfigDialogProps>
   onCancel,
   availableVariables = [],
 }) => {
+  const P = useAgentChatPalette();
+  // The resolved variable value is a categorical "value" marker — steel blue
+  // reads in both themes and never gets confused with a status colour.
+  const valueColor = P.series[1];
   // Initialize form data from initial values or defaults
   const [formData, setFormData] = useState<Record<string, any>>(() => {
     const initial: Record<string, any> = {};
@@ -290,7 +295,7 @@ export const StandardBlockConfigDialog: React.FC<StandardBlockConfigDialogProps>
                   <Typography variant="body2" sx={{ display: 'flex', gap: 0.5 }}>
                     <Box component="span" sx={{ color: 'text.disabled' }}>|</Box>
                     <Box component="span" sx={{ color: 'text.secondary' }}>{resolvedVar.type}</Box>
-                    <Box component="span" sx={{ color: 'info.main' }}>= {JSON.stringify(resolvedVar.value)}</Box>
+                    <Box component="span" sx={{ color: valueColor }}>= {JSON.stringify(resolvedVar.value)}</Box>
                   </Typography>
                 </InputAdornment>
               ) : undefined
@@ -394,7 +399,7 @@ export const StandardBlockConfigDialog: React.FC<StandardBlockConfigDialogProps>
                   <Typography variant="body2">
                     {v.name}: <Box component="span" sx={{ color: 'text.secondary' }}>{v.type}</Box>
                     {v.value !== undefined && v.value !== '' && (
-                      <Box component="span" sx={{ color: 'info.main' }}> = {JSON.stringify(v.value)}</Box>
+                      <Box component="span" sx={{ color: valueColor }}> = {JSON.stringify(v.value)}</Box>
                     )}
                   </Typography>
                 </MenuItem>
@@ -411,7 +416,7 @@ export const StandardBlockConfigDialog: React.FC<StandardBlockConfigDialogProps>
                   <Typography variant="body2">
                     {v.name}: <Box component="span" sx={{ color: 'text.secondary' }}>{v.type}</Box>
                     {v.value !== undefined && (
-                      <Box component="span" sx={{ color: 'info.main' }}> = {JSON.stringify(v.value)}</Box>
+                      <Box component="span" sx={{ color: valueColor }}> = {JSON.stringify(v.value)}</Box>
                     )}
                   </Typography>
                 </MenuItem>
@@ -428,7 +433,7 @@ export const StandardBlockConfigDialog: React.FC<StandardBlockConfigDialogProps>
                   <Typography variant="body2">
                     {v.name}: <Box component="span" sx={{ color: 'text.secondary' }}>{v.type}</Box>
                     {v.value !== undefined && (
-                      <Box component="span" sx={{ color: 'info.main' }}> = {JSON.stringify(v.value)}</Box>
+                      <Box component="span" sx={{ color: valueColor }}> = {JSON.stringify(v.value)}</Box>
                     )}
                   </Typography>
                 </MenuItem>
@@ -464,7 +469,7 @@ export const StandardBlockConfigDialog: React.FC<StandardBlockConfigDialogProps>
                     <Typography variant="body2">
                       {v.name}: <Box component="span" sx={{ color: 'text.secondary' }}>{v.type}</Box>
                       {v.value !== undefined && (
-                        <Box component="span" sx={{ color: 'info.main' }}> = {JSON.stringify(v.value)}</Box>
+                        <Box component="span" sx={{ color: valueColor }}> = {JSON.stringify(v.value)}</Box>
                       )}
                     </Typography>
                   </MenuItem>

@@ -5,7 +5,8 @@ Handles Redis queue operations supporting both:
 - Upstash Redis REST API (cloud)
 - Local Redis TCP connection (self-hosted)
 
-Processes tasks in priority order: P1 (alerts) → P2 (scripts) → P3 (reserved)
+Queues: p2_scripts (script results for vpt-discard-scripts), p3_reserved.
+Alerts are not queued: vpt-discard-incidents polls the alerts table (nightwatch_handler.py).
 """
 
 import requests
@@ -18,10 +19,8 @@ from datetime import datetime
 class RedisQueueProcessor:
     """Queue processor supporting both Upstash REST API and local Redis"""
 
-    MAX_QUEUED_PER_DEVICE = 5  # Max alerts queued per device to prevent unbounded growth
-
     def __init__(self):
-        self.queues = ['p1_alerts', 'p2_scripts', 'p3_reserved']
+        self.queues = ['p2_scripts', 'p3_reserved']
         self.redis_mode = None
 
         # Unified Redis configuration - auto-detect based on URL format
@@ -75,15 +74,18 @@ class RedisQueueProcessor:
                 password = parsed.password or redis_password
                 db = int(parsed.path.strip('/')) if parsed.path and parsed.path != '/' else 0
                 
-                self.redis_client = redis.Redis(
+                self._redis_kwargs = dict(
                     host=host,
                     port=port,
                     password=password,
                     db=db,
                     decode_responses=True,
+                    ssl=(parsed.scheme == 'rediss')
+                )
+                self.redis_client = redis.Redis(
+                    **self._redis_kwargs,
                     socket_timeout=5,
                     socket_connect_timeout=5,
-                    ssl=(parsed.scheme == 'rediss')
                 )
                 print(f"[@redis_queue] Local Redis: {host}:{port} (db {db})")
                 return
@@ -163,90 +165,6 @@ class RedisQueueProcessor:
         else:
             print(f"[@redis_queue] Unknown Redis mode: {self.redis_mode}")
             return None
-    
-    def _evict_oldest_device_alerts(self, queue_name: str, host_name: str, device_id: str) -> int:
-        """Evict oldest alerts for a device when over per-device limit.
-
-        Reads the full queue, keeps only the most recent MAX_QUEUED_PER_DEVICE-1
-        alerts for this device (leaving room for the new one), rewrites the queue.
-        Returns number of evicted items.
-        """
-        try:
-            items_raw = self._redis_command(['LRANGE', queue_name, '0', '-1'])
-            if not items_raw or 'result' not in items_raw:
-                return 0
-
-            raw_items = items_raw['result']
-            # Parse all items and track which belong to this device
-            all_items = []  # (raw_string, parsed, is_this_device)
-            for raw in raw_items:
-                try:
-                    parsed = json.loads(raw) if isinstance(raw, str) else raw
-                except (json.JSONDecodeError, TypeError):
-                    all_items.append((raw if isinstance(raw, str) else json.dumps(raw), None, False))
-                    continue
-                data = parsed.get('data', {})
-                is_match = data.get('host_name') == host_name and data.get('device_id') == device_id
-                all_items.append((raw if isinstance(raw, str) else json.dumps(raw), parsed, is_match))
-
-            device_items = [i for i in all_items if i[2]]
-            if len(device_items) < self.MAX_QUEUED_PER_DEVICE:
-                return 0
-
-            # Keep only the newest MAX_QUEUED_PER_DEVICE-1 for this device
-            # Queue order: index 0 = newest (LPUSH), so device_items are already newest-first
-            keep_count = self.MAX_QUEUED_PER_DEVICE - 1
-            device_to_keep = set(id(item) for item in device_items[:keep_count])
-            evicted = len(device_items) - keep_count
-
-            # Rebuild queue: keep non-device items + kept device items, preserve order
-            kept_raw = []
-            for item in all_items:
-                if not item[2] or id(item) in device_to_keep:
-                    kept_raw.append(item[0])
-
-            # Atomic rewrite: DEL + re-push (RPUSH to preserve order since index 0 = newest)
-            self._redis_command(['DEL', queue_name])
-            if kept_raw:
-                for raw in reversed(kept_raw):
-                    self._redis_command(['LPUSH', queue_name, raw])
-
-            print(f"[@redis_queue] Evicted {evicted} oldest alerts for {host_name}/{device_id} (kept {keep_count})")
-            return evicted
-
-        except Exception as e:
-            print(f"[@redis_queue] Error evicting device alerts: {e}")
-            return 0
-
-    def add_alert_to_queue(self, alert_id: str, alert_data: Dict[str, Any]) -> bool:
-        """Add alert to p1 queue (highest priority), evicting oldest per-device alerts if over limit"""
-        try:
-            # Evict oldest alerts for this device if at limit
-            host_name = alert_data.get('host_name', '')
-            device_id = alert_data.get('device_id', '')
-            if host_name and device_id:
-                self._evict_oldest_device_alerts('p1_alerts', host_name, device_id)
-
-            task = {
-                'type': 'alert',
-                'id': alert_id,
-                'data': alert_data,
-                'created_at': datetime.now().isoformat(),
-                'priority': 1
-            }
-
-            result = self._redis_command(['LPUSH', 'p1_alerts', json.dumps(task)])
-
-            if result and result.get('result'):
-                print(f"[@redis_queue] Added alert {alert_id} to P1 queue")
-                return True
-            else:
-                print(f"[@redis_queue] Failed to add alert {alert_id} to queue")
-                return False
-
-        except Exception as e:
-            print(f"[@redis_queue] Error adding alert to queue: {e}")
-            return False
     
     def add_script_to_queue(self, script_id: str, script_data: Dict[str, Any]) -> bool:
         """Add script result to p2 queue"""
@@ -331,13 +249,21 @@ class RedisQueueProcessor:
     def health_check(self) -> bool:
         """Check if Redis connection is working"""
         try:
+            if self.redis_mode == 'local':
+                # One attempt, 2 s cap: redis-py >= 6 retries a failed connect 3 times by
+                # default, so an unreachable Redis host held /server/health for 12-20 s
+                # (BUG-0475). A health probe must answer fast, even when Redis is down.
+                import redis
+                from redis.backoff import NoBackoff
+                from redis.retry import Retry
+                probe = redis.Redis(**self._redis_kwargs, socket_timeout=2,
+                                    socket_connect_timeout=2, retry=Retry(NoBackoff(), 0))
+                try:
+                    return probe.ping() is True
+                finally:
+                    probe.close()
             result = self._redis_command(['PING'])
-            if self.redis_mode == 'upstash':
-                return result and result.get('result') == 'PONG'
-            elif self.redis_mode == 'local':
-                return result and result.get('result') == 'PONG'
-            else:
-                return False
+            return bool(result) and result.get('result') == 'PONG'
         except Exception as e:
             print(f"[@redis_queue] Health check failed: {e}")
             return False

@@ -70,6 +70,21 @@ vi.mock('../../frontend/src/hooks/useResponsiveMode', () => ({
   useResponsiveMode: () => ({ isMobile: false }),
 }));
 
+// The page reads the active workspace; useWorkspaceContext() throws outside a
+// WorkspaceProvider. Same module-level mock the other page suites use.
+vi.mock('../../frontend/src/contexts/workspace/WorkspaceContext', () => ({
+  WorkspaceProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useWorkspaceContext: () => ({
+    userWorkspaces: [],
+    activeWorkspace: null,
+    setActiveWorkspace: () => {},
+    isLoadingWorkspaces: false,
+    isDeviceAllowed: () => true,
+    isScriptAllowed: () => true,
+    isPathHidden: () => false,
+  }),
+}));
+
 import MonitoringAnalytics from '../../frontend/src/pages/MonitoringAnalytics';
 import { prefetchSection } from '../../frontend/src/hooks/pages/useAnalytics';
 

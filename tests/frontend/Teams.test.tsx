@@ -43,6 +43,21 @@ vi.mock('../../frontend/src/hooks/pages/useUsers', () => ({
   }),
 }));
 
+// This page gates UI on permissions via usePermissions() -> usePermissionContext(), which
+// throws outside a PermissionProvider. Mocked at the module boundary, the same way every
+// other provider in this suite is (see Dashboard.test.tsx), rather than wrapping the tree
+// in real providers that would then want a real session.
+vi.mock('../../frontend/src/contexts/auth/PermissionContext', () => ({
+  PermissionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  usePermissionContext: () => ({
+    role: 'admin',
+    permissions: ['*'],
+    hasRole: () => true,
+    hasPermission: () => true,
+    canAccess: () => true,
+  }),
+}));
+
 import Teams from '../../frontend/src/pages/Teams';
 
 describe('Teams page', () => {

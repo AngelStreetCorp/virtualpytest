@@ -36,6 +36,14 @@ if project_root not in sys.path:
 
 from shared.src.lib.executors.script_decorators import script, get_context, get_args, get_device
 
+# Script arguments - declared at module top because the backend param analyzer
+# only reads the first 300 lines of the file. Bound to main() at the bottom.
+_script_args = [
+    '--apk_name:str:',       # App key from APK_LIBRARY (optional)
+    '--apk_url:str:',        # Direct APK/XAPK download URL (optional)
+    '--package_name:str:',   # Package name (optional, for launch after install)
+]
+
 
 # ---------------------------------------------------------------------------
 # APK Library
@@ -81,6 +89,26 @@ APK_LIBRARY = {
         "apk_path": "/tmp/apks/netflix.apk",
         "targets": ["android_mobile", "android_tablet"],
         "notes": "Netflix uses split APKs. Download XAPK from apkpure.com and place at apk_path, or use --apk_url",
+    },
+    "clashofclans": {
+        "display_name": "Clash of Clans",
+        "package": "com.supercell.clashofclans",
+        # APKPure mirror — single APK, not a bundle. URL may rotate; verify before relying on it.
+        # If the URL 404s, the next mirror to try is APKMirror's
+        # https://www.apkmirror.com/apk/supercell/clash-of-clans/ download endpoint.
+        "download_url": "https://d.apkpure.net/b/APK/com.supercell.clashofclans?version=latest",
+        "apk_path": "/tmp/apks/clashofclans.apk",
+        "targets": ["android_mobile", "android_tablet"],
+        "notes": (
+            "TASK-81 §81.1 install_game sub-flow — Path B (ADB). Path A (HDMI-only "
+            "open_url + OCR-tap Install) is the v1 default and does not need this "
+            "entry; it exists so the install is reproducible on any ADB-protected slot. "
+            "Supercell's ToS forbids automation; the owner runs the bot against their "
+            "own Supercell ID only and accepts that the account may be banned (TASK-81 "
+            "§81.1 R1). First run shows 'App not installed' until any pre-existing "
+            "build is uninstalled — the mirror APK has a different signing key. See "
+            "docs/agent/devices/PLAYSTORE_INSTALL.md §3.1 for the clean sequence."
+        ),
     },
 }
 
@@ -542,11 +570,7 @@ def main():
 
 
 # Script arguments
-main._script_args = [
-    '--apk_name:str:',       # App key from APK_LIBRARY (optional)
-    '--apk_url:str:',        # Direct APK/XAPK download URL (optional)
-    '--package_name:str:',   # Package name (optional, for launch after install)
-]
+main._script_args = _script_args
 main._script_description = "Install an Android app via ADB if not present. Supports APK and XAPK (split APK) formats."
 main._arg_descriptions = {
     'apk_name': 'App key from APK library (e.g. vlc, netflix)',

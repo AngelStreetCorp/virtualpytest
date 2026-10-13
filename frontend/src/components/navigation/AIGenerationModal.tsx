@@ -14,7 +14,6 @@ import {
   CircularProgress
 } from '@mui/material';
 import {
-  SmartToy as AIIcon,
   Visibility as AnalyzeIcon,
   Navigation as NavigationIcon,
   Error as ErrorIcon,
@@ -22,6 +21,8 @@ import {
   CheckCircle as ValidateIcon,
   DeleteForever as AbortIcon
 } from '@mui/icons-material';
+
+import { AIIcon } from '../common/icons/CustomIcons';
 import { useGenerateModel } from '../../hooks/useGenerateModel';
 import { useAIGenerationModal } from '../../hooks/navigation/useAIGenerationModal';
 import { AIGenerationPhaseIndicator } from './AIGenerationPhaseIndicator';
@@ -29,6 +30,7 @@ import { Phase2IncrementalView } from './Phase2IncrementalView';
 import { ContextSummary } from './ContextSummary';
 import { StyledDialog } from '../common/StyledDialog';
 import { useR2Url } from '../../hooks/storage/useR2Url';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface AIGenerationModalProps {
   isOpen: boolean;
@@ -53,6 +55,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
   onCleanupTemp,
   onFinalized
 }) => {
+  const P = useAgentChatPalette();
   const {
     explorationId,
     explorationHostName,
@@ -142,6 +145,16 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
     });
     
     setEditedPlan({...plan, items: newItems, lines: newLines, duplicate_positions: newDuplicatePositions});
+  };
+
+  // Delete item from a click-based plan (mobile/web): it has no lines, so deleteItem's
+  // line rebuild would empty the whole list. The item also leaves the selection, which is
+  // what the host filters the plan by.
+  const deleteClickItem = (item: string) => {
+    const plan = editedPlan || explorationPlan;
+    if (!plan) return;
+    setEditedPlan({ ...plan, items: plan.items.filter((i: string) => i !== item) });
+    if (selectedNodes.has(item)) toggleNodeSelection(item);
   };
 
   // ✅ Initialize screen selection when exploration plan loads (default: all selected, excluding duplicates)
@@ -310,7 +323,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
     >
       <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
         <AIIcon />
-        AI Interface Generation
+        Build Map
         <Chip
           icon={getStatusIcon()}
           label={status.toUpperCase()}
@@ -377,7 +390,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                         maxHeight: '280px',
                         objectFit: 'contain',
                         borderRadius: '4px',
-                        border: '1px solid rgba(255, 255, 255, 0.12)',
+                        border: `1px solid ${P.borderColor}`,
                         transition: 'opacity 0.2s'
                       }}
                       onMouseOver={(e) => e.currentTarget.style.opacity = '0.8'}
@@ -385,7 +398,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                     />
                   </a>
                 ) : (
-                  <Box sx={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed rgba(255,255,255,0.3)', borderRadius: 1 }}>
+                  <Box sx={{ height: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px dashed ${P.borderColor}`, borderRadius: 1 }}>
                     <Typography variant="body2" color="text.secondary">No screenshot</Typography>
                   </Box>
                 )}
@@ -457,7 +470,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                     
                                     {/* Focus Layer Chips */}
                                     <Box sx={{ pl: 1, mb: 0.5 }}>
-                                      <Typography variant="caption" sx={{ color: 'primary.light', fontSize: '0.65rem' }}>
+                                      <Typography variant="caption" sx={{ color: P.accentText, fontSize: '0.65rem' }}>
                                         Focus:
                                       </Typography>
                                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
@@ -476,13 +489,13 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                                 sx={{
                                                   cursor: isDuplicate ? 'not-allowed' : 'pointer',
                                                   opacity: isDuplicate ? 0.7 : (isFocusSelected ? 1 : 0.4),
-                                                  bgcolor: isDuplicate ? 'rgba(244, 67, 54, 0.3)' : (isFocusSelected ? 'rgba(33, 150, 243, 0.2)' : 'transparent'),
-                                                  borderColor: isDuplicate ? 'error.main' : (isFocusSelected ? 'primary.main' : 'grey.600'),
+                                                  bgcolor: isDuplicate ? `${P.error}4d` : (isFocusSelected ? `${P.accent}33` : 'transparent'),
+                                                  borderColor: isDuplicate ? P.error : (isFocusSelected ? P.accent : P.borderColor),
                                                   borderWidth: isDuplicate ? '2px' : '1px',
                                                   fontSize: '0.65rem',
                                                   '&:hover': isDuplicate ? {} : {
                                                     opacity: 0.8,
-                                                    bgcolor: isFocusSelected ? 'rgba(33, 150, 243, 0.3)' : 'action.hover'
+                                                    bgcolor: isFocusSelected ? `${P.accent}4d` : P.hoverBg
                                                   }
                                                 }}
                                               />
@@ -514,13 +527,13 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                                 sx={{
                                                   cursor: isDuplicate ? 'not-allowed' : (isFocusSelected ? 'pointer' : 'not-allowed'),
                                                   opacity: isDuplicate ? 0.7 : ((isFocusSelected && isScreenSelected) ? 1 : 0.3),
-                                                  bgcolor: isDuplicate ? 'rgba(244, 67, 54, 0.3)' : ((isFocusSelected && isScreenSelected) ? 'rgba(76, 175, 80, 0.2)' : 'transparent'),
-                                                  borderColor: isDuplicate ? 'error.main' : ((isFocusSelected && isScreenSelected) ? 'success.main' : 'grey.700'),
+                                                  bgcolor: isDuplicate ? `${P.error}4d` : ((isFocusSelected && isScreenSelected) ? `${P.success}33` : 'transparent'),
+                                                  borderColor: isDuplicate ? P.error : ((isFocusSelected && isScreenSelected) ? P.success : P.borderColor),
                                                   borderWidth: isDuplicate ? '2px' : '1px',
                                                   fontSize: '0.65rem',
                                                   '&:hover': isDuplicate ? {} : (isFocusSelected ? {
                                                     opacity: 0.8,
-                                                    bgcolor: isScreenSelected ? 'rgba(76, 175, 80, 0.3)' : 'action.hover'
+                                                    bgcolor: isScreenSelected ? `${P.success}4d` : P.hoverBg
                                                   } : undefined)
                                                 }}
                                               />
@@ -564,16 +577,16 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                       size="small" 
                                       variant="outlined"
                                       onClick={isDuplicate ? undefined : () => toggleNodeSelection(item)}
-                                      onDelete={!isDuplicate ? () => deleteItem(0, idx) : undefined}
+                                      onDelete={!isDuplicate ? () => deleteClickItem(item) : undefined}
                                       sx={{ 
                                         cursor: isDuplicate ? 'not-allowed' : 'pointer',
                                         opacity: isDuplicate ? 0.7 : (isSelected ? 1 : 0.4),
-                                        bgcolor: isDuplicate ? 'rgba(244, 67, 54, 0.3)' : (isSelected ? 'primary.dark' : 'transparent'),
-                                        borderColor: isDuplicate ? 'error.main' : (isSelected ? 'primary.main' : 'grey.600'),
+                                        bgcolor: isDuplicate ? `${P.error}4d` : (isSelected ? P.accent : 'transparent'),
+                                        borderColor: isDuplicate ? P.error : (isSelected ? P.accent : P.borderColor),
                                         borderWidth: isDuplicate ? '2px' : '1px',
                                         '&:hover': isDuplicate ? {} : {
                                           opacity: 0.8,
-                                          bgcolor: isSelected ? 'primary.dark' : 'action.hover'
+                                          bgcolor: isSelected ? P.accent : P.hoverBg
                                         }
                                       }}
                                     />
@@ -613,16 +626,16 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                       sx={{ 
                                         mb: 0.5, 
                                         p: 1, 
-                                        bgcolor: isSelected ? 'rgba(25,118,210,0.08)' : 'rgba(255,255,255,0.02)', 
+                                        bgcolor: isSelected ? `${P.accent}14` : P.hoverBg, 
                                         borderRadius: 1, 
                                         border: '1px solid', 
-                                        borderColor: isSelected ? 'primary.main' : 'rgba(255,255,255,0.05)',
+                                        borderColor: isSelected ? P.accent : P.borderColor,
                                         opacity: isSelected ? 1 : 0.4,
                                         cursor: 'pointer',
                                         transition: 'all 0.2s',
                                         '&:hover': {
                                           opacity: 0.8,
-                                          bgcolor: isSelected ? 'rgba(25,118,210,0.12)' : 'rgba(255,255,255,0.05)'
+                                          bgcolor: isSelected ? `${P.accent}1f` : P.hoverBg
                                         }
                                       }}
                                       onClick={() => toggleEdgeSelection(item)}
@@ -656,16 +669,16 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                       sx={{ 
                                         mb: 0.5, 
                                         p: 1, 
-                                        bgcolor: isSelected ? 'rgba(25,118,210,0.08)' : 'rgba(255,255,255,0.02)', 
+                                        bgcolor: isSelected ? `${P.accent}14` : P.hoverBg, 
                                         borderRadius: 1, 
                                         border: '1px solid', 
-                                        borderColor: isSelected ? 'primary.main' : 'rgba(255,255,255,0.05)',
+                                        borderColor: isSelected ? P.accent : P.borderColor,
                                         opacity: isSelected ? 1 : 0.4,
                                         cursor: 'pointer',
                                         transition: 'all 0.2s',
                                         '&:hover': {
                                           opacity: 0.8,
-                                          bgcolor: isSelected ? 'rgba(25,118,210,0.12)' : 'rgba(255,255,255,0.05)'
+                                          bgcolor: isSelected ? `${P.accent}1f` : P.hoverBg
                                         }
                                       }}
                                       onClick={() => toggleEdgeSelection(item)}

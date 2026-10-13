@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
-import { api } from '../../utils/apiClient';
+import { api, apiClient } from '../../utils/apiClient';
 import { useSocket } from '../../contexts/SocketContext';
-import { APP_CONFIG } from '../../config/constants';
+import { useAuthContext } from '../../contexts/auth/AuthContext';
+import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
+import { useServerManager } from '../useServerManager';
+import { isAuthEnabled } from '../../lib/supabase';
+import { APP_CONFIG, getEnv } from '../../config/constants';
 import { AGENT_CHAT_LAYOUT } from '../../constants/agentChatTheme';
 import { dedupeEvents, getEventDedupKey } from '../../utils/agentChatUtils';
 
 // --- Constants ---
 
-const STORAGE_KEY_API = 'virtualpytest_ai_api_key';
-const STORAGE_KEY_PROVIDER = 'virtualpytest_ai_provider';
 const STORAGE_KEY_CONVERSATIONS = 'virtualpytest_agent_conversations';
 const STORAGE_KEY_ACTIVE_CONVERSATION = 'virtualpytest_active_conversation';
 
@@ -139,8 +141,17 @@ export const useAgentChat = () => {
 
   // Use centralized socket
   const { socket, connect, isConnected, initSession: sharedInitSession, joinSession, registerEventHandler, unregisterEventHandler, emitSendMessage: sharedEmitSendMessage, forceReconnect } = useSocket();
+  const { isLoading: isAuthLoading, isAuthenticated } = useAuthContext();
+  const { activeWorkspace } = useWorkspaceContext();
+  const { selectedServer, serverHostsData } = useServerManager();
 
-  console.log('[useAgentChat] Socket state:', { socket: !!socket, isConnected, socketConnected: socket?.connected });
+  // Socket lifecycle only. This used to sit in the hook body, so it fired on every render of
+  // AgentChatProvider (App.tsx) instead of on every socket transition — one console line per
+  // render across the whole app. Dependencies mirror the logged values.
+  const socketConnected = socket?.connected;
+  useEffect(() => {
+    console.log('[useAgentChat] Socket state:', { socket: !!socket, isConnected, socketConnected });
+  }, [socket, isConnected, socketConnected]);
 
   const clearDeviceControlPanel = useCallback(() => {
     const active = activeDeviceControlRef.current;
@@ -182,6 +193,9 @@ export const useAgentChat = () => {
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null); // Which conversation is awaiting response
   const [currentEvents, setCurrentEvents] = useState<AgentEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Message of the latest agent 'error' event (a failed tool call is recoverable: the agent
+  // carries on). It is shown immediately, then cleared once the turn recovers (see handleAgentEvent).
+  const recoverableErrorRef = useRef<string | null>(null);
   
   // API Key state
   const [apiKeyInput, setApiKeyInput] = useState('');
@@ -189,7 +203,7 @@ export const useAgentChat = () => {
   const [isValidating, setIsValidating] = useState(false);
   const [activeProvider, setActiveProvider] = useState('anthropic');
   const [activeModel, setActiveModel] = useState('');
-  const [activeKeyEnv, setActiveKeyEnv] = useState('ANTHROPIC_API_KEY');
+  const [activeEndpoint, setActiveEndpoint] = useState('');
   
   // Refs
   const processingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -370,6 +384,7 @@ export const useAgentChat = () => {
   const resetInFlightState = useCallback(() => {
     setIsProcessing(false);
     setError(null);
+    recoverableErrorRef.current = null;
     setCurrentEvents([]);
     sessionEndedRef.current = true;
     pendingConversationIdRef.current = null;
@@ -943,6 +958,10 @@ export const useAgentChat = () => {
       const isTerminal = event.type === 'session_ended' || event.type === 'complete';
       if (!isTerminal) {
         firstEventReceivedRef.current = true;
+        if (waitingNoticeRef.current) {
+          waitingNoticeRef.current = false;
+          setError(null); // clear our own "Waiting for the server…" notice
+        }
         if (ackRetryTimeoutRef.current) {
           clearTimeout(ackRetryTimeoutRef.current);
           ackRetryTimeoutRef.current = null;
@@ -963,6 +982,10 @@ export const useAgentChat = () => {
       // When AI successfully takes/releases control, notify parent to sync device state
       if (event.type === 'tool_result' && event.tool_name && event.success === true) {
         const toolName = event.tool_name.toLowerCase();
+        const artifact = (event.tool_result as any)?.artifact;
+        if (artifact?.content_type && onUIActionRef.current) {
+          onUIActionRef.current('show_content', artifact);
+        }
         
         // Check for take_control success (matches "take_control" or "mcp_virtualpytest_take_control")
         if (toolName === 'take_control' || toolName === 'mcp_virtualpytest_take_control') {
@@ -1014,7 +1037,7 @@ export const useAgentChat = () => {
               hostName = resultData.host_name || '';
               deviceId = resultData.device_id || 'device1';
             }
-          } catch (err) {
+          } catch {
             hostName = (event.tool_params?.host_name as string) || '';
             deviceId = (event.tool_params?.device_id as string) || 'device1';
           }
@@ -1151,6 +1174,16 @@ export const useAgentChat = () => {
         setSession(prev => prev ? { ...prev, mode: event.content.split(': ')[1] } : null);
       }
 
+      // The agent went on after a failed tool call (successful tool result or an answer): the
+      // earlier error banner is stale. The failed step itself stays in the message history.
+      // An error with no later success (turn failed) is never cleared here.
+      const recovered = (event.type === 'tool_result' && event.success !== false) || (event.type === 'message' && !!event.content);
+      if (recovered && recoverableErrorRef.current !== null) {
+        const stale = recoverableErrorRef.current;
+        recoverableErrorRef.current = null;
+        setError(prev => (prev === stale ? null : prev));
+      }
+
       // Accumulate events for current agent
       if (event.type !== 'session_ended' && event.type !== 'complete') {
         setCurrentEvents(prev => {
@@ -1218,7 +1251,9 @@ export const useAgentChat = () => {
       // Handle ERROR events immediately - show them to user right away
       if (event.type === 'error') {
         console.error('[@useAgentChat] Agent ERROR event:', event);
-        setError(event.content || 'An error occurred');
+        const message = event.content || 'An error occurred';
+        recoverableErrorRef.current = message;
+        setError(message);
         // Don't stop processing - some errors are recoverable
         // But show them immediately to the user
       }
@@ -1306,53 +1341,114 @@ export const useAgentChat = () => {
 
   // --- Check Connectivity & Auth ---
 
+  // Auth is "ready" once AuthContext has finished its initial pass: either a
+  // Supabase session was restored (or none exists) or the auto-sign token from
+  // ?auto_signed=<token> has been stored. AuthContext stores that token inside
+  // its own effect, which runs AFTER this hook's effects (children first), so
+  // firing the health call on mount raced it and always 401'd on prod.
+  // In open mode (no Supabase configured) nothing gates the call.
+  const isAuthReady = !isAuthEnabled || (!isAuthLoading && isAuthenticated);
+  const connectionCheckedRef = useRef(false);
+  // BUG-0350: the health check retries with bounded backoff while the server is down (restart /
+  // deploy), instead of freezing the page in 'error'. attemptHealthRef lets a socket reconnect
+  // trigger an immediate retry; it is null when no check is pending.
+  const healthRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const attemptHealthRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
+    if (!isAuthReady || connectionCheckedRef.current) return;
+    connectionCheckedRef.current = true;
+    let cancelled = false;
+    let attempt = 0;
+    let retrying = false;
+
+    const scheduleRetry = () => {
+      // 1,2,4,8,15,15… s — keep going while mounted, same spirit as the BUG-0340 send wait.
+      const delay = Math.min(1000 * 2 ** attempt, 15000);
+      attempt += 1;
+      retrying = true;
+      setStatus('checking');
+      setError('Reconnecting to the server…');
+      healthRetryTimerRef.current = setTimeout(() => {
+        healthRetryTimerRef.current = null;
+        checkConnection();
+      }, delay);
+    };
+
     const checkConnection = async () => {
+      if (cancelled) return;
       try {
-        const data = await api.get(buildServerUrl('/server/agent/health'));
-        setActiveProvider(data.provider || 'anthropic');
+        const response = await apiClient(buildServerUrl('/server/agent/health'), { method: 'GET' });
+        if (cancelled) return;
+        if (response.status === 401) {
+          // Auth was ready when we fired, so a 401 is a real credential problem
+          // (token rejected, session for another server, ...). Retrying will not
+          // change the answer — surface it once and stop.
+          console.warn('[useAgentChat] Agent health check rejected (401) - not retrying');
+          attemptHealthRef.current = null;
+          setStatus('error');
+          setError('Not authorized on this server - sign in again or select an authenticated server');
+          return;
+        }
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        if (cancelled) return;
+        attemptHealthRef.current = null;
+        if (retrying) setError(null); // clear our own "Reconnecting…" notice
+        retrying = false;
+        setActiveProvider(data.provider || '');
         setActiveModel(data.model || '');
-        setActiveKeyEnv(data.api_key_env || 'ANTHROPIC_API_KEY');
-        
+        setActiveEndpoint(data.endpoint || '');
+
+        // The endpoint key is a server-side secret (Settings → AI → Endpoints); the
+        // browser never stores or re-sends it.
         if (data.api_key_configured) {
           setStatus('ready');
           initializeSession();
         } else {
-          // Check if we have a saved key in localStorage
-          const savedKey = localStorage.getItem(STORAGE_KEY_API);
-          const savedProvider = localStorage.getItem(STORAGE_KEY_PROVIDER);
-          if (savedKey) {
-            // Send the saved key to backend
-            try {
-              const saveData = await api.post(buildServerUrl('/server/agent/api-key'), {
-                provider: savedProvider || data.provider || 'anthropic',
-                model: data.model || '',
-                api_key: savedKey,
-              });
-              if (saveData.success) {
-                setActiveProvider(saveData.provider || data.provider || 'anthropic');
-                setActiveModel(saveData.model || data.model || '');
-                setStatus('ready');
-                initializeSession();
-              } else {
-                setStatus('needs_key');
-              }
-            } catch (err) {
-              console.error('Failed to restore saved API key:', err);
-              setStatus('needs_key');
-            }
-          } else {
-            setStatus('needs_key');
-          }
+          setStatus('needs_key');
+          if (data.error) setError(data.error);
+          // Re-ask quietly: a key set elsewhere (Settings, another tab), or a one-off "no key"
+          // answer, must not leave the popup up until a reload.
+          healthRetryTimerRef.current = setTimeout(() => {
+            healthRetryTimerRef.current = null;
+            checkConnection();
+          }, 15000);
         }
       } catch (err) {
+        if (cancelled) return;
         console.error('Connection check failed:', err);
-        setStatus('error');
-        setError('Backend unavailable - check server connection');
+        if (healthRetryTimerRef.current) return; // a retry is already queued
+        scheduleRetry();
       }
     };
+
+    attemptHealthRef.current = () => {
+      if (!retrying || !healthRetryTimerRef.current) return;
+      clearTimeout(healthRetryTimerRef.current);
+      healthRetryTimerRef.current = null;
+      checkConnection();
+    };
     checkConnection();
-  }, [initializeSession]);
+
+    return () => {
+      cancelled = true;
+      attemptHealthRef.current = null;
+      if (healthRetryTimerRef.current) {
+        clearTimeout(healthRetryTimerRef.current);
+        healthRetryTimerRef.current = null;
+      }
+      connectionCheckedRef.current = false; // allow a StrictMode remount to start its own check
+    };
+  }, [isAuthReady, initializeSession]);
+
+  // Cheap recovery signal: the shared socket (re)connected while the health check is still
+  // retrying -> the server is back, check now instead of waiting out the backoff.
+  useEffect(() => {
+    if (isConnected) attemptHealthRef.current?.();
+  }, [isConnected]);
 
   // --- Actions ---
 
@@ -1366,24 +1462,33 @@ export const useAgentChat = () => {
     setError(null);
     
     try {
-      const data = await api.post(buildServerUrl('/server/agent/api-key'), {
-        provider: activeProvider,
-        model: activeModel,
-        api_key: apiKeyInput.trim(),
+      // Stores the key for the endpoint serving this agent (server default) after a live check.
+      const response = await apiClient(buildServerUrl('/server/agent/api-key'), {
+        method: 'POST',
+        body: JSON.stringify({ api_key: apiKeyInput.trim(), agent_id: agentIdRef.current || 'assistant' }),
       });
-      
-      if (data.success) {
-        // Also save to localStorage for persistence
-        localStorage.setItem(STORAGE_KEY_API, apiKeyInput.trim());
-        localStorage.setItem(STORAGE_KEY_PROVIDER, data.provider || activeProvider);
+      if (response.status === 403) {
+        setError('Only the platform admin can set AI keys (Settings → AI → Endpoints).');
+        setIsValidating(false);
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok && data.success) {
+        if (healthRetryTimerRef.current) {
+          clearTimeout(healthRetryTimerRef.current);
+          healthRetryTimerRef.current = null;
+        }
+        setApiKeyInput('');
         localStorage.setItem('virtualpytest_ai_status', 'ready');
         setActiveProvider(data.provider || activeProvider);
         setActiveModel(data.model || activeModel);
+        setActiveEndpoint(data.endpoint || activeEndpoint);
         setStatus('ready');
         setIsValidating(false);
         initializeSession();
       } else {
-        setError(data.error || 'Failed to validate API key');
+        setError(data.error || data.message || 'Failed to validate API key');
         setIsValidating(false);
       }
     } catch (err) {
@@ -1391,11 +1496,20 @@ export const useAgentChat = () => {
       setError('Failed to save API key - check server connection');
       setIsValidating(false);
     }
-  }, [activeModel, activeProvider, apiKeyInput, initializeSession]);
+  }, [activeEndpoint, activeModel, activeProvider, apiKeyInput, initializeSession]);
 
   // Track retry attempts to prevent infinite loops
   const sendMessageRetryCountRef = useRef(0);
-  const MAX_SEND_MESSAGE_RETRIES = 3;
+  const RECONNECT_WAIT_MS = 60_000;
+  const SESSION_CREATE_TIMEOUT_MS = 10_000;
+  const SLOW_NOTICE_MS = 3_000;
+  const reconnectWaitStartRef = useRef<number | null>(null);
+  // BUG-0401: a send is in its session-create step (blocks a second Enter from starting a parallel loop),
+  // and the "Waiting for the server…" notice (ack watchdog) is on screen.
+  const sendInFlightRef = useRef(false);
+  const waitingNoticeRef = useRef(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sendMessageRef = useRef<((m?: string) => Promise<void>) | null>(null);
 
   const sendMessage = useCallback(async (directMessage?: string) => {
     // Guard against being wired directly to onClick/onKeyDown — React would pass
@@ -1425,33 +1539,29 @@ export const useAgentChat = () => {
       return;
     }
 
-    if (!session?.id) {
-      console.error('[useAgentChat] sendMessage failed: no session');
-      setError('Session not initialized - please refresh the page');
-      return;
-    }
-
-    if (!socket || !isConnected || !socket.connected) {
-      console.error('[useAgentChat] sendMessage waiting for socket connection');
-      console.log('[useAgentChat] Ensuring socket connection before send...');
-
-      // Prevent infinite retry loops
-      if (sendMessageRetryCountRef.current >= MAX_SEND_MESSAGE_RETRIES) {
-        console.error('[useAgentChat] Max socket connection retries reached, giving up');
-        setError('Unable to establish socket connection. Please refresh the page and try again.');
-        sendMessageRetryCountRef.current = 0; // Reset for next attempt
+    // Server restart / network blip: the socket (and the session id after a re-init) is briefly
+    // unavailable. Keep the typed text and poll — through a ref to the LATEST sendMessage, a retry
+    // closing over this render's stale socket/isConnected could never see the reconnect — for up to
+    // RECONNECT_WAIT_MS, showing "Reconnecting…", then fail with a visible error.
+    if (!session?.id || !socket || !isConnected || !socket.connected) {
+      const startedAt = reconnectWaitStartRef.current ?? Date.now();
+      reconnectWaitStartRef.current = startedAt;
+      if (Date.now() - startedAt >= RECONNECT_WAIT_MS) {
+        reconnectWaitStartRef.current = null;
+        setError('Unable to reach the server. Your message was not sent — check the connection and press Enter to retry.');
         return;
       }
-
-      connect(); // Ensure socket exists / reconnects
-
-      // Wait a bit for socket creation, then retry with exponential backoff
-      const retryDelay = Math.min(500 * Math.pow(2, sendMessageRetryCountRef.current), 5000); // Max 5 seconds
-      sendMessageRetryCountRef.current++;
-
-      setTimeout(() => sendMessage(messageToSend), retryDelay);
+      if (!reconnectTimerRef.current) {
+        setError('Reconnecting to the server… your message will be sent as soon as it is back.');
+        connect(); // Ensure socket exists / reconnects
+        reconnectTimerRef.current = setTimeout(() => {
+          reconnectTimerRef.current = null;
+          sendMessageRef.current?.(messageToSend);
+        }, 1000);
+      }
       return;
     }
+    reconnectWaitStartRef.current = null;
 
     // Reset retry count on successful socket availability
     sendMessageRetryCountRef.current = 0;
@@ -1471,6 +1581,67 @@ export const useAgentChat = () => {
       setActiveConversationId(newConvo.id);
       activeConversationIdRef.current = newConvo.id; // Immediately update ref
       targetConvoId = newConvo.id;
+    }
+
+    // Ensure this conversation has its OWN backend session (parallel threads
+    // must not share one session: interleaved histories + one event room).
+    // Done BEFORE the bubble/pending state so a failure leaves the input intact for a resend.
+    let convSessionId = conversationSessionRef.current.get(targetConvoId);
+    if (!convSessionId) {
+      if (sendInFlightRef.current) return; // the first Enter is still creating the session
+      sendInFlightRef.current = true;
+      // BUG-0401: every request is bounded (SESSION_CREATE_TIMEOUT_MS) so a server that accepts the
+      // TCP connection but never answers (restart stuck in stop-sigterm) feeds the retry loop instead
+      // of hanging forever, and "Reconnecting…" shows once a try is slow (SLOW_NOTICE_MS), not only
+      // after it fails. Retries run inside the same RECONNECT_WAIT_MS budget as the socket wait.
+      const deadline = Date.now() + RECONNECT_WAIT_MS;
+      const NOTICE = 'Reconnecting to the server… your message will be sent as soon as it is back.';
+      const noticeTimer = setTimeout(() => setError(NOTICE), SLOW_NOTICE_MS);
+      let lastErr: unknown = null;
+      try {
+        for (let attempt = 0; !convSessionId && Date.now() < deadline; attempt++) {
+          if (attempt > 0) {
+            setError(NOTICE);
+            await new Promise((r) => setTimeout(r, Math.min(1000 * 2 ** (attempt - 1), 5000)));
+          }
+          const ctrl = new AbortController();
+          let hangTimer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const hang = new Promise<never>((_, reject) => {
+              hangTimer = setTimeout(() => { ctrl.abort(); reject(new Error('session create timed out')); }, SESSION_CREATE_TIMEOUT_MS);
+            });
+            const call = (async () => {
+              const resp = await fetch(buildServerUrl('/server/agent/sessions'), { method: 'POST', signal: ctrl.signal });
+              return { resp, data: await resp.json() };
+            })();
+            call.catch(() => {}); // the loser of the race must not surface as unhandled
+            const { resp, data } = await Promise.race([call, hang]);
+            if (data.success && data.session?.id) {
+              convSessionId = data.session.id as string;
+            } else {
+              lastErr = new Error(data.error || `HTTP ${resp.status}`);
+            }
+          } catch (e) {
+            lastErr = e;
+          } finally {
+            if (hangTimer) clearTimeout(hangTimer);
+          }
+        }
+      } finally {
+        clearTimeout(noticeTimer);
+        sendInFlightRef.current = false;
+      }
+      if (!convSessionId) {
+        console.error('[useAgentChat] Session create failed within budget', lastErr);
+        setError('Unable to reach the server. Your message was not sent — check the connection and press Enter to retry.');
+        return;
+      }
+      setError((prev) => (prev && prev.startsWith('Reconnecting') ? null : prev));
+      conversationSessionRef.current.set(targetConvoId, convSessionId);
+      sessionConversationRef.current.set(convSessionId, targetConvoId);
+      // Registered with SocketContext so the room survives a reconnect mid-answer:
+      // the reply is delivered to THIS session's room, not the shared one.
+      joinSession(convSessionId);
     }
 
     const userMsg: Message = {
@@ -1497,31 +1668,11 @@ export const useAgentChat = () => {
     setPendingConversationId(targetConvoId);
     pendingConvsRef.current.add(targetConvoId);
 
-    // Ensure this conversation has its OWN backend session (parallel threads
-    // must not share one session: interleaved histories + one event room).
-    let convSessionId = conversationSessionRef.current.get(targetConvoId);
-    if (!convSessionId) {
-      try {
-        const resp = await fetch(buildServerUrl('/server/agent/sessions'), { method: 'POST' });
-        const data = await resp.json();
-        if (data.success && data.session?.id) {
-          convSessionId = data.session.id as string;
-          conversationSessionRef.current.set(targetConvoId, convSessionId);
-          sessionConversationRef.current.set(convSessionId, targetConvoId);
-          // Registered with SocketContext so the room survives a reconnect mid-answer:
-          // the reply is delivered to THIS session's room, not the shared one.
-          joinSession(convSessionId);
-          console.log(`[useAgentChat] Created session ${convSessionId} for conversation ${targetConvoId}`);
-        }
-      } catch (e) {
-        console.warn('[useAgentChat] Per-conversation session create failed — falling back to shared session', e);
-      }
-    }
-
     setInput('');
     setIsProcessing(true);
     setCurrentEvents([]);
     setError(null);
+    recoverableErrorRef.current = null;
     sessionEndedRef.current = false; // Reset for new message - session is active
     // Sessions are reused across messages of a conversation, so the per-session
     // terminal guard must be re-armed on every send — otherwise this turn's
@@ -1549,15 +1700,28 @@ export const useAgentChat = () => {
 
     console.log('[useAgentChat] About to emit send_message via shared SocketContext');
 
+    // Never send a host that is not one of the selected server's hosts (stale Target after a server switch).
+    const serverHostNames = (serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.hosts || []).map((host) => host.host_name);
+    const hostInServer = !!hostNameRef.current && serverHostNames.includes(hostNameRef.current);
+
     const sendContext = {
+      // BUG-0401: one id per user send; the ack-watchdog resend carries the same id so the server
+      // processes the message once even when the first copy did arrive but its ack was lost.
+      client_msg_id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
       team_id: APP_CONFIG.DEFAULT_TEAM_ID,
       allow_auto_navigation: allowAutoNavigationRef.current,
       current_page: currentPageRef.current,
-      host_name: hostNameRef.current,
-      device_id: deviceIdRef.current,
+      host_name: hostInServer ? hostNameRef.current : '',
+      device_id: hostInServer ? deviceIdRef.current : '',
       userinterface_name: userinterfaceRef.current,
       testcase_id: (allowAutoNavigationRef as any).currentTestcaseId || '',
       campaign_id: (allowAutoNavigationRef as any).currentCampaignId || '',
+      workspace_id: activeWorkspace?.id || '',
+      selected_server: selectedServer || '',
+      selected_server_name: serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.server_info.server_name || '',
+      selected_server_hosts: serverHostNames,
+      // The app's own Grafana base: lets the answer carry a link that opens, whichever server answers.
+      grafana_base_url: getEnv('VITE_GRAFANA_URL'),
       available_devices: (allowAutoNavigationRef as any).availableDevices || [],
       available_userinterfaces: (allowAutoNavigationRef as any).availableUserinterfaces || [],
     };
@@ -1589,6 +1753,8 @@ export const useAgentChat = () => {
       if (firstEventReceivedRef.current || ackRetriedRef.current) return;
       ackRetriedRef.current = true;
       console.warn('[useAgentChat] No ack within 4s — recycling socket and resending');
+      waitingNoticeRef.current = true;
+      setError('Waiting for the server… your message will be re-sent automatically.');
       forceReconnect();
       // Reconnecting through the proxy/Cloudflare can take several seconds —
       // retry the resend until the socket is actually up (max ~9s, still well
@@ -1605,7 +1771,8 @@ export const useAgentChat = () => {
     }, 4000);
 
     console.log('[useAgentChat] Message sent to backend');
-  }, [input, isProcessing, session?.id, activeConversationId, socket, isConnected, connect, joinSession]);
+  }, [input, isProcessing, session?.id, activeConversationId, socket, isConnected, connect, joinSession, activeWorkspace?.id, selectedServer, serverHostsData]);
+  sendMessageRef.current = sendMessage;
 
   // Allow external code to set the agent
   const agentIdRef = useRef<string>('assistant');
@@ -1869,7 +2036,7 @@ export const useAgentChat = () => {
     isValidating,
     activeProvider,
     activeModel,
-    activeKeyEnv,
+    activeEndpoint,
     
     // Conversations
     conversations,

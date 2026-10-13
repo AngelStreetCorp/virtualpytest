@@ -12,6 +12,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CallMadeIcon from '@mui/icons-material/CallMade'; // ✅ NEW: Outgoing link icon
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 // ✅ NEW: Information about where this output is linked to
 interface LinkedTo {
@@ -38,6 +39,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
 }) => {
   // ✅ ALWAYS call hooks at the top level - before any early returns
   const { actualMode } = useTheme();
+  const P = useAgentChatPalette();
   const [expanded, setExpanded] = useState(false);
   const [copiedOutput, setCopiedOutput] = useState<string | null>(null);
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
@@ -127,14 +129,14 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
             : 'linear-gradient(135deg, rgba(249, 115, 22, 0.12) 0%, rgba(249, 115, 22, 0.06) 100%)',
           borderRadius: 1,
           border: '2px solid',
-          borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.4)' : 'rgba(249, 115, 22, 0.3)',
+          borderColor: `${P.warning}59`,
           boxShadow: actualMode === 'dark'
             ? '0 2px 8px rgba(249, 115, 22, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
             : '0 2px 8px rgba(249, 115, 22, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
           transition: 'all 0.2s ease-in-out',
           '&:hover': {
-            bgcolor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(249, 115, 22, 0.15)',
-            borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.6)' : 'rgba(249, 115, 22, 0.5)',
+            bgcolor: `${P.warning}29`,
+            borderColor: `${P.warning}80`,
             boxShadow: actualMode === 'dark'
               ? '0 4px 12px rgba(249, 115, 22, 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.15)'
               : '0 4px 12px rgba(249, 115, 22, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.6)',
@@ -147,7 +149,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
             Outputs ({blockOutputs.length})
           </Typography>
         </Box>
-        {expanded ? <ExpandLessIcon sx={{ fontSize: 16, color: '#f97316', flexShrink: 0 }} /> : <ExpandMoreIcon sx={{ fontSize: 16, color: '#f97316', flexShrink: 0 }} />}
+        {expanded ? <ExpandLessIcon sx={{ fontSize: 16, color: P.warning, flexShrink: 0 }} /> : <ExpandMoreIcon sx={{ fontSize: 16, color: P.warning, flexShrink: 0 }} />}
       </Box>
       
       <Collapse in={expanded}>
@@ -181,16 +183,13 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                 >
                   <Badge
                     badgeContent={getLinkCount(output.name)}
-                    color="warning" // ✅ Orange badge (not green)
-                    overlap="circular"
-                    anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
                     sx={{
                       flex: 1,
                       '& .MuiBadge-badge': {
                         fontSize: '0.6rem',
                         height: '16px',
                         minWidth: '16px',
-                        backgroundColor: '#f97316', // ✅ Orange (output color)
+                        backgroundColor: P.warning, // ✅ Orange (output color)
                         color: 'white',
                         fontWeight: 'bold',
                       }
@@ -278,13 +277,13 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                         fontSize: 16, 
                         height: 26,
                         flex: 1,
-                        bgcolor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.1)' : 'rgba(249, 115, 22, 0.08)',
-                        borderColor: '#f97316', // ✅ Always orange (output color)
+                        bgcolor: `${P.warning}1a`,
+                        borderColor: P.warning, // ✅ Always orange (output color)
                         borderWidth: getLinkCount(output.name) > 0 ? '2px' : '1px', // ✅ Thicker when linked
                         fontWeight: getLinkCount(output.name) > 0 ? 600 : 400, // ✅ Bolder when linked
                         cursor: blockId && onDragStart ? 'grab' : (hasValue ? 'pointer' : 'default'),
                         '&:hover': {
-                          bgcolor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(249, 115, 22, 0.15)',
+                          bgcolor: `${P.warning}29`,
                         },
                         '&:active': {
                           cursor: blockId && onDragStart ? 'grabbing' : (hasValue ? 'pointer' : 'default'),
@@ -301,9 +300,9 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                     onClick={(e) => handleCopyOutput(output, e)}
                     sx={{
                       padding: '2px',
-                      color: copiedOutput === output.name ? '#10b981' : '#f97316',
+                      color: copiedOutput === output.name ? P.success : P.warning,
                       '&:hover': {
-                        backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                        backgroundColor: `${P.warning}1a`,
                       },
                     }}
                   >
@@ -326,7 +325,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
           sx: {
             borderRadius: 2,
             border: '2px solid',
-            borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.5)' : 'rgba(249, 115, 22, 0.4)',
+            borderColor: `${P.warning}66`,
             background: actualMode === 'dark'
               ? 'linear-gradient(135deg, rgba(30, 30, 30, 0.98) 0%, rgba(40, 40, 40, 0.98) 100%)'
               : 'linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(248, 248, 248, 0.98) 100%)',
@@ -342,8 +341,8 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
               ? 'linear-gradient(135deg, rgba(30, 30, 30, 0.5) 0%, rgba(40, 40, 40, 0.5) 100%)'
               : 'linear-gradient(135deg, rgba(248, 248, 248, 0.5) 0%, rgba(255, 255, 255, 0.5) 100%)',
             borderBottom: '2px solid',
-            borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.3)' : 'rgba(249, 115, 22, 0.2)',
-            color: actualMode === 'dark' ? '#ffffff' : '#1f2937',
+            borderColor: `${P.warning}40`,
+            color: P.textPrimary,
             fontWeight: 600,
             fontSize: '1.1rem',
             py: 2,
@@ -364,9 +363,9 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                 fontWeight: 500,
                 textTransform: 'uppercase',
                 bgcolor: 'transparent',
-                color: actualMode === 'dark' ? '#ffffff' : '#1f2937',
+                color: P.textPrimary,
                 border: '1px solid',
-                borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.4)' : 'rgba(249, 115, 22, 0.3)',
+                borderColor: `${P.warning}59`,
               }}
             />
           )}
@@ -379,9 +378,9 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                 : 'linear-gradient(135deg, rgba(0, 0, 0, 0.05) 0%, rgba(240, 240, 240, 0.5) 100%)',
               borderRadius: 2,
               border: '1px solid',
-              borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(249, 115, 22, 0.15)',
+              borderColor: `${P.warning}33`,
               p: 2.5,
-              color: actualMode === 'dark' ? '#ffffff' : '#1f2937',
+              color: P.textPrimary,
               fontFamily: 'monospace',
               fontSize: '0.875rem',
               maxHeight: '400px',
@@ -419,7 +418,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
         <DialogActions
           sx={{
             borderTop: '1px solid',
-            borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.2)' : 'rgba(249, 115, 22, 0.15)',
+            borderColor: `${P.warning}33`,
             px: 3,
             py: 2,
             gap: 1,
@@ -436,11 +435,11 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
             }}
             variant="outlined"
             sx={{
-              borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.5)' : 'rgba(249, 115, 22, 0.4)',
-              color: actualMode === 'dark' ? '#ffffff' : '#1f2937',
+              borderColor: `${P.warning}66`,
+              color: P.textPrimary,
               '&:hover': {
-                borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.7)' : 'rgba(249, 115, 22, 0.6)',
-                backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                borderColor: `${P.warning}99`,
+                backgroundColor: `${P.warning}1a`,
               },
             }}
           >
@@ -450,11 +449,11 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
             onClick={() => setViewDialogOpen(false)}
             variant="outlined"
             sx={{
-              borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.5)' : 'rgba(249, 115, 22, 0.4)',
-              color: actualMode === 'dark' ? '#ffffff' : '#1f2937',
+              borderColor: `${P.warning}66`,
+              color: P.textPrimary,
               '&:hover': {
-                borderColor: actualMode === 'dark' ? 'rgba(249, 115, 22, 0.7)' : 'rgba(249, 115, 22, 0.6)',
-                backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                borderColor: `${P.warning}99`,
+                backgroundColor: `${P.warning}1a`,
               },
             }}
           >

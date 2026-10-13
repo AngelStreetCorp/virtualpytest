@@ -23,7 +23,7 @@ ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS team_id UUID REFERENCES tea
 
 -- provider_type: which platform the account is administered from. 'virtualpytest' for
 -- anyone created here; an external system provisioning over /server/users sends its own
--- name (e.g. 'dmacp'). NOT NULL + DEFAULT so no row is ever unattributable.
+-- name (e.g. 'idp'). NOT NULL + DEFAULT so no row is ever unattributable.
 ALTER TABLE public.profiles
   ADD COLUMN IF NOT EXISTS provider_type TEXT NOT NULL DEFAULT 'virtualpytest';
 ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_provider_type_not_blank;

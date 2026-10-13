@@ -1,0 +1,42 @@
+# Tello Wi-Fi — sudoers entry for the VirtualPyTest backend_host service user.
+#
+# The Tello pairing flow (`POST /host/drone/tello/pair`) has to put the host's
+# wireless device on the drone's access point. Changing a NetworkManager
+# connection is privileged: polkit lets any user *read* a Wi-Fi scan but
+# refuses `nmcli device wifi connect` with "Not authorized to control
+# networking", so vpt_user cannot do it on its own. Measured on vpt-pi4
+# 2026-10-12, where the route 500'd at stage "join" for exactly this reason.
+#
+# Scope is intentionally narrow:
+#   - only NetworkManager's Wi-Fi connect/rescan verbs; nmcli cannot read
+#     files or run programs through these, and no other network verb is
+#     allowed (no `con down`, no `con mod`, no `device wifi hotspot`)
+#   - the SSID argument is pinned to `TELLO-*`, so vpt_user cannot re-point
+#     the host at an arbitrary access point. The route additionally
+#     validates the SSID against `^TELLO-[0-9A-Fa-f]{6}$`
+#     (TELLO_SSID_RE in backend_host/src/routes/host_drone_routes.py) before
+#     it ever reaches this rule, and `_join_ap` passes the argument as a
+#     list element — no shell, no word splitting.
+#   - `device wifi connect` can still take the host off the network. On a
+#     host whose LAN is on Ethernet that costs nothing (eth0 keeps the
+#     default route); on a Pi whose LAN is on wlan0 the host loses its
+#     uplink until NetworkManager falls back. Installing this rule accepts
+#     that: pairing is an operator-initiated action on a device type the
+#     operator has already configured.
+#
+# Disable on a host with: sudo rm /etc/sudoers.d/tello-wifi
+#
+# Install on the host:
+#   sudo install -o root -g root -m 0440 \
+#       /opt/virtualpytest/setup/local/linux/backend_host/sudoers.d/tello-wifi \
+#       /etc/sudoers.d/tello-wifi
+#   sudo visudo -cf /etc/sudoers.d/tello-wifi   # syntax check
+#
+# Verify:
+#   sudo -u vpt_user sudo -n /usr/bin/nmcli device wifi rescan                  # should run
+#   sudo -u vpt_user sudo -n /usr/bin/nmcli device wifi connect TELLO-C5B142    # should run
+#   sudo -u vpt_user sudo -n /usr/bin/nmcli con down                           # should be REJECTED
+#   sudo -u vpt_user sudo -n /usr/bin/nmcli device wifi connect EvilNet        # should be REJECTED
+
+vpt_user ALL=(root) NOPASSWD: /usr/bin/nmcli device wifi rescan, /bin/nmcli device wifi rescan
+vpt_user ALL=(root) NOPASSWD: /usr/bin/nmcli device wifi connect TELLO-*, /bin/nmcli device wifi connect TELLO-*

@@ -1,0 +1,20 @@
+{
+ "id": "xWZyBp7Npck",
+ "title": "QuickTest Builder: no code, just steps. Press CH+, check the picture moves",
+ "description": "QuickTest Builder: no code, just steps.\n\nPick a device, take control, and list what should happen: go to live, press CH+, check the picture moves. Run it: the box zaps, the backend checks the new channel plays, and the test passes in about 9 seconds. The report is the same as for any other test: before and after, each step, the video.\n\nChapters\n0:00 QuickTest Builder\n0:04 The device\n0:16 Three steps\n0:31 Run\n0:46 Passed\n0:53 The report",
+ "tags": [
+  "quicktest builder",
+  "no code test automation",
+  "test builder",
+  "set-top box testing",
+  "zapping test",
+  "motion detection",
+  "iptv testing",
+  "test automation",
+  "open source",
+  "virtualpytest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-29"
+}

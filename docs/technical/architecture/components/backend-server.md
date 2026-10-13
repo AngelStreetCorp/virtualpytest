@@ -132,12 +132,8 @@ SUPABASE_URL=https://your-project.supabase.co
 SUPABASE_ANON_KEY=your_anon_key
 SUPABASE_DB_URI=postgresql://postgres:<password>@...supabase.com:6543/postgres
 
-# AI Provider
-AI_AGENT_PROVIDER=anthropic          # anthropic | openrouter | openai | minimax | google | local
-ANTHROPIC_API_KEY=
-OPENROUTER_API_KEY=
-# LOCAL_AI_BASE_URL=http://10.10.10.10:8000/v1   # provider "local": any OpenAI-compatible server
-# LOCAL_AI_MODEL=qwen3:8b
+# AI: no env keys. Models + provider keys are DB routing (Settings → AI) and
+# ~/.config/virtualpytest/ai_secrets.json — see docs/agent/ai/AI_ROUTING.md
 MCP_SECRET_KEY=your_mcp_secret
 
 # Grafana (separate service, not this container)

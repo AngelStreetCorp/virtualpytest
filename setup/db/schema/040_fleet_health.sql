@@ -1,9 +1,11 @@
 -- ============================================================================
 -- FLEET HEALTH TABLE
--- One row per device per fleet-health run (scripts/fleet_health_report.py,
--- scheduled daily by vpt-fleet-health.timer on the server VM — GOAL-04).
+-- One row per device per fleet-health run (scripts/fleet_health_report.py on the
+-- server VM — GOAL-04). Two runs write here, told apart by run_kind:
+--   nightly — vpt-fleet-health.timer, daily 07:00, AI analysis + markdown report
+--   live    — vpt-fleet-health-live.timer, every 10 min, pruned after 24h
 -- All rows of a single run share the same generated_at (batch timestamp), so
--- "the latest run" is SELECT max(generated_at). The markdown report stays the
+-- "the latest run" is SELECT max(generated_at) ... WHERE run_kind = <kind>. The markdown report stays the
 -- human artifact (MinIO); this table is the queryable history that the
 -- vpt-fleet-health Grafana dashboard reads.
 -- ============================================================================
@@ -27,12 +29,15 @@ CREATE TABLE IF NOT EXISTS fleet_health (
     last_script_success BOOLEAN,
     last_script_at TIMESTAMPTZ,
     report_url TEXT,                            -- presigned URL of the run's markdown report
+    run_kind TEXT NOT NULL DEFAULT 'nightly'    -- nightly | live (see header)
+        CHECK (run_kind IN ('nightly', 'live')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_fleet_health_generated_at ON fleet_health (generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_fleet_health_device ON fleet_health (host_name, device_id, generated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_fleet_health_run_date ON fleet_health (run_date DESC);
+CREATE INDEX IF NOT EXISTS idx_fleet_health_run_kind ON fleet_health (run_kind, generated_at DESC);
 
 ALTER TABLE fleet_health ENABLE ROW LEVEL SECURITY;
 

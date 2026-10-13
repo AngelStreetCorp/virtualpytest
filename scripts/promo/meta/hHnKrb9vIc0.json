@@ -1,0 +1,22 @@
+{
+ "id": "hHnKrb9vIc0",
+ "title": "Real devices driven by Agentic AI: 2048 on mobile and web at once",
+ "description": "Can an AI agent drive several real devices at the same time? Here one test script starts on a real Android phone (Samsung S21) and on a real web browser at once, and an AI plays 2048 on both, simultaneously.\n\nWhat you see:\n1. The Device page, filtered to a phone and a browser: one script starts on both.\n2. The game loads, then every move is the AI model's own decision, on each device.\n3. The phone in big: each swipe is an AI decision, live.\n4. The report: every move is a step, with the model's choice, its reason and the score.\n5. The last move: its AI call, the swipe, and the board read before and after.\n6. The proof: the screenshot of the board after the last move.\n\nChapters:\n0:00 Real devices driven by Agentic AI\n0:04 Two devices, one script\n0:11 They play\n0:19 The phone, in big\n0:30 The report\n0:41 The last move\n0:50 Proof",
+ "tags": [
+  "agentic ai",
+  "ai agent",
+  "real device testing",
+  "parallel testing",
+  "mobile testing",
+  "web testing",
+  "android automation",
+  "ai game playing",
+  "2048",
+  "test automation",
+  "open source",
+  "virtualpytest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-01"
+}

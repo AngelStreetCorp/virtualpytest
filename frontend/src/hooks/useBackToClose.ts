@@ -33,8 +33,10 @@ export const useBackToClose = (open: boolean, onClose: () => void) => {
     return () => {
       window.removeEventListener('popstate', handlePop);
       // Closed some other way (its own X, a click outside, Escape): drop the entry again, or
-      // Back would have to be pressed twice to leave the page it was opened from.
-      if (!closedByBack) window.history.back();
+      // Back would have to be pressed twice to leave the page it was opened from. Only while our
+      // entry is still on top: if the overlay closed because a link navigated elsewhere, going
+      // back would pop that navigation and return to the page underneath.
+      if (!closedByBack && window.history.state?.vptOverlay) window.history.back();
     };
   }, [open]);
 };

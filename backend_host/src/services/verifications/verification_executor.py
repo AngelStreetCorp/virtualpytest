@@ -13,6 +13,12 @@ import os
 import time
 from typing import Dict, List, Optional, Any, Tuple
 
+from shared.src.lib.utils.phase_timing import (
+    t0 as _phase_t0,
+    log_duration as _log_duration,
+    log_phase as _log_phase,
+)
+
 
 class VerificationExecutor:
     """
@@ -230,6 +236,11 @@ class VerificationExecutor:
         Returns:
             Dict with success status, results, and execution statistics
         """
+        # Set when a leg could not run for an infrastructure reason (see the abort
+        # below); surfaced at the batch level so the route emits it as an error.
+        execution_error = None
+        execution_error_message = None
+
         # Auto-detect verification_pass_condition from verifications if not explicitly provided
         if verification_pass_condition is None:
             if verifications and isinstance(verifications[0], dict) and 'verification_pass_condition' in verifications[0]:
@@ -284,7 +295,9 @@ class VerificationExecutor:
                 # is skipped (image_source_url is set), but live verification
                 # benefits.
                 import asyncio
+                _t = _phase_t0()
                 shared_capture_path = await asyncio.to_thread(self.av_controller.take_screenshot)
+                _log_phase('verify.shared_capture', _t)
                 if shared_capture_path:
                     print(f"[@lib:verification_executor:execute_verifications] Shared capture for batch: {shared_capture_path}")
 
@@ -311,6 +324,7 @@ class VerificationExecutor:
         )
 
         if use_shared_window:
+            _t = _phase_t0()
             results, passed_count = await self._execute_shared_window(
                 valid_verifications,
                 base_capture_path=shared_capture_path,
@@ -320,6 +334,9 @@ class VerificationExecutor:
                 team_id=team_id,
                 verification_pass_condition=verification_pass_condition,
             )
+            _log_phase('verify.shared_window', _t,
+                       f"legs={len(valid_verifications)} passed={passed_count} window_ms={poll_window_ms} "
+                       f"condition={verification_pass_condition}")
         else:
             # Execute each verification sequentially (each leg polls its own
             # window via the controller when timeout>0).
@@ -334,6 +351,13 @@ class VerificationExecutor:
                 start_time = time.time()
                 result = await self._execute_single_verification(verification, userinterface_name, per_verification_source, context, team_id)
                 execution_time = int((time.time() - start_time) * 1000)
+                _leg_params = verification.get('params') or {}
+                _leg_term = _leg_params.get('search_term') or _leg_params.get('text') or _leg_params.get('title') or ''
+                _log_duration('verify.leg', execution_time,
+                              f"leg={i + 1}/{len(valid_verifications)} cmd={verification.get('command')} "
+                              f"type={verification_type} term={str(_leg_term)[:60]!r} "
+                              f"timeout_ms={_leg_params.get('timeout', 'default')} success={result.get('success')} "
+                              f"condition={verification_pass_condition}")
 
                 # Add execution time to result
                 result['execution_time_ms'] = execution_time
@@ -342,6 +366,17 @@ class VerificationExecutor:
                 # Count successful verifications
                 if result.get('success'):
                     passed_count += 1
+
+                # An infrastructure failure (host out of disk) is not a verification
+                # outcome: every remaining leg would fail the same way and the batch
+                # would be reported as "0/N passed", blaming the device for a full
+                # filesystem. Abort and let the caller surface the cause (BUG-0198).
+                if result.get('execution_error'):
+                    execution_error = result['execution_error']
+                    execution_error_message = result.get('message') or 'Verification could not run'
+                    print(f"[@lib:verification_executor:execute_verifications] "
+                          f"ABORTING batch — {execution_error}: {execution_error_message}")
+                    break
 
                 # NavigationExecutor records one execution_results row per node
                 # visit (verify_node call) — not one per individual verification.
@@ -410,7 +445,9 @@ class VerificationExecutor:
             for result in results:
                 if not result.get('success', False) and '_report_config' in result:
                     print(f"[@lib:verification_executor] 🔍 GENERATING DEBUG REPORT FOR FAILED LEG (batch overall: {'PASS' if overall_success else 'FAIL'})")
+                    _t = _phase_t0()
                     report_path, report_url = self._build_verification_report(result, is_success=False)
+                    _log_phase('verify.failure_report_build_and_upload', _t)
                     if report_path:
                         result['debug_report_path'] = report_path
                         result['debug_report_url'] = report_url
@@ -482,6 +519,16 @@ class VerificationExecutor:
                 result['debug_report_path'] = debug_report_path
             if debug_report_url:
                 result['debug_report_url'] = debug_report_url
+
+        # An aborted batch reports the infrastructure cause, not a score — set last
+        # so the per-leg error_info above cannot overwrite it. `error` is what
+        # host_verification_routes emits for the execution and what the editor shows
+        # in place of "N/M passed" (BUG-0198).
+        if execution_error:
+            result['success'] = False
+            result['execution_error'] = execution_error
+            result['error'] = execution_error_message
+            result['message'] = execution_error_message
 
         # Surface the success report (false-positive review) at the batch level too.
         if success_report_path:
@@ -800,11 +847,6 @@ class VerificationExecutor:
             'elapsed_time_ms': int((time.time() - execution['start_time']) * 1000)
         }
     
-    # `timeout` is MILLISECONDS for every verification type except video, whose helpers read it
-    # as seconds (`int(params.get('timeout', 10))` in video_verification_helpers). Anything that
-    # rewrites a timeout generically has to know that, or it turns a 60s video wait into 60ms.
-    _TIMEOUT_IN_SECONDS = frozenset({'video'})
-
     @classmethod
     def _capped_verifications(cls, verifications: List[Dict[str, Any]], cap_ms: int) -> List[Dict[str, Any]]:
         """Copies of `verifications` with every timeout no longer than `cap_ms`.
@@ -818,15 +860,13 @@ class VerificationExecutor:
         for verification in verifications:
             verification = copy.deepcopy(verification)
             params = verification.setdefault('params', {})
-            divisor = 1000.0 if verification.get('verification_type') in cls._TIMEOUT_IN_SECONDS else 1.0
-            cap = cap_ms / divisor
             current = params.get('timeout')
             try:
-                too_long = current is None or float(current) > cap
+                too_long = current is None or float(current) > cap_ms
             except (TypeError, ValueError):
                 too_long = True
             if too_long:
-                params['timeout'] = cap
+                params['timeout'] = cap_ms
             capped.append(verification)
         return capped
 
@@ -937,7 +977,8 @@ class VerificationExecutor:
             actual_tree_id = node_data.get('tree_id')
             
             # Execute verifications with proper tree_id and node_id for database recording
-            return await self.execute_verifications(
+            _t = _phase_t0()
+            node_result = await self.execute_verifications(
                 verifications=verifications,
                 userinterface_name=userinterface_name,  # MANDATORY parameter
                 image_source_url=image_source_url,
@@ -946,6 +987,11 @@ class VerificationExecutor:
                 node_id=node_id,
                 verification_pass_condition=verification_pass_condition  # NEW: Pass condition from node
             )
+            _log_phase('verify.node', _t,
+                       f"node={node_data.get('label') or node_id} legs={len(verifications)} "
+                       f"condition={verification_pass_condition} probe_cap_ms={probe_timeout_ms or 'none'} "
+                       f"success={(node_result or {}).get('success')}")
+            return node_result
             
         except Exception as e:
             print(f"[@lib:verification_executor:verify_node] Error: {e}")
@@ -1012,6 +1058,16 @@ class VerificationExecutor:
         timeout. Stops the instant the pass_condition is met: first match for
         'any', all legs matched for 'all'. Coherent and fast (early-exit).
 
+        A leg's window is measured in FRAME time (capture mtime − base frame's
+        mtime), not in time spent checking. On a loaded box one OCR leg can take
+        17 s on the base frame (vpt-pi1, 2026-10-04: tesseract shared with the
+        capture monitor); measured in wall time, that closed a sibling image
+        leg's 10 s window before it saw any frame after the base one, and the
+        hop failed on a screen that showed the target 0.8 s after the key.
+        Waiting for NEW frames stops once no pending leg's window can still be
+        open; frames already captured inside a window are always checked, up
+        to a hard wall cap of twice the window.
+
         A per-batch reference cache is installed on the text/image controllers
         so each leg's reference resolves from the DB ONCE, not once per frame.
 
@@ -1054,8 +1110,10 @@ class VerificationExecutor:
                 floor_mtime = os.path.getmtime(base_capture_path)
             except OSError:
                 floor_mtime = time.time()
+            base_mtime = floor_mtime  # frame-time origin of every leg's window
             processed = {os.path.realpath(base_capture_path)}
-            deadline = time.time() + window_timeout_s
+            # Hard cap: checking a backlog of frames (slow OCR) never runs past 2x the window.
+            hard_deadline = time.time() + 2 * window_timeout_s
             poll_interval_s = 0.05
             # Ordered list of every frame this window analyses — surfaced on each
             # result's details so a FAILED verification's report can render a mosaic
@@ -1065,15 +1123,14 @@ class VerificationExecutor:
             print(f"[@lib:verification_executor:_execute_shared_window] {n} legs share one "
                   f"window (timeout {window_timeout_s:.1f}s, '{verification_pass_condition}'), polling {hot_dir}")
 
-            window_start = time.time()  # reset just before frame 0 below
-
-            async def check_frame(frame_path, is_first) -> bool:
+            async def check_frame(frame_path, is_first, frame_mtime=None) -> bool:
                 """Test each ELIGIBLE pending leg against one frame. Eligibility:
                 always on the base frame, and on later frames only while elapsed
                 window time is within that leg's own timeout. Return True once
                 polling should stop — condition met, or (for 'all') no longer
                 achievable because an unmatched leg's window has closed."""
-                elapsed = 0.0 if is_first else (time.time() - window_start)
+                # Frame time: how long after the base frame this frame was captured.
+                elapsed = 0.0 if is_first else max(0.0, (frame_mtime or time.time()) - base_mtime)
                 for idx, verification in enumerate(valid_verifications):
                     if passed[idx]:
                         continue
@@ -1101,11 +1158,15 @@ class VerificationExecutor:
                 return False
 
             # Frame 0 = the shared base capture.
-            window_start = time.time()
             done = await check_frame(base_capture_path, is_first=True)
 
             # Then walk new frames as FFmpeg writes them, until satisfied/deadline.
-            while not done and time.time() < deadline:
+            def windows_open() -> bool:
+                # A frame captured from now on could still fall in some pending leg's window.
+                now_elapsed = time.time() - base_mtime
+                return any(not passed[i] and now_elapsed <= leg_timeout_s[i] for i in range(n))
+
+            while not done and time.time() < hard_deadline:
                 new_files = []
                 try:
                     with os.scandir(hot_dir) as entries:
@@ -1129,6 +1190,8 @@ class VerificationExecutor:
                     break
 
                 if not new_files:
+                    if not windows_open():
+                        break  # every frame that could still match has been checked
                     time.sleep(poll_interval_s)
                     continue
 
@@ -1137,7 +1200,7 @@ class VerificationExecutor:
                     processed.add(real)
                     floor_mtime = max(floor_mtime, mtime)
                     analyzed_frames.append({'path': fp, 'mtime': mtime})
-                    done = await check_frame(fp, is_first=False)
+                    done = await check_frame(fp, is_first=False, frame_mtime=mtime)
                     if done:
                         break
         finally:
@@ -1277,6 +1340,12 @@ class VerificationExecutor:
                 verification_result = await asyncio.to_thread(
                     controller.execute_verification, verification_config
                 )
+
+            # One choke point for every controller: numpy scalars computed by
+            # image/audio/video matchers must not reach jsonify or the
+            # execution-event POST (np.bool_ 500'd a passing testcase's status).
+            from shared.src.lib.utils.app_utils import to_native
+            verification_result = to_native(verification_result)
             
             # Build URLs from file paths if verification generated images
             # Frontend will process these paths using buildVerificationResultUrl from buildUrlUtils.ts
@@ -1325,11 +1394,20 @@ class VerificationExecutor:
                     # — the KPI card draws this rectangle on the full capture. Falls back
                     # to the edge's params.area only when no resolved area is present.
                     'search_area': details.get('resolved_area') or verification.get('params', {}).get('area'),
-                    'image_filter': verification_result.get('imageFilter', 'none'),
+                    # Controllers return `image_filter` (routes rename it imageFilter).
+                    'image_filter': verification_result.get('image_filter') or 'none',
                     # Focus detection (present only when the reference has area.focus)
                     'focus_score': details.get('focus_score'),
                     'focus_threshold': details.get('focus_threshold'),
                 })
+                # Failed colour match: the same frame scored with both sides grey
+                # (image controller). Only on failure — on a passing disappear the
+                # appear check's grey verdict would read backwards.
+                if not verification_result.get('success') and details.get('greyscale_score') is not None:
+                    verification_evidence.update({
+                        'greyscale_score': details.get('greyscale_score'),
+                        'greyscale_success': bool(details.get('greyscale_found')),
+                    })
             elif verification_type == 'text':
                 # Keys mirror the image branch so kpi_report_template's text card
                 # can show "Score / Threshold" with the same lookup shape.

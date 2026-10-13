@@ -4,7 +4,7 @@ Host Remote Routes
 Host-side remote control endpoints that execute remote commands using instantiated remote controllers.
 """
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
 from backend_host.src.lib.utils.host_utils import (
     get_controller,
@@ -212,6 +212,10 @@ def execute_command():
 
     params = data.get('params', {})
     device_id = data.get('device_id', 'device1')
+    if command == 'start_pairing' and not params.get('caller'):
+        # Called on the host API directly, not through the server proxy.
+        params['caller'] = (f"ip={request.remote_addr} "
+                            f"ua='{(request.headers.get('User-Agent') or '?')[:80]}' via=host-api")
     remote_type = data.get('remote_type')  # NEW: Get specific remote type
     
     # Read-only status/diagnostic commands (get_pairing_status, get_logs, etc.)

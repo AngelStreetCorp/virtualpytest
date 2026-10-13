@@ -14,9 +14,13 @@ module.exports = {
     '@typescript-eslint/no-explicit-any': 'off',
     // Hook dependency exhaustive checks have many pre-existing violations — enforce incrementally
     'react-hooks/exhaustive-deps': 'off',
-    // Pre-existing pattern: many components have early returns before hooks (stable conditions)
-    // These work correctly in production; refactor tracked separately
-    'react-hooks/rules-of-hooks': 'off',
+    // ON as of 2026-09-30. The 56 pre-existing violations are fixed: the early-return
+    // -above-hooks components (ProtectedRoute, NodeSelectionPanel, NodeEditDialog) now
+    // branch in a thin wrapper so the body's hooks are unconditional, the
+    // `try { useSomeContext() } catch {}` sites use the non-throwing
+    // useOptional* variants, and TestCaseBuilder no longer calls a hook from inside
+    // JSX (that one changed the hook COUNT between renders — a real latent crash, not
+    // a style issue). Keep this on: it is a correctness rule.
     // Fast-refresh warnings not needed in CI
     'react-refresh/only-export-components': 'off',
     // Allow _prefixed unused vars (intentional unused destructuring)

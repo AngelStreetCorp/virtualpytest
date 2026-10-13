@@ -13,6 +13,9 @@ export interface BluetoothPairingStatus {
   // window the daemon is intentionally stopped to reconfigure the adapter,
   // so daemon_active=false is EXPECTED, not a crash. See §6.7.23-followup-3.
   script_running?: boolean;
+  resume_state?: 'idle' | 'running' | 'ready' | 'failed';
+  resume_error?: string | null;
+  pair_error?: string | null;
   advertising: boolean;
   adapter_mac: string | null;
   bond_present: boolean;
@@ -32,6 +35,14 @@ interface BluetoothRemoteSession {
 
 export type PairPhase = 'idle' | 'pairing' | 'success' | 'timeout' | 'failed';
 
+// How long the panel waits for the STB to finish pairing after Start Pairing.
+// The STB can take ~2 min to find and pair the remote; at 60 s the panel
+// reported a timeout while the pairing still completed shortly after (§6.7.33).
+export const BLE_PAIR_WAIT_S = 120;
+// start.sh (adapter reset, MAC, advertising) takes ~15-30 s before the remote
+// can be paired. The BLE_PAIR_WAIT_S countdown starts only once it is ready.
+export const BLE_PAIR_PREP_MAX_S = 90;
+
 // BLE daemon unit names are per-adapter on multi-instance hosts
 // (`hid-remote-${hci}.service`, `hid-agent-${hci}.service`,
 // `vpt-ble-remote@${hci}.service`). The controller's get_logs() returns
@@ -49,8 +60,17 @@ interface UseBluetoothRemoteReturn {
   isLoading: boolean;
   isPairing: boolean;
   isWaking: boolean;
+  // Live countdown of the active wake window, in milliseconds. 0 when
+  // not waking. Panel reads these to show "Ns / totalS elapsed" + a
+  // progress bar so the operator sees the wait elapsing instead of a
+  // frozen "waiting up to 30s" string.
+  wakeRemainingMs: number;
+  wakeTotalMs: number;
   pairPhase: PairPhase;
   pairError: string | null;
+  // True once start.sh has finished and the remote is advertising: the moment
+  // to put the STB in "Add new remote" mode.
+  pairReady: boolean;
   lastAction: string;
   layoutConfig: BluetoothRemoteConfig;
   status: BluetoothPairingStatus | null;
@@ -58,6 +78,10 @@ interface UseBluetoothRemoteReturn {
   // status poll observing connected=true. Surfaces a Re-pair escape
   // hatch in the UI so the user isn't stuck cycling Resume forever.
   resumeFailed: boolean;
+  // True while resume_state === 'running' (the backend is mid-resume.sh).
+  // Panel hides Re-pair during this window so the operator can't race a
+  // bond-wipe against an in-flight recovery script.
+  resumeRunning: boolean;
   refreshStatus: () => Promise<void>;
   handleConnect: () => Promise<void>;
   handleDisconnect: () => Promise<void>;
@@ -74,29 +98,15 @@ interface UseBluetoothRemoteReturn {
 const STATUS_POLL_INTERVAL_MS = 2000;
 const PAIR_DAEMON_FAILURE_GRACE_MS = 5000;
 const PAIR_DAEMON_FAILURE_POLLS = 2;
-// Max time to wait for the STB to reconnect after a proactive wake. The
-// daemon's wake_on_press uses WAKE_TIMEOUT_S=8s of ADV_DIRECT_IND, so
-// allow a small margin for the STB to complete its SMP handshake.
-// Matches the daemon's WAKE_TIMEOUT_S (8 s) plus a small grace for the
-// status poll to observe Connected=True. After this elapses without a
-// reconnect we drop isWaking so the existing disconnected-state UI
-// (Resume button) takes over — no separate "wake failed" state needed.
-// Aligned to the daemon's WAKE_TIMEOUT_S (15 s since BLUETOOTH.md §6.7.24 —
-// low-duty ADV_DIRECT_IND reconnects can run past 8 s) plus a ~0.5 s grace for
-// the status poll to observe Connected=True. Dropping isWaking before the
-// daemon's own window expires would flip the UI off "Waking STB…" prematurely.
-const WAKE_WAIT_MS = 15500;
+// Match hid_remote.py's 30 s low-duty ADV_DIRECT_IND window, plus one status
+// poll of grace. A shorter browser timer makes a still-running daemon wake
+// look like failure and exposes Resume/Re-pair too early.
+const WAKE_WAIT_MS = 32000;
 // Deep/cold-standby wake (Broadcom WoBLE) is much slower than the active-
 // standby ADV_DIRECT_IND wake: the daemon broadcasts the WoBLE pattern
 // (WOBLE_BROADCAST_S=3s) then waits up to COLD_WAKE_TIMEOUT_S=20s for the
 // host to boot from S2/S3 and reconnect. Give the UI a margin over that.
 const COLD_WAKE_WAIT_MS = 25000;
-// How long we'll wait after a user-initiated Resume before deciding
-// it didn't recover the link. resume.sh itself takes ~5 s, the STB
-// usually pops back within another ~10 s. 20 s gives a comfortable
-// margin without leaving the user staring at "STB disconnected" + a
-// dead Resume button forever.
-const RESUME_ESCALATE_MS = 20000;
 
 // Status-display debounce (anti-flicker). get_pairing_status is polled every
 // 2s and the raw flags genuinely walk through transient rungs during a re-pair
@@ -119,6 +129,14 @@ const statusHealthRank = (s: BluetoothPairingStatus | null): number => {
   return 4;                                                         // fully ready
 };
 
+// Last status seen per host+device, kept for the browser session. Opening the
+// panel (or re-taking control) starts from it, so a connected STB shows its
+// remote at once instead of "Loading BLE status…" for a host round trip; one
+// background refresh confirms it, and a real drop still surfaces through the
+// normal demote debounce above.
+const lastStatusCache = new Map<string, BluetoothPairingStatus>();
+const statusCacheKey = (hostName?: string, deviceId?: string) => `${hostName ?? ''}|${deviceId ?? ''}`;
+
 export const useBluetoothRemote = (
   host: Host,
   deviceId?: string,
@@ -134,19 +152,33 @@ export const useBluetoothRemote = (
   const [isWaking, setIsWaking] = useState(false);
   const [pairPhase, setPairPhase] = useState<PairPhase>('idle');
   const [pairError, setPairError] = useState<string | null>(null);
+  const [pairReady, setPairReady] = useState(false);
   const [lastAction, setLastAction] = useState('');
-  const [status, setStatus] = useState<BluetoothPairingStatus | null>(null);
+  const cacheKey = statusCacheKey(host?.host_name, deviceId);
+  const [status, setStatus] = useState<BluetoothPairingStatus | null>(
+    () => lastStatusCache.get(cacheKey) ?? null,
+  );
   // Debounced view of `status` for display (anti-flicker, see
   // STATUS_DEMOTE_DEBOUNCE_MS). The raw `status` drives all internal logic
   // (polling stop, wake/resume effects) for immediacy; `displayStatus` is what
   // the panel renders, so transient mid-handshake rungs don't flip screens.
-  const [displayStatus, setDisplayStatus] = useState<BluetoothPairingStatus | null>(null);
+  const [displayStatus, setDisplayStatus] = useState<BluetoothPairingStatus | null>(
+    () => lastStatusCache.get(cacheKey) ?? null,
+  );
   // Tracks an in-flight downgrade: the lower rank we've seen and when it
   // started, so a sustained regression commits after the debounce window
   // while a brief blip (replaced by a healthier poll) never does.
   const demoteRef = useRef<{ rank: number; since: number } | null>(null);
   const [logsSince, setLogsSince] = useState<string | null>(null);
   const [resumeFailed, setResumeFailed] = useState(false);
+  // True while the backend is mid-resume.sh (resume_state === 'running').
+  // The panel hides Re-pair while this is set — Re-pair wipes the bond,
+  // and wiping it mid-resume would race the in-flight resume.sh script
+  // (which is trying to recover the existing bond). Re-pair only becomes
+  // useful AFTER resume.sh has either succeeded (resume_state === 'ready',
+  // fullyConnected → no Re-pair needed) or given up (resume_state ===
+  // 'failed', resumeFailed=true → Re-pair surfaces as the escape hatch).
+  const [resumeRunning, setResumeRunning] = useState(false);
 
   const { executeRemoteCommand } = useControllerApi(host, deviceId);
   const layoutConfig = bluetoothRemoteConfig;
@@ -161,8 +193,15 @@ export const useBluetoothRemote = (
   // would cancel the timer every poll tick and isWaking would never
   // flip back to false, leaving the UI stuck on "Waking STB…" forever.
   const wakeTimerRef = useRef<number | null>(null);
-  // Tracks the post-Resume escalation timer (see RESUME_ESCALATE_MS).
-  const resumeTimerRef = useRef<number | null>(null);
+  // When the current wake window started + its total length, so the UI can
+  // show a live "Ns / 30s elapsed" ticker instead of a frozen "waiting up
+  // to 30s" string. Updated on each wake (coldWake / auto-wake) and cleared
+  // on every terminal path (timeout, reconnect, error, unmount).
+  const wakeStartRef = useRef<number | null>(null);
+  const wakeTotalRef = useRef<number>(0);
+  // Live remaining time in ms — the panel renders this to display a
+  // ticking countdown under the "Waking STB…" headline. 0 = not waking.
+  const [wakeRemainingMs, setWakeRemainingMs] = useState<number>(0);
 
   // Fully-healthy steady state: daemon up, bonded, paired, HID subscribed,
   // and the STB is currently connected. Once we've observed this once, the
@@ -175,7 +214,8 @@ export const useBluetoothRemote = (
     status.bond_present &&
     status.paired &&
     status.hid_ready &&
-    status.connected;
+    status.connected &&
+    status.resume_state !== 'running';
 
   // ---- Display debounce ----
   // Derive `displayStatus` from `status` with hysteresis: a same-or-healthier
@@ -218,6 +258,7 @@ export const useBluetoothRemote = (
         { includeDeviceId: true },
       );
       if (result.success && result.status) {
+        lastStatusCache.set(cacheKey, result.status);
         setStatus(result.status);
         if (result.status.paired && result.status.bond_present) {
           setPairPhase((prev) => (prev === 'pairing' ? 'success' : prev));
@@ -229,7 +270,15 @@ export const useBluetoothRemote = (
     } catch (e) {
       console.warn(`[@hook:useBluetoothRemote] refreshStatus failed: ${e}`);
     }
-  }, [executeRemoteCommand]);
+  }, [executeRemoteCommand, cacheKey]);
+
+  // Started from a cached fully-connected status: the polling effect below
+  // skips while fullyConnected, so confirm it once against the host.
+  useEffect(() => {
+    if (host?.host_name && deviceId && lastStatusCache.has(cacheKey)) {
+      refreshStatus();
+    }
+  }, [cacheKey]);
 
   useEffect(() => {
     if (!host?.host_name || !deviceId) {
@@ -347,6 +396,7 @@ export const useBluetoothRemote = (
     setIsPairing(true);
     setPairPhase('pairing');
     setPairError(null);
+    setPairReady(false);
     setLogsSince(new Date().toISOString());
     setLastAction('Starting BLE pairing — STB must be in pair-new-remote mode');
     // Blank the cached status so the UI doesn't keep showing stale
@@ -356,6 +406,7 @@ export const useBluetoothRemote = (
     // STB to pair…" overlay and confuses the user. Fresh status arrives on
     // the next poll iteration below.
     setStatus(null);
+    lastStatusCache.delete(cacheKey);
     try {
       // Snapshot the pre-start baseline BEFORE kicking off start.sh.
       // start.sh begins destroying state (btmgmt power off, MAC rotate,
@@ -392,10 +443,15 @@ export const useBluetoothRemote = (
       let bondCleared = !hadBondAtStart;
       let daemonDownPolls = 0;
       const start = Date.now();
-      // 60s ceiling — start.sh completes in ~15s on a working setup. If we
-      // haven't seen MAC rotation + paired+hid_ready by 60s the script has
-      // either failed or hung; longer waits just hide bugs.
-      while (Date.now() - start < 60000) {
+      // Two phases: start.sh prepares the adapter (up to BLE_PAIR_PREP_MAX_S),
+      // then the STB gets BLE_PAIR_WAIT_S to pair, counted from the moment
+      // the remote is ready. Longer waits just hide bugs.
+      let readyAt: number | null = null;
+      while (
+        readyAt === null
+          ? Date.now() - start < BLE_PAIR_PREP_MAX_S * 1000
+          : Date.now() - readyAt < BLE_PAIR_WAIT_S * 1000
+      ) {
         await new Promise((resolve) => setTimeout(resolve, 1500));
         const s = (await executeRemoteCommand<{ success: boolean; status?: BluetoothPairingStatus }>(
           'get_pairing_status',
@@ -404,6 +460,13 @@ export const useBluetoothRemote = (
           { includeDeviceId: true },
         )).status;
         if (s) setStatus(s);
+        if (!s?.script_running && s?.pair_error) throw new Error(s.pair_error);
+        if (readyAt === null && s && !s.script_running && s.daemon_active && !s.bond_present
+            && Date.now() - start >= PAIR_DAEMON_FAILURE_GRACE_MS) {
+          readyAt = Date.now();
+          setPairReady(true);
+          setLastAction('Remote ready — put the STB in "Add new remote" mode');
+        }
         // start.sh intentionally STOPS the daemon to reconfigure the adapter
         // (power-off → MAC spoof → raw-HCI adv, ~10s) and relaunches it near
         // the end — so daemon_active=false is EXPECTED for the whole run. The
@@ -451,8 +514,13 @@ export const useBluetoothRemote = (
         }
       }
       setPairPhase('timeout');
-      setPairError('STB did not complete handshake within 60 seconds. Ensure the STB is in pair-new-remote mode and retry.');
-      setLastAction('Pairing timeout (60 s)');
+      if (readyAt === null) {
+        setPairError(`The remote was not ready to pair after ${BLE_PAIR_PREP_MAX_S} seconds. Check the start-resume log tab.`);
+        setLastAction('Pairing setup timeout');
+      } else {
+        setPairError(`STB did not complete handshake within ${BLE_PAIR_WAIT_S} seconds. Ensure the STB is in pair-new-remote mode and retry.`);
+        setLastAction(`Pairing timeout (${BLE_PAIR_WAIT_S} s)`);
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Pair failed';
       setPairPhase('failed');
@@ -461,8 +529,9 @@ export const useBluetoothRemote = (
       console.error(`[@hook:useBluetoothRemote] startPairing: ${msg}`);
     } finally {
       setIsPairing(false);
+      setPairReady(false);
     }
-  }, [executeRemoteCommand, refreshStatus]);
+  }, [executeRemoteCommand, refreshStatus, cacheKey]);
 
   const getLogs = useCallback(
     async (lines: number = 200): Promise<BluetoothLogs | null> => {
@@ -490,21 +559,8 @@ export const useBluetoothRemote = (
 
   const resume = useCallback(async () => {
     setIsLoading(true);
-    setLastAction('Resuming BLE daemon…');
-    // Arm the escalation timer BEFORE the API call. resume.sh itself
-    // returns quickly ("launched in background"); the STB reconnect
-    // happens asynchronously and we observe it via the 2 s status poll.
+    setLastAction('Recovering BLE remote…');
     setResumeFailed(false);
-    if (resumeTimerRef.current !== null) {
-      window.clearTimeout(resumeTimerRef.current);
-    }
-    resumeTimerRef.current = window.setTimeout(() => {
-      // The cleanup effect below resets this if the STB reconnects.
-      // If the timer fires, resume didn't recover the link in time —
-      // the panel will surface a Re-pair button.
-      setResumeFailed(true);
-      resumeTimerRef.current = null;
-    }, RESUME_ESCALATE_MS);
     try {
       const result = await executeRemoteCommand<{ success: boolean; error?: string }>(
         'resume',
@@ -515,7 +571,7 @@ export const useBluetoothRemote = (
       if (!result.success) {
         throw new Error(result.error || 'resume failed');
       }
-      setLastAction('Resume complete — daemon back up');
+      setLastAction('Resume recovery started…');
       await refreshStatus();
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Resume failed';
@@ -526,19 +582,21 @@ export const useBluetoothRemote = (
     }
   }, [executeRemoteCommand, refreshStatus]);
 
-  // Clear the post-Resume escalation as soon as the STB is connected,
-  // and also when the user kicks off a re-pair (handled by isPairing).
-  // Without this, a successful late reconnect would leave resumeFailed
-  // stuck true and the UI would still nag the user to re-pair.
+  // The backend owns the complete Resume state machine (script + directed
+  // wake + readiness gate). Reflect its final verdict instead of racing it
+  // with a shorter browser timer.
   useEffect(() => {
-    if (status?.connected || isPairing) {
-      if (resumeTimerRef.current !== null) {
-        window.clearTimeout(resumeTimerRef.current);
-        resumeTimerRef.current = null;
+    setResumeRunning(status?.resume_state === 'running');
+    if (isPairing || status?.resume_state === 'ready') {
+      setResumeFailed(false);
+      if (status?.resume_state === 'ready') {
+        setLastAction('Resume complete — BLE link ready');
       }
-      if (resumeFailed) setResumeFailed(false);
+    } else if (status?.resume_state === 'failed') {
+      setResumeFailed(true);
+      setLastAction(`Resume failed: ${status.resume_error ?? 'STB did not reconnect'}`);
     }
-  }, [status?.connected, isPairing, resumeFailed]);
+  }, [status?.resume_state, status?.resume_error, isPairing]);
 
   // Proactively ask the daemon to emit ADV_DIRECT_IND at the bonded STB.
   // Non-blocking on the backend (FIFO write); status polling observes the
@@ -574,9 +632,17 @@ export const useBluetoothRemote = (
     if (wakeTimerRef.current !== null) {
       window.clearTimeout(wakeTimerRef.current);
     }
+    // Record start + total so the panel can render a live "Ns / 25s
+    // elapsed" ticker instead of a static "waiting up to 30s" (which was
+    // also wrong for cold wake — its window is 25s).
+    wakeStartRef.current = Date.now();
+    wakeTotalRef.current = COLD_WAKE_WAIT_MS;
+    setWakeRemainingMs(COLD_WAKE_WAIT_MS);
     wakeTimerRef.current = window.setTimeout(() => {
       setIsWaking(false);
       wakeTimerRef.current = null;
+      wakeStartRef.current = null;
+      wakeTotalRef.current = 0;
     }, COLD_WAKE_WAIT_MS);
     try {
       const result = await executeRemoteCommand<{ success: boolean; error?: string }>(
@@ -595,6 +661,8 @@ export const useBluetoothRemote = (
         window.clearTimeout(wakeTimerRef.current);
         wakeTimerRef.current = null;
       }
+      wakeStartRef.current = null;
+      wakeTotalRef.current = 0;
       setLastAction(`Cold wake failed: ${msg}`);
       console.warn(`[@hook:useBluetoothRemote] coldWake: ${msg}`);
     }
@@ -618,6 +686,8 @@ export const useBluetoothRemote = (
         window.clearTimeout(wakeTimerRef.current);
         wakeTimerRef.current = null;
       }
+      wakeStartRef.current = null;
+      wakeTotalRef.current = 0;
       if (isWaking) setIsWaking(false);
       wakeAttemptedRef.current = false;
       return;
@@ -626,10 +696,18 @@ export const useBluetoothRemote = (
     if (!status.daemon_active || !status.bond_present) return;
     wakeAttemptedRef.current = true;
     setIsWaking(true);
+    // Record start + total so the panel can render a live "Ns / 32s
+    // elapsed" ticker (the ADV_DIRECT_IND window is 30 s on the daemon
+    // + one status-poll of grace; the UI displays the rounded 30 s).
+    wakeStartRef.current = Date.now();
+    wakeTotalRef.current = WAKE_WAIT_MS;
+    setWakeRemainingMs(WAKE_WAIT_MS);
     void wake();
     wakeTimerRef.current = window.setTimeout(() => {
       setIsWaking(false);
       wakeTimerRef.current = null;
+      wakeStartRef.current = null;
+      wakeTotalRef.current = 0;
     }, WAKE_WAIT_MS);
   }, [status, isWaking, wake]);
 
@@ -641,20 +719,46 @@ export const useBluetoothRemote = (
         window.clearTimeout(wakeTimerRef.current);
         wakeTimerRef.current = null;
       }
-      if (resumeTimerRef.current !== null) {
-        window.clearTimeout(resumeTimerRef.current);
-        resumeTimerRef.current = null;
-      }
+      wakeStartRef.current = null;
+      wakeTotalRef.current = 0;
     };
   }, []);
+
+  // While isWaking is true, tick wakeRemainingMs every 250 ms so the UI
+  // shows a live "Ns / 30s elapsed" ticker instead of a static "waiting
+  // up to 30s" string. Refs (wakeStartRef/wakeTotalRef) are set by the
+  // coldWake() and auto-wake paths above; cleared by the timer
+  // expiration / reconnect / error / unmount paths in the same change.
+  useEffect(() => {
+    if (!isWaking) {
+      setWakeRemainingMs(0);
+      return undefined;
+    }
+    const tick = () => {
+      if (wakeStartRef.current === null || wakeTotalRef.current === 0) {
+        return;
+      }
+      const remaining = Math.max(
+        0,
+        wakeTotalRef.current - (Date.now() - wakeStartRef.current),
+      );
+      setWakeRemainingMs(remaining);
+    };
+    tick();
+    const t = window.setInterval(tick, 250);
+    return () => window.clearInterval(t);
+  }, [isWaking]);
 
   return {
     session,
     isLoading,
     isPairing,
     isWaking,
+    wakeRemainingMs,
+    wakeTotalMs: wakeTotalRef.current,
     pairPhase,
     pairError,
+    pairReady,
     lastAction,
     layoutConfig,
     // Expose the DEBOUNCED status to consumers (anti-flicker). All internal
@@ -662,6 +766,7 @@ export const useBluetoothRemote = (
     // this smoothed view so transient mid-handshake rungs don't flip screens.
     status: displayStatus,
     resumeFailed,
+    resumeRunning,
     refreshStatus,
     handleConnect,
     handleDisconnect,

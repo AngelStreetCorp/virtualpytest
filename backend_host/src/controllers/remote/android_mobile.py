@@ -193,6 +193,21 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
             print(f"Remote[{self.device_type.upper()}]: App launch error: {e}")
             return False
             
+    def open_url(self, url: str, package_name: str = None) -> bool:
+        """
+        Open a URL on the device (VIEW intent), optionally in a given browser.
+
+        Args:
+            url: URL to open
+            package_name: Browser package (e.g. "com.android.chrome"); empty lets Android choose
+        """
+        try:
+            print(f"Remote[{self.device_type.upper()}]: Opening URL: {url}")
+            return self.adb_utils.open_url(self.android_device_id, url, package_name or None)
+        except Exception as e:
+            print(f"Remote[{self.device_type.upper()}]: Open URL error: {e}")
+            return False
+
     def close_app(self, package_name: str) -> bool:
         """
         Close/stop an app by package name.
@@ -750,7 +765,24 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
             duration: Swipe duration in milliseconds (default: 300)
         """
         return self.swipe(from_x, from_y, to_x, to_y, duration)
-    
+
+    def screen_swipe(self, direction: str, duration: int = 300) -> bool:
+        """Swipe the finger `direction` ('up'/'down'/'left'/'right') through the middle of the
+        live screen: 70%->30% of its height, or 80%->20% of its width. Fixed pixels missed on
+        some phones: 800->500 was a small nudge on a 2340 px screen (BUG-0489)."""
+        size = self.get_orientation() or self.device_resolution or {'width': 1080, 'height': 1920}
+        w, h = size['width'], size['height']
+        cx, cy = w // 2, h // 2
+        near_y, far_y = int(h * 0.3), int(h * 0.7)
+        near_x, far_x = int(w * 0.2), int(w * 0.8)
+        points = {
+            'up': (cx, far_y, cx, near_y),
+            'down': (cx, near_y, cx, far_y),
+            'left': (far_x, cy, near_x, cy),
+            'right': (near_x, cy, far_x, cy),
+        }[direction]
+        return self.swipe(*points, duration)
+
     def getMenuInfo(self, area: dict = None, context = None) -> Dict[str, Any]:
         """
         Extract menu info from UI dump (ADB-based alternative to OCR getMenuInfo)
@@ -1221,6 +1253,21 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
                     'inputParam': 'package'
                 },
                 {
+                    'id': 'open_url',
+                    'label': 'Open URL',
+                    'command': 'open_url',
+                    'action_type': 'remote',
+                    'params': {
+                        'url': '',
+                        'package': ''
+                    },
+                    'description': 'Open a URL (optionally in a given browser package)',
+                    'requiresInput': True,
+                    'inputLabel': 'URL',
+                    'inputPlaceholder': 'https://example.com',
+                    'inputParam': 'url'
+                },
+                {
                     'id': 'close_app',
                     'label': 'Close App',
                     'command': 'close_app',
@@ -1289,6 +1336,11 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
                 success = self.launch_app(package) if package else False
                 return {'success': success}
             
+            elif command == 'open_url':
+                url = params.get('url')
+                success = self.open_url(url, params.get('package')) if url else False
+                return {'success': success}
+
             elif command == 'close_app':
                 package = params.get('package')
                 success = self.close_app(package) if package else False
@@ -1311,6 +1363,14 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
             
             elif command == 'tap_coordinates':
                 x, y = params.get('x'), params.get('y')
+                # Group control sends one point for phones of different sizes: x_pct/y_pct are
+                # 0..1 of the screen, mapped here to this phone's live (rotation-aware) pixels.
+                if (x is None or y is None) and params.get('x_pct') is not None and params.get('y_pct') is not None:
+                    size = self.get_orientation()
+                    if not size:
+                        return {'success': False, 'error': 'Could not read the screen size'}
+                    x = round(min(max(float(params['x_pct']), 0.0), 1.0) * (size['width'] - 1))
+                    y = round(min(max(float(params['y_pct']), 0.0), 1.0) * (size['height'] - 1))
                 success = self.tap_coordinates(int(x), int(y)) if x is not None and y is not None else False
                 return {'success': success}
             
@@ -1366,22 +1426,9 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
                 success = self.swipe_right(int(from_x), int(from_y), int(to_x), int(to_y), int(duration))
                 return {'success': success}
             
-            # Handle uppercase swipe commands from frontend
-            elif command == 'SWIPE_UP':
-                success = self.swipe_up()
-                return {'success': success}
-
-            elif command == 'SWIPE_DOWN':
-                success = self.swipe_down()
-                return {'success': success}
-
-            elif command == 'SWIPE_LEFT':
-                success = self.swipe_left()
-                return {'success': success}
-
-            elif command == 'SWIPE_RIGHT':
-                success = self.swipe_right()
-                return {'success': success}
+            # Uppercase swipes (remote panel Scr buttons): finger direction, sized to the live screen
+            elif command in ('SWIPE_UP', 'SWIPE_DOWN', 'SWIPE_LEFT', 'SWIPE_RIGHT'):
+                return {'success': self.screen_swipe(command[len('SWIPE_'):].lower())}
             
             elif command == 'click_element_by_id':
                 # Android Mobile specific - always dumps UI for edge actions to ensure current state
@@ -1503,7 +1550,7 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
             else:
                 # ❌ VALIDATION: Raise clear error for unknown commands
                 valid_commands = [
-                    'press_key', 'input_text', 'launch_app', 'close_app',
+                    'press_key', 'input_text', 'launch_app', 'open_url', 'close_app',
                     'click_element', 'click_element_by_id', 'tap_coordinates',
                     'swipe', 'swipe_up', 'swipe_down', 'swipe_left', 'swipe_right',
                     'SWIPE_UP', 'SWIPE_DOWN', 'SWIPE_LEFT', 'SWIPE_RIGHT',

@@ -114,7 +114,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_name) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as task,\n  started_at as start,\n  CASE WHEN completed_at - started_at < '1 minute'::interval THEN started_at + '1 minute'::interval ELSE completed_at END as end,\n  success\nFROM script_results \nWHERE started_at >= NOW() - INTERVAL '24 hours'\n  AND ('${user_interface:csv}' = '' OR userinterface_name IN ($user_interface))\n  AND ('${host:csv}' = '' OR host_name IN ($host))\n  AND ('${device_name:csv}' = '' OR device_name IN ($device_name))\nORDER BY device, started_at\nLIMIT 100",
+          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_name) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as task,\n  started_at as start,\n  CASE WHEN completed_at - started_at < '1 minute'::interval THEN started_at + '1 minute'::interval ELSE completed_at END as end,\n  success\nFROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results \nWHERE started_at >= NOW() - INTERVAL '24 hours'\n  AND ('${user_interface:csv}' = '' OR userinterface_name IN ($user_interface))\n  AND ('${host:csv}' = '' OR host_name IN ($host))\n  AND ('${device_name:csv}' = '' OR device_name IN ($device_name))\nORDER BY device, started_at\nLIMIT 100",
           "refId": "A",
           "sql": {
             "columns": [
@@ -235,7 +235,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_name) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as \"Script Name\",\n  started_at,\n  completed_at,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - started_at)) as duration_seconds\nFROM script_results \nWHERE $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name IN ($user_interface))\n  AND ('${host:csv}' = '' OR host_name IN ($host))\n  AND ('${device_name:csv}' = '' OR device_name IN ($device_name))\nORDER BY device, started_at\nLIMIT 50",
+          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_name) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as \"Script Name\",\n  started_at,\n  completed_at,\n  success,\n  EXTRACT(EPOCH FROM (completed_at - started_at)) as duration_seconds\nFROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results \nWHERE $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name IN ($user_interface))\n  AND ('${host:csv}' = '' OR host_name IN ($host))\n  AND ('${device_name:csv}' = '' OR device_name IN ($device_name))\nORDER BY device, started_at\nLIMIT 50",
           "refId": "A"
         }
       ],
@@ -330,7 +330,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_id) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as task,\n  (jsonb_array_elements(scheduled_today)->>'start')::timestamptz as start,\n  (jsonb_array_elements(scheduled_today)->>'end')::timestamptz as end,\n  status\nFROM deployments\nWHERE status = 'active'\n  AND scheduled_today IS NOT NULL\n  AND ('${host:csv}' = '' OR host_name IN ($host))\nORDER BY device, start\nLIMIT 1800",
+          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_id) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as task,\n  (jsonb_array_elements(scheduled_today)->>'start')::timestamptz as start,\n  (jsonb_array_elements(scheduled_today)->>'end')::timestamptz as end,\n  status\nFROM (SELECT * FROM deployments /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) deployments\nWHERE status = 'active'\n  AND scheduled_today IS NOT NULL\n  AND ('${host:csv}' = '' OR host_name IN ($host))\nORDER BY device, start\nLIMIT 1800",
           "refId": "A",
           "sql": {
             "columns": [
@@ -419,7 +419,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_id) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as \"Script Name\",\n  (jsonb_array_elements(scheduled_today)->>'start')::timestamptz as start,\n  (jsonb_array_elements(scheduled_today)->>'end')::timestamptz as end,\n  status,\n  cron_expression,\n  execution_count\nFROM deployments\nWHERE status = 'active'\n  AND scheduled_today IS NOT NULL\n  AND ('${host:csv}' = '' OR host_name IN ($host))\nORDER BY device, start\nLIMIT 200",
+          "rawSql": "SELECT \n  CONCAT(host_name, '-', device_id) as device,\n  COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as \"Script Name\",\n  (jsonb_array_elements(scheduled_today)->>'start')::timestamptz as start,\n  (jsonb_array_elements(scheduled_today)->>'end')::timestamptz as end,\n  status,\n  cron_expression,\n  execution_count\nFROM (SELECT * FROM deployments /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) deployments\nWHERE status = 'active'\n  AND scheduled_today IS NOT NULL\n  AND ('${host:csv}' = '' OR host_name IN ($host))\nORDER BY device, start\nLIMIT 200",
           "refId": "A"
         }
       ],
@@ -439,6 +439,44 @@
     "list": [
       {
         "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
           "text": "All",
           "value": [
             "$__all"
@@ -453,7 +491,7 @@
         "multi": true,
         "name": "user_interface",
         "options": [],
-        "query": "SELECT DISTINCT userinterface_name FROM script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
+        "query": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
         "refresh": 1,
         "sort": 1,
         "type": "query"
@@ -474,7 +512,7 @@
         "multi": true,
         "name": "host",
         "options": [],
-        "query": "SELECT DISTINCT host_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
+        "query": "SELECT DISTINCT host_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
         "refresh": 1,
         "sort": 1,
         "type": "query"
@@ -495,7 +533,7 @@
         "multi": true,
         "name": "device_name",
         "options": [],
-        "query": "SELECT DISTINCT device_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
+        "query": "SELECT DISTINCT device_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
         "refresh": 1,
         "sort": 1,
         "type": "query"

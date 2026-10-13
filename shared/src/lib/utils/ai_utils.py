@@ -1,13 +1,14 @@
 """
-AI Utilities - Verification (vision/text) interface.
+AI Utilities - single-shot vision/text interface.
 
-Thin wrapper over the centralized provider layer in ``shared.src.lib.ai``.
-Provider/model/key for the "vision" and "text" tasks are resolved there from
-env (AI_VISION_PROVIDER/MODEL, AI_TEXT_PROVIDER/MODEL, AI_PROVIDER) with
-per-provider defaults. No provider/model is hardcoded here.
+Thin wrapper over the AI gateway (``shared.src.lib.ai.gateway``). Every call names
+its usage key (``vision.banner``, ``text.translation``...); which model serves it is
+decided by the routing rules in the database (TASK-30), not here. On hosts the call
+goes through the server's ``/server/ai/complete``; server processes call providers
+directly.
 
-Public API (unchanged for callers): call_text_ai, call_vision_ai,
-call_vision_ai_batch, analyze_language_menu_ai, analyze_channel_banner_ai.
+Public API: call_text_ai, call_vision_ai, call_vision_ai_batch,
+analyze_language_menu_ai, analyze_channel_banner_ai.
 """
 
 import os
@@ -15,23 +16,13 @@ import base64
 import json
 import logging
 from datetime import datetime
-from time import sleep
 from typing import Dict, Any, Optional, Tuple, Union
 
 import cv2
 
-from shared.src.lib.ai.config import resolve_task
-from shared.src.lib.ai.provider_client import complete_text, complete_vision
+from shared.src.lib.ai import gateway
 
 logger = logging.getLogger(__name__)
-
-# Defaults that are not provider/model specific.
-AI_DEFAULTS = {
-    'max_tokens': 1000,
-    'temperature': 0.0,
-    'empty_retries': 2,   # retries when the model returns empty content
-    'retry_sleep': 3,
-}
 
 AI_BATCH_CONFIG = {
     'batch_size': 4,
@@ -53,125 +44,105 @@ def _format_timestamp(timestamp: float) -> str:
 # Clean AI Interface Functions
 # =============================================================================
 
-def _response_text(resp) -> str:
-    """Text from either response shape.
+def call_text_ai(prompt: str, usage: str, max_tokens: int = 200, temperature: float = 0.1,
+                 team_id: Optional[str] = None, context: Optional[dict] = None) -> Dict[str, Any]:
+    """Single text completion for ``usage`` (a ``text.*`` / ``analyzer.*`` key)."""
+    print(f"[AI_UTILS] {usage} text call, max_tokens={max_tokens}")
+    return gateway.complete(usage, prompt, max_tokens=max_tokens, temperature=temperature,
+                            team_id=team_id, context=context)
 
-    OpenAICompatibleProviderClient (openai/openrouter/local) returns a
-    ProviderResponse, which has .text(). AnthropicProviderClient (anthropic,
-    minimax) passes the raw Anthropic SDK Message straight through, and that has
-    no .text() — only a .content list of blocks. Reasoning models also emit
-    thinking blocks, which are never part of the answer.
+
+def call_vision_ai(prompt: str, image_input: Union[str, bytes], usage: str, max_tokens: int = 300,
+                   temperature: float = 0.0, family: Optional[str] = None, record: bool = True,
+                   team_id: Optional[str] = None, device_model: Optional[str] = None,
+                   context: Optional[dict] = None, timeout_s: Optional[int] = None) -> Dict[str, Any]:
+    """Single vision completion for ``usage`` (a ``vision.*`` key).
+
+    ``timeout_s``: the caller's budget (see ``gateway.execute``); ``busy`` in the result means the
+    model was saturated for that long.
+
+    ``device_model`` also narrows routing (a route may be scoped to a device model).
+
+    Training capture (TASK-27 step 3d): a successful call is also stored as a
+    training sample when ``record`` is true, ``team_id`` and ``device_model`` are
+    given and ``TRAINING_DATA_ENABLED`` is on. ``family`` names the task family
+    (``None`` records as ``'other'``). Callers that store the frame themselves
+    pass ``record=False``. When a sample is stored, its id is returned as
+    ``training_sample_id``; otherwise the result dict is unchanged.
     """
-    textf = getattr(resp, "text", None)
-    if callable(textf):
-        return textf() or ""
-    blocks = getattr(resp, "content", None) or []
-    return "".join(
-        getattr(b, "text", "") or ""
-        for b in blocks
-        if getattr(b, "type", None) == "text"
-    )
+    image_b64, media_type = _image_to_b64(image_input)
+    if not image_b64:
+        return {'success': False, 'error': 'Failed to process image', 'content': '', 'provider_used': 'none'}
+    routing_context = dict(context or {})
+    if device_model:
+        routing_context.setdefault('device_model', device_model)
+    print(f"[AI_UTILS] {usage} vision call, max_tokens={max_tokens}")
+    result = gateway.complete(usage, prompt, image_b64=image_b64, media_type=media_type or 'image/jpeg',
+                              max_tokens=max_tokens, temperature=temperature, team_id=team_id,
+                              context=routing_context, timeout_s=timeout_s)
+    result['initial_prompt'] = prompt
+    if result.get('success') and record and team_id and _training_capture_on():
+        sample_id = _record_vision_sample(image_b64, prompt, result['content'], family, team_id, device_model,
+                                          trace_id=result.get('trace_id'), request_id=result.get('request_id'))
+        if sample_id:
+            result['training_sample_id'] = sample_id
+    return result
+
+_TRUTHY = ('1', 'true', 'yes', 'on')
 
 
-def call_text_ai(prompt: str, max_tokens: int = 200, temperature: float = 0.1, model: str = None) -> Dict[str, Any]:
-    """Single text completion via the centralized 'text' task provider."""
-    return _run_completion('text', prompt, image=None, max_tokens=max_tokens, temperature=temperature, model=model)
+def _training_capture_on() -> bool:
+    """Cheap env check so a disabled switch costs nothing (no import, no decode).
 
-def call_vision_ai(prompt: str, image_input: Union[str, bytes], max_tokens: int = 300, temperature: float = 0.0) -> Dict[str, Any]:
-    """Single vision completion via the centralized 'vision' task provider."""
-    return _run_completion('vision', prompt, image=image_input, max_tokens=max_tokens, temperature=temperature)
-
-def _run_completion(task: str, prompt: str, image: Union[str, bytes, None] = None,
-                    max_tokens: int = None, temperature: float = None, model: str = None) -> Dict[str, Any]:
+    ``training_samples.record_sample`` re-checks the switch and the bucket config.
     """
-    Resolve the task provider/model/key (from shared.ai.config) and run a text or
-    vision completion. Returns the legacy result dict:
-    {success, content, error, usage, provider_used}.
-    """
-    max_tokens = max_tokens or AI_DEFAULTS['max_tokens']
-    temperature = temperature if temperature is not None else AI_DEFAULTS['temperature']
+    return os.environ.get('TRAINING_DATA_ENABLED', '').strip().lower() in _TRUTHY
 
+
+def _record_vision_sample(image_b64: str, prompt: str, content: str, family: Optional[str],
+                          team_id: str, device_model: Optional[str],
+                          trace_id: Optional[str] = None, request_id: Optional[str] = None) -> Optional[str]:
+    """Store one generic vision sample. Returns its id or None. Never raises.
+
+    Known limitation: ``model_answer={'content': ...}`` is the raw model text, so it
+    will never canonically equal a structured ``ground_truth``. ``is_failure`` is
+    therefore meaningless for generic samples until Step 4/5 add per-family parsing
+    of the answer.
+    """
     try:
-        cfg = resolve_task(task)
-    except ValueError as e:
-        # No provider/model/key configured for this task (e.g. minimax has no vision model,
-        # or the provider's API key is missing). Fail loudly with the real reason.
-        print(f"[AI_UTILS] ❌ {task} task not configured: {e}")
-        return {'success': False, 'error': str(e), 'content': '', 'provider_used': 'none'}
+        from shared.src.lib.ai import training_samples
+        return training_samples.record_sample(
+            image=base64.b64decode(image_b64),
+            family=family or 'other',
+            team_id=team_id,
+            device_model=device_model,
+            prompt=prompt,
+            model_answer={'content': content},
+            label_source='none',
+            # request_id joins the sample to its ai_calls rows (model, profile, cost); trace_id is the same
+            # value as a Langfuse trace id, set only while Langfuse is on.
+            source_ref={k: v for k, v in (('trace_id', trace_id), ('request_id', request_id)) if v} or None,
+        )
+    except Exception as e:
+        logger.warning(f"[AI_UTILS] training capture failed: {e}")
+        return None
 
-    provider = cfg['provider']
-    resolved_model = model or cfg['model']
-    print(f"[AI_UTILS] {task} call → provider={provider}, model={resolved_model}, max_tokens={max_tokens}")
 
-    image_b64 = media_type = None
-    if image is not None:
-        image_b64, media_type = _image_to_b64(image)
-        if not image_b64:
-            return {'success': False, 'error': 'Failed to process image', 'content': '', 'provider_used': provider}
-
-    attempts = AI_DEFAULTS['empty_retries'] + 1
-    for attempt in range(attempts):
-        try:
-            if image_b64 is not None:
-                resp = complete_vision(
-                    provider=provider, api_key=cfg['api_key'], model=resolved_model,
-                    prompt=prompt, image_b64=image_b64, media_type=media_type,
-                    max_tokens=max_tokens, temperature=temperature,
-                )
-            else:
-                resp = complete_text(
-                    provider=provider, api_key=cfg['api_key'], model=resolved_model,
-                    prompt=prompt, max_tokens=max_tokens, temperature=temperature,
-                )
-        except Exception as e:
-            error_msg = _format_provider_error(provider, resolved_model, e)
-            print(f"[AI_UTILS] ❌ {error_msg}")
-            return {'success': False, 'error': f'AI call failed: {error_msg}', 'content': '', 'provider_used': provider}
-
-        content = _response_text(resp)
-        if not content or not content.strip():
-            if attempt < attempts - 1:
-                print(f"[AI_UTILS] Empty content (attempt {attempt + 1}/{attempts}) - retrying")
-                sleep(AI_DEFAULTS['retry_sleep'])
-                continue
-            return {'success': False, 'error': 'AI returned empty content', 'content': '', 'provider_used': provider}
-
-        print(f"[AI_UTILS] ✅ {provider} call successful - content length: {len(content)}")
-        return {
-            'success': True,
-            'content': content,
-            'initial_prompt': prompt,
-            'provider_used': provider,
-            'usage': {
-                'prompt_tokens': resp.usage.input_tokens,
-                'completion_tokens': resp.usage.output_tokens,
-                'total_tokens': resp.usage.input_tokens + resp.usage.output_tokens,
-            },
-        }
-
-def _format_provider_error(provider: str, model: str, exc: Exception) -> str:
-    """Build a clear, single-line error string from a provider exception."""
-    try:
-        import requests as _requests
-        if isinstance(exc, _requests.HTTPError) and exc.response is not None:
-            body = (exc.response.text or '')[:300]
-            return f"{provider} API error (HTTP {exc.response.status_code}) for model '{model}': {body}"
-    except Exception:
-        pass
-    return f"{provider} call failed for model '{model}': {exc}"
-
-def call_vision_ai_batch(prompt: str, image_paths: list, max_tokens: int = None, temperature: float = None) -> Dict[str, Any]:
+def call_vision_ai_batch(prompt: str, image_paths: list, usage: str, max_tokens: int = None,
+                         temperature: float = None, team_id: Optional[str] = None) -> Dict[str, Any]:
     """Simple batch vision AI call."""
     print(f"[AI_UTILS] Batch processing {len(image_paths)} images")
-    
+
     # Process first image with batch context (can be enhanced for true batch processing later)
     if image_paths:
         batch_prompt = f"{prompt}\n\nNote: This is part of a batch analysis of {len(image_paths)} images."
         result = call_vision_ai(
             batch_prompt,
             image_paths[0],
+            usage,
             max_tokens=max_tokens or AI_BATCH_CONFIG['max_tokens'],
             temperature=temperature if temperature is not None else AI_BATCH_CONFIG['temperature'],
+            team_id=team_id,
         )
         print(f"[AI_UTILS] Batch result: success={result['success']}, provider={result.get('provider_used', 'unknown')}")
         return result
@@ -223,7 +194,8 @@ def _process_image_input(image_input: Union[str, bytes]) -> Optional[str]:
 # Specialized AI Functions
 # =============================================================================
 
-def analyze_language_menu_ai(image_path: str, context_name: str = "AI") -> Dict[str, Any]:
+def analyze_language_menu_ai(image_path: str, context_name: str = "AI", team_id: Optional[str] = None,
+                             device_model: Optional[str] = None) -> Dict[str, Any]:
     """
     AI-powered language/subtitle menu analysis using centralized AI utilities.
     
@@ -313,7 +285,8 @@ IMPORTANT: Even if the image has no language/subtitle menu, you MUST respond wit
 RESPOND WITH JSON ONLY - NO MARKDOWN - NO OTHER TEXT"""
         
         # Call AI with image
-        result = call_vision_ai(prompt, image_path, max_tokens=400, temperature=0.0)
+        result = call_vision_ai(prompt, image_path, 'vision.menu', max_tokens=400, temperature=0.0, family='menu',
+                                team_id=team_id, device_model=device_model)
         
         if not result['success']:
             return {
@@ -367,7 +340,8 @@ RESPOND WITH JSON ONLY - NO MARKDOWN - NO OTHER TEXT"""
         }
 
 
-def analyze_channel_banner_ai(image_path: str, context_name: str = "AI") -> Dict[str, Any]:
+def analyze_channel_banner_ai(image_path: str, context_name: str = "AI", team_id: Optional[str] = None,
+                              device_model: Optional[str] = None) -> Dict[str, Any]:
     """
     AI-powered channel banner detection using centralized AI utilities.
     
@@ -414,7 +388,10 @@ def analyze_channel_banner_ai(image_path: str, context_name: str = "AI") -> Dict
         prompt = _create_banner_analysis_prompt()
         
         # Call AI with image (increased max_tokens from 400 to 600 to avoid truncation)
-        result = call_vision_ai(prompt, image_path, max_tokens=600, temperature=0.0)
+        # record=False because the zap detector (TASK-27 step 3b) already stores this
+        # frame with the run label.
+        result = call_vision_ai(prompt, image_path, 'vision.banner', max_tokens=600, temperature=0.0,
+                                family='banner', record=False, team_id=team_id, device_model=device_model)
         
         logger.info(f"[{context_name}] AI call complete - success={result['success']}, provider={result.get('provider_used', 'unknown')}")
         
@@ -589,7 +566,9 @@ def analyze_channel_banner_ai(image_path: str, context_name: str = "AI") -> Dict
                 'confidence': confidence
             },
             'confidence': confidence,
-            'image_path': os.path.basename(image_path)
+            'image_path': os.path.basename(image_path),
+            'trace_id': result.get('trace_id'),
+            'request_id': result.get('request_id'),
         }
         
     except Exception as e:

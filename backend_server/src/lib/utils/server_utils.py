@@ -277,6 +277,7 @@ class HostManager:
                                             'device_ip',
                                             'device_port',
                                             'ir_type',
+                                            'remote_profiles',
                                             'video_stream_path',
                                             'video_capture_path',
                                             'video',

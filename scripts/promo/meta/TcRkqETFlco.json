@@ -1,0 +1,19 @@
+{
+ "id": "TcRkqETFlco",
+ "title": "Why did it fail? Reference, screen and diff, side by side",
+ "description": "A test step failed. VirtualPyTest does not just say so: it shows the reference the screen was expected to match, the frame the device actually showed, and the pixels that differ, so anyone can see why in one look.\n\nWhat you see:\n1. The check: a node in the navigation tree verifies two things, an element and an image. The image check carries its reference, the part of the screen it expects to see.\n2. The run: a normal goto crosses that node and fails at the image check. The failure is on purpose here: the reference was taken on another screen.\n3. The test report: the run failed at step 2. Open the step: the image check scored 65 %, and the comparison is one click away.\n4. The comparison: 65 % match against 80 % required, with the first, best and last frame it checked.\n5. Side by side: what the screen showed, what the reference expected, and a pixel-diff overlay of what changed.\n\nChapters\n0:00 Why did it fail?\n0:04 The check\n0:17 Run\n0:26 The report\n0:42 The comparison\n0:50 Side by side",
+ "tags": [
+  "image comparison",
+  "visual testing",
+  "screenshot diff",
+  "test failure analysis",
+  "test automation",
+  "set-top box testing",
+  "web automation",
+  "open source",
+  "virtualpytest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-28"
+}

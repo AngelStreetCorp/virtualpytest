@@ -87,6 +87,8 @@ CREATE TABLE deployment_executions (
 -- Create indexes for performance
 CREATE INDEX idx_deployments_host_status ON deployments(host_name, status);
 CREATE INDEX idx_deployments_team ON deployments(team_id);
+-- Campaign rows are rare among ad-hoc receipts; see 20260930_deployments_team_campaign_index.sql.
+CREATE INDEX idx_deployments_team_campaign ON deployments(team_id) WHERE campaign_id IS NOT NULL;
 CREATE INDEX idx_deployments_status ON deployments(status);
 CREATE INDEX idx_deployments_cron ON deployments(cron_expression) WHERE status = 'active';
 CREATE INDEX idx_deployments_next_run ON deployments(last_executed_at) WHERE status = 'active';

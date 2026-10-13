@@ -19,6 +19,7 @@ import numpy as np
 import json
 from typing import Dict, Any, Optional, Tuple, List
 from pathlib import Path
+from shared.src.lib.utils import cv2_io
 
 # Simplified sampling patterns for performance optimization
 SAMPLING_PATTERNS = {
@@ -70,7 +71,7 @@ class VideoAnalysisHelpers:
         """
         try:
             # Load image
-            image = cv2.imread(image_path)
+            image = cv2_io.imread(image_path)
             if image is None:
                 return {"error": "Could not load image"}
             
@@ -203,8 +204,8 @@ class VideoAnalysisHelpers:
         self.last_motion_crops = None
         try:
             # Load images
-            img1 = cv2.imread(image1_path, cv2.IMREAD_GRAYSCALE)
-            img2 = cv2.imread(image2_path, cv2.IMREAD_GRAYSCALE)
+            img1 = cv2_io.imread(image1_path, cv2.IMREAD_GRAYSCALE)
+            img2 = cv2_io.imread(image2_path, cv2.IMREAD_GRAYSCALE)
 
             if img1 is None or img2 is None:
                 print(f"VideoAnalysis[{self.device_name}]: Could not load images for comparison")
@@ -267,8 +268,8 @@ class VideoAnalysisHelpers:
                     ts = int(time.time() * 1000)
                     crop1_path = os.path.join(base_dir, f"motion_crop1_{ts}.png")
                     crop2_path = os.path.join(base_dir, f"motion_crop2_{ts}.png")
-                    cv2.imwrite(crop1_path, img1)
-                    cv2.imwrite(crop2_path, img2)
+                    cv2_io.imwrite(crop1_path, img1)
+                    cv2_io.imwrite(crop2_path, img2)
                     self.last_motion_crops = {
                         'images': [crop1_path, crop2_path],
                         'change_percentage': round(float(change_percentage), 1),
@@ -475,7 +476,7 @@ class VideoAnalysisHelpers:
                 print(f"VideoAnalysis[{self.device_name}]: Image file not found: {image_path}")
                 continue
             
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 print(f"VideoAnalysis[{self.device_name}]: Could not load image: {image_path}")
                 continue
@@ -502,7 +503,7 @@ class VideoAnalysisHelpers:
             if not os.path.exists(image_path):
                 return {"error": "Image file not found"}
             
-            img = cv2.imread(image_path)
+            img = cv2_io.imread(image_path)
             if img is None:
                 return {"error": "Could not load image"}
             

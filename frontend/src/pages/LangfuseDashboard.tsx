@@ -1,16 +1,17 @@
-import { Box, IconButton, Tooltip, Typography, Alert, Button, useTheme } from '@mui/material';
+import { Box, IconButton, Tooltip, Typography, Alert, Button } from '@mui/material';
 import { OpenInNew, Insights as LangfuseIcon } from '@mui/icons-material';
 import React from 'react';
 import { getEnv } from '../config/constants';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 const LangfuseDashboard: React.FC = () => {
-  const theme = useTheme();
+  const P = useAgentChatPalette();
   // Get Langfuse URL from environment variable - if set, Langfuse is enabled
   const langfuseUrl = getEnv('VITE_LANGFUSE_URL');
   const langfuseEnabled = !!langfuseUrl;
 
   const codeBlockStyle = {
-    background: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+    background: P.hoverBg,
     padding: 8,
     borderRadius: 4,
     marginTop: 4,
@@ -66,11 +67,11 @@ LANGFUSE_SECRET_KEY=sk-lf-...`}
   return (
     <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header */}
-      <Box sx={{ 
-        p: 2, 
-        borderBottom: '1px solid #e0e0e0', 
-        display: 'flex', 
-        alignItems: 'center', 
+      <Box sx={{
+        p: 2,
+        borderBottom: '1px solid', borderColor: P.borderColor,
+        display: 'flex',
+        alignItems: 'center',
         justifyContent: 'space-between',
       }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

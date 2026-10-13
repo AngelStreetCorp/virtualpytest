@@ -38,7 +38,7 @@ test.describe('Viewport Desktop (1280x800)', () => {
     { name: 'Dashboard', path: '/', heading: { role: 'heading', name: 'Dashboard' } },
     { name: 'Device Control', path: '/device-control', heading: { role: 'heading', name: 'Device' } },
     { name: 'Heatmap', path: '/monitoring/heatmap', heading: { role: 'heading', name: '24h Heatmap' } },
-    { name: 'Incidents', path: '/monitoring/incidents', heading: { role: 'heading', name: 'Incident Summary' } },
+    { name: 'Incidents', path: '/monitoring/incidents', heading: { role: 'heading', name: 'Alerts' } },
     { name: 'Run Tests', path: '/test-execution/run-tests', heading: { role: 'heading', name: 'Run Tests' } },
     { name: 'Campaigns', path: '/run/build', heading: { role: 'heading', name: 'Build Campaign' } },
     { name: 'Deployments', path: '/run/deployments', heading: { role: 'heading', name: 'Monitor Tests' } },

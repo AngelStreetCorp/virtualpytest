@@ -1,5 +1,4 @@
 import {
-  OpenInFull,
   CloseFullscreen,
   KeyboardArrowDown,
   KeyboardArrowUp,
@@ -7,6 +6,7 @@ import {
 import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import React, { useState, useEffect, useMemo } from 'react';
 
+import { FullscreenIcon } from '../../common/icons/CustomIcons';
 import { getConfigurableRemotePanelLayout, loadRemoteConfig } from '../../../config/remote';
 import { Host } from '../../../types/common/Host_Types';
 
@@ -284,7 +284,7 @@ export const WebPanel = React.memo(
                   sx={{ color: 'inherit' }}
                 >
                   {isCollapsed ? (
-                    <OpenInFull fontSize={webConfig?.panel_layout?.header?.iconSize || 'small'} />
+                    <FullscreenIcon fontSize={webConfig?.panel_layout?.header?.iconSize || 'small'} />
                   ) : (
                     <CloseFullscreen
                       fontSize={webConfig?.panel_layout?.header?.iconSize || 'small'}

@@ -405,13 +405,13 @@ class VerificationTools:
 
         Args:
             params: {
-                'node_label': str (REQUIRED - human readable node name like 'home', 'search'),
+                'node_label': str (OPTIONAL - human readable node name like 'home', 'search'; give either node_label or node_id),
                 'userinterface_name': str (REQUIRED - user interface name for auto-resolving tree_id),
                 'device_id': str (OPTIONAL - device identifier),
                 'host_name': str (OPTIONAL - host name where device is connected),
                 'tree_id': str (OPTIONAL - navigation tree ID, auto-resolved from userinterface_name if not provided),
-                'node_id': str (OPTIONAL - exact node identifier from database, overrides node_label if provided),
-                'include_screenshot': bool (OPTIONAL - include a device screenshot of the verified screen in the response, default false)
+                'node_id': str (OPTIONAL - exact node identifier from database; give either node_label or node_id),
+                'include_screenshot': bool (OPTIONAL - include a device screenshot of the verified screen in the response, default true)
             }
 
         Returns:
@@ -424,7 +424,7 @@ class VerificationTools:
             })
         """
         try:
-            # Accept either node_label (preferred) or node_id (for backward compatibility)
+            # Either node_label or node_id identifies the node
             node_identifier = params.get('node_label') or params.get('node_id')
 
             if not node_identifier:
@@ -435,7 +435,7 @@ class VerificationTools:
             host_name = params.get('host_name')
             device_id = params.get('device_id')
             team_id = params.get('team_id', get_team_id())
-            include_screenshot = params.get('include_screenshot', False)
+            include_screenshot = params.get('include_screenshot', True)
 
             # Auto-resolve tree_id from userinterface_name using api_client helper
             if not tree_id:

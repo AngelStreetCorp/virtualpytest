@@ -1,0 +1,19 @@
+[Unit]
+Description=VirtualPyTest VM agent (health for the System Service Status dashboard)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/vpt-vm-agent
+ExecStart=/usr/bin/python3 /opt/vpt-vm-agent/vpt_vm_agent.py
+Restart=always
+RestartSec=10
+# Root only to read /var/run/docker.sock; the agent never writes anything.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

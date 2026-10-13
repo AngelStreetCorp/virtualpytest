@@ -76,6 +76,10 @@ def normalize_capture_base_dir(capture_path: str) -> str:
 # CORE URL BUILDING FUNCTION (No Dependencies)
 # =====================================================
 
+# Polled several times a second by the monitoring overlay: no per-call log line.
+_QUIET_HOST_ENDPOINTS = frozenset({'/host/monitoring/latest-json'})
+
+
 def call_host(
     host_info: dict,
     endpoint: str,
@@ -83,7 +87,8 @@ def call_host(
     data: dict = None,
     query_params: dict = None,
     timeout: int = 30,
-    extra_headers: dict = None
+    extra_headers: dict = None,
+    raw_response: bool = False
 ) -> tuple:
     """
     **SINGLE SOURCE OF TRUTH** for all server-to-host API calls.
@@ -104,6 +109,8 @@ def call_host(
         query_params: URL query parameters (dict)
         timeout: Request timeout in seconds (default: 30)
         extra_headers: Additional headers to include (dict)
+        raw_response: Return the body as bytes instead of parsed JSON — for files the host
+            serves (screenshots under /host/<name>/stream/...). Errors are still dicts.
         
     Returns:
         Tuple of (response_data, status_code)
@@ -120,15 +127,13 @@ def call_host(
         # Build URL
         full_url = buildHostUrl(host_info, endpoint)
         
-        # Log connection attempt for debugging
+        # One line per call; polling endpoints log only on failure (below). Every line is a
+        # journald write on the server's SD card — at ~10 lines per poll x 4 polls/s, a card
+        # write stall froze the single-worker server (slow take/release control).
         host_name = host_info.get('host_name', 'unknown')
         host_api_url = host_info.get('host_api_url', 'not set')
-        print(f"[@call_host] 🔗 Connecting to host '{host_name}'")
-        print(f"[@call_host]    URL: {full_url}")
-        print(f"[@call_host]    Method: {method}")
-        print(f"[@call_host]    host_api_url: {host_api_url}")
-        if query_params:
-            print(f"[@call_host]    Query params: {query_params}")
+        if endpoint not in _QUIET_HOST_ENDPOINTS:
+            print(f"[@call_host] {method} {host_name} {endpoint}" + (f" {query_params}" if query_params else ''))
         
         # Prepare request kwargs
         # connect_timeout is short (3s) so unreachable hosts fail fast — a 60s
@@ -159,6 +164,12 @@ def call_host(
         else:
             print(f"[@call_host] ⚠️ WARNING: API_KEY not found in environment - request to {endpoint} will fail!")
         
+        # Who asked (TASK-87): the host's AI calls are attributed to the user / script that caused them.
+        from shared.src.lib.ai import caller as ai_caller
+        caller_header = ai_caller.header_value()
+        if caller_header:
+            headers[ai_caller.HEADER] = caller_header
+
         # Merge with extra headers
         if extra_headers:
             headers.update(extra_headers)
@@ -183,6 +194,9 @@ def call_host(
                 'error': f'Unsupported HTTP method: {method}'
             }, 400
         response = requests.request(method_upper, full_url, timeout=request_timeout, **kwargs)
+
+        if raw_response:
+            return response.content, response.status_code
         
         # Parse response
         try:
@@ -716,7 +730,13 @@ def server_auth_headers() -> dict:
     API_KEY is configured, so behaviour is unchanged on hosts without one.
     """
     api_key = (os.getenv('API_KEY') or '').strip()
-    return {'X-API-Key': api_key} if api_key else {}
+    headers = {'X-API-Key': api_key} if api_key else {}
+    # Who asked (TASK-87): the server attributes the AI calls this request causes to that caller.
+    from shared.src.lib.ai import caller as ai_caller
+    caller_header = ai_caller.header_value()
+    if caller_header:
+        headers[ai_caller.HEADER] = caller_header
+    return headers
 
 
 def _is_local_network_host(host_url: str) -> bool:

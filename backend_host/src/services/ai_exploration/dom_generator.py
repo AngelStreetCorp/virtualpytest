@@ -1,35 +1,27 @@
 #!/usr/bin/env python3
 """
-LLM-based TV-UI DOM generator (GPT-5.5, no preprocessing hints).
-
+LLM-based TV-UI DOM generator (usage ``vision.dom``, no preprocessing hints).
 Single source of truth for "screenshot -> DOM" used by:
   - the /generateDom host route (live screenshot-save + Reset-DOM button)
   - the DB backfill script (backfill_dom.py)
   - the HTML report script (llm_dom_report.py)
 
-Config was validated empirically (see docs): GPT-5.5 at reasoning_effort=medium with
-NO Omni/focus-detector hints resolved every focus-bearing example_tv screen, at lower
-cost/latency than the deterministic hint pipeline. We intentionally call OpenAI directly
-(not the generic Anthropic-shaped provider abstraction) because the GPT-5 family needs
-reasoning_effort + max_completion_tokens + no temperature + json_object — wiring that
-through the shared path would risk every other vision caller.
-
-Env overrides (all optional):
-  OPENAI_API_KEY   (required)
-  DOM_MODEL        default "gpt-5.5"
-  DOM_EFFORT       default "medium"  (minimal|low|medium|high)
+The model is chosen by AI routing (TASK-30), usage ``vision.dom``. The config validated
+empirically is GPT-5.5 at reasoning_effort=medium with NO Omni/focus-detector hints
+(it resolved every focus-bearing example_tv screen). That needs a profile whose
+``extra`` carries the reasoning-model flags:
+  {"max_tokens_param": "max_completion_tokens", "omit_temperature": true,
+   "reasoning_effort": "medium", "response_format": {"type": "json_object"}}
 """
 from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 import time
 from pathlib import Path
 from typing import Any
 
-import requests
 from PIL import Image, ImageDraw
 
 # Bump when the prompt/shape changes so backfill can detect stale rows.
@@ -37,9 +29,7 @@ from PIL import Image, ImageDraw
 #     classifications — parity with the sub-agent DOM job schema in
 #     scripts/auto_build_mcp_live.py so generate_dom can replace the manual handoff).
 DOM_SCHEMA_VERSION = 2
-DEFAULT_MODEL = "gpt-5.5"
-DEFAULT_EFFORT = "medium"
-_OPENAI_URL = "https://api.openai.com/v1/chat/completions"
+MAX_OUTPUT_TOKENS = 16000
 
 PROMPT = """Analyze this TV app screenshot.
 
@@ -97,16 +87,8 @@ Return strict JSON only with this schema:
 """
 
 
-def _image_data_url(path: Path) -> str:
-    return "data:image/jpeg;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
-
-
-def _strip_thinking(text: str) -> str:
-    return re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
-
-
 def _extract_json(text: str) -> dict[str, Any]:
-    text = _strip_thinking(text).strip()
+    text = text.strip()
     if text.startswith("```"):
         text = re.sub(r"^```(?:json)?\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
@@ -142,66 +124,38 @@ def normalize_bboxes(parsed: dict[str, Any], image_w: int, image_h: int) -> None
         element["bbox"] = [round(x, 4), round(y, 4), round(w, 4), round(h, 4)]
 
 
-def generate_dom(image_path: str, *, model: str | None = None, effort: str | None = None,
-                 timeout: int = 240) -> dict[str, Any]:
-    """Generate a canonical TV-UI DOM for one screenshot via GPT-5.5 (no hints).
+def generate_dom(image_path: str, *, team_id: str | None = None) -> dict[str, Any]:
+    """Generate a canonical TV-UI DOM for one screenshot (usage ``vision.dom``).
 
     Returns the parsed DOM dict (screen_summary, focused_element_id, focus_confidence,
-    focusable_elements[], navigation{}) plus a `_dom_meta` block (model/effort/usage/
-    version/elapsed). Raises on missing key or HTTP error.
+    focusable_elements[], navigation{}) plus a `_dom_meta` block (model/profile/usage/
+    version/elapsed). Raises when the AI call fails or returns no JSON.
     """
-    # Provider fallback (2026-07-16): prefer OpenAI (gpt-5.5), fall back to
-    # OpenRouter's OpenAI-compatible endpoint when no OpenAI key is configured —
-    # the fleet's funded vision key is OpenRouter (see shared/src/lib/ai/config.py).
-    key = os.getenv("OPENAI_API_KEY", "").strip()
-    url = _OPENAI_URL
-    if key:
-        model = model or os.getenv("DOM_MODEL", "").strip() or DEFAULT_MODEL
-    else:
-        key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if not key:
-            raise RuntimeError("Neither OPENAI_API_KEY nor OPENROUTER_API_KEY is configured")
-        url = "https://openrouter.ai/api/v1/chat/completions"
-        model = model or os.getenv("DOM_MODEL", "").strip() or "qwen/qwen3-vl-235b-a22b-instruct"
-    effort = (effort or os.getenv("DOM_EFFORT", "").strip() or DEFAULT_EFFORT).lower()
+    from shared.src.lib.ai import gateway
 
     path = Path(image_path)
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": [{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": PROMPT},
-                {"type": "image_url", "image_url": {"url": _image_data_url(path)}},
-            ],
-        }],
-        "max_completion_tokens": 16000,
-        "response_format": {"type": "json_object"},
-    }
-    # GPT-5 family: reasoning model — temperature must be default, expose effort knob.
-    if url == _OPENAI_URL and effort in {"minimal", "low", "medium", "high"}:
-        payload["reasoning_effort"] = effort
-
+    media_type = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
     started = time.time()
-    resp = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json=payload,
-        timeout=timeout,
+    result = gateway.complete(
+        "vision.dom",
+        PROMPT,
+        image_b64=base64.b64encode(path.read_bytes()).decode("ascii"),
+        media_type=media_type,
+        max_tokens=MAX_OUTPUT_TOKENS,
+        temperature=None,
+        team_id=team_id,
     )
     elapsed = time.time() - started
-    if not resp.ok:
-        raise RuntimeError(f"DOM provider {resp.status_code}: {resp.text[:800]}")
-    body = resp.json()
-    content = body["choices"][0]["message"]["content"]
-    parsed = _extract_json(content)
+    if not result.get("success"):
+        raise RuntimeError(f"DOM generation failed: {result.get('error')}")
+    parsed = _extract_json(result["content"])
     with Image.open(path) as im:
         normalize_bboxes(parsed, *im.size)
     parsed["_dom_meta"] = {
         "v": DOM_SCHEMA_VERSION,
-        "model": model,
-        "effort": effort,
-        "usage": body.get("usage", {}),
+        "model": result.get("model"),
+        "profile": result.get("profile"),
+        "usage": result.get("usage", {}),
         "elapsed_sec": round(elapsed, 1),
     }
     return parsed

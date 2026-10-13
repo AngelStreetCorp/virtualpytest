@@ -1,0 +1,35 @@
+{
+  "_comment": "Labelled overlay tuning set. Built 2026-10-07 from 778 real frames clustered by the production identity notion (dhash64, hamming <= 25) into 15 DISTINCT screens, then labelled BY EYE from a contact sheet -- never from the classifier under test. Images are not committed (they live in the cold capture archive on the Pi hosts); this file is the labels plus the verdict the code gave, so the scoring is reproducible and a regression is visible.",
+  "_vocabulary": "The code's own vocabulary: popup | keyboard | notification | tooltip | none | unknown. _classify_plate returns 'popup' for a centred dimmed modal; there is no 'dialog' verdict.",
+  "_populations": "778 frames -> 15 distinct screens: 11 broadcast/game CONTENT, 4 UI (console home menu, SMURFS+popup, browse UI, video+Info menu).",
+  "_result": "overlay() correct on 1/15 distinct screens and 14/778 frames. On the 4 UI screens: 0/4. It answered 'tooltip' on all four, including both real dialogs.",
+  "cluster_max_hamming": 25,
+  "frames_total": 778,
+  "distinct_screens": 15,
+  "correct_distinct": 1,
+  "correct_frames": 14,
+  "screens": [
+    {"i": 0,  "file": "stb_tv_static_000_capture_000000.jpg",  "kind": "content", "truth": "none",     "overlay_said": "keyboard",     "n": 233, "what": "broadcast promo slate (station continuity slate with channel bugelogo)"},
+    {"i": 1,  "file": "stb_tv_static_000_capture_001140812.jpg","kind": "content", "truth": "none",     "overlay_said": "tooltip",      "n": 171, "what": "game title screen"},
+    {"i": 2,  "file": "stb_tv_static_001_capture_000000.jpg",  "kind": "UI",      "truth": "none",     "overlay_said": "tooltip",      "n": 289, "what": "console HOME MENU - a full UI screen, no overlay at all"},
+    {"i": 3,  "file": "stb_tv_static_047_capture_072010.jpg",  "kind": "content", "truth": "none",     "overlay_said": "keyboard",     "n": 9,   "what": "game cutscene"},
+    {"i": 4,  "file": "stb_tv_static_048_capture_072065.jpg",  "kind": "content", "truth": "none",     "overlay_said": "tooltip",      "n": 19,  "what": "game cutscene"},
+    {"i": 5,  "file": "stb_tv_static_064_capture_126065.jpg",  "kind": "content", "truth": "none",     "overlay_said": "unknown",      "n": 14,  "what": "game cutscene"},
+    {"i": 6,  "file": "n07_av-fault.jpg",                      "kind": "UI",      "truth": "popup",    "overlay_said": "tooltip",      "n": 6,   "what": "SMURFS UI with a red 'subscription has expired' dialog - a REAL modal"},
+    {"i": 7,  "file": "n18_screen-id.jpg",                     "kind": "content", "truth": "none",     "overlay_said": "tooltip",      "n": 3,   "what": "TV content"},
+    {"i": 8,  "file": "n21_screen-id.jpg",                     "kind": "content", "truth": "none",     "overlay_said": "tooltip",      "n": 12,  "what": "TV content"},
+    {"i": 9,  "file": "f001.jpg",                              "kind": "UI",      "truth": "none",     "overlay_said": "tooltip",      "n": 2,   "what": "browse UI screen (Entdecken)"},
+    {"i": 10, "file": "f009.jpg",                              "kind": "content", "truth": "none",     "overlay_said": "tooltip",      "n": 1,   "what": "TV content"},
+    {"i": 11, "file": "f011.jpg",                              "kind": "UI",      "truth": "popup",    "overlay_said": "tooltip",      "n": 1,   "what": "video with an 'Info' context menu - raised panel, NOT dimmed"},
+    {"i": 12, "file": "capture_108150.jpg",                    "kind": "content", "truth": "none",     "overlay_said": "notification", "n": 5,   "what": "game cutscene (dimmed)"},
+    {"i": 13, "file": "capture_108020.jpg",                    "kind": "content", "truth": "none",     "overlay_said": "tooltip",      "n": 9,   "what": "TV content"},
+    {"i": 14, "file": "capture_108175.jpg",                    "kind": "content", "truth": "none",     "overlay_said": "tooltip",      "n": 4,   "what": "TV content"}
+  ],
+  "diagnosis": [
+    "'tooltip' is the degenerate fallback. A frame that produces no big plate falls through to the small-patch rule, which fires on almost anything bright-on-dark. It answered 'tooltip' on 433/778 frames and on ALL FOUR UI screens.",
+    "'popup' has never fired. Across 778 frames the verdicts were keyboard 160, tooltip 433, popup 110, notification 29, unknown 36, none 10 -- and the 110 'popup' frames are content, not the two real dialogs.",
+    "Both real dialogs fail the plate gate. Screen 6 is a 1278x280 letterboxed capture; its brightest contour is 0.315 wide x 0.800 tall, but the SMALL patches at 0.181 and 0.169 wide are the ones under OVERLAY_PLATE_MIN_W=0.25. Screen 11's candidate plates are 0.394 and 0.376 wide, so MIN_W is not what stops it -- the dimming gate is: the 'Info' menu is raised but NOT dimmed, so dim_ratio never falls below OVERLAY_DIM_RATIO=0.55 and _classify_plate returns 'ambiguous'.",
+    "keyboard/notification are not dimming-gated. Both are geometry-only (flush bottom / top-right corner), which is why broadcast promo slates and dimmed cutscenes get called keyboards and notifications."
+  ],
+  "verdict": "NOT TUNABLE FROM THIS DATA. 8 thresholds cannot be fitted to 2 positive examples; any fit would be overfitting to two frames. What this set buys is the ability to PROVE the next attempt: score overlay() against these labels before and after, and never report an 'answered' rate that counts a positive overlay verdict without scoring it."
+}

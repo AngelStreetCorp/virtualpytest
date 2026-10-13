@@ -1,0 +1,44 @@
+{
+  "_comment": "Stub node fingerprints for the android_tv userinterface. The android_tv UI is the quick-settings shade target (EXPERIMENT-01 §2 — pi1 capture1). Same v6 shape; no real brand names (AGENTS.md leak-gate). company='brand_c' mirrors the existing manifest.json android_tv userinterface definition.",
+  "userinterface": "android_tv",
+  "company": "brand_c",
+  "tier": "rule",
+  "nodes": [
+    {
+      "node_id": "android_quick_settings",
+      "label": "android_quick_settings",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "android_quick_settings",
+        "text": ["android_quick_settings"]
+      }
+    },
+    {
+      "node_id": "android_home",
+      "label": "android_home",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "android_home",
+        "text": ["android_home"]
+      }
+    }
+  ]
+}

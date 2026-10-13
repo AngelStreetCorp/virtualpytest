@@ -1,0 +1,22 @@
+{
+ "id": "mst3HuyKEXA",
+ "title": "Map an Android app automatically on a real phone, then test every path",
+ "description": "Point VirtualPyTest at an app on a real phone. Here it's Google TV on an Android phone, starting from an empty map with only the home screen. One click reads the app's screens: Search, Shop, Library and Watchlist. Each screen is opened and left again on the phone, both ways, and all 8 paths pass. \nEvery screen gets a check and a screenshot, then the map is saved and laid out automatically. \nTo use it, click a screen and choose Go To: the phone follows the path from the map.\n\nOpen source and free.\n\nChapters\n0:00 Intro\n0:04 Google TV on a real phone, an empty map\n0:08 One click: the app's screens are read\n0:17 Pick the screens, create\n0:23 Every path tested on the phone: 8 of 8\n0:37 A check and a screenshot per screen, save\n0:44 Auto Layout: the finished map\n0:49 Go To: the path comes from the map\n0:56 The phone follows: home, then Library\n1:03 Watchlist, one click\n1:11 Open source & free",
+ "tags": [
+  "virtualpytest",
+  "android app testing",
+  "app mapping",
+  "real device testing",
+  "google tv",
+  "mobile test automation",
+  "navigation tree",
+  "model based testing",
+  "ui automation",
+  "android automation",
+  "test automation",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

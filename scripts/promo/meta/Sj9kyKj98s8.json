@@ -1,0 +1,32 @@
+{
+ "title": "Device view showing from 1 to 48 devices | VirtualPyTest",
+ "description": "The Device view now shows from 1 to 48 devices. Its View menu picks 12, 24 or 48 live devices per page, or a layout that fits the screen: side by side, a 2×2 grid, or one stream on the whole page. Click any stream to open it in big, close it and you are back to your layout.\n\nShown on 24 HLS test streams. Big Buck Bunny and Tears of Steel, (CC) Blender Foundation, CC BY 3.0.\n\nOpen source & free\n\nChapters\n0:00 Device view showing from 1 to 48 devices\n0:13 12 and 48 per page\n0:28 Side by side and 2×2\n0:41 One stream, whole page, open it in big",
+ "tags": [
+  "virtualpytest",
+  "device page",
+  "layouts",
+  "multi-stream",
+  "video monitoring",
+  "test automation",
+  "hls",
+  "stream wall",
+  "qa",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "28",
+ "promo_check": {
+  "at": "2026-10-13T10:52:41+0200",
+  "passed": true,
+  "counters": {
+   "banned_text": 0,
+   "black_frames": 0,
+   "dark_tiles": 0,
+   "flashes": 0,
+   "caption_overflow": 0,
+   "duration_over_90s": 0,
+   "voice_mismatch": 0,
+   "voice_silent": 0
+  }
+ }
+}

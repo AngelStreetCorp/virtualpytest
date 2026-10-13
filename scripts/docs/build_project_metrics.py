@@ -86,17 +86,33 @@ def collect_bugs():
     total = 0
     unshipped = 0
     internal = 0
+    fixed_unreleased = 0   # fixed on the running build, waiting for the next cut
+    open_bugs = []
 
     for path in sorted(BUGS_DIR.glob('BUG-*.md')):
         text = path.read_text(encoding='utf-8', errors='replace')
         total += 1
-        by_severity[_normalise_severity(_meta(text, 'Severity'))] += 1
-        by_status[_normalise_status(_meta(text, 'Status'))] += 1
+        severity = _normalise_severity(_meta(text, 'Severity'))
+        status = _normalise_status(_meta(text, 'Status'))
+        by_severity[severity] += 1
+        by_status[status] += 1
+        if status in ('open', 'in progress'):
+            h1 = re.search(r'^#\s+(.+)$', text, re.M)
+            open_bugs.append({
+                'id': path.stem[:8],
+                # 'BUG-0190 — A web testcase…' -> 'A web testcase…'
+                'title': re.sub(r'^BUG-\d+\s*[—-]\s*', '', h1.group(1).strip()) if h1 else path.stem,
+                'status': status,
+                'severity': severity,
+                'doc': f'/docs/bugs/{path.stem}',
+            })
 
         fixed_in = re.sub(r'[*_`]', '', _meta(text, 'Fixed in')).strip()
         low = fixed_in.lower()
         if low in UNSHIPPED:
             unshipped += 1
+            if low == 'unreleased' and status == 'fixed':
+                fixed_unreleased += 1
             continue
         if low.startswith(INTERNAL):
             internal += 1          # shipped, but deliberately not in the release note
@@ -113,23 +129,29 @@ def collect_bugs():
         'by_status': dict(by_status),
         'fixed_per_build': dict(by_build),
         'unshipped': unshipped,
+        'fixed_unreleased': fixed_unreleased,
         'internal_only': internal,
+        'open': open_bugs,
     }
 
 
-def collect_releases():
+def collect_releases(version):
     """Features and bug-fix bullets per cut build, from the release note.
 
     The note's own preamble documents this format: an H2 per build, then
-    '### ✨ Features' / '### 🐛 Bug fixes' lists. '## Unreleased' is skipped — it is
-    not a release.
+    '### ✨ Features' / '### 🐛 Bug fixes' lists. The heading carries only the build
+    number and date, so the full name (main-2026.09.26-9369, what the footer shows)
+    is rebuilt on the main series — not VERSION.txt's branch, which on a feature
+    branch deploy would rename every past release. '## Unreleased' is what the running
+    build ships on top of the last cut, so it is reported as that build, flagged
+    unreleased — dropping it meant the build in the footer never had a bar.
     """
     if not RELEASE_NOTE.exists():
         return []
 
     text = RELEASE_NOTE.read_text(encoding='utf-8', errors='replace')
     heads = [(m.group(1), m.group(2), m.start())
-             for m in re.finditer(r'^## build (\d+) — (\d{4}-\d{2}-\d{2})\s*$', text, re.M)]
+             for m in re.finditer(r'^## (?:build (\d+) — (\d{4}-\d{2}-\d{2})|Unreleased)\s*$', text, re.M)]
 
     releases = []
     for i, (build, date, start) in enumerate(heads):
@@ -145,46 +167,60 @@ def collect_releases():
             m = re.search(pattern, body, re.M | re.S)
             return len(re.findall(r'^- ', m.group(1), re.M)) if m else 0
 
+        if build:
+            name, unreleased = f"main-{date.replace('-', '.')}-{build}", False
+        elif version['build']:
+            build, date, name, unreleased = version['build'], version['date'], version['name'], True
+        else:
+            continue
+
         releases.append({
             'build': build,
             'date': date,
+            'name': name,
+            'unreleased': unreleased,
             'features': bullets('Features'),
             'fixes': bullets('Bug fixes'),
             'security': bullets('Security'),
         })
 
-    releases.sort(key=lambda r: int(r['build']))
+    # The running build last: a branch's counter can be lower than the last cut.
+    releases.sort(key=lambda r: (r['unreleased'], int(r['build'])))
     return releases
 
 
 def read_version():
-    """current:main-2026.09.17-9151 -> ('9151', '2026-09-17')."""
+    """current:main-2026.09.17-9151 -> name, branch 'main', build '9151', date '2026-09-17'."""
+    version: dict = {'name': None, 'branch': None, 'build': None, 'date': None}
     if not VERSION_FILE.exists():
-        return None, None
+        return version
     for line in VERSION_FILE.read_text(encoding='utf-8', errors='replace').splitlines():
         if line.startswith('current:'):
-            m = re.search(r'(\d{4})\.(\d{2})\.(\d{2})-(\d+)', line)
+            m = re.search(r'(\S+)-(\d{4})\.(\d{2})\.(\d{2})-(\d+)', line[len('current:'):].strip())
             if m:
-                return m.group(4), f'{m.group(1)}-{m.group(2)}-{m.group(3)}'
-    return None, None
+                version.update(name=m.group(0), branch=m.group(1), build=m.group(5),
+                               date=f'{m.group(2)}-{m.group(3)}-{m.group(4)}')
+    return version
 
 
 def build_payload():
     loc = count_repo(REPO)
-    build, build_date = read_version()
+    version = read_version()
     bugs = collect_bugs()
-    releases = collect_releases()
+    releases = collect_releases(version)
 
     # The release note counts its own bullets; the bug files carry the authoritative
     # "Fixed in". They answer different questions and do not have to match, so both
     # are exposed rather than one being quietly preferred.
     for r in releases:
-        r['bugs_fixed'] = bugs['fixed_per_build'].get(r['build'], 0)
+        r['bugs_fixed'] = (bugs['fixed_unreleased'] if r['unreleased']
+                           else bugs['fixed_per_build'].get(r['build'], 0))
 
     return {
         'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
-        'build': build,
-        'build_date': build_date,
+        'build': version['build'],
+        'build_name': version['name'],
+        'build_date': version['date'],
         'loc': {
             'total': loc['total'],
             'files': loc['files'],
@@ -220,7 +256,9 @@ def main():
           f"across {len(loc['by_area'])} areas")
     print(f"  {bugs['total']} bug reports, {sum(bugs['fixed_per_build'].values())} tied to a build, "
           f"{bugs['unshipped']} unshipped, {bugs['internal_only']} internal-only")
-    print(f"  {len(payload['releases'])} cut builds in the release note")
+    cut = sum(not r['unreleased'] for r in payload['releases'])
+    print(f"  {cut} cut builds in the release note, plus {payload['build_name']} (unreleased)"
+          if cut < len(payload['releases']) else f"  {cut} cut builds in the release note")
 
     # A parser that silently returns zero is worse than one that fails: the chart
     # would render four empty bars and read as a slow quarter rather than a bug.

@@ -1,0 +1,157 @@
+name: Atlas Smoke
+
+# TASK-73 Part 2: PR-gated smoke for the Atlas test harness.
+#
+# Two layers in one workflow, gated on event type:
+#   * pull_request: unit tests only (the parser is the part of the harness
+#     this PR can break). No network, no server, < 1 min.
+#   * push to main: unit tests + live smoke against the deployed server.
+#     The deploy is gated on green CI per TASK-44 §4, so by the time this
+#     runs the deployed build IS this commit. AUTO_SIGN_TOKEN is a repo
+#     secret set on the LAN runner.
+#
+# Why both: a PR that only changes parser code shouldn't need a server,
+# but a push to main is the moment where we know the deployed build
+# matches the change and a real Atlas round-trip is the only thing that
+# can prove the harness itself didn't drift from Atlas's event shape.
+#
+# Why a new white workflow (owner-direct, Q7 "fallback"): the existing
+# regression.yml is grey-platform and runs the full backend test fan-out
+# on every PR; adding the Atlas smoke there would conflate the two and
+# make it harder to bisect failures. This is a small white workflow
+# scoped to the Atlas harness paths.
+#
+# Path filter: the PR's code has to actually touch Atlas, the AI
+# surface, or the smoke harness itself. Docs-only changes don't gate.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'atlas/**'
+      - 'ai/**'
+      - 'features/ai-test/**'
+      - 'scripts/ai-smoke/**'
+      - 'scripts/atlas_chat.py'
+      - '.github/workflows/atlas-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'atlas/**'
+      - 'ai/**'
+      - 'features/ai-test/**'
+      - 'scripts/ai-smoke/**'
+      - 'scripts/atlas_chat.py'
+      - '.github/workflows/atlas-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Same per-ref concurrency shape as .github/workflows/regression.yml:
+# one in-flight run per ref, cancel-in-progress FALSE (BUG-0376: true
+# cancelled every run before it finished on a busy main). Per-SHA
+# variance is unnecessary here — the smoke is fast and one run per
+# commit is enough.
+concurrency:
+  group: atlas-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+env:
+  # AUTO_SIGN_TOKEN is the bypass-token the smoke needs to talk to the
+  # deployed backend. It is a repo secret so PRs from forks cannot read
+  # it (GITHUB_TOKEN is read-only for fork PRs).
+  AUTO_SIGN_TOKEN: ${{ secrets.AUTO_SIGN_TOKEN }}
+  # The well-known smoke team. Same default as scripts/atlas_chat.py.
+  TEAM_ID: ${{ vars.ATLAS_SMOKE_TEAM_ID || '7fdeb4bb-3639-4ec3-959f-b54769a219ce' }}
+  # Default to the public deployment; a workflow_dispatch can override.
+  SERVER_URL: ${{ vars.ATLAS_SMOKE_SERVER_URL || 'https://virtualpytest.angelstreet.io' }}
+  CICD_DATABASE_URL: ${{ secrets.CICD_DATABASE_URL }}
+
+jobs:
+  atlas-smoke:
+    name: Atlas smoke (unit + ${{ github.event_name == 'pull_request' && 'unit-only' || 'live' }})
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 2 || 5 }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Python deps (socketio + requests, the same set atlas_chat.py needs)
+        run: |
+          set -euo pipefail
+          python3.11 -m venv "$RUNNER_TEMP/atlas-smoke-venv"
+          "$RUNNER_TEMP/atlas-smoke-venv/bin/pip" install --quiet --upgrade pip >/dev/null
+          "$RUNNER_TEMP/atlas-smoke-venv/bin/pip" install --quiet \
+            'python-socketio[client]>=5' 'requests' 'pytest' >/dev/null
+          echo "$RUNNER_TEMP/atlas-smoke-venv" > "$RUNNER_TEMP/venv-path"
+
+      - name: Run parse_events unit tests
+        run: |
+          set -euo pipefail
+          VENV="$(cat "$RUNNER_TEMP/venv-path")"
+          "$VENV/bin/python" -m unittest discover -s scripts/ai-smoke -v
+
+      - name: Live smoke against the deployed Atlas (push to main only)
+        if: github.event_name != 'pull_request'
+        env:
+          AUTO_SIGN_TOKEN: ${{ env.AUTO_SIGN_TOKEN }}
+          TEAM_ID: ${{ env.TEAM_ID }}
+          SERVER_URL: ${{ env.SERVER_URL }}
+        run: |
+          set -euo pipefail
+          VENV="$(cat "$RUNNER_TEMP/venv-path")"
+          if [ -z "${AUTO_SIGN_TOKEN:-}" ]; then
+            # The repo secret is not set on this runner's configuration.
+            # The unit tests already proved the wrapper's logic; the live
+            # smoke just needs the token to bypass auth. Emit a clear
+            # warning and exit 0 so the PR is not blocked on a config
+            # issue. To enable the live smoke, add the AUTO_SIGN_TOKEN
+            # secret in repo Settings → Secrets → Actions.
+            echo "::warning::AUTO_SIGN_TOKEN is empty — skipping live smoke."
+            echo "  To enable: repo Settings → Secrets and variables → Actions"
+            echo "  → New repository secret → name=AUTO_SIGN_TOKEN, value=<from backend_server/.env>"
+            echo "smoke result: SKIPPED (no AUTO_SIGN_TOKEN)"
+            exit 0
+          fi
+          # 5 s grace over the wrapper's 55 s budget for CI jitter.
+          timeout 60 "$VENV/bin/python" scripts/ai-smoke/run_smoke.py \
+            --server  "$SERVER_URL" \
+            --auto-sign "$AUTO_SIGN_TOKEN" \
+            --team-id  "$TEAM_ID" \
+            --timeout  55 \
+            --json \
+            | tee "$RUNNER_TEMP/atlas-smoke.json"
+
+      - name: Summarise the smoke outcome
+        if: always() && github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          if [ -f "$RUNNER_TEMP/atlas-smoke.json" ]; then
+            echo "smoke result: $(cat "$RUNNER_TEMP/atlas-smoke.json")"
+          else
+            echo "smoke result: (no JSON captured — see previous step output)"
+          fi
+
+      - name: Record job outcome to the CI database (LAN runner)
+        if: always() && github.event_name != 'pull_request'
+        continue-on-error: true
+        env:
+          CICD_DATABASE_URL: ${{ env.CICD_DATABASE_URL }}
+          JOB_OUTCOME: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          # ci_jobs has a FK on (project, run) — insert the run row first
+          # or the job row is rejected (seen in regression.yml run 715/717).
+          psql "$CICD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+            INSERT INTO ci_runs (project, run, run_number, branch, sha, runner, report_url, trigger, suite)
+            VALUES ('virtualpytest', '${{ github.run_number }}', ${{ github.run_number }},
+                    '${{ github.ref_name }}', '${{ github.sha }}', '${{ runner.name }}', NULL,
+                    'push', 'white')
+            ON CONFLICT (project, run) DO UPDATE SET branch = EXCLUDED.branch, sha = EXCLUDED.sha, finished_at = now();" \
+            || echo "::warning::ci_runs insert failed"
+          psql "$CICD_DATABASE_URL" -v ON_ERROR_STOP=1 -q -c "
+            INSERT INTO ci_jobs (project, run, job, category, layer, status, report_url)
+            VALUES ('virtualpytest', '${{ github.run_number }}', 'atlas-smoke', 'atlas', 'white', '$JOB_OUTCOME', NULL)
+            ON CONFLICT (project, run, job) DO UPDATE SET status = EXCLUDED.status, finished_at = now();" \
+            || echo "::warning::ci_jobs insert failed"

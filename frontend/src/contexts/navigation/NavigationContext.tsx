@@ -9,6 +9,10 @@ import React, {
 } from 'react';
 import { useParams } from 'react-router-dom';
 import { useNodesState, useEdgesState, ReactFlowInstance, Edge } from 'reactflow';
+// Conditional edges are a categorical kind; the colour must read on light + dark
+// backgrounds inside the React Flow SVG, so we use the static dark-palette
+// colour (no hooks in this .tsx module).
+import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
 
 import {
   UINavigationNode,
@@ -1143,6 +1147,8 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
                 priority: nodeForm.priority || 'p3', // ✅ Also include priority to be consistent
                 // Per-variant model: hidden_in_base flag flows through from form to data.
                 hidden_in_base: nodeForm.hidden_in_base === true,
+                fingerprint: nodeForm.fingerprint,
+                dom: nodeForm.dom,
               },
             };
             setNodes([...nodes, updatedNodeData]);
@@ -1162,6 +1168,10 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
                 priority: nodeForm.priority || 'p3', // ✅ Also include priority to be consistent
                 // Per-variant model: hidden_in_base flag flows through from form to data.
                 hidden_in_base: nodeForm.hidden_in_base === true,
+                // Capture fields (Localize fingerprint + DOM): the form is authoritative
+                // (capture/Reset update it); fall back to the node's stored value.
+                fingerprint: nodeForm.fingerprint ?? (selectedNode.data as any)?.fingerprint,
+                dom: nodeForm.dom ?? (selectedNode.data as any)?.dom,
               },
             };
              const updatedNodes = nodes.map((node) =>
@@ -1220,6 +1230,15 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
                 is_root: updatedNodeData.data.is_root || false,
                 isParentReference: updatedNodeData.data.isParentReference || false,
                 originalTreeId: updatedNodeData.data.originalTreeId || '',
+                // The PUT replaces the whole `data` column: any field left out here is
+                // wiped in the DB. Omitting these dropped the Localize fingerprint on
+                // every dialog Save (node then never matched after a cache reload).
+                ...(updatedNodeData.data.fingerprint ? { fingerprint: updatedNodeData.data.fingerprint } : {}),
+                ...(updatedNodeData.data.dom !== undefined ? { dom: updatedNodeData.data.dom } : {}),
+                ...(updatedNodeData.data.screenshot_timestamp !== undefined
+                  ? { screenshot_timestamp: updatedNodeData.data.screenshot_timestamp }
+                  : {}),
+                use_fingerprint_for_verification: updatedNodeData.data.use_fingerprint_for_verification === true,
                 // DO NOT include verifications here - they're already at top level
               },
             };
@@ -1229,7 +1248,7 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
               dataHasVerifications: 'verifications' in normalizedNode.data
             });
 
-            await navigationConfig?.saveNode(targetTreeId, normalizedNode as any);
+            await navigationConfig?.saveNode(targetTreeId, normalizedNode);
 
             // UPDATE TREE CACHE: Keep cache synchronized with current state
             // For parent references, update the original tree cache
@@ -1670,8 +1689,8 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
                 sourceHandle: currentSourceHandle || undefined,
                 targetHandle: currentTargetHandle || undefined,
                 // Apply conditional styling based on server data
-                style: isConditional ? { stroke: '#2196f3', strokeWidth: 2 } : (currentSelectedEdge.style || { stroke: '#555', strokeWidth: 2 }),
-                markerEnd: isConditional ? { type: 'arrowclosed' as const, color: '#2196f3' } : currentSelectedEdge.markerEnd,
+                style: isConditional ? { stroke: AGENT_CHAT_PALETTE.series[1], strokeWidth: 2 } : (currentSelectedEdge.style || { stroke: '#555', strokeWidth: 2 }),
+                markerEnd: isConditional ? { type: 'arrowclosed' as const, color: AGENT_CHAT_PALETTE.series[1] } : currentSelectedEdge.markerEnd,
               };
               
               // Update edges list with server data — compose on top of the

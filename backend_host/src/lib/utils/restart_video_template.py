@@ -5,8 +5,17 @@ Dedicated HTML template for restart video reports that focuses on video playback
 and AI analysis results, similar to the frontend restart video player UI.
 """
 
+from shared.src.lib.utils.report_theme import report_theme_head
+
+
 def get_restart_video_css() -> str:
-    """CSS styling for restart video report"""
+    """CSS styling for restart video report.
+
+    Anything drawn OVER the video (controls, header chip, subtitle overlay) stays
+    dark with white text so it stays readable on the moving frame. The page-level
+    chrome (analysis panel, frame list) uses the app palette via --vpt-* tokens
+    so it follows the app's light / dark theme.
+    """
     return """
         * {
             margin: 0;
@@ -16,8 +25,8 @@ def get_restart_video_css() -> str:
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #000;
-            color: #fff;
+            background: var(--vpt-page);
+            color: var(--vpt-text);
             overflow: hidden;
         }
 
@@ -92,23 +101,24 @@ def get_restart_video_css() -> str:
 
         .analysis-panel {
             width: 400px;
-            background: rgba(0, 0, 0, 0.95);
-            border-left: 1px solid rgba(255, 255, 255, 0.1);
+            background: var(--vpt-rail);
+            border-left: 1px solid var(--vpt-border);
             padding: 20px;
             overflow-y: auto;
+            color: var(--vpt-text);
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
 
         .full-analysis-section {
             margin-bottom: 16;
             padding-bottom: 16;
-            border-bottom: 2px solid rgba(255, 255, 255, 0.2);
+            border-bottom: 2px solid var(--vpt-border);
         }
 
         .analysis-header {
             font-size: 14px;
             font-weight: 600;
-            color: #4CAF50;
+            color: var(--vpt-success);
             margin-bottom: 4px;
             cursor: pointer;
             display: flex;
@@ -118,7 +128,7 @@ def get_restart_video_css() -> str:
         }
 
         .analysis-header:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--vpt-subtle);
             border-radius: 4px;
             padding: 4px 8px;
         }
@@ -133,12 +143,12 @@ def get_restart_video_css() -> str:
         }
 
         .analysis-content {
-            background: rgba(255, 255, 255, 0.08);
+            background: var(--vpt-subtle);
             border-radius: 6px;
             padding: 12px;
             font-size: 12px;
             line-height: 1.5;
-            color: rgba(255, 255, 255, 0.9);
+            color: var(--vpt-text);
             max-height: 120px;
             overflow-y: auto;
             transition: all 0.3s ease;
@@ -155,7 +165,7 @@ def get_restart_video_css() -> str:
         .frame-by-frame-title {
             font-size: 16px;
             font-weight: 600;
-            color: #fff;
+            color: var(--vpt-text);
             margin-bottom: 12px;
             text-align: center;
             cursor: pointer;
@@ -166,31 +176,31 @@ def get_restart_video_css() -> str:
         }
 
         .frame-by-frame-title:hover {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--vpt-subtle);
             border-radius: 4px;
             padding: 4px 8px;
         }
 
         .frame-item {
-            background: rgba(255, 255, 255, 0.05);
+            background: var(--vpt-surface);
             border-radius: 6px;
             padding: 12px;
             margin-bottom: 12px;
-            border-left: 3px solid rgba(255, 255, 255, 0.3);
+            border-left: 3px solid var(--vpt-border);
             transition: all 0.3s ease;
             cursor: pointer;
         }
 
         .frame-item.active {
-            background: rgba(76, 175, 80, 0.15);
-            border-left-color: #4CAF50;
-            box-shadow: 0 2px 8px rgba(76, 175, 80, 0.2);
+            background: var(--vpt-success-tint);
+            border-left-color: var(--vpt-success);
+            box-shadow: 0 2px 8px var(--vpt-success-tint);
         }
 
         .frame-header {
             font-size: 13px;
             font-weight: 600;
-            color: #4CAF50;
+            color: var(--vpt-success);
             margin-bottom: 4px;
         }
 
@@ -200,17 +210,17 @@ def get_restart_video_css() -> str:
         }
 
         .frame-subtitles {
-            color: #2196F3;
+            color: var(--vpt-accent-text);
             margin-bottom: 4px;
             font-style: italic;
         }
 
         .frame-summary {
-            color: rgba(255, 255, 255, 0.85);
+            color: var(--vpt-text-2);
         }
 
         .no-content {
-            color: rgba(255, 255, 255, 0.5);
+            color: var(--vpt-muted);
             font-style: italic;
         }
 
@@ -228,6 +238,7 @@ def get_restart_video_css() -> str:
             font-size: 16px;
             font-weight: 600;
             margin-bottom: 4px;
+            color: #fff; /* on the black video panel in both themes */
         }
 
         .report-meta {
@@ -512,21 +523,27 @@ def get_restart_video_js() -> str:
 
 def create_restart_video_template() -> str:
     """Create the complete HTML template for restart video reports"""
-    
+
     # Escape braces in CSS and JS content to avoid format() conflicts
     css_content = get_restart_video_css().replace('{', '{{').replace('}', '}}')
     js_content = get_restart_video_js().replace('{', '{{').replace('}', '}}')
-    
+    # Same brace escape for the shared theme head — its CSS rules and the small
+    # theme JS use single { / }, which the outer .format() call would otherwise
+    # try to read as field references.
+    theme_head = report_theme_head().replace('{', '{{').replace('}', '}}')
+
     # Build the template using string replacement instead of format() to avoid brace conflicts
     template_parts = []
-    
+
     template_parts.append("""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Restart Video Report - {device_name}</title>
-    <style>""")
+""")
+    template_parts.append(theme_head)
+    template_parts.append("""    <style>""")
     
     template_parts.append(css_content)
     

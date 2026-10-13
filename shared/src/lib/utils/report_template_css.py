@@ -29,65 +29,81 @@ def get_report_css() -> str:
     nav_arrow_z = get_css_z_index('nav_arrow')
     
     return f""":root {{
-    /* Light theme variables */
-    --bg-primary: #f8f9fa;
+    /* Light theme — the web app's palette (frontend/src/constants/agentChatTheme.ts, UI_STYLE.md):
+       warm grey page under white cards, gold accent, palette status colours. */
+    color-scheme: light dark;  /* the page does its own dark theme: browsers must not auto-darken it */
+    --bg-primary: #f2f0ec;
     --bg-secondary: #ffffff;
-    --bg-tertiary: #f8f9fa;
-    --text-primary: #333333;
-    --text-secondary: #6c757d;
-    --border-color: #dee2e6;
-    --border-light: #e9ecef;
-    --shadow: 0 1px 3px rgba(0,0,0,0.1);
-    --shadow-hover: 0 2px 8px rgba(0,0,0,0.15);
-    --success-color: #28a745;
-    --success-bg: #d4edda;
-    --success-text: #155724;
-    --failure-color: #dc3545;
-    --failure-bg: #f8d7da;
-    --failure-text: #721c24;
-    --skipped-color: #d97706;
-    --skipped-bg: #fef3c7;
-    --skipped-text: #92400e;
-    --recovery-color: #3b82f6;
-    --recovery-bg: #dbeafe;
-    --recovery-text: #1e40af;
-    --header-bg: linear-gradient(135deg, #4a90e2 0%, #357abd 100%);
-    --step-hover: #f8f9fa;
-    --error-bg: #f8d7da;
-    --error-border: #f5c6cb;
+    --bg-tertiary: #ebe7e0;
+    --container-bg: #f2f0ec;  /* report body on the page tone… */
+    --card-bg: #ffffff;       /* …with white cards on it, like the app */
+    --text-primary: #141414;
+    --text-secondary: #4a4a4a;
+    --text-muted: #6e6e6e;
+    --border-color: #d9d4cc;
+    --border-light: #ebe7e0;
+    --shadow: 0 1px 3px rgba(60,50,30,0.08);
+    --shadow-hover: 0 2px 8px rgba(60,50,30,0.12);
+    --accent: #d4a574;
+    --accent-text: #8f5f2e;
+    --series-steel: #3f6f8f;
+    --success-color: #16a34a;
+    --success-bg: #16a34a1f;
+    --success-text: #16a34a;
+    --failure-color: #dc2626;
+    --failure-bg: #dc26261f;
+    --failure-text: #dc2626;
+    --skipped-color: #b45309;
+    --skipped-bg: #b453091f;
+    --skipped-text: #b45309;
+    --recovery-color: #3f6f8f;
+    --recovery-bg: #3f6f8f1f;
+    --recovery-text: #3f6f8f;
+    --header-bg: #ffffff;
+    --header-text: #141414;
+    --step-hover: #ebe7e0;
+    --error-bg: #dc26261a;
+    --error-border: #dc262666;
     --modal-bg: rgba(0,0,0,0.8);
-    --link-color: #1976d2;
+    --link-color: #8f5f2e;
 }}
 
 [data-theme="dark"] {{
-    /* Dark theme variables */
+    /* Dark theme — the web app's dark palette */
     --bg-primary: #0a0a0a;
-    --bg-secondary: #1a1a1a;
+    --bg-secondary: #242424;
     --bg-tertiary: #2a2a2a;
-    --text-primary: #ffffff;
-    --text-secondary: #a0a0a0;
-    --border-color: #404040;
-    --border-light: #303030;
+    --container-bg: #242424;
+    --card-bg: #2a2a2a;
+    --text-primary: #f0f0f0;
+    --text-secondary: #9a9a9a;
+    --text-muted: #666666;
+    --border-color: #383838;
+    --border-light: #2a2a2a;
     --shadow: 0 4px 6px rgba(0,0,0,0.3);
     --shadow-hover: 0 8px 16px rgba(0,0,0,0.4);
-    --success-color: #4ade80;
-    --success-bg: #1a4a2a;
-    --success-text: #86efac;
-    --failure-color: #f87171;
-    --failure-bg: #4a1a1a;
-    --failure-text: #fca5a5;
-    --skipped-color: #fbbf24;
-    --skipped-bg: #2a1f0a;
-    --skipped-text: #fde68a;
-    --recovery-color: #60a5fa;
-    --recovery-bg: #0a1f3a;
-    --recovery-text: #93c5fd;
-    --header-bg: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+    --accent: #d4a574;
+    --accent-text: #d4a574;
+    --series-steel: #7aa6c2;
+    --success-color: #22c55e;
+    --success-bg: #22c55e1f;
+    --success-text: #22c55e;
+    --failure-color: #ef4444;
+    --failure-bg: #ef44441f;
+    --failure-text: #ef4444;
+    --skipped-color: #f59e0b;
+    --skipped-bg: #f59e0b1f;
+    --skipped-text: #f59e0b;
+    --recovery-color: #7aa6c2;
+    --recovery-bg: #7aa6c21f;
+    --recovery-text: #7aa6c2;
+    --header-bg: #1a1a1a;
+    --header-text: #f0f0f0;
     --step-hover: #2a2a2a;
-    --error-bg: #4a1a1a;
-    --error-border: #6b2c2c;
+    --error-bg: #ef44441a;
+    --error-border: #ef444466;
     --modal-bg: rgba(0,0,0,0.9);
-    --link-color: #60a5fa;
+    --link-color: #d4a574;
 }}
 
 * {{
@@ -122,7 +138,7 @@ body {{
 .container {{
     max-width: 1400px;
     margin: 0 auto;
-    background: var(--bg-secondary);
+    background: var(--container-bg);
     border-radius: 6px;
     box-shadow: var(--shadow);
     overflow: hidden;
@@ -131,7 +147,8 @@ body {{
 
 .header {{
     background: var(--header-bg);
-    color: white;
+    color: var(--header-text);
+    border-bottom: 1px solid var(--border-color);
     padding: 8px 20px;
     display: flex;
     justify-content: space-between;
@@ -156,11 +173,75 @@ body {{
     white-space: nowrap;
 }}
 
+.header-controls {{
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}}
+
+.lang-switch {{
+    display: flex;
+    align-items: center;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 20px;
+    padding: 2px;
+}}
+
+.lang-switch:empty {{
+    display: none;
+}}
+
+.lang-option {{
+    padding: 4px 10px;
+    border-radius: 16px;
+    font-size: 0.75em;
+    font-weight: 500;
+    cursor: pointer;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border: none;
+    background: transparent;
+    color: inherit;
+    font-family: inherit;
+    transition: all 0.2s ease;
+}}
+
+.lang-option:hover {{
+    background: var(--border-light);
+}}
+
+.lang-option.active {{
+    background: var(--bg-secondary);
+    color: var(--accent-text);
+    box-shadow: 0 0 0 1px var(--border-color);
+}}
+
+.header-icon-btn {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 50%;
+    border: 1px solid var(--border-color);
+    background: var(--bg-tertiary);
+    color: inherit;
+    cursor: pointer;
+    text-decoration: none;
+    transition: all 0.2s ease;
+}}
+
+.header-icon-btn:hover {{
+    background: var(--border-color);
+}}
+
 .theme-toggle {{
     display: flex;
     align-items: center;
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
     border-radius: 20px;
     padding: 2px;
     cursor: pointer;
@@ -169,25 +250,27 @@ body {{
 }}
 
 .theme-toggle:hover {{
-    background: rgba(255,255,255,0.2);
+    background: var(--border-light);
 }}
 
+/* icon-only options (sun / moon / monitor): same width in every language, no header shift */
 .theme-option {{
-    padding: 4px 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 26px;
     border-radius: 16px;
-    font-size: 0.75em;
-    font-weight: 500;
     transition: all 0.2s ease;
     cursor: pointer;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
     position: relative;
     z-index: {theme_slider_z};
 }}
 
 .theme-option.active {{
-    background: rgba(255,255,255,0.9);
-    color: #1976d2;
+    background: var(--bg-secondary);
+    color: var(--accent-text);
+    box-shadow: 0 0 0 1px var(--border-color);
 }}
 
 .theme-slider {{
@@ -196,7 +279,8 @@ body {{
     left: 2px;
     width: calc(33.33% - 2px);
     height: calc(100% - 4px);
-    background: rgba(255,255,255,0.9);
+    background: var(--bg-secondary);
+    box-shadow: 0 0 0 1px var(--border-color);
     border-radius: 16px;
     transition: transform 0.2s ease;
     z-index: {theme_slider_bg_z};
@@ -311,6 +395,7 @@ body {{
 }}
 
 .step-list {{
+    background: var(--bg-secondary);
     border: 1px solid var(--border-light);
     border-radius: 4px;
     overflow: hidden;
@@ -354,8 +439,9 @@ body {{
 }}
 
 .step-status {{
-    width: 50px;
+    min-width: 50px;
     text-align: center;
+    white-space: nowrap;  /* "BESTANDEN" / "RÉUSSI" are wider than "PASS" */
 }}
 
 .step-status-badge {{
@@ -454,7 +540,7 @@ body {{
 }}
 
 .action-item {{
-    border-left-color: #17a2b8;
+    border-left-color: var(--accent);
 }}
 
 .retry-action-item {{
@@ -462,18 +548,14 @@ body {{
     padding: 4px 8px;
     background: var(--bg-secondary);
     border-radius: 4px;
-    border-left: 3px solid #ffc107;
+    border-left: 3px solid var(--skipped-color);
     font-family: 'Courier New', monospace;
     font-size: 0.85em;
 }}
 
 .retry-action-item.executed {{
-    background: #fff8e1;
-    border-left-color: #ff9800;
-}}
-
-[data-theme="dark"] .retry-action-item.executed {{
-    background: #3a2e1a;
+    background: var(--skipped-bg);
+    border-left-color: var(--skipped-color);
 }}
 
 .failure-action-item {{
@@ -481,18 +563,14 @@ body {{
     padding: 4px 8px;
     background: var(--bg-secondary);
     border-radius: 4px;
-    border-left: 3px solid #9e9e9e;
+    border-left: 3px solid var(--border-color);
     font-family: 'Courier New', monospace;
     font-size: 0.85em;
 }}
 
 .failure-action-item.executed {{
-    background: #fce4ec;
-    border-left-color: #e91e63;
-}}
-
-[data-theme="dark"] .failure-action-item.executed {{
-    background: #3a1a2e;
+    background: var(--failure-bg);
+    border-left-color: var(--failure-color);
 }}
 
 .retry-status, .failure-status {{
@@ -504,24 +582,18 @@ body {{
 }}
 
 .retry-status.available, .failure-status.available {{
-    background: #e0e0e0;
-    color: #666;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
 }}
 
 .retry-status.executed {{
-    background: #ff9800;
+    background: var(--skipped-color);
     color: white;
 }}
 
 .failure-status.executed {{
-    background: #e91e63;
+    background: var(--failure-color);
     color: white;
-}}
-
-[data-theme="dark"] .retry-status.available, 
-[data-theme="dark"] .failure-status.available {{
-    background: #404040;
-    color: #a0a0a0;
 }}
 
 .action-result-badge {{
@@ -544,7 +616,7 @@ body {{
 }}
 
 .verification-item {{
-    border-left-color: #6f42c1;
+    border-left-color: var(--series-steel);
 }}
 
 .verification-result-badge {{
@@ -578,7 +650,7 @@ body {{
    .verification-error but uses the muted text color, not failure red,
    so it reads as "context" on passing verifications too. */
 .verification-meta {{
-    color: var(--text-muted, #888);
+    color: var(--text-muted);
     font-style: italic;
     font-size: 0.8em;
     margin-left: 4px;
@@ -797,7 +869,7 @@ body {{
 }}
 
 .screenshot-thumbnail:hover {{
-    border-color: #4a90e2;
+    border-color: var(--accent);
     transform: scale(1.02);
     box-shadow: var(--shadow-hover);
 }}
@@ -827,7 +899,8 @@ body {{
 }}
 
 .state-video-grid-item {{
-    background: var(--bg-tertiary);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
     border: 1px solid var(--border-light);
     border-radius: 6px;
     padding: 15px;
@@ -845,7 +918,8 @@ body {{
 }}
 
 .execution-summary-section {{
-    background: var(--bg-tertiary);
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
     border: 1px solid var(--border-light);
     border-radius: 6px;
     padding: 15px;
@@ -864,6 +938,73 @@ body {{
 .execution-summary-content {{
     font-size: 0.9em;
     line-height: 1.4;
+}}
+
+/* report_icons: line icons sit on the text baseline wherever they are used */
+.r-icon {{
+    vertical-align: -0.15em;
+    flex: none;
+}}
+
+/* emoji drawn as icons (report_icons.EMOJI_ICONS): text-sized, on the baseline; neutral ones take
+   the text colour, only pass / fail / warning are coloured */
+.r-emoji {{
+    width: 1.15em;
+    height: 1.15em;
+    vertical-align: -0.2em;
+}}
+
+.r-emoji.tone-ok {{
+    color: var(--success-color);
+}}
+
+.r-emoji.tone-fail {{
+    color: var(--failure-color);
+}}
+
+.r-emoji.tone-warn {{
+    color: var(--skipped-color);
+}}
+
+/* summary text and the links below it: one font, one left edge */
+.execution-summary-content .summary-text {{
+    white-space: pre-wrap;
+    font-family: inherit;
+    margin: 0 0 10px 0;
+}}
+
+.report-links {{
+    display: grid;
+    grid-template-columns: 18px max-content 1fr;
+    column-gap: 8px;
+    row-gap: 5px;
+    align-items: center;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-light);
+}}
+
+.report-links .rl-icon {{
+    display: inline-flex;
+    color: var(--text-primary);
+}}
+
+.report-links .rl-label {{
+    color: var(--text-primary);
+}}
+
+.report-links a {{
+    color: var(--link-color);
+    text-decoration: none;
+    font-weight: 600;
+}}
+
+.report-links a:hover {{
+    text-decoration: underline;
+}}
+
+.report-links code {{
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.95em;
 }}
 
 .test-video-content {{
@@ -898,7 +1039,7 @@ body {{
         gap: 8px;
     }}
     
-    .theme-toggle {{
+    .header-controls {{
         order: -1;
         margin-bottom: 8px;
     }}
@@ -1043,4 +1184,18 @@ body {{
     font-weight: 600;
     font-family: monospace;
 }}
+}}
+
+@media print {{
+    .header-controls, #snapshot-banner, .toggle-btn {{
+        display: none !important;
+    }}
+    .collapsible-content, .step-details {{
+        max-height: none !important;
+        overflow: visible !important;
+    }}
+    body {{
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }}
 }}"""

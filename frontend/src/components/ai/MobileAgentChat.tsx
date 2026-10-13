@@ -19,9 +19,22 @@ import React, { useEffect, useRef } from 'react';
 import { Box, Paper, TextField, IconButton, Typography, CircularProgress, Alert } from '@mui/material';
 import { ArrowUpward as SendIcon, AutoAwesome as SparkleIcon } from '@mui/icons-material';
 import { useAgentChatContext } from '../../contexts/AgentChatContext';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { MessageFeedbackBar, FeedbackSubmitter } from '../agent-chat/MessageFeedbackBar';
 
-export const MobileAgentChat: React.FC = () => {
-  const { status, messages, input, setInput, sendMessage, isProcessing, error } = useAgentChatContext();
+export interface MobileAgentChatProps {
+  /** Current rating per chat message id (1 = down, 5 = up). */
+  messageFeedback?: Record<string, number>;
+  /** Shared POST handler; same instance the desktop chat uses. */
+  submitMessageFeedback?: FeedbackSubmitter;
+}
+
+export const MobileAgentChat: React.FC<MobileAgentChatProps> = ({
+  messageFeedback = {},
+  submitMessageFeedback,
+}) => {
+  const P = useAgentChatPalette();
+  const { status, messages, input, setInput, sendMessage, isProcessing, error, session } = useAgentChatContext();
   const listEndRef = useRef<HTMLDivElement>(null);
 
   // Keep the latest message in view as the conversation grows.
@@ -88,7 +101,7 @@ export const MobileAgentChat: React.FC = () => {
         {messages.map((message) => (
           <Box
             key={message.id}
-            sx={{ display: 'flex', justifyContent: message.role === 'user' ? 'flex-end' : 'flex-start' }}
+            sx={{ display: 'flex', flexDirection: 'column', alignItems: message.role === 'user' ? 'flex-end' : 'flex-start' }}
           >
             <Paper
               elevation={0}
@@ -97,14 +110,34 @@ export const MobileAgentChat: React.FC = () => {
                 px: 1.5,
                 py: 1,
                 borderRadius: 2,
-                bgcolor: message.role === 'user' ? 'primary.main' : 'action.hover',
-                color: message.role === 'user' ? 'primary.contrastText' : 'text.primary',
+                bgcolor: message.role === 'user' ? P.accent : P.hoverBg,
+                color: message.role === 'user' ? 'primary.contrastText' : P.textPrimary,
               }}
             >
               <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                 {message.content}
               </Typography>
             </Paper>
+            {/* Per-message feedback (thumbs + optional comment) — same shared component the
+                desktop chat uses, so the POST to /server/agents/feedback is identical and the
+                backend can dedupe by message id + session id (one row per chat message). */}
+            {message.role !== 'user' && submitMessageFeedback && (() => {
+              const idx = messages.findIndex(m => m.id === message.id);
+              const userPrompt = idx > 0 ? messages[idx - 1]?.content : undefined;
+              const rating = messageFeedback[message.id];
+              return (
+                <Box sx={{ maxWidth: '85%', mt: 0.25, px: 0.5, alignSelf: 'flex-start' }}>
+                  <MessageFeedbackBar
+                    messageId={message.id}
+                    agentId={(message as any).agent || (session as any)?.active_agent || 'atlas'}
+                    prompt={userPrompt}
+                    currentRating={rating}
+                    submitFeedback={(mid, rt, ag, prm, cmt) => submitMessageFeedback(mid, rt, ag, prm, cmt)}
+                    variant="stacked"
+                  />
+                </Box>
+              );
+            })()}
           </Box>
         ))}
 

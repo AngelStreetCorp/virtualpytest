@@ -17,7 +17,9 @@ interface LiveTranscriptRailProps {
  *
  * Lines arrive from `useLiveTranscriptFeed`, which polls the host's per-10-min
  * chunk JSON. The accumulator transcribes a minute at a time, so lines land in
- * minute-sized batches roughly a minute behind live.
+ * minute-sized batches roughly a minute behind live. A line the host's LLM pass
+ * corrected afterwards is tinted, with Whisper's original text as its tooltip; its
+ * time stays the original segment's.
  */
 export const LiveTranscriptRail: React.FC<LiveTranscriptRailProps> = ({ lines, show, onClose }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -106,7 +108,12 @@ export const LiveTranscriptRail: React.FC<LiveTranscriptRailProps> = ({ lines, s
               >
                 {line.timestamp}
               </Typography>
-              <Typography sx={{ fontSize: '0.8rem', lineHeight: 1.35 }}>{line.text}</Typography>
+              <Typography
+                title={line.rawText ? `Original: ${line.rawText}` : undefined}
+                sx={{ fontSize: '0.8rem', lineHeight: 1.35, color: line.corrected ? '#9be7ff' : 'inherit' }}
+              >
+                {line.text}
+              </Typography>
             </Box>
           ))
         )}

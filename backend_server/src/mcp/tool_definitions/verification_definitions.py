@@ -88,7 +88,7 @@ def get_tools() -> List[Dict[str, Any]]:
             "properties": {
                 "node_label": {
                     "type": "string",
-                    "description": "human readable node name like 'home', 'search'"
+                    "description": "human readable node name like 'home', 'search'; give either node_label or node_id"
                 },
                 "userinterface_name": {
                     "type": "string",
@@ -108,15 +108,14 @@ def get_tools() -> List[Dict[str, Any]]:
                 },
                 "node_id": {
                     "type": "string",
-                    "description": "exact node identifier from database, overrides node_label if provided"
+                    "description": "exact node identifier from database; give either node_label or node_id"
                 },
                 "include_screenshot": {
                     "type": "boolean",
-                    "description": "include a device screenshot of the verified screen in the response, default false"
+                    "description": "include a device screenshot of the verified screen in the response, default true"
                 }
             },
             "required": [
-                "node_label",
                 "userinterface_name"
             ]
         }

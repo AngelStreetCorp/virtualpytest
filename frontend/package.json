@@ -9,7 +9,7 @@
     "build": "./node_modules/.bin/vite build",
     "start": "[ -d dist ] || npm run build && ./node_modules/.bin/serve -s dist -l 5073 --no-clipboard -c \"$(pwd)/serve.json\"",
     "preview": "./node_modules/.bin/vite preview",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0"
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0 && node scripts/ui-check.mjs"
   },
   "dependencies": {
     "@codemirror/lang-python": "^6.2.1",
@@ -40,12 +40,12 @@
     "@types/node": "20.0.0",
     "@types/react": "18.3.24",
     "@types/react-dom": "18.3.7",
-    "@typescript-eslint/eslint-plugin": "6.14.0",
-    "@typescript-eslint/parser": "6.14.0",
+    "@typescript-eslint/eslint-plugin": "8.3.0",
+    "@typescript-eslint/parser": "8.3.0",
     "@vitejs/plugin-basic-ssl": "^2.1.4",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "10.4.16",
-    "eslint": "8.55.0",
+    "eslint": "8.57.1",
     "eslint-plugin-react-hooks": "4.6.0",
     "eslint-plugin-react-refresh": "0.4.5",
     "postcss": "^8.5.19",
@@ -59,6 +59,8 @@
     "minimatch": "^10.0.0",
     "rollup": "^4.59.0",
     "serve": "^14.2.5",
-    "serve-handler": "^6.1.6"
+    "serve-handler": "^6.1.6",
+    "compression": "^1.8.2",
+    "postcss-selector-parser": "^7.1.6"
   }
 }

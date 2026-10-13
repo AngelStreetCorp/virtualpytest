@@ -10,8 +10,24 @@ interface AndroidTvSession {
   error: string | null;
 }
 
+// Mirrors backend_host/.../remote/android_tv.py:get_health() (and the IR
+// / Vega InfraredStatus shape). Drives the green/red LED in the Take Control
+// panel header — same field names so AndroidTvRemote can reuse the same
+// colour logic as InfraredRemote.
+export interface AndroidTvStatus {
+  adb_device: string;
+  device_present: boolean;
+  tx_probe_ok: boolean;
+  last_send_ok: boolean | null;
+  last_send_error: string | null;
+  last_send_ts: number;
+  healthy: boolean;
+  detail: string;
+}
+
 interface UseAndroidTvReturn {
   session: AndroidTvSession;
+  status: AndroidTvStatus | null;
   isLoading: boolean;
   lastAction: string;
   layoutConfig: typeof androidTvRemoteConfig;
@@ -30,9 +46,40 @@ export const useAndroidTv = (
     connecting: false,
     error: null,
   });
+  const [status, setStatus] = useState<AndroidTvStatus | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [lastAction, setLastAction] = useState('');
   const { executeRemoteCommand } = useControllerApi(host, deviceId);
+
+  // ---- Status probe (drives the Take Control status dot) ----
+  // One-shot, non-destructive host-side health probe (`get_pairing_status`
+  // → backend `get_health()`) run once when the Android TV panel mounts —
+  // enough to confirm ADB is reachable and the last press was OK. Mirrors
+  // useInfraredRemote's refreshStatus so the same colour logic in
+  // AndroidTvRemote can match the IR / Vega / BLE dots.
+  const refreshStatus = useCallback(async () => {
+    try {
+      const result = await executeRemoteCommand<{
+        success: boolean;
+        status?: AndroidTvStatus;
+        error?: string;
+      }>('get_pairing_status', {}, { remote_type: 'android_tv' }, { includeDeviceId: true });
+      if (result.success && result.status) {
+        setStatus(result.status);
+      } else if (result.error) {
+        console.warn(`[@hook:useAndroidTv] get_pairing_status returned error: ${result.error}`);
+      }
+    } catch (e) {
+      console.warn(`[@hook:useAndroidTv] refreshStatus failed: ${e}`);
+    }
+  }, [executeRemoteCommand]);
+
+  useEffect(() => {
+    if (!host?.host_name || !deviceId) {
+      return;
+    }
+    refreshStatus();
+  }, [host?.host_name, deviceId, refreshStatus]);
 
   // Update session based on external connection status
   useEffect(() => {
@@ -141,6 +188,7 @@ export const useAndroidTv = (
 
   return {
     session,
+    status,
     isLoading,
     lastAction,
     layoutConfig: androidTvRemoteConfig,

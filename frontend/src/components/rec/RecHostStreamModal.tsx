@@ -6,6 +6,7 @@ import { VNCStateProvider } from '../../contexts/VNCStateContext';
 import { useStream } from '../../hooks/controller';
 import { useRunningLog } from '../../hooks/rec/useRunningLog';
 import { useRecModalModes } from '../../hooks/rec/useRecModalModes';
+import { useStreamTransport } from '../../hooks/controller/useStreamTransport';
 import { useRecQualitySwitch } from '../../hooks/rec/useRecQualitySwitch';
 import { useRecCaptureActions } from '../../hooks/rec/useRecCaptureActions';
 import { useRecStreamLayout, useRecDeviceChecks } from '../../hooks/rec/useRecStreamLayout';
@@ -18,6 +19,7 @@ import { useToast } from '../../hooks/useToast';
 import { useMonitoring } from '../../hooks/monitoring/useMonitoring';
 import { useAIContext } from '../../contexts/AIContext';
 import type { Ambiguity, AutoCorrection } from '../../types/aiagent/AIDisambiguation_Types';
+import type { LiveStreamTransport, WhepStatus } from '../../types/controller/WebRTC_Types';
 import { Host, Device } from '../../types/common/Host_Types';
 import { getZIndex } from '../../utils/zIndexUtils';
 import { calculateVncScaling } from '../../utils/vncUtils';
@@ -45,6 +47,9 @@ interface RecHostStreamModalProps {
   // mobile device-control page. Defaults to false, so all other callers of
   // this modal are unaffected.
   minimalControls?: boolean;
+  reusePreviewStream?: boolean;
+  onPersistentStreamTargetChange?: (target: HTMLElement | null) => void;
+  onPersistentStreamStateChange?: (state: { muted: boolean; interactive: boolean; shouldPause: boolean; onPlayerReady: () => void; transport: LiveStreamTransport; reconnectKey: string; onWebRTCFailed: () => void; onWebRTCStatusChange: (status: WhepStatus) => void }) => void;
 }
 
 export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
@@ -55,6 +60,9 @@ export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
   showRemoteByDefault = false,
   initialPoster = null,
   minimalControls = false,
+  reusePreviewStream = false,
+  onPersistentStreamTargetChange,
+  onPersistentStreamStateChange,
 }) => {
   // Before the early return: hooks cannot be called conditionally. Lets the system Back
   // button close this modal rather than navigating the page underneath it.
@@ -71,6 +79,9 @@ export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
         showRemoteByDefault={showRemoteByDefault}
         initialPoster={initialPoster}
         minimalControls={minimalControls}
+        reusePreviewStream={reusePreviewStream}
+        onPersistentStreamTargetChange={onPersistentStreamTargetChange}
+        onPersistentStreamStateChange={onPersistentStreamStateChange}
       />
     </VNCStateProvider>
   );
@@ -83,7 +94,10 @@ const RecHostStreamModalContent: React.FC<{
   showRemoteByDefault: boolean;
   initialPoster: string | null;
   minimalControls: boolean;
-}> = ({ host, device, onClose, showRemoteByDefault, initialPoster, minimalControls }) => {
+  reusePreviewStream: boolean;
+  onPersistentStreamTargetChange?: (target: HTMLElement | null) => void;
+  onPersistentStreamStateChange?: (state: { muted: boolean; interactive: boolean; shouldPause: boolean; onPlayerReady: () => void; transport: LiveStreamTransport; reconnectKey: string; onWebRTCFailed: () => void; onWebRTCStatusChange: (status: WhepStatus) => void }) => void;
+}> = ({ host, device, onClose, showRemoteByDefault, initialPoster, minimalControls, reusePreviewStream, onPersistentStreamTargetChange, onPersistentStreamStateChange }) => {
   const deviceId = device?.device_id || 'device1';
   const { showError } = useToast();
 
@@ -116,6 +130,13 @@ const RecHostStreamModalContent: React.FC<{
   const modes = useRecModalModes(showRemoteByDefault, isControlActive, isDesktopDevice);
 
   const quality = useRecQualitySwitch(host, deviceId, showError);
+
+  // HLS / WebRTC live view toggle (RTC button next to the quality group).
+  const streamTransport = useStreamTransport(host.host_name, deviceId, device?.stream_protocol);
+  const handleWebRTCFailed = useCallback(() => {
+    streamTransport.setTransport('hls');
+    showError('WebRTC unavailable — back on HLS');
+  }, [streamTransport.setTransport, showError]);
 
   const [currentSegmentUrl, setCurrentSegmentUrl] = useState<string | null>(null);
   const capture = useRecCaptureActions(
@@ -182,10 +203,13 @@ const RecHostStreamModalContent: React.FC<{
     currentVideoTime,
   });
 
+  // An AI prompt run is a testcase execution, which writes the same running.log as a
+  // deployment — poll it during the run so the step/action/verification overlay shows.
+  const [isAiExecuting, setIsAiExecuting] = useState(false);
   const { logData: runningLogData } = useRunningLog(
     host,
     device?.device_id,
-    Boolean(device?.has_running_deployment && device?.device_id)
+    Boolean((device?.has_running_deployment || isAiExecuting) && device?.device_id)
   );
 
   const manualControlLabel = useDeviceLockLabel(host, device);
@@ -266,10 +290,28 @@ const RecHostStreamModalContent: React.FC<{
   }, [modes]);
 
   const [isMuted, setIsMuted] = useState<boolean>(true);
+  const canReusePreviewStream =
+    reusePreviewStream &&
+    modes.isLiveMode &&
+    !modes.restartMode &&
+    (streamTransport.transport === 'hls' || device?.device_model !== 'host_vnc');
+  const [persistentWhepStatus, setPersistentWhepStatus] = useState<WhepStatus>('idle');
+  useEffect(() => {
+    onPersistentStreamStateChange?.({
+      muted: isMuted,
+      interactive: isControlActive,
+      shouldPause: quality.shouldPausePlayer,
+      onPlayerReady: quality.handlePlayerReady,
+      transport: streamTransport.transport,
+      reconnectKey: quality.currentQuality,
+      onWebRTCFailed: handleWebRTCFailed,
+      onWebRTCStatusChange: setPersistentWhepStatus,
+    });
+  }, [isMuted, isControlActive, quality.shouldPausePlayer, quality.handlePlayerReady, quality.currentQuality, streamTransport.transport, handleWebRTCFailed, onPersistentStreamStateChange]);
 
   // Hide the captured preview poster once the modal player has actually started
   // playing, or after a safety timeout. Skips entirely if we had no poster to show.
-  const [posterVisible, setPosterVisible] = useState<boolean>(!!initialPoster);
+  const [posterVisible, setPosterVisible] = useState<boolean>(!!initialPoster && !reusePreviewStream);
   useEffect(() => {
     if (!posterVisible) return;
     const t = setTimeout(() => setPosterVisible(false), 5000);
@@ -345,13 +387,13 @@ const RecHostStreamModalContent: React.FC<{
           restartMode={modes.restartMode}
           isLiveMode={modes.isLiveMode}
           currentQuality={quality.currentQuality}
-          isQualitySwitching={quality.isQualitySwitching}
+          streamTransport={streamTransport.transport}
+          onToggleStreamTransport={streamTransport.toggleTransport}
           isMuted={isMuted}
           isControlActive={isControlActive}
           isControlLoading={isControlLoading}
           aiAgentMode={modes.aiAgentMode}
           showWeb={modes.showWeb}
-          showRemote={modes.showRemote}
           isDesktopDevice={isDesktopDevice}
           hasPowerControl={!!hasPowerControl}
           minimalControls={minimalControls}
@@ -366,7 +408,6 @@ const RecHostStreamModalContent: React.FC<{
           onToggleRestart={modes.handleToggleRestart}
           onToggleAiAgent={modes.handleToggleAiAgent}
           onToggleWeb={modes.handleToggleWeb}
-          onToggleRemote={modes.handleToggleRemote}
           onClose={handleClose}
         />
 
@@ -410,6 +451,8 @@ const RecHostStreamModalContent: React.FC<{
             currentQuality={quality.currentQuality}
             isQualitySwitching={quality.isQualitySwitching}
             shouldPausePlayer={quality.shouldPausePlayer}
+            streamTransport={streamTransport.transport}
+            onWebRTCFailed={handleWebRTCFailed}
             isMuted={isMuted}
             isMobileModel={isMobileModel}
             showRemote={modes.showRemote}
@@ -427,6 +470,9 @@ const RecHostStreamModalContent: React.FC<{
             analysisTimestamp={monitoringData.analysisTimestamp || undefined}
             isAIAnalyzing={monitoringData.isAIAnalyzing}
             onMeasuredAreaChange={handleMeasuredAreaChange}
+            persistentStream={canReusePreviewStream}
+            onPersistentStreamTargetChange={onPersistentStreamTargetChange}
+            persistentWebRtcStatus={persistentWhepStatus}
           />
 
           <RecPanelManager
@@ -446,6 +492,7 @@ const RecHostStreamModalContent: React.FC<{
             isControlActive={isControlActive}
             isVisible={modes.aiAgentMode && isControlActive}
             onDisambiguationDataChange={handleDisambiguationDataChange}
+            onExecutingChange={setIsAiExecuting}
           />
 
           {runningLogData && (
@@ -459,7 +506,6 @@ const RecHostStreamModalContent: React.FC<{
             <RunningScriptNameBadge
               scriptName={hasNamedDeployment ? deploymentScriptLabel : null}
               ownerName={lockOwnerLabel}
-              maxChars={30}
               sx={{
                 right: layout.scriptNameRightOffset || 8,
                 bottom: 8,

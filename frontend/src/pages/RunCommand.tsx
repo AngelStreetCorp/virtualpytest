@@ -24,6 +24,8 @@ import {
   Stack,
   SelectChangeEvent,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
@@ -59,6 +61,7 @@ const OutputBlock: React.FC<{ label: string; text: string; truncated?: boolean }
   text,
   truncated,
 }) => {
+  const P = useAgentChatPalette();
   if (!text) return null;
   return (
     <Box sx={{ mb: 1 }}>
@@ -72,8 +75,8 @@ const OutputBlock: React.FC<{ label: string; text: string; truncated?: boolean }
           m: 0,
           mt: 0.5,
           p: 1,
-          backgroundColor: 'grey.900',
-          color: 'grey.100',
+          backgroundColor: P.surface,
+          color: P.textPrimary,
           borderRadius: 1,
           fontFamily: 'monospace',
           fontSize: '0.75rem',
@@ -90,6 +93,7 @@ const OutputBlock: React.FC<{ label: string; text: string; truncated?: boolean }
 };
 
 const RunCommand: React.FC = () => {
+  const P = useAgentChatPalette();
   const { serverHostsData } = useServerManager();
   const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
   const { showSuccess, showError, showWarning } = useToast();
@@ -239,8 +243,8 @@ const RunCommand: React.FC = () => {
   };
 
   return (
-    <Box>
-      <Typography variant="h4" component="h1" gutterBottom>
+    <Box sx={pageSurfaceSx(P)}>
+      <Typography component="h1" sx={PAGE_TITLE_SX}>
         Run Command on Hosts
       </Typography>
 
@@ -335,7 +339,7 @@ const RunCommand: React.FC = () => {
                 defaultExpanded={r?.status === 'error'}
                 sx={{
                   boxShadow: 'none',
-                  border: '1px solid #e0e0e0',
+                  border: '1px solid', borderColor: P.borderColor,
                   mb: 1,
                   '&:before': { display: 'none' },
                 }}

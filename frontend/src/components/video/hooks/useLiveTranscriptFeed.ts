@@ -10,9 +10,15 @@ import { TranscriptData10Min } from '../EnhancedHLSPlayer.types';
  */
 export interface LiveTranscriptLine {
   id: string;
-  timestamp: string; // wall-clock time-of-day, e.g. "20:14:31"
+  timestamp: string; // wall-clock time-of-day of the ORIGINAL segment, e.g. "20h14m31s"
   text: string;
+  /** Text was rewritten by the host's LLM spelling/grammar pass after first display. */
+  corrected: boolean;
+  /** Whisper's original text, set when `corrected`. */
+  rawText?: string;
   source: 'audio';
+  /** Seconds since midnight of the segment start; keeps late lines in order. */
+  sortKey: number;
 }
 
 interface UseLiveTranscriptFeedProps {
@@ -29,6 +35,10 @@ const POLL_INTERVAL_MS = 15000;
 const MAX_LINES = 200;
 
 const CHUNK_MINUTES = 10;
+// The last minute of a chunk is transcribed after the window rolls over, and the
+// host's LLM correction lands later still, so the previous chunk keeps being polled
+// for the first minutes of each window.
+const PREVIOUS_CHUNK_TAIL_MINUTES = 3;
 
 /** Current transcript chunk (hour + index within the hour) from the wall clock. */
 const getCurrentChunk = (): { hour: number; chunkIndex: number } => {
@@ -37,6 +47,13 @@ const getCurrentChunk = (): { hour: number; chunkIndex: number } => {
     hour: now.getHours(),
     chunkIndex: Math.floor(now.getMinutes() / CHUNK_MINUTES),
   };
+};
+
+/** Chunk before (hour, chunkIndex); null at midnight (yesterday's chunk is stale). */
+const getPreviousChunk = (hour: number, chunkIndex: number): { hour: number; chunkIndex: number } | null => {
+  if (chunkIndex > 0) return { hour, chunkIndex: chunkIndex - 1 };
+  if (hour > 0) return { hour: hour - 1, chunkIndex: 60 / CHUNK_MINUTES - 1 };
+  return null;
 };
 
 /** Local calendar date as YYYY-MM-DD (matches the host's naive isoformat prefix). */
@@ -71,7 +88,8 @@ const formatSegmentTime = (hour: number, chunkIndex: number, startSeconds: numbe
   const h = Math.floor(total / 3600) % 24;
   const m = Math.floor((total % 3600) / 60);
   const s = total % 60;
-  return [h, m, s].map((v) => String(v).padStart(2, '0')).join(':');
+  const pad = (v: number) => String(v).padStart(2, '0');
+  return `${pad(h)}h${pad(m)}m${pad(s)}s`;
 };
 
 /**
@@ -82,7 +100,11 @@ const formatSegmentTime = (hour: number, chunkIndex: number, startSeconds: numbe
  * That means lines land ~1 minute behind live, in minute-sized batches.
  *
  * Requires transcription to be enabled on the host (ENABLE_TRANSCRIPTION=true);
- * without it the chunk JSON never appears and the feed stays empty.
+ * without it the chunk JSON never appears. `isAvailable` turns true only once a
+ * chunk written TODAY has been fetched, proof the service is on and transcribing.
+ * Silent minutes are skipped (no merge), so on a quiet device the rail stays
+ * hidden until the first speech lands. Callers hide the rail until then instead
+ * of showing an empty "Waiting for speech…" forever.
  */
 export const useLiveTranscriptFeed = ({
   isLiveMode,
@@ -93,12 +115,14 @@ export const useLiveTranscriptFeed = ({
   const [lines, setLines] = useState<LiveTranscriptLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasTranscript, setHasTranscript] = useState(false);
+  const [isAvailable, setIsAvailable] = useState(false);
 
   // Ids already rendered — dedupes across polls and across chunk rollover.
   const seenIdsRef = useRef<Set<string>>(new Set());
 
-  // Text of the last line actually rendered, so consecutive identical lines
+  // Raw text of the last line actually rendered, so consecutive identical lines
   // (e.g. a repeated on-screen subtitle) collapse to the first occurrence.
+  // Compared on raw text so a later correction does not change what collapses.
   const lastTextRef = useRef<string | null>(null);
 
   // VNC devices have no audio capture, so they never produce a transcript.
@@ -113,6 +137,7 @@ export const useLiveTranscriptFeed = ({
     lastTextRef.current = null;
     setLines([]);
     setHasTranscript(false);
+    setIsAvailable(false);
   }, []);
 
   // Drop accumulated lines when the feed goes inactive or the device changes,
@@ -125,52 +150,92 @@ export const useLiveTranscriptFeed = ({
     if (!active) return;
 
     let cancelled = false;
+    let availableLatched = false;
+
+    /** Fetch a chunk; null when missing (404) or left over from yesterday. */
+    const fetchFreshChunk = async (
+      hour: number,
+      chunkIndex: number,
+    ): Promise<TranscriptData10Min | null> => {
+      const res = await fetch(buildTranscriptChunkUrl(host, deviceId, hour, chunkIndex, 'original'));
+      if (!res.ok) return null;
+      const data: TranscriptData10Min = await res.json();
+      return isStaleChunk(data) ? null : data;
+    };
+
+    const markAvailable = () => {
+      if (availableLatched || cancelled) return;
+      availableLatched = true;
+      setIsAvailable(true);
+    };
 
     const poll = async () => {
-      const { hour, chunkIndex } = getCurrentChunk();
-      const url = buildTranscriptChunkUrl(host, deviceId, hour, chunkIndex, 'original');
+      const current = getCurrentChunk();
+      const previous = getPreviousChunk(current.hour, current.chunkIndex);
+      const inTail = new Date().getMinutes() % CHUNK_MINUTES < PREVIOUS_CHUNK_TAIL_MINUTES;
 
       try {
         setIsLoading(true);
-        const res = await fetch(url);
-        if (!res.ok) {
-          // 404 is expected: the chunk file does not exist until the first
-          // minute of it has been transcribed.
-          return;
+        // The previous chunk also proves the service runs while the current one is
+        // still missing (it does not exist until its first minute is transcribed).
+        const targets = previous && (inTail || !availableLatched) ? [previous, current] : [current];
+        const chunks: { hour: number; chunkIndex: number; data: TranscriptData10Min }[] = [];
+        for (const target of targets) {
+          // null: 404, or yesterday's file still served for this slot — skip it
+          // wholesale rather than render last day's speech.
+          const data = await fetchFreshChunk(target.hour, target.chunkIndex);
+          if (data) chunks.push({ ...target, data });
         }
-
-        const data: TranscriptData10Min = await res.json();
-        // Yesterday's file still served for this slot until today's audio is
-        // transcribed — skip it wholesale rather than render last day's speech.
-        if (isStaleChunk(data)) return;
-
-        const segments = data.segments || [];
-        if (cancelled || segments.length === 0) return;
+        if (cancelled || chunks.length === 0) return;
+        markAvailable();
 
         const fresh: LiveTranscriptLine[] = [];
-        for (const seg of segments) {
-          const text = (seg.text || '').trim();
-          if (!text) continue;
+        // Corrections for lines already rendered: the host rewrites `text` in place
+        // (keeping `raw_text`) once its LLM pass lands, without changing `start`.
+        const updates = new Map<string, string>();
+        for (const { hour, chunkIndex, data } of chunks) {
+          for (const seg of data.segments || []) {
+            const text = (seg.text || '').trim();
+            if (!text) continue;
 
-          const id = `${hour}-${chunkIndex}-${seg.start}`;
-          if (seenIdsRef.current.has(id)) continue;
-          seenIdsRef.current.add(id);
+            const id = `${hour}-${chunkIndex}-${seg.start}`;
+            if (seenIdsRef.current.has(id)) {
+              if (seg.raw_text) updates.set(id, text);
+              continue;
+            }
+            seenIdsRef.current.add(id);
 
-          // Collapse consecutive identical lines to the first occurrence.
-          if (text === lastTextRef.current) continue;
-          lastTextRef.current = text;
+            const rawText = (seg.raw_text || text).trim();
+            // Collapse consecutive identical lines to the first occurrence.
+            if (rawText === lastTextRef.current) continue;
+            lastTextRef.current = rawText;
 
-          fresh.push({
-            id,
-            timestamp: formatSegmentTime(hour, chunkIndex, seg.start),
-            text,
-            source: 'audio',
-          });
+            fresh.push({
+              id,
+              timestamp: formatSegmentTime(hour, chunkIndex, seg.start),
+              text,
+              corrected: !!seg.raw_text,
+              rawText: seg.raw_text || undefined,
+              source: 'audio',
+              sortKey: hour * 3600 + chunkIndex * CHUNK_MINUTES * 60 + seg.start,
+            });
+          }
         }
 
-        if (fresh.length > 0 && !cancelled) {
-          setHasTranscript(true);
-          setLines((prev) => [...prev, ...fresh].slice(-MAX_LINES));
+        if (fresh.length > 0) setHasTranscript(true);
+        if (fresh.length > 0 || updates.size > 0) {
+          setLines((prev) => {
+            const patched = updates.size
+              ? prev.map((line) => {
+                  const text = updates.get(line.id);
+                  return text && text !== line.text
+                    ? { ...line, text, corrected: true, rawText: line.rawText ?? line.text }
+                    : line;
+                })
+              : prev;
+            if (fresh.length === 0) return patched;
+            return [...patched, ...fresh].sort((a, b) => a.sortKey - b.sortKey).slice(-MAX_LINES);
+          });
         }
       } catch (err) {
         console.log(`[@useLiveTranscriptFeed] Poll failed for ${deviceId}:`, err);
@@ -188,5 +253,5 @@ export const useLiveTranscriptFeed = ({
     };
   }, [active, host, deviceId]);
 
-  return { lines, isLoading, hasTranscript };
+  return { lines, isLoading, hasTranscript, isAvailable };
 };

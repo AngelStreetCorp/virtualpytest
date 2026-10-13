@@ -9,9 +9,9 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { FormControl, InputLabel, Select, MenuItem, Chip, CircularProgress, SelectChangeEvent, useTheme } from '@mui/material';
+import { FormControl, InputLabel, Select, MenuItem, Chip, CircularProgress, SelectChangeEvent } from '@mui/material';
 import { useUserInterface } from '../../hooks/pages/useUserInterface';
-import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface UserinterfaceSelectorProps {
   deviceModel?: string;  // Device model to find compatible interfaces for (undefined = show all)
@@ -60,19 +60,17 @@ export const UserinterfaceSelector: React.FC<UserinterfaceSelectorProps> = ({
   dropdownStyles,
   disableAutoSelect = false
 }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
-  const PALETTE = AGENT_CHAT_PALETTE;
+  const PALETTE = useAgentChatPalette();
 
   // Use shared dropdown styles if provided, otherwise create local styles
   const styles = dropdownStyles || {
     select: {
       height: size === 'small' ? 32 : 40,
       fontSize: size === 'small' ? '0.85rem' : '0.875rem',
-      bgcolor: isDarkMode ? PALETTE.inputBg : '#fff',
+      bgcolor: PALETTE.inputBg,
       borderRadius: 1.5,
       '& .MuiOutlinedInput-notchedOutline': {
-        borderColor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+        borderColor: PALETTE.borderColor,
       },
       '&:hover .MuiOutlinedInput-notchedOutline': {
         borderColor: PALETTE.accent,
@@ -90,9 +88,9 @@ export const UserinterfaceSelector: React.FC<UserinterfaceSelectorProps> = ({
     menuProps: {
       PaperProps: {
         sx: {
-          bgcolor: isDarkMode ? PALETTE.surface : '#fff',
+          bgcolor: PALETTE.surface,
           border: '1px solid',
-          borderColor: isDarkMode ? PALETTE.borderColor : 'grey.200',
+          borderColor: PALETTE.borderColor,
           boxShadow: PALETTE.cardShadow,
         }
       }
@@ -106,8 +104,8 @@ export const UserinterfaceSelector: React.FC<UserinterfaceSelectorProps> = ({
       fontSize: size === 'small' ? '0.85rem' : '0.875rem',
       py: size === 'small' ? 0.75 : 1,
       color: 'text.primary',
-      '&:hover': { bgcolor: isDarkMode ? PALETTE.hoverBg : 'grey.100' },
-      '&.Mui-selected': { bgcolor: isDarkMode ? PALETTE.hoverBg : 'grey.100' },
+      '&:hover': { bgcolor: PALETTE.hoverBg },
+      '&.Mui-selected': { bgcolor: PALETTE.hoverBg },
     },
   };
   const [interfaces, setInterfaces] = useState<UserinterfaceOption[]>([]);
@@ -280,7 +278,7 @@ export const UserinterfaceSelector: React.FC<UserinterfaceSelectorProps> = ({
                 sx={{
                   ml: 0.75,
                   height: 16,
-                  bgcolor: '#b8860b',
+                  bgcolor: PALETTE.gold,
                   color: '#fff',
                   '& .MuiChip-label': { px: 0.5, fontSize: '0.6rem', fontWeight: 600 },
                 }}

@@ -74,7 +74,7 @@ Surfaces deliberately not exercised on every push, and why:
 |---|---|
 | `/server/restart/*` (all of it) | every endpoint kicks off real video generation / AI audio analysis on a live host, 5–10 min timeouts |
 | Device execution: `actions/executeBatch`, `control/take|release|takeover`, campaign execute, `remote` state changes, `desktop` bash/pyautogui, `power` | drives a real, shared device — takeover explicitly preempts whoever is using it |
-| AI/agent happy paths: `ai/*`, `agent/*`, `agent_runtime/*`, `agent_benchmark`, `mcp_proxy` execute | spends provider credits, or spawns background agents on a shared deployment |
+| AI/agent happy paths: `ai/*`, `agent/*`, `mcp_proxy` execute | spends provider credits, or spawns background agents on a shared deployment |
 | `ai-queue/clear`, `ai/resetCache` | destructive against shared Redis/DB state |
 | `api-testing/run` and `/quick` | a test runner that fires HTTP at other live endpoints as a side effect |
 | `cicd/dispatch`, `cicd/restartRunner` | fires a real workflow_dispatch / SSHes into a runner VM |

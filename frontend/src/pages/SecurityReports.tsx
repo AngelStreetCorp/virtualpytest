@@ -3,6 +3,7 @@ import { OpenInNew, Refresh, Security } from '@mui/icons-material';
 import React, { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '../utils/apiClient';
 import { buildPrimaryServerUrl } from '../utils/buildUrlUtils';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 // The dashboard's own "JSON ↗" quick-links point at relative file paths that only existed when
 // this report was served as a static file (public/docs/security/*.json). Now that it's fetched
@@ -15,7 +16,37 @@ const neutralizeJsonLinks = (html: string): string =>
     '<span class="json-link" style="opacity:0.4" title="Raw JSON: GET /server/security/reports/&lt;name&gt; (authenticated)">JSON</span>'
   );
 
+// The report HTML is generated with its own dark look; restyle it with the app palette so it
+// follows the theme (class names from scripts/parse-security-to-html.py).
+const paletteCss = (P: ReturnType<typeof useAgentChatPalette>): string => `<style>
+  body { background: ${P.surface}; color: ${P.textPrimary}; }
+  .header h1 { color: ${P.textPrimary}; }
+  .timestamp, .metric-label, .summary-info, .section-arrow, .issue-loc, .no-issues { color: ${P.textMuted}; }
+  .summary, .section { background: ${P.background}; border-color: ${P.borderColor}; }
+  .section-header:hover, .json-link:hover, .filter-btn.active { background: ${P.hoverBg}; }
+  .section-title, .issue-id { color: ${P.textSecondary}; }
+  .issue-text, .section-counts .ignored { color: ${P.textSecondary}; }
+  .filter-btn { border-color: ${P.borderColor}; color: ${P.textSecondary}; }
+  .filter-btn:hover, .filter-btn.active { border-color: ${P.textMuted}; color: ${P.textPrimary}; }
+  .issues { border-top-color: ${P.borderColor}; }
+  .issue { border-left-color: ${P.borderColor}; }
+  .issue:nth-child(odd) { background: ${P.hoverBg}; }
+  .json-link { color: ${P.accentText}; }
+  .high, .filter-btn.active.high { color: ${P.error}; }
+  .medium, .filter-btn.active.medium { color: ${P.warning}; }
+  .low, .issue-fix, .filter-btn.active.low { color: ${P.success}; }
+  .filter-btn.active.high { border-color: ${P.error}; }
+  .filter-btn.active.medium { border-color: ${P.warning}; }
+  .filter-btn.active.low { border-color: ${P.success}; }
+  .issue.high { border-left-color: ${P.error}; }
+  .issue.medium { border-left-color: ${P.warning}; }
+  .issue.low { border-left-color: ${P.success}; }
+  .issues::-webkit-scrollbar-track { background: ${P.background}; }
+  .issues::-webkit-scrollbar-thumb { background: ${P.borderColor}; }
+</style>`;
+
 const SecurityReports: React.FC = () => {
+  const P = useAgentChatPalette();
   const [html, setHtml] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
@@ -60,7 +91,7 @@ const SecurityReports: React.FC = () => {
   return (
     <Box sx={{ height: '80vh', display: 'flex', flexDirection: 'column' }}>
       {/* Header with actions */}
-      <Box sx={{ p: 2, borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', gap: 2 }}>
+      <Box sx={{ p: 2, borderBottom: '1px solid', borderColor: P.borderColor, display: 'flex', alignItems: 'center', gap: 2 }}>
         <Security color="primary" sx={{ fontSize: 28 }} />
         <Typography variant="h6" sx={{ flexGrow: 1 }}>
           Security Reports
@@ -97,7 +128,7 @@ const SecurityReports: React.FC = () => {
         )}
         {!loading && !error && (
           <iframe
-            srcDoc={html}
+            srcDoc={html.replace('</head>', `${paletteCss(P)}</head>`)}
             width="100%"
             height="100%"
             frameBorder="0"

@@ -1,0 +1,9 @@
+[Unit]
+Description=Check origin/main for APK changes every 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

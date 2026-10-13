@@ -8,6 +8,7 @@
 import { api } from '../apiClient';
 import { buildServerUrl } from '../buildUrlUtils';
 import { getEnv } from '../../config/constants';
+import { withLang } from '../../i18n';
 
 /**
  * Get the public URL base from environment variable
@@ -516,5 +517,6 @@ export const openR2Url = async (
   // getR2Url → normalizeStoragePath handles all formats:
   // presigned URLs, full MinIO URLs, full R2 URLs, and relative paths
   const resolvedUrl = await getR2Url(url, expiresIn);
-  window.open(resolvedUrl, '_blank');
+  // `#lang=` makes an HTML report open in the app's language (TASK-52); other files ignore it.
+  window.open(withLang(resolvedUrl), '_blank');
 };

@@ -1,6 +1,8 @@
 import React from 'react';
-import { Button } from '@mui/material';
+import { Button, SxProps, Theme } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface RunButtonProps {
   onExecute: () => void;
@@ -13,6 +15,8 @@ interface RunButtonProps {
   size?: 'small' | 'medium' | 'large';
   variant?: 'contained' | 'outlined' | 'text';
   showIcon?: boolean;
+  /** Extra styles merged over the defaults (a page can recolour Run to its palette). */
+  sx?: SxProps<Theme>;
 }
 
 export const RunButton: React.FC<RunButtonProps> = ({
@@ -26,7 +30,9 @@ export const RunButton: React.FC<RunButtonProps> = ({
   size = 'small',
   variant = 'contained',
   showIcon = true,
+  sx,
 }) => {
+  const P = useAgentChatPalette();
   const isDisabled = disabled ||
     isExecuting ||
     !selectedDeviceId ||
@@ -52,16 +58,23 @@ export const RunButton: React.FC<RunButtonProps> = ({
       disabled={isDisabled}
       title={getTooltipText()}
       sx={{
+        // Run is the app's gold primary action (same palette as the AI pages), in both themes.
         minWidth: size === 'small' ? 'auto' : undefined,
-        backgroundColor: variant === 'contained' ? '#3b82f6' : undefined,
-        color: variant === 'contained' ? '#ffffff' : undefined,
+        textTransform: 'none',
+        fontWeight: 600,
+        boxShadow: 'none',
+        backgroundColor: variant === 'contained' ? P.accent : undefined,
+        color: variant === 'contained' ? '#1a1a1a' : P.accentText,
+        borderColor: variant === 'outlined' ? P.accent : undefined,
         '&:hover': {
-          backgroundColor: variant === 'contained' ? '#2563eb' : undefined,
+          backgroundColor: variant === 'contained' ? P.accentHover : `${P.accent}1a`,
+          boxShadow: 'none',
         },
         '&:disabled': {
-          backgroundColor: '#6b7280',
-          color: '#ffffff',
+          backgroundColor: variant === 'contained' ? P.hoverBg : undefined,
+          color: P.textMuted,
         },
+        ...(sx as object),
       }}
     >
       {isExecuting ? 'Running...' : 'Run'}

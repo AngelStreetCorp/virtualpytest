@@ -1,0 +1,45 @@
+# NOTE: This is a template file for reference only.
+# Installed as vpt-companion.service by setup/local/linux/backend_host/install_service.sh companion
+# (picked up automatically by install_host.sh when features/companion is deployed,
+# see docs/technical/FEATURES.md).
+#
+# EXPERIMENTAL — OFF BY DEFAULT (same pattern as vpt-transcript / ENABLE_TRANSCRIPTION):
+#   the unit runs but only sleeps until ENABLE_COMPANION=true. Do NOT flip the value
+#   below: that turns it on for every host of the fleet. Enable one host with a drop-in:
+#     sudo systemctl edit vpt-companion.service
+#       [Service]
+#       Environment=ENABLE_COMPANION=true
+#     sudo systemctl restart vpt-companion.service
+#   and pick its devices with DEVICE{N}_COMPANION=true in backend_host/src/.env.
+
+[Unit]
+Description=VirtualPyTest Live-TV Companion (screen type, programme facts, live score)
+After=network.target vpt-stream.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=%PROJECT_ROOT%/features/companion/backend_host
+Environment=PYTHONPATH=%PROJECT_ROOT%/shared/lib:%PROJECT_ROOT%/backend_host/src
+Environment=PATH=%PROJECT_ROOT%/venv/bin:/usr/bin:/usr/local/bin
+# Off by default; override per host with a drop-in (see header).
+Environment=ENABLE_COMPANION=false
+ExecStart=%PROJECT_ROOT%/venv/bin/python %PROJECT_ROOT%/features/companion/backend_host/companion_monitor.py
+TimeoutStopSec=10
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+# Low priority: mostly waiting on AI calls; must never starve capture/detection.
+Nice=15
+CPUWeight=20
+CPUQuota=25%
+
+# Security
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -26,7 +26,6 @@ Environment=PYTHONPATH=/opt/virtualpytest
 Environment=PATH=/opt/virtualpytest/venv/bin:/usr/bin:/usr/local/bin
 ExecStartPre=/usr/bin/mkdir -p /opt/virtualpytest/reports/fleet-health
 ExecStart=/opt/virtualpytest/venv/bin/python scripts/fleet_health_report.py \
-    --servers http://localhost:5109,https://rpitest.angelstreet.io \
     --ai --upload-r2 \
     --output /opt/virtualpytest/reports/fleet-health/
 StandardOutput=journal

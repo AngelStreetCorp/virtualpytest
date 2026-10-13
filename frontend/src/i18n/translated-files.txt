@@ -1,0 +1,41 @@
+# Files whose JSX text and user-facing prop literals must go through t()/tn().
+# One path per line, relative to frontend/. CI (scripts/i18n-check.mjs) fails on a raw English literal here.
+# Opt out a line with `i18n-ignore` on it or the line above (product names, codes).
+src/components/common/Navigation_Bar.tsx
+src/components/common/Navigation_Dropdown.tsx
+src/components/common/Navigation_GroupedDropdown.tsx
+src/components/common/ThemeToggle.tsx
+src/components/common/PreferencesRows.tsx
+src/components/common/ServerSelector.tsx
+src/components/common/WorkspaceSwitcher.tsx
+src/components/auth/UserMenu.tsx
+src/components/mobile/MobileBottomNav.tsx
+src/components/mobile/MobileMoreMenuItems.tsx
+src/config/navItems.tsx
+src/pages/Dashboard.tsx
+src/components/common/DeviceFilterBar.tsx
+src/components/common/DeviceInfoTooltipIcon.tsx
+src/components/common/ServiceLogsModal.tsx
+src/components/common/ConfirmDialog.tsx
+src/pages/Quality.tsx
+src/pages/RunManagement.tsx
+src/components/rec/group/GroupStatusLed.tsx
+src/components/rec/group/GroupStreamCell.tsx
+src/components/rec/group/GroupRemoteSide.tsx
+src/components/rec/group/GroupControlModal.tsx
+src/components/rec/group/GroupSelectBar.tsx
+src/components/rec/layout/ViewMenu.tsx
+src/components/rec/layout/DeviceLayout.tsx
+src/components/rec/layout/LayoutGlyph.tsx
+src/components/rec/group/GroupStreamGrid.tsx
+src/pages/MonitoringAiUsage.tsx
+src/components/aiUsage/ProvidersPanel.tsx
+src/components/aiUsage/TrainingPanel.tsx
+src/components/aiUsage/labels.ts
+src/components/aiUsage/RunAiCost.tsx
+src/components/aiUsage/BudgetPanel.tsx
+src/components/aiUsage/FilterBar.tsx
+src/components/aiUsage/OverviewTab.tsx
+src/components/aiUsage/UsageTab.tsx
+src/components/aiUsage/ErrorsTab.tsx
+src/components/aiUsage/CallsTable.tsx

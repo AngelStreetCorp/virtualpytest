@@ -51,7 +51,7 @@ exec > >(tee -a "/tmp/ble-start-${ADAPTER_HCI}.log") 2>&1
 # `< /dev/null`. See BLUETOOTH.md §6.7.23 (stdin wedge).
 exec < <(:)
 echo "===== start.sh begin $(date -Is) (pid=$$ adapter=${ADAPTER_HCI}) ====="
-echo "  invoked as uid=$(id -u) euid=$EUID user=$(id -un) sudo_user=${SUDO_USER:-none} tty=$(tty 2>/dev/null || echo none)"
+echo "  invoked as uid=$(id -u) euid=$EUID user=$(id -un) sudo_user=${SUDO_USER:-none} tty=$(tty -s 2>/dev/null && tty || echo none)"
 echo "  PATH=$PATH"
 
 # Trace every command from here on. The "Reapplying adapter settings" block
@@ -64,6 +64,8 @@ echo "  PATH=$PATH"
 set -x
 
 SPOOF_MAC_PREFIX="20:21:41:00:1F"
+
+CONFIGURED_MAC="${ADAPTER_MAC:-}"   # DEVICEn_BLE_MAC, passed by the controller
 
 # Reuse THIS adapter's already-assigned MAC if one is persisted — BEFORE any
 # auto-pick. Re-pairing must NOT march to a fresh byte: the STB's bond is
@@ -85,7 +87,37 @@ if [[ -z "${ADAPTER_MAC:-}" ]]; then
     fi
 fi
 
-# Auto-pick a fresh byte ONLY for a brand-new adapter (no valid binding above).
+# An address from DEVICEn_BLE_MAC (passed as ADAPTER_MAC) must be one of ours.
+if [[ -n "$CONFIGURED_MAC" ]]; then
+    ADAPTER_MAC="${ADAPTER_MAC^^}"
+    if [[ ! "$ADAPTER_MAC" =~ ^${SPOOF_MAC_PREFIX//:/\\:}:[0-9A-F]{2}$ ]]; then
+        echo "ERROR: ADAPTER_MAC '$ADAPTER_MAC' is not ${SPOOF_MAC_PREFIX}:XX (check DEVICEn_BLE_MAC)" >&2
+        exit 2
+    fi
+    echo "== Using configured MAC $ADAPTER_MAC (DEVICEn_BLE_MAC) =="
+fi
+
+# New adapter, nothing configured: default to 1F:1<hci index> (hci1 -> 1F:11).
+# The old auto-pick started every host at 1F:01, so neighbouring robots all
+# presented the same remote and STBs drifted between them (§6.7.33). The
+# default only differs from the old one; uniqueness across robots is the
+# installer's job via DEVICEn_BLE_MAC. Falls through to the auto-pick when
+# the default byte is taken on this host.
+if [[ -z "${ADAPTER_MAC:-}" && "$ADAPTER_INDEX" =~ ^[0-9]$ ]]; then
+    _default="${SPOOF_MAC_PREFIX}:1${ADAPTER_INDEX}"
+    _taken=0
+    for macfile in /var/lib/vpt-ble/adapter-hci*.mac; do
+        [[ -f "$macfile" ]] || continue
+        [[ "$macfile" == "/var/lib/vpt-ble/adapter-${ADAPTER_HCI}.mac" ]] && continue
+        [[ "$(tr -d '[:space:]' < "$macfile" 2>/dev/null)" == "$_default" ]] && _taken=1
+    done
+    if [[ "$_taken" == "0" ]]; then
+        ADAPTER_MAC="$_default"
+        echo "== No DEVICEn_BLE_MAC: default $ADAPTER_MAC for $ADAPTER_HCI — make sure no nearby robot uses it =="
+    fi
+fi
+
+# Auto-pick a fresh byte ONLY when the default above is taken.
 if [[ -z "${ADAPTER_MAC:-}" ]]; then
     declare -A USED_BYTES=()
     # (1) Bytes that have a persisted bond dir on disk
@@ -135,7 +167,8 @@ if [[ -z "${ADAPTER_MAC:-}" ]]; then
     done
     USED_BYTES["91"]=1   # real UE remote
     PICKED=""
-    for i in $(seq 1 255); do
+    # From 1F:11 up, wrapping to 01-10 last: 01 is where every older host started.
+    for i in $(seq 17 255) $(seq 1 16); do
         hex=$(printf "%02X" "$i")
         if [[ -z "${USED_BYTES[$hex]:-}" ]]; then
             PICKED="$hex"
@@ -164,6 +197,32 @@ if [[ $EUID -ne 0 ]]; then
     echo "Run as root (sudo)." >&2
     exit 1
 fi
+
+# ----- Caller audit (§6.7.32) -----
+# start.sh wipes the bond, so record who ran it: one line per run in AUDIT_LOG
+# (survives reboot, unlike /tmp and the host journal). The controller sets
+# VPT_PAIRING_CALLER (user, IP); a manual run records the sudo user, tty and
+# parent command. link= says whether a working remote was wiped.
+AUDIT_LOG="/var/log/vpt-ble-pairing.log"
+CALLER="${VPT_PAIRING_CALLER:-}"
+if [[ -z "$CALLER" ]]; then
+    _gp="$(ps -o ppid= -p "$PPID" 2>/dev/null | tr -d ' ')"
+    CALLER="manual sudo_user=${SUDO_USER:-none} tty=$(tty -s 2>/dev/null && tty || echo none) parent='$(ps -o args= -p "${_gp:-$PPID}" 2>/dev/null)'"
+fi
+LIVE_PEER="$(timeout 5 hcitool -i "$ADAPTER_HCI" con 2>/dev/null \
+    | grep -oE 'LE [0-9A-F:]{17}' | head -1 | awk '{print $2}')"
+# link at the moment of the click: healthy = keys were reaching the STB (a
+# working remote is being wiped); no_keys = connected but the STB never
+# subscribed to key presses (2a4d), so keys were dropped; no_link = no STB.
+LINK=no_link
+if [[ -n "$LIVE_PEER" ]]; then
+    LINK=no_keys
+    grep -q 2a4d "/var/lib/bluetooth/${ADAPTER_MAC}/${LIVE_PEER}/info" 2>/dev/null && LINK=healthy
+fi
+printf '%s host=%s adapter=%s mac=%s link=%s live_peer=%s caller=%s\n' \
+    "$(date -Is)" "$(hostname)" "$ADAPTER_HCI" "$ADAPTER_MAC" "$LINK" "${LIVE_PEER:-none}" \
+    "$CALLER" >> "$AUDIT_LOG" 2>/dev/null || true
+echo "  caller: $CALLER"
 
 LOCKFILE="/tmp/ble-remote-pairing-${ADAPTER_HCI}.lock"
 # Per-adapter lockfile (§6.7.22-followup-5): the previous global

@@ -80,6 +80,7 @@ from shared.src.lib.utils.image_utils import (
     analyze_freeze,
     analyze_macroblocks
 )
+from shared.src.lib.utils import cv2_io
 
 def _motion_shape(diff, motion_thr=12, cell_thr=0.04, grid=4):
     """Coarse SPATIAL classification of a frame-to-frame diff — the same motion signal freeze
@@ -242,7 +243,7 @@ def detect_freeze_pixel_diff(current_img, thumbnails_dir, filename, fps=5, queue
             prev_path = os.path.join(thumbnails_dir, prev_filename)
             
             if os.path.exists(prev_path):
-                prev_img = cv2.imread(prev_path, cv2.IMREAD_GRAYSCALE)
+                prev_img = cv2_io.imread(prev_path, cv2.IMREAD_GRAYSCALE)
                 disk_loads += 1
                 
                 # Add to cache for future use
@@ -498,7 +499,7 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
         start = time.perf_counter()
         try:
             import cv2
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 raise Exception("Failed to load image")
             timings['image_load'] = (time.perf_counter() - start) * 1000
@@ -606,7 +607,12 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
     start = time.perf_counter()
     try:
         import cv2
-        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        # Decoded at 1/4 size by libjpeg's DCT scaling (1280x720 -> 320x180): each
+        # pixel is a 4x4 block average, the same density the blackscreen check used
+        # to get by sampling every 4th pixel of the full decode, for ~half the CPU.
+        # Validated 2026-10-04 on real STB frames and generated black / 97% / 94% /
+        # threshold-noise clips: 0 verdict flips, dark% within 0.4 points.
+        img = cv2_io.imread(image_path, cv2.IMREAD_REDUCED_GRAYSCALE_4)
         if img is None:
             raise Exception("Failed to load image")
         img_height, img_width = img.shape
@@ -628,7 +634,7 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
     # `edges[split_y:img_height, :]` at STEP 3.
     start = time.perf_counter()
     edge_src_path = os.path.join(thumbnails_dir, filename.replace('.jpg', '_thumbnail.jpg'))
-    edge_src_img = cv2.imread(edge_src_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(edge_src_path) else None
+    edge_src_img = cv2_io.imread(edge_src_path, cv2.IMREAD_GRAYSCALE) if os.path.exists(edge_src_path) else None
     if edge_src_img is None:
         # Thumbnail missing — fall back to full image so detection still works.
         edge_src_img = img
@@ -637,7 +643,7 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
     edge_split_y = int(edge_height * 0.7)  # Same 70% split, in thumbnail-space
     timings['edge_detection'] = (time.perf_counter() - start) * 1000
 
-    # Define regions (full-image coords, used by blackscreen sampling on `img`)
+    # Define regions (coords of the 1/4-size `img`, used by blackscreen sampling)
     header_y = int(img_height * 0.05)  # Skip top 5% (TV time/header)
     split_y = int(img_height * 0.7)     # Blackscreen region: 5-70%
     
@@ -674,8 +680,8 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
             # Analyze 5% to 70% (skip header, skip bottom banner)
             top_region = img[header_y:split_y, :]
             
-            # Sample every 4th pixel (6.25% sample) - OPTIMIZED from every 3rd (11%)
-            sample = top_region[::4, ::4]
+            # Every pixel of the 1/4-size decode (= every 4x4 block of the capture)
+            sample = top_region
             sample_dark = np.sum(sample <= threshold)
             sample_total = sample.shape[0] * sample.shape[1]
             dark_percentage = (sample_dark / sample_total) * 100
@@ -747,7 +753,7 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
         current_thumbnail_path = os.path.join(thumbnails_dir, current_thumbnail_filename)
         
         if os.path.exists(current_thumbnail_path):
-            current_thumbnail = cv2.imread(current_thumbnail_path, cv2.IMREAD_GRAYSCALE)
+            current_thumbnail = cv2_io.imread(current_thumbnail_path, cv2.IMREAD_GRAYSCALE)
             if current_thumbnail is not None:
                 frozen, freeze_details = detect_freeze_pixel_diff(current_thumbnail, thumbnails_dir, filename, fps, queue_size, freeze_duration_ms)
             else:

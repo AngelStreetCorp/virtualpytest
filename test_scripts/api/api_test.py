@@ -40,6 +40,14 @@ if project_root not in sys.path:
 
 from shared.src.lib.executors.script_decorators import script, get_args, get_context
 
+# Script arguments - declared at module top because the backend param analyzer
+# only reads the first 300 lines of the file. Bound to main() at the bottom.
+_script_args = [
+    '--profile:str::sanity|full|devices|campaigns',
+    '--endpoints:str:',    # Custom comma-separated endpoint list
+    '--spec:str:',         # OpenAPI spec name (e.g., server-device-management)
+]
+
 
 def load_profile(profile_name: str) -> dict:
     """Load predefined test profile from JSON file"""
@@ -139,7 +147,21 @@ def test_endpoint(endpoint: dict, server_url: str, context) -> dict:
 
         # Add team_id query param if needed (for endpoints that require it)
         params = {}
-        if 'team_id' in path or any(x in path for x in ['devices', 'campaigns', 'testcase', 'requirements']):
+        # Paths whose handlers explicitly reject missing team_id (searched
+        # everywhere under backend_server/src/routes for "team_id is required").
+        # Adding the rest here keeps the smoke sweep green even when the routes
+        # are first added.
+        if (
+            'team_id' in path
+            or any(x in path for x in ['devices', 'campaigns', 'testcase', 'requirements'])
+            or any(x in path for x in [
+                '/server/agents/',          # agents/analyzer/logs etc.
+                '/server/custom-reports',   # custom-reports/smoke
+                '/server/integrations/',    # integrations/testrail/cases
+                '/server/run-management/',  # run-management/results/labels
+                '/server/training-samples', # training-samples/screen-groups
+            ])
+        ):
             params['team_id'] = context.team_id
 
         # Build headers with API key auth (mirrors _helpers.js:apiHeaders())
@@ -324,11 +346,7 @@ def main():
 
 
 # Script arguments (matches validation.py pattern)
-main._script_args = [
-    '--profile:str::sanity|full|devices|campaigns',
-    '--endpoints:str:',    # Custom comma-separated endpoint list
-    '--spec:str:',         # OpenAPI spec name (e.g., server-device-management)
-]
+main._script_args = _script_args
 main._script_description = "Test API endpoints and validate responses."
 main._arg_descriptions = {
     'profile': 'Test profile (smoke, sanity, full, etc.)',

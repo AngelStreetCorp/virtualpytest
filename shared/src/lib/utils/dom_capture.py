@@ -144,6 +144,33 @@ def get_dom_captures() -> List[Dict[str, Any]]:
     return list(_session.captures)
 
 
+def snapshot_dom_captures(dest_dir: str) -> List[Dict[str, Any]]:
+    """This execution's captures, with each file copied into `dest_dir` (same basename).
+
+    For a report built after the next execution has started: that one resets the session and
+    numbers its files from 01 again in the same folder, overwriting these before an upload
+    that reads the originals could send them. Never raises; a file that cannot be copied is
+    left out."""
+    import shutil
+    snapshot: List[Dict[str, Any]] = []
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+    except Exception as e:
+        print(f"[@dom_capture] DOM snapshot skipped: {e}")
+        return snapshot
+    for capture in list(_session.captures):
+        try:
+            source = capture.get('path', '')
+            if not source or not os.path.exists(source):
+                continue
+            copy_path = os.path.join(dest_dir, os.path.basename(source))
+            shutil.copy2(source, copy_path)
+            snapshot.append({**capture, 'path': copy_path})
+        except Exception as e:
+            print(f"[@dom_capture] DOM snapshot of {capture.get('path')} skipped: {e}")
+    return snapshot
+
+
 def reset_dom_captures() -> None:
     _session.captures = []
     _session._hash_by_url = {}

@@ -10,6 +10,7 @@ import { useValidationColors } from '../../hooks/validation/useValidationColors'
 import { useMetrics } from '../../hooks/navigation/useMetrics';
 import type { UINavigationNode as UINavigationNodeType, UINavigationEdge } from '../../types/pages/Navigation_Types';
 import { getZIndex } from '../../utils/zIndexUtils';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>> = ({
   data,
@@ -74,6 +75,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
 
   // Check if this node is a root node (should only be true for actual root nodes)
   const isRootNode = data.is_root === true;
+  const P = useAgentChatPalette();
   // Check if this is an entry point node
   const isEntryNode = data.type === 'entry';
   // Check if this is a menu node
@@ -95,7 +97,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           height: '40px',
           borderRadius: '50%',
           background: entryColors.background,
-          border: isCurrentPosition ? '3px solid #9c27b0' : `3px solid ${entryColors.border}`,
+          border: isCurrentPosition ? `3px solid ${P.accent}` : `3px solid ${entryColors.border}`,
           boxShadow: 'none', // Remove shadow from entry nodes
           display: 'flex',
           alignItems: 'center',
@@ -125,7 +127,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             background: entryColors.border,
             width: '8px',
             height: '8px',
-            border: '2px solid #fff',
+            border: `2px solid ${P.surface}`,
             borderRadius: '50%',
             right: -4,
             top: '50%',
@@ -138,35 +140,29 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
     );
   }
 
-  // Root node styling - more prominent than normal nodes
-  const rootNodeStyle = {
-    background: 'linear-gradient(135deg, #ffebee 0%, #ffcdd2 100%)',
-    border: '2px solid #d32f2f',
-    boxShadow: 'none', // Remove shadow
-  };
-
-  // Current position styling - purple theme
+  // Node look (TASK-56, owner choice 1): card surface in both themes, a strip on top in the
+  // node type's categorical colour; the root node's strip and title are red.
   const currentPositionStyle = {
-    border: '3px solid #9c27b0',
+    border: `3px solid ${P.accent}`,
     boxShadow: 'none', // Remove shadow
     animation: 'currentPositionPulse 2s ease-in-out infinite',
   };
 
-  // Normal node styling - based on node type
-  const getNodeColor = (type: string) => {
+  const getTypeStripColor = (type: string) => {
+    if (isRootNode) return P.error;
     switch (type) {
       case 'screen':
-        return '#e3f2fd';
-      case 'dialog':
-        return '#f3e5f5';
-      case 'popup':
-        return '#fff3e0';
-      case 'overlay':
-        return '#e8f5e8';
+        return P.series[1];
       case 'menu':
-        return '#fff8e1';
+        return P.accent;
+      case 'dialog':
+        return P.series[2];
+      case 'popup':
+        return P.series[3];
+      case 'overlay':
+        return P.series[4];
       default:
-        return '#f5f5f5';
+        return P.textMuted;
     }
   };
 
@@ -186,17 +182,18 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
     <>
       <div
         style={{
-          background: isRootNode ? rootNodeStyle.background : getNodeColor(data.type),
+          background: P.surface,
           border: isCurrentPosition
-            ? currentPositionStyle.border // Blue border for current position (highest priority)
+            ? currentPositionStyle.border // Gold border for current position (highest priority)
             : `1px solid ${nodeColors.border}`, // Use validation colors for border (includes verification results)
+          borderTop: `4px solid ${getTypeStripColor(data.type)}`,
           borderRadius: '8px',
           padding: '12px',
           minWidth: '200px',
           maxWidth: '200px',
           minHeight: '180px',
           fontSize: '12px',
-          color: '#333',
+          color: P.textPrimary,
           boxShadow: 'none !important', // Remove all shadows
           WebkitBoxShadow: 'none !important',
           MozBoxShadow: 'none !important',
@@ -261,7 +258,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             position: 'absolute',
             top: '4px',
             right: isMenuNode ? '52px' : '4px',
-            backgroundColor: '#1976d2',
+            backgroundColor: P.series[1],
             color: '#fff',
             fontSize: '10px',
             fontWeight: 'bold',
@@ -286,8 +283,8 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableStart={false}
         isConnectableEnd={!isRootNode}
         style={{
-          background: data.is_root ? '#ffc107' : '#1976d2',
-          border: '2px solid #fff',
+          background: data.is_root ? P.accent : P.series[1],
+          border: `2px solid ${P.surface}`,
           width: '16px',
           height: '16px',
           borderRadius: '50%',
@@ -308,8 +305,8 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableStart={!isRootNode}
         isConnectableEnd={false}
         style={{
-          background: '#ff5722',
-          border: '2px solid #fff',
+          background: P.series[3],
+          border: `2px solid ${P.surface}`,
           width: '16px',
           height: '16px',
           borderRadius: '50%',
@@ -332,8 +329,8 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableStart={true}
         isConnectableEnd={false}
         style={{
-          background: '#1976d2',
-          border: '2px solid #fff',
+          background: P.series[1],
+          border: `2px solid ${P.surface}`,
           width: '16px',
           height: '16px',
           borderRadius: '50%',
@@ -354,8 +351,8 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableStart={false}
         isConnectableEnd={true}
         style={{
-          background: '#ff5722',
-          border: '2px solid #fff',
+          background: P.series[3],
+          border: `2px solid ${P.surface}`,
           width: '16px',
           height: '16px',
           borderRadius: '50%',
@@ -379,7 +376,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableStart={true}
         isConnectableEnd={false}
         style={{
-          background: '#9c27b0',
+          background: P.series[2],
           border: '10px solid transparent',
           width: '16px',
           height: '16px',
@@ -389,7 +386,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           top: -7,
           cursor: 'crosshair',
           zIndex: 10,
-          boxShadow: '0 0 0 2px #fff',
+          boxShadow: `0 0 0 2px ${P.surface}`,
         }}
       />
 
@@ -402,7 +399,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableStart={false}
         isConnectableEnd={true}
         style={{
-          background: '#4caf50',
+          background: P.series[4],
           border: '10px solid transparent',
           width: '16px',
           height: '16px',
@@ -413,7 +410,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           cursor: 'crosshair',
           zIndex: getZIndex('NAVIGATION_NODE_HANDLES'),
           opacity: 0,
-          boxShadow: '0 0 0 2px #fff',
+          boxShadow: `0 0 0 2px ${P.surface}`,
         }}
       />
 
@@ -427,7 +424,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableStart={false}
         isConnectableEnd={true}
         style={{
-          background: '#9c27b0',
+          background: P.series[2],
           border: '10px solid transparent',
           width: '16px',
           height: '16px',
@@ -437,7 +434,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           bottom: -7,
           cursor: 'crosshair',
           zIndex: getZIndex('NAVIGATION_NODE_HANDLES'),
-          boxShadow: '0 0 0 2px #fff',
+          boxShadow: `0 0 0 2px ${P.surface}`,
         }}
       />
 
@@ -450,7 +447,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableStart={true}
         isConnectableEnd={false}
         style={{
-          background: '#4caf50',
+          background: P.series[4],
           border: '10px solid transparent',
           width: '16px',
           height: '16px',
@@ -461,7 +458,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           cursor: 'crosshair',
           zIndex: 10,
           opacity: 0,
-          boxShadow: '0 0 0 2px #fff',
+          boxShadow: `0 0 0 2px ${P.surface}`,
         }}
       />
 
@@ -469,7 +466,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
       <div
         style={{
           padding: '4px',
-          borderBottom: isRootNode ? '1px solid #ef5350' : '1px solid #eee',
+          borderBottom: `1px solid ${isRootNode ? `${P.error}66` : P.borderColor}`,
           minHeight: '10px',
           display: 'flex',
           flexDirection: 'column',
@@ -483,7 +480,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap',
-            color: isRootNode ? '#d32f2f' : 'black',
+            color: isRootNode ? P.error : P.textPrimary,
             marginBottom: '0px',
             fontSize: '18px',
           }}
@@ -496,7 +493,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
       <div
         style={{
           flex: 1,
-          backgroundColor: screenshotUrl ? 'transparent' : '#f5f5f5',
+          backgroundColor: screenshotUrl ? 'transparent' : P.hoverBg,
           backgroundImage: screenshotUrl ? `url(${screenshotUrl})` : 'none',
           backgroundSize: 'contain',
           backgroundRepeat: 'no-repeat',
@@ -520,7 +517,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           <div
             style={{
               fontSize: '11px',
-              color: '#666',
+              color: P.textMuted,
               textAlign: 'center',
             }}
           >

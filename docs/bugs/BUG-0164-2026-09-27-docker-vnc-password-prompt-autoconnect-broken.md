@@ -9,7 +9,7 @@
 | Status    | Fixed, deployed on the gcloud VM 2026-09-27                   |
 | Severity  | Medium                                                       |
 | Area      | backend_host, frontend (VNC iframe), setup/docker            |
-| Fixed in  | build 9384 (`main-2026.09.27-9384`)                          |
+| Fixed in  | Unreleased                                                   |
 | Commit    | becb88e027, 86a1957a42 (entrypoint export)                   |
 
 ---

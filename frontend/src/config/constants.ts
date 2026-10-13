@@ -229,6 +229,12 @@ export const STREAM_CONFIG = {
 } as const;
 
 // =====================================================
+// DEVICE CONTROL GRID CONFIGURATION (TASK-48)
+// =====================================================
+
+export const REC_LIVE_TILE_LIMIT = 16 as const;
+
+// =====================================================
 // SESSION STORAGE KEYS
 // =====================================================
 
@@ -237,11 +243,6 @@ export const STORAGE_KEYS = {
    * Selected server URL
    */
   SELECTED_SERVER: 'selectedServer',
-
-  /**
-   * Cached user data
-   */
-  CACHED_USER: 'cached_user',
 
   /**
    * Server hosts data cache
@@ -276,12 +277,17 @@ export const STORAGE_KEYS = {
   NAVIGATION_PREVIEW_CACHE_PREFIX: 'navPreview_',
 
   /**
-   * Dashboard page device-filter selection (target/model/tag)
+   * Device-filter selection (target/model/tag) shared by Dashboard and Device Control
+   */
+  DEVICE_FILTERS: 'device_filters',
+
+  /**
+   * Dashboard-only filter state (errors-only toggle)
    */
   DASHBOARD_FILTERS: 'dashboard_filters',
 
   /**
-   * Device (Rec) page device-filter selection (target/model/tag)
+   * Device (Rec) page-only state (page size)
    */
   REC_FILTERS: 'rec_filters',
 

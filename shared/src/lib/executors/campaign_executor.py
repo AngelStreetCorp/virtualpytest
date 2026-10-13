@@ -228,6 +228,15 @@ class CampaignExecutor:
                 
                 context.script_executions.append(script_result)
                 context.completed_scripts += 1
+                # Per-child outcome record: a skipped script has no script_results row, so this is
+                # the only persisted evidence the run summary can count it from.
+                context.metadata.setdefault('script_outcomes', []).append({
+                    'execution_order': i,
+                    'script_name': script_config.get('script_name'),
+                    'script_result_id': script_result.get('script_result_id'),
+                    'skipped': bool(script_result.get('skipped')),
+                    'skip_reason': script_result.get('skip_reason'),
+                })
 
                 # Link the script result to this campaign execution
                 sid = script_result.get("script_result_id")
@@ -530,6 +539,9 @@ class CampaignExecutor:
                 'caller_ip': parent_trigger.get('caller_ip'),
                 'caller_user': parent_trigger.get('caller_user'),
             })
+            # The script child inherits the campaign id through its environment, so the AI call log can total a campaign.
+            if campaign_config.get('campaign_id'):
+                os.environ['VPT_CAMPAIGN_ID'] = str(campaign_config['campaign_id'])
             result = script_executor.execute_script(
                 script_name, parameters_string, trigger=campaign_trigger,
                 device_info=campaign_config.get('device_info'),

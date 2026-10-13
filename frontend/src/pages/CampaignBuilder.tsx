@@ -25,6 +25,7 @@ import {
 
 // Auto-layout utility
 import { getLayoutedElements } from '../components/testcase/ai/autoLayout';
+import { AGENT_CHAT_PALETTE } from '../constants/agentChatTheme';
 
 // Hide React Flow attribution
 const styles = `
@@ -90,19 +91,20 @@ const edgeTypes = {
   control: SuccessEdge, // Campaign uses 'control' type for flow edges
 };
 
-// Default edge options - matching TestCaseBuilder
+// Default edge options - matching TestCaseBuilder. Static palette: this lives at module scope
+// (no hooks possible here), and slate-grey is the same on both themes (textMuted).
 const defaultEdgeOptions = {
   type: 'success',
   animated: false,
   style: {
-    stroke: '#94a3b8',
+    stroke: AGENT_CHAT_PALETTE.textMuted,
     strokeWidth: 2,
   },
   markerEnd: {
     type: MarkerType.ArrowClosed,
     width: 20,
     height: 20,
-    color: '#94a3b8',
+    color: AGENT_CHAT_PALETTE.textMuted,
   },
 };
 
@@ -640,7 +642,6 @@ export const CampaignBuilderContent: React.FC = () => {
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         >
           <CampaignToolbox
-            actualMode={actualMode}
             toggleSidebar={() => setIsSidebarOpen(false)}
             standardBlocks={standardBlocks}
           />
@@ -682,7 +683,6 @@ export const CampaignBuilderContent: React.FC = () => {
           >
             {/* Reuse TestCaseBuilderCanvas for consistent controls and minimap */}
             <TestCaseBuilderCanvas
-              actualMode={actualMode}
               isSidebarOpen={isSidebarOpen}
               onAutoLayout={handleAutoLayout}
             />

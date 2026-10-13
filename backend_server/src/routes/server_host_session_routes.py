@@ -68,8 +68,10 @@ server_host_session_bp = Blueprint('server_host_session', __name__, url_prefix='
 HOST_SESSION_COOKIE_NAME = 'vpt_host_session'
 HOST_SESSION_TTL_SECONDS = 600
 
+_HOST_NAME = re.compile(r'^[A-Za-z0-9._-]{1,64}$')
+
 _GATED_HOST_PATH = re.compile(
-    r'^/host/([^/]+)/(?:vnc_lite\.html|websockify|vnc/|core/|vendor/|include/|app/|utils/|stream/)'
+    r'^/host/([^/]+)/(?:vnc_lite\.html|websockify|vnc/|core/|vendor/|include/|app/|utils/|stream/|whep/)'
 )
 
 
@@ -95,10 +97,13 @@ def host_session_mint():
     if not host_name:
         return jsonify({'error': 'host_name is required'}), 400
 
-    from backend_server.src.lib.utils.server_utils import get_host_manager
-
-    if not get_host_manager().get_host(host_name):
-        return jsonify({'error': f'Unknown host: {host_name}'}), 404
+    # No "is this host registered HERE" check: a proxy can gate hosts owned by another
+    # server (the main proxy serves /host/vpt-pi*/stream/ from rpitest's Pis, which never
+    # register with this server), and the cookie must be minted by the server behind the
+    # proxy that runs the auth_request. A 404 here left those paths 401 for every user.
+    # The cookie only authorizes GETs under /host/<name>/, so an unknown name buys nothing.
+    if not _HOST_NAME.match(host_name):
+        return jsonify({'error': 'Invalid host_name'}), 400
 
     secret = _host_session_secret()
     if not secret:

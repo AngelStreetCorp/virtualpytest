@@ -9,6 +9,7 @@ import React from 'react';
 import { Box, TextField, IconButton, InputAdornment } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface ToolboxSearchBoxProps {
   value: string;
@@ -21,6 +22,7 @@ export const ToolboxSearchBox: React.FC<ToolboxSearchBoxProps> = ({
   onChange,
   placeholder = 'Search...',
 }) => {
+  const P = useAgentChatPalette();
   return (
     <Box sx={{ p: 1, borderBottom: 1, borderColor: 'divider' }}>
       <TextField
@@ -51,7 +53,7 @@ export const ToolboxSearchBox: React.FC<ToolboxSearchBoxProps> = ({
         sx={{
           '& .MuiOutlinedInput-root': {
             '&:hover fieldset': {
-              borderColor: 'primary.main',
+              borderColor: P.accent,
             },
           },
         }}

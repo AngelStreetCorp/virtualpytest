@@ -7,11 +7,12 @@ confusion.
 | | answers | set by |
 |---|---|---|
 | **Role** | *what may I do?* | an admin, on the Users page |
-| **Team** | *whose data am I looking at?* — and, optionally, *what extra may I do?* | an admin, on the Users and Teams pages |
+| **Team** | *whose data am I looking at?* — and *what is the most its members may do, on which devices?* | an admin, on the Users and Teams pages |
 | **Workspace** | *which slice of it is on screen?* | anyone, from the top bar |
 
-The team does two jobs. It is the data wall, and it can also carry permissions of its own that
-every member gets on top of their role — see [Giving a whole team an extra permission](#giving-a-whole-team-an-extra-permission).
+The team does two jobs. It is the data wall, and it can set **limits**: the most its members may
+ever do, and which devices they work with — see [Limiting a whole team](#limiting-a-whole-team).
+A team never *gives* anything; it only caps.
 
 ---
 
@@ -31,7 +32,7 @@ every member gets on top of their role — see [Giving a whole team an extra per
         │     TEAM     │   ← the wall. All data lives inside one team:
         │              │      devices, tests, campaigns, results, reports.
         │              │      Two teams never see each other's anything.
-        └──────┬───────┘      + optional team permissions, given to every member
+        └──────┬───────┘      + optional limits: permissions and devices
                │ sees
         ┌──────▼───────┐
         │  WORKSPACE   │   ← a saved view, NOT a wall.
@@ -47,16 +48,21 @@ the role — not the workspace.
 
 ## The three roles
 
-| | Viewer | Tester | Admin |
-|---|:---:|:---:|:---:|
-| See dashboard, reports, monitoring | ✅ | ✅ | ✅ |
-| Watch device streams | ✅ | ✅ | ✅ |
-| Run tests and campaigns | — | ✅ | ✅ |
-| Create / edit test cases | — | ✅ | ✅ |
-| Take control of a device | — | ✅ | ✅ |
-| Use the AI agent | — | ✅ | ✅ |
-| Manage users, roles, teams | — | — | ✅ |
-| Server / deployment actions | — | — | ✅ |
+| | Viewer | Tester | Developer | Manager | Admin |
+|---|:---:|:---:|:---:|:---:|:---:|
+| See dashboard, reports, monitoring | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Watch device streams | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Run tests and campaigns | — | ✅ | ✅ | ✅ | ✅ |
+| Create / edit test cases | — | ✅ | ✅ | ✅ | ✅ |
+| Take control of a device | — | ✅ | ✅ | ✅ | ✅ |
+| Use the AI agent | — | ✅ | ✅ | ✅ | ✅ |
+| Build and edit navigation trees | — | — | ✅ | ✅ | ✅ |
+| Manage the people and workspaces of their own teams | — | — | — | ✅ | ✅ |
+| Manage roles, team limits, every team | — | — | — | — | ✅ |
+| Server / deployment actions | — | — | — | — | ✅ |
+
+These are the defaults; an admin adjusts each role on the **Roles** page, where each role can also
+be renamed. A manager can never touch an admin or another manager.
 
 **Viewer is read-only, enforced in the backend.** Not merely hidden buttons: any request that
 would change something is refused, whatever page or API it came from. A new account is always a
@@ -100,30 +106,33 @@ Two consequences worth knowing:
 - **On an admin the tab does nothing at all.** Admins hold every permission and denials never
   apply to them, so ticking a box on an admin's row changes nothing. To actually restrict
   someone, lower their role first.
-- **Team permissions do not appear here.** A permission a person gets from their team is real
-  and in force, but it is stored on the team, so it shows on the Teams page instead.
+- **The colours tell you why.** Each permission is coloured by where it comes from, with a
+  legend on the tab: from the role, an extra personal grant, denied, or **blocked by the team
+  limit**. Permissions outside the person's team limit cannot be ticked.
 
-### Giving a whole team an extra permission
+### Limiting a whole team
 
-When the same exception applies to several people, put it on the team rather than on each person.
-**Settings → Teams** carries the same permission list, and everything ticked there is granted to
-every member of that team, on top of whatever their role already gives them.
+**Settings → Teams → Permission limit** is the most the team's members may ever hold. Switch
+*No limit* off and untick what the team must never do: it is taken away from every member,
+whatever their role or personal grants say. **Device limit** does the same for devices.
 
-Teams stack: someone in two teams gets both teams' permissions. A personal denial still overrides
-a team grant — and admins still keep everything.
+Limits stack upwards: someone in two teams may do what *either* team allows. The default team
+everyone lands in only counts when it is a person's only team. A change applies at each member's
+next sign-in. Admins are never limited.
 
-Use a team grant for "the whole on-call group may reboot devices", and a personal grant for
-"only Sam may".
+### Devices
+
+Each person's devices are narrowed in the same order — team, then role, then the person (Users
+→ **Devices** tab), then the workspace on screen. Device lists only show what is left. This is a
+view filter: it does not stop device control through the API.
 
 ### All together
 
-What someone may do is the sum of four things:
-
 ```
   what their role gives them
-+ what any of their teams gives them
 + what an admin granted them personally
 − what an admin denied them personally      ← always wins
+∩ what their teams allow                    ← the ceiling
 ```
 
 …except for admins, who get everything regardless.

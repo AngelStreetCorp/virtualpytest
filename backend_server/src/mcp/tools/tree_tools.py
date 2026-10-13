@@ -31,18 +31,14 @@ class TreeTools:
     def _invalidate_host_cache(self, tree_id: str, team_id: str):
         """Invalidate server AND host-side navigation caches after an MCP tree write.
 
-        The REST endpoints MCP calls internally use ``propagate_to_hosts=False`` and
-        rely on the FRONTEND sending a follow-up ``/server/cache/update-node|edge`` to
-        patch host graphs in place — a follow-up MCP never sends. Without this call the
-        host's unified graph stays stale and ``navigate_to_node`` runs on a graph
-        missing the nodes/edges the agent just created (the known stale-per-host-cache
-        failure class). Full invalidate-and-rebuild is heavier than the frontend's
-        surgical patch but correct for agent sessions, where writes are bursty.
+        The node/edge REST routes now clear every host themselves (TASK-40); this
+        stays for the MCP writes whose routes do not (subtree creation and the like),
+        so ``navigate_to_node`` never runs on a graph missing what the agent just made.
         """
         try:
             # Lazy import: routes module owns the canonical invalidation helper.
             from routes.server_navigation_trees_routes import invalidate_cached_tree
-            invalidate_cached_tree(tree_id, team_id, propagate_to_hosts=True)
+            invalidate_cached_tree(tree_id, team_id)
             self.logger.info(f"Invalidated server+host nav caches for tree {tree_id}")
         except Exception as e:
             # Never fail the write over cache hygiene, but say so loudly — a stale
@@ -51,6 +47,99 @@ class TreeTools:
                 f"Host cache invalidation failed for tree {tree_id}: {e} — "
                 f"host navigation may run on a stale graph until next rebuild"
             )
+
+    def _device_model_for_tree(self, tree_id: str, team_id: str) -> tuple:
+        """(device_model, error) for the userinterface that owns `tree_id`.
+
+        GET /server/navigationTrees/<id> gives the tree's userinterface_id, and
+        GET /server/userinterface/getUserInterface/<id> its models. The edge tools
+        used to call /server/userinterfaces/<id> (plural), which does not exist,
+        so action-set validation was skipped on every edge write without a word.
+        """
+        tree_result = self.api_client.get(
+            f'/server/navigationTrees/{tree_id}',
+            params={'team_id': team_id}
+        )
+        if not tree_result.get('success'):
+            return None, f"Failed to fetch navigation tree: {tree_result.get('error', 'Unknown error')}"
+        userinterface_id = (tree_result.get('tree') or {}).get('userinterface_id')
+        if not userinterface_id:
+            return None, "Navigation tree has no userinterface_id"
+        return self.api_client.get_device_model_from_userinterface(userinterface_id, team_id)
+
+    def _validate_edge_action_sets(self, action_sets: List[Dict[str, Any]], tree_id: str,
+                                   team_id: str, edge_desc: str):
+        """Validate action commands against the tree's device model.
+
+        Returns an MCP error response when a command is invalid, else None. A tree
+        whose device model cannot be resolved is logged and not blocked (the
+        actions are then validated at execution time, as before).
+        """
+        if not action_sets:
+            return None
+        device_model, error = self._device_model_for_tree(tree_id, team_id)
+        if error or not device_model or device_model == 'unknown':
+            self.logger.warning(
+                f"Action validation skipped for edge {edge_desc}: "
+                f"{error or 'userinterface has no device model'}"
+            )
+            return None
+
+        is_valid, errors, warnings = self.action_validator.validate_action_sets(
+            action_sets,
+            device_model
+        )
+        if not is_valid:
+            error_msg = "❌ Invalid action command(s):\n\n"
+            error_msg += "\n".join(errors)
+            error_msg += "\n\n" + self.action_validator.get_valid_commands_for_display(device_model)
+            return self.formatter.format_error(error_msg, ErrorCategory.VALIDATION)
+        if warnings:
+            self.logger.warning(f"Action warnings for edge {edge_desc}:")
+            for warning in warnings:
+                self.logger.warning(f"  {warning}")
+        return None
+
+    def _validate_node_verifications(self, verifications: List[Dict[str, Any]], tree_id: str,
+                                     team_id: str, node_id: str, device_model: str = None):
+        """Validate node verifications against the tree's device model.
+
+        Returns an MCP error response when they cannot be validated or are
+        invalid, else None. `device_model` skips the lookup when the caller
+        already resolved it from userinterface_name.
+        """
+        if not verifications:
+            return None
+        if not device_model or device_model == 'unknown':
+            device_model, error = self._device_model_for_tree(tree_id, team_id)
+            if error:
+                return self.formatter.format_error(
+                    f"❌ Cannot validate verifications: {error}\n\n"
+                    f"💡 Use a valid userinterface_name or ensure the navigation tree "
+                    f"belongs to an existing userinterface.",
+                    ErrorCategory.VALIDATION
+                )
+        if device_model == 'unknown':
+            return self.formatter.format_error(
+                f"❌ Cannot validate verifications: Userinterface has unknown device_model.\n\n"
+                f"💡 The userinterface is not properly configured with a device type.",
+                ErrorCategory.VALIDATION
+            )
+
+        is_valid, errors, warnings = self.verification_validator.validate_verifications(
+            verifications,
+            device_model
+        )
+        if not is_valid:
+            error_msg = "❌ Invalid verification command(s):\n\n"
+            error_msg += "\n".join(errors)
+            error_msg += "\n\n" + self.verification_validator.get_valid_commands_for_display(device_model)
+            return self.formatter.format_error(error_msg, ErrorCategory.VALIDATION)
+        if warnings:
+            self.logger.warning(f"Verification warnings for node {node_id}:")
+            for warning in warnings:
+                self.logger.warning(f"  {warning}")
+        return None
 
     def _normalize_action_params(self, action_sets: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
@@ -132,19 +221,20 @@ class TreeTools:
     def create_node(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Create a node in navigation tree. Accepts userinterface_name for auto-resolving tree_id.
-        IMPORTANT: Add verifications AFTER creation using update_node - they will be validated against device controllers.
+        Verifications passed here are validated against the device controllers, exactly as in update_node.
 
-        Example: create_node(userinterface_name='example_mobile', node_id='home', label='Home Screen')
+        Example: create_node(userinterface_name='example_mobile', node_id='home', label='Home Screen', verifications=[{'command': 'waitForElementToAppear', 'verification_type': 'adb', 'params': {'search_term': 'Home'}}])
 
         Args:
             params: {
                 'tree_id': str (OPTIONAL - navigation tree ID, auto-resolved from userinterface_name),
                 'userinterface_name': str (OPTIONAL - UI name for auto-resolving tree_id),
-                'node_id': str (OPTIONAL - node identifier auto-generated if omitted),
-                'label': str (REQUIRED - node label or name),
+                'node_id': str (OPTIONAL - node identifier defaults to label),
+                'label': str (OPTIONAL - node label or name defaults to node_id or data.label),
                 'type': str (OPTIONAL - node type default screen),
                 'position': dict (OPTIONAL - x y coordinates),
-                'data': dict (OPTIONAL - custom metadata)
+                'data': dict (OPTIONAL - custom metadata),
+                'verifications': list (OPTIONAL - node verifications each with command verification_type params)
             }
 
         Returns:
@@ -154,24 +244,46 @@ class TreeTools:
             tree_id = params.get('tree_id')
             userinterface_name = params.get('userinterface_name')
             team_id = params.get('team_id', '7fdeb4bb-3639-4ec3-959f-b54769a219ce')
+            data = dict(params.get('data') or {})
 
-            if not params.get('label'):
-                return self.formatter.format_error("label is required", ErrorCategory.VALIDATION)
+            # label is no longer a required schema field: an agent that passes only
+            # node_id (or data.label) used to be refused by the schema with
+            # "'label' is a required property".
+            label = params.get('label') or params.get('node_id') or data.get('label')
+            if not label:
+                return self.formatter.format_error(
+                    "label or node_id is required", ErrorCategory.VALIDATION)
+            node_id = params.get('node_id') or label
 
             # Resolve tree_id from userinterface_name using api_client helper
+            device_model_resolved = None
             if not tree_id:
                 if not userinterface_name:
                     return self.formatter.format_error("Either tree_id or userinterface_name is required", ErrorCategory.VALIDATION)
-                tree_id, _, _, error = self.api_client.resolve_userinterface_name(userinterface_name, team_id)
+                tree_id, _, device_model_resolved, error = self.api_client.resolve_userinterface_name(userinterface_name, team_id)
                 if error:
                     return self.formatter.format_error(error, ErrorCategory.NOT_FOUND)
-            
-            # Build node payload - backend expects: label, node_type, data, node_id
+
+            # Top-level verifications were not in the schema and not forwarded, so
+            # they were silently dropped. save_node stores them at the top level
+            # (and lifts data.verifications there too), so both forms land.
+            verifications = params.get('verifications')
+            if verifications is None:
+                verifications = data.pop('verifications', None) or []
+            else:
+                data.pop('verifications', None)
+            validation_error = self._validate_node_verifications(
+                verifications, tree_id, team_id, node_id, device_model_resolved)
+            if validation_error:
+                return validation_error
+
+            # Build node payload - backend expects: label, node_type, data, node_id, verifications
             node_data = {
-                'label': params['label'],
-                'node_id': params['label'],  # node_id is always the label
+                'label': label,
+                'node_id': node_id,
                 'node_type': params.get('type', 'screen'),
-                'data': params.get('data', {})
+                'data': data,
+                'verifications': verifications,
             }
             
             # Add position to data if provided
@@ -243,10 +355,11 @@ class TreeTools:
                 return self.formatter.format_error("node.node_id is required", ErrorCategory.VALIDATION)
 
             # Resolve tree_id from userinterface_name using api_client helper
+            device_model_resolved = None
             if not tree_id:
                 if not userinterface_name:
                     return self.formatter.format_error("Either tree_id or userinterface_name is required", ErrorCategory.VALIDATION)
-                tree_id, userinterface_id, device_model_resolved, error = self.api_client.resolve_userinterface_name(userinterface_name, team_id)
+                tree_id, _, device_model_resolved, error = self.api_client.resolve_userinterface_name(userinterface_name, team_id)
                 if error:
                     return self.formatter.format_error(error, ErrorCategory.NOT_FOUND)
             
@@ -254,74 +367,10 @@ class TreeTools:
             
             # VALIDATE VERIFICATIONS if provided (REQUIRED - no longer optional)
             verifications = node.get('verifications', [])
-            if verifications:
-                # Use device_model from resolve_userinterface_name if available, otherwise get it
-                if 'device_model_resolved' in locals() and device_model_resolved != 'unknown':
-                    device_model = device_model_resolved
-                else:
-                    # Fallback: get device_model if tree_id was provided directly
-                    userinterface_result = self.api_client.get(
-                        f'/server/navigationTrees/{tree_id}',
-                        params={'team_id': team_id}
-                    )
-
-                    if not userinterface_result.get('success'):
-                        return self.formatter.format_error(
-                            f"❌ Cannot validate verifications: Failed to fetch navigation tree.\n"
-                            f"Error: {userinterface_result.get('error', 'Unknown error')}\n\n"
-                            f"💡 Try: Use a valid userinterface_name or ensure the navigation tree exists.",
-                            ErrorCategory.VALIDATION
-                        )
-
-                    tree_data = userinterface_result.get('tree', {})
-                    userinterface_id = tree_data.get('userinterface_id')
-
-                    if not userinterface_id:
-                        return self.formatter.format_error(
-                            f"❌ Cannot validate verifications: Navigation tree has no userinterface_id.\n"
-                            f"Tree data: {tree_data}\n\n"
-                            f"💡 This navigation tree is not properly configured with a device interface.",
-                            ErrorCategory.VALIDATION
-                        )
-
-                    # Get device model from userinterface using helper
-                    device_model, error = self.api_client.get_device_model_from_userinterface(userinterface_id, team_id)
-                    if error:
-                        return self.formatter.format_error(
-                            f"❌ Cannot validate verifications: {error}\n\n"
-                            f"💡 The userinterface '{userinterface_id}' may not exist or be accessible.",
-                            ErrorCategory.VALIDATION
-                        )
-
-                if device_model == 'unknown':
-                    return self.formatter.format_error(
-                        f"❌ Cannot validate verifications: Userinterface has unknown device_model.\n\n"
-                        f"💡 The userinterface is not properly configured with a device type.",
-                        ErrorCategory.VALIDATION
-                    )
-
-                # Validate verifications
-                is_valid, errors, warnings = self.verification_validator.validate_verifications(
-                    verifications,
-                    device_model
-                )
-
-                if not is_valid:
-                    # Build error message with helpful info
-                    error_msg = "❌ Invalid verification command(s):\n\n"
-                    error_msg += "\n".join(errors)
-                    error_msg += "\n\n" + self.verification_validator.get_valid_commands_for_display(device_model)
-
-                    return self.formatter.format_error(
-                        error_msg,
-                        ErrorCategory.VALIDATION
-                    )
-
-                # Show warnings if any
-                if warnings:
-                    self.logger.warning(f"Verification warnings for node {node_id}:")
-                    for warning in warnings:
-                        self.logger.warning(f"  {warning}")
+            validation_error = self._validate_node_verifications(
+                verifications, tree_id, team_id, node_id, device_model_resolved)
+            if validation_error:
+                return validation_error
             
             # Build node data for backend (same format as frontend saveNodeWithStateUpdate)
             # Uses same endpoint as frontend: POST /server/navigationTrees/{treeId}/nodes
@@ -478,48 +527,10 @@ class TreeTools:
             action_sets = self._normalize_action_params(action_sets)
             
             # ✅ VALIDATION: Validate action commands if action_sets provided
-            if action_sets:
-                # Get userinterface to determine device_model
-                userinterface_result = self.api_client.get(
-                    f'/server/navigationTrees/{tree_id}',
-                    params={'team_id': team_id}
-                )
-                
-                if userinterface_result.get('success'):
-                    tree_data = userinterface_result.get('tree', {})
-                    userinterface_id = tree_data.get('userinterface_id')
-                    
-                    if userinterface_id:
-                        ui_result = self.api_client.get(
-                            f'/server/userinterfaces/{userinterface_id}',
-                            params={'team_id': team_id}
-                        )
-                        
-                        if ui_result.get('success'):
-                            device_model = ui_result.get('userinterface', {}).get('device_model', 'unknown')
-                            
-                            # Validate action commands
-                            is_valid, errors, warnings = self.action_validator.validate_action_sets(
-                                action_sets,
-                                device_model
-                            )
-                            
-                            if not is_valid:
-                                # Build error message with helpful info
-                                error_msg = "❌ Invalid action command(s):\n\n"
-                                error_msg += "\n".join(errors)
-                                error_msg += "\n\n" + self.action_validator.get_valid_commands_for_display(device_model)
-                                
-                                return self.formatter.format_error(
-                                    error_msg,
-                                    ErrorCategory.VALIDATION
-                                )
-                            
-                            # Show warnings if any
-                            if warnings:
-                                self.logger.warning(f"Action warnings for edge {source_node_id} → {target_node_id}:")
-                                for warning in warnings:
-                                    self.logger.warning(f"  {warning}")
+            validation_error = self._validate_edge_action_sets(
+                action_sets, tree_id, team_id, f"{source_node_id} → {target_node_id}")
+            if validation_error:
+                return validation_error
             
             # Clean labels for ID format (matches frontend useNavigationEditor.ts line 300-301)
             clean_source = re.sub(r'[^a-z0-9]', '_', source_label.lower())
@@ -665,48 +676,9 @@ class TreeTools:
             # ✅ NORMALIZE: Convert parameter names to canonical format before saving
             action_sets = self._normalize_action_params(action_sets)
             
-            if action_sets:
-                # Get userinterface to determine device_model
-                userinterface_result = self.api_client.get(
-                    f'/server/navigationTrees/{tree_id}',
-                    params={'team_id': team_id}
-                )
-                
-                if userinterface_result.get('success'):
-                    tree_data = userinterface_result.get('tree', {})
-                    userinterface_id = tree_data.get('userinterface_id')
-                    
-                    if userinterface_id:
-                        ui_result = self.api_client.get(
-                            f'/server/userinterfaces/{userinterface_id}',
-                            params={'team_id': team_id}
-                        )
-                        
-                        if ui_result.get('success'):
-                            device_model = ui_result.get('userinterface', {}).get('device_model', 'unknown')
-                            
-                            # Validate action commands
-                            is_valid, errors, warnings = self.action_validator.validate_action_sets(
-                                action_sets,
-                                device_model
-                            )
-                            
-                            if not is_valid:
-                                # Build error message with helpful info
-                                error_msg = "❌ Invalid action command(s):\n\n"
-                                error_msg += "\n".join(errors)
-                                error_msg += "\n\n" + self.action_validator.get_valid_commands_for_display(device_model)
-                                
-                                return self.formatter.format_error(
-                                    error_msg,
-                                    ErrorCategory.VALIDATION
-                                )
-                            
-                            # Show warnings if any
-                            if warnings:
-                                self.logger.warning(f"Action warnings for edge {edge_id}:")
-                                for warning in warnings:
-                                    self.logger.warning(f"  {warning}")
+            validation_error = self._validate_edge_action_sets(action_sets, tree_id, team_id, edge_id)
+            if validation_error:
+                return validation_error
             
             # Build edge data for backend (same format as frontend saveEdge)
             # Uses same endpoint as frontend: POST /server/navigationTrees/{treeId}/edges
@@ -1107,6 +1079,9 @@ class TreeTools:
             current_data = node_result.get('node', {}).get('data', {})
             current_data['screenshot'] = screenshot_url
             current_data['screenshot_timestamp'] = int(time.time() * 1000)  # Force cache bust
+            # Same as the editor's camera button: the capture also rebuilds the Localize fingerprint.
+            if screenshot_result.get('fingerprint'):
+                current_data['fingerprint'] = screenshot_result['fingerprint']
             
             update_result = self.api_client.put(
                 f'/server/navigationTrees/{tree_id}/nodes/{node_id}',

@@ -85,7 +85,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ROUND(AVG(cpu_percent), 1) as \"Host CPU %\" FROM system_metrics WHERE $__timeFilter(timestamp) AND host_name != 'server' AND host_name IN (${host:sqlstring})",
+          "rawSql": "SELECT ROUND(AVG(cpu_percent), 1) as \"Host CPU %\" FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics WHERE $__timeFilter(timestamp) AND host_name != 'server' AND host_name IN (${host:sqlstring})",
           "refId": "A",
           "sql": {
             "columns": [
@@ -176,7 +176,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ROUND(AVG(memory_percent), 1) as \"Host Memory %\" FROM system_metrics WHERE $__timeFilter(timestamp) AND host_name != 'server' AND host_name IN (${host:sqlstring})",
+          "rawSql": "SELECT ROUND(AVG(memory_percent), 1) as \"Host Memory %\" FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics WHERE $__timeFilter(timestamp) AND host_name != 'server' AND host_name IN (${host:sqlstring})",
           "refId": "A",
           "sql": {
             "columns": [
@@ -264,7 +264,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT ROUND(AVG(disk_percent), 1) as \"Host Disk %\" FROM system_metrics WHERE $__timeFilter(timestamp) AND host_name != 'server' AND host_name IN (${host:sqlstring})",
+          "rawSql": "SELECT ROUND(AVG(disk_percent), 1) as \"Host Disk %\" FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics WHERE $__timeFilter(timestamp) AND host_name != 'server' AND host_name IN (${host:sqlstring})",
           "refId": "A",
           "sql": {
             "columns": [
@@ -348,7 +348,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH latest_host_metrics AS (\n    SELECT DISTINCT ON (host_name) \n        host_name,\n        uptime_seconds,\n        timestamp\n    FROM system_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND $__timeFilter(timestamp)\n    ORDER BY host_name, timestamp DESC\n)\nSELECT \n    ROUND(AVG(uptime_seconds), 0) as \"Average Host Uptime\"\nFROM latest_host_metrics;",
+          "rawSql": "WITH latest_host_metrics AS (\n    SELECT DISTINCT ON (host_name) \n        host_name,\n        uptime_seconds,\n        timestamp\n    FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND $__timeFilter(timestamp)\n    ORDER BY host_name, timestamp DESC\n)\nSELECT \n    ROUND(AVG(uptime_seconds), 0) as \"Average Host Uptime\"\nFROM latest_host_metrics;",
           "refId": "A"
         }
       ],
@@ -449,7 +449,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH all_hosts AS (\n  -- Get all hosts that have data in the time range\n  SELECT DISTINCT host_name\n  FROM system_metrics\n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n),\nuptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    host_name,\n    LAG(uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_timestamp\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY host_name, timestamp\n),\nreboot_candidates AS (\n  SELECT \n    timestamp,\n    host_name,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > uptime_seconds\n    AND (prev_uptime - uptime_seconds) > 300  -- At least 5 min drop\n    AND EXTRACT(EPOCH FROM (timestamp - prev_timestamp)) < 300  -- Data points within 5 min\n),\nreboot_events AS (\n  SELECT \n    timestamp,\n    host_name,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_reboot_time\n  FROM reboot_candidates\n),\nfiltered_reboots AS (\n  SELECT \n    host_name,\n    timestamp\n  FROM reboot_events\n  WHERE prev_reboot_time IS NULL  -- First reboot for this host\n     OR timestamp > prev_reboot_time + INTERVAL '10 minutes'  -- At least 10 min gap\n),\nreboot_counts AS (\n  SELECT \n    host_name,\n    COUNT(*) as reboot_count\n  FROM filtered_reboots\n  GROUP BY host_name\n)\nSELECT \n  ah.host_name as \"Host\",\n  COALESCE(rc.reboot_count, 0) as \"Reboots\"\nFROM all_hosts ah\nLEFT JOIN reboot_counts rc ON ah.host_name = rc.host_name\nORDER BY ah.host_name",
+          "rawSql": "WITH all_hosts AS (\n  -- Get all hosts that have data in the time range\n  SELECT DISTINCT host_name\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics\n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n),\nuptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    host_name,\n    LAG(uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_timestamp\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY host_name, timestamp\n),\nreboot_candidates AS (\n  SELECT \n    timestamp,\n    host_name,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > uptime_seconds\n    AND (prev_uptime - uptime_seconds) > 300  -- At least 5 min drop\n    AND EXTRACT(EPOCH FROM (timestamp - prev_timestamp)) < 300  -- Data points within 5 min\n),\nreboot_events AS (\n  SELECT \n    timestamp,\n    host_name,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_reboot_time\n  FROM reboot_candidates\n),\nfiltered_reboots AS (\n  SELECT \n    host_name,\n    timestamp\n  FROM reboot_events\n  WHERE prev_reboot_time IS NULL  -- First reboot for this host\n     OR timestamp > prev_reboot_time + INTERVAL '10 minutes'  -- At least 10 min gap\n),\nreboot_counts AS (\n  SELECT \n    host_name,\n    COUNT(*) as reboot_count\n  FROM filtered_reboots\n  GROUP BY host_name\n)\nSELECT \n  ah.host_name as \"Host\",\n  COALESCE(rc.reboot_count, 0) as \"Reboots\"\nFROM all_hosts ah\nLEFT JOIN reboot_counts rc ON ah.host_name = rc.host_name\nORDER BY ah.host_name",
           "refId": "A"
         }
       ],
@@ -550,7 +550,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    cpu_temperature_celsius,\n    timestamp\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND cpu_temperature_celsius IS NOT NULL\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n)\nSELECT \n  host_name as \"Host\",\n  ROUND(cpu_temperature_celsius, 1) as \"Temperature\"\nFROM latest_host_metrics\nORDER BY host_name",
+          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    cpu_temperature_celsius,\n    timestamp\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND cpu_temperature_celsius IS NOT NULL\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n)\nSELECT \n  host_name as \"Host\",\n  ROUND(cpu_temperature_celsius, 1) as \"Temperature\"\nFROM latest_host_metrics\nORDER BY host_name",
           "refId": "A"
         }
       ],
@@ -657,7 +657,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH hosts_in_timerange AS (\n    -- Only get hosts that have sent data within the selected time range\n    SELECT DISTINCT host_name \n    FROM system_metrics \n    WHERE host_name IS NOT NULL \n      AND host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND $__timeFilter(timestamp)\n),\nrecent_pings AS (\n    -- Get the most recent ping for each host within selected time range\n    SELECT \n        host_name,\n        MAX(timestamp) as last_ping\n    FROM system_metrics \n    WHERE $__timeFilter(timestamp)\n      AND host_name != 'server' AND host_name IN (${host:sqlstring})\n    GROUP BY host_name\n)\nSELECT \n    h.host_name as \"metric\",\n    CASE \n        WHEN rp.last_ping IS NULL THEN 0\n        ELSE 1\n    END as \"value\"\nFROM hosts_in_timerange h\nLEFT JOIN recent_pings rp ON h.host_name = rp.host_name\nORDER BY h.host_name",
+          "rawSql": "WITH hosts_in_timerange AS (\n    -- Only get hosts that have sent data within the selected time range\n    SELECT DISTINCT host_name \n    FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n    WHERE host_name IS NOT NULL \n      AND host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND $__timeFilter(timestamp)\n),\nrecent_pings AS (\n    -- Get the most recent ping for each host within selected time range\n    SELECT \n        host_name,\n        MAX(timestamp) as last_ping\n    FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n    WHERE $__timeFilter(timestamp)\n      AND host_name != 'server' AND host_name IN (${host:sqlstring})\n    GROUP BY host_name\n)\nSELECT \n    h.host_name as \"metric\",\n    CASE \n        WHEN rp.last_ping IS NULL THEN 0\n        ELSE 1\n    END as \"value\"\nFROM hosts_in_timerange h\nLEFT JOIN recent_pings rp ON h.host_name = rp.host_name\nORDER BY h.host_name",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1070,7 +1070,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  host_name as metric, \n  AVG(cpu_percent::float) as value \nFROM system_device_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  host_name as metric, \n  AVG(cpu_percent::float) as value \nFROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1184,7 +1184,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  host_name as metric, \n  AVG(memory_percent::float) as value \nFROM system_device_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  host_name as metric, \n  AVG(memory_percent::float) as value \nFROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1296,7 +1296,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    disk_percent,\n    timestamp\n  FROM system_device_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND capture_folder IS NOT NULL \n    AND capture_folder != 'invalid_config'\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n)\nSELECT \n  NOW() as time,\n  host_name as metric, \n  ROUND(disk_percent, 1) as value \nFROM latest_host_metrics\nORDER BY host_name;",
+          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    disk_percent,\n    timestamp\n  FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND capture_folder IS NOT NULL \n    AND capture_folder != 'invalid_config'\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n)\nSELECT \n  NOW() as time,\n  host_name as metric, \n  ROUND(disk_percent, 1) as value \nFROM latest_host_metrics\nORDER BY host_name;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1416,7 +1416,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    load_average_1m,\n    timestamp\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n)\nSELECT \n  NOW() as time,\n  host_name as metric, \n  load_average_1m as value \nFROM latest_host_metrics\nORDER BY host_name;",
+          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    load_average_1m,\n    timestamp\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n)\nSELECT \n  NOW() as time,\n  host_name as metric, \n  load_average_1m as value \nFROM latest_host_metrics\nORDER BY host_name;",
           "refId": "A"
         }
       ],
@@ -1511,7 +1511,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    uptime_seconds,\n    timestamp\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n)\nSELECT \n  NOW() as time,\n  host_name as metric, \n  uptime_seconds as value \nFROM latest_host_metrics\nORDER BY host_name;",
+          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    uptime_seconds,\n    timestamp\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n)\nSELECT \n  NOW() as time,\n  host_name as metric, \n  uptime_seconds as value \nFROM latest_host_metrics\nORDER BY host_name;",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1594,7 +1594,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name, \n    timestamp, \n    cpu_percent, \n    memory_percent, \n    disk_percent, \n    uptime_seconds \n  FROM system_device_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n) \nSELECT \n  host_name as \"Host\", \n  ROUND(cpu_percent::numeric, 1) as \"CPU %\", \n  ROUND(memory_percent::numeric, 1) as \"Memory %\", \n  ROUND(disk_percent::numeric, 1) as \"Disk %\", \n  CASE \n    WHEN uptime_seconds < 3600 THEN ROUND(uptime_seconds/60) || 'm' \n    WHEN uptime_seconds < 86400 THEN ROUND(uptime_seconds/3600) || 'h' \n    ELSE ROUND(uptime_seconds/86400) || 'd' \n  END as \"Uptime\", \n  TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\" \nFROM latest_host_metrics \nORDER BY host_name",
+          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name, \n    timestamp, \n    cpu_percent, \n    memory_percent, \n    disk_percent, \n    uptime_seconds \n  FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n) \nSELECT \n  host_name as \"Host\", \n  ROUND(cpu_percent::numeric, 1) as \"CPU %\", \n  ROUND(memory_percent::numeric, 1) as \"Memory %\", \n  ROUND(disk_percent::numeric, 1) as \"Disk %\", \n  CASE \n    WHEN uptime_seconds < 3600 THEN ROUND(uptime_seconds/60) || 'm' \n    WHEN uptime_seconds < 86400 THEN ROUND(uptime_seconds/3600) || 'h' \n    ELSE ROUND(uptime_seconds/86400) || 'd' \n  END as \"Uptime\", \n  TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\" \nFROM latest_host_metrics \nORDER BY host_name",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1714,7 +1714,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '24 hours'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 1440), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '24 hours'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 1440), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -1847,7 +1847,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '24 hours'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 24.0 / 1440), 0) as \"Uptime\",\n    ROUND(24 - (available_pings * 24.0 / 1440), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '24 hours'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 24.0 / 1440), 0) as \"Uptime\",\n    ROUND(24 - (available_pings * 24.0 / 1440), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -1949,7 +1949,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '7 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 10080), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '7 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 10080), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2082,7 +2082,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '7 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 7.0 / 10080), 0) as \"Uptime\",\n    ROUND(7 - (available_pings * 7.0 / 10080), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '7 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 7.0 / 10080), 0) as \"Uptime\",\n    ROUND(7 - (available_pings * 7.0 / 10080), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2184,7 +2184,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '30 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 43200), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '30 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 43200), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2317,7 +2317,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '30 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 30.0 / 43200), 0) as \"Uptime\",\n    ROUND(30 - (available_pings * 30.0 / 43200), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '30 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 30.0 / 43200), 0) as \"Uptime\",\n    ROUND(30 - (available_pings * 30.0 / 43200), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2419,7 +2419,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '365 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 525600), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '365 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 525600), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2552,7 +2552,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '365 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 365.0 / 525600), 0) as \"Uptime\",\n    ROUND(365 - (available_pings * 365.0 / 525600), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '365 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 365.0 / 525600), 0) as \"Uptime\",\n    ROUND(365 - (available_pings * 365.0 / 525600), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2623,7 +2623,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "SELECT \n    host_name as \"Host\",\n    TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\",\n    uptime_seconds as \"Uptime (sec)\",\n    \n    -- Time conversions\n    CASE \n        WHEN uptime_seconds < 3600 THEN ROUND(uptime_seconds/60) || 'm' \n        WHEN uptime_seconds < 86400 THEN ROUND(uptime_seconds/3600, 1) || 'h' \n        ELSE ROUND(uptime_seconds/86400, 1) || 'd' \n    END as \"Uptime (formatted)\",\n    \n    cpu_percent as \"CPU %\",\n    memory_percent as \"Memory %\",\n    disk_percent as \"Disk %\",\n    \n    -- Host status\n    CASE \n        WHEN uptime_seconds > 0 THEN '✅ Online' \n        ELSE '❌ Offline' \n    END as \"Host Status\"\n    \nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\nORDER BY timestamp DESC\nLIMIT 10;",
+          "rawSql": "SELECT \n    host_name as \"Host\",\n    TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\",\n    uptime_seconds as \"Uptime (sec)\",\n    \n    -- Time conversions\n    CASE \n        WHEN uptime_seconds < 3600 THEN ROUND(uptime_seconds/60) || 'm' \n        WHEN uptime_seconds < 86400 THEN ROUND(uptime_seconds/3600, 1) || 'h' \n        ELSE ROUND(uptime_seconds/86400, 1) || 'd' \n    END as \"Uptime (formatted)\",\n    \n    cpu_percent as \"CPU %\",\n    memory_percent as \"Memory %\",\n    disk_percent as \"Disk %\",\n    \n    -- Host status\n    CASE \n        WHEN uptime_seconds > 0 THEN '✅ Online' \n        ELSE '❌ Offline' \n    END as \"Host Status\"\n    \nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\nORDER BY timestamp DESC\nLIMIT 10;",
           "refId": "A"
         }
       ],
@@ -2695,7 +2695,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "SELECT \n    host_name as \"Host\",\n    TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\",\n    uptime_seconds as \"Uptime (sec)\",\n    \n    -- Time conversions\n    CASE \n        WHEN uptime_seconds < 3600 THEN ROUND(uptime_seconds/60) || 'm' \n        WHEN uptime_seconds < 86400 THEN ROUND(uptime_seconds/3600, 1) || 'h' \n        ELSE ROUND(uptime_seconds/86400, 1) || 'd' \n    END as \"Uptime (formatted)\",\n    \n    cpu_percent as \"CPU %\",\n    memory_percent as \"Memory %\",\n    disk_percent as \"Disk %\",\n    \n    -- Host status\n    CASE \n        WHEN uptime_seconds > 0 THEN '✅ Online' \n        ELSE '❌ Offline' \n    END as \"Host Status\"\n    \nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 10;",
+          "rawSql": "SELECT \n    host_name as \"Host\",\n    TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\",\n    uptime_seconds as \"Uptime (sec)\",\n    \n    -- Time conversions\n    CASE \n        WHEN uptime_seconds < 3600 THEN ROUND(uptime_seconds/60) || 'm' \n        WHEN uptime_seconds < 86400 THEN ROUND(uptime_seconds/3600, 1) || 'h' \n        ELSE ROUND(uptime_seconds/86400, 1) || 'd' \n    END as \"Uptime (formatted)\",\n    \n    cpu_percent as \"CPU %\",\n    memory_percent as \"Memory %\",\n    disk_percent as \"Disk %\",\n    \n    -- Host status\n    CASE \n        WHEN uptime_seconds > 0 THEN '✅ Online' \n        ELSE '❌ Offline' \n    END as \"Host Status\"\n    \nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC\nLIMIT 10;",
           "refId": "A"
         }
       ],
@@ -2804,7 +2804,7 @@
             "uid": "supabase-postgres"
           },
           "format": "time_series",
-          "rawSql": "WITH all_hosts AS (\n  -- Get all hosts with their first timestamp to show 0 baseline\n  SELECT \n    host_name,\n    MIN(timestamp) as first_seen\n  FROM system_metrics\n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND $__timeFilter(timestamp)\n  GROUP BY host_name\n),\nhost_baseline AS (\n  -- Create 0 baseline for all hosts at their first appearance\n  SELECT \n    first_seen as time,\n    host_name as metric,\n    0 as value\n  FROM all_hosts\n),\nuptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    host_name,\n    LAG(uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_timestamp\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND uptime_seconds IS NOT NULL\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp\n),\nreboot_events AS (\n  SELECT \n    timestamp as time,\n    host_name as metric,\n    1 as value,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL\n    AND prev_uptime > uptime_seconds  -- Uptime decreased\n    AND (prev_uptime - uptime_seconds) > 300  -- At least 5 min drop (reboot indicator)\n    AND EXTRACT(EPOCH FROM (timestamp - prev_timestamp)) < 300  -- Data points within 5 min of each other\n)\nSELECT time, metric, value FROM host_baseline\nUNION ALL\nSELECT time, metric, value FROM reboot_events\nORDER BY time",
+          "rawSql": "WITH all_hosts AS (\n  -- Get all hosts with their first timestamp to show 0 baseline\n  SELECT \n    host_name,\n    MIN(timestamp) as first_seen\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics\n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND $__timeFilter(timestamp)\n  GROUP BY host_name\n),\nhost_baseline AS (\n  -- Create 0 baseline for all hosts at their first appearance\n  SELECT \n    first_seen as time,\n    host_name as metric,\n    0 as value\n  FROM all_hosts\n),\nuptime_analysis AS (\n  SELECT \n    timestamp,\n    uptime_seconds,\n    host_name,\n    LAG(uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_timestamp\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND uptime_seconds IS NOT NULL\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp\n),\nreboot_events AS (\n  SELECT \n    timestamp as time,\n    host_name as metric,\n    1 as value,\n    uptime_seconds,\n    prev_uptime,\n    (prev_uptime - uptime_seconds) as uptime_drop\n  FROM uptime_analysis\n  WHERE prev_uptime IS NOT NULL\n    AND prev_uptime > uptime_seconds  -- Uptime decreased\n    AND (prev_uptime - uptime_seconds) > 300  -- At least 5 min drop (reboot indicator)\n    AND EXTRACT(EPOCH FROM (timestamp - prev_timestamp)) < 300  -- Data points within 5 min of each other\n)\nSELECT time, metric, value FROM host_baseline\nUNION ALL\nSELECT time, metric, value FROM reboot_events\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -2907,7 +2907,7 @@
             "uid": "supabase-postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  host_name as metric, \n  AVG(cpu_temperature_celsius::float) as value \nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND cpu_temperature_celsius IS NOT NULL\n  AND timestamp >= $__timeFrom()\n  AND timestamp <= $__timeTo()\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  host_name as metric, \n  AVG(cpu_temperature_celsius::float) as value \nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND cpu_temperature_celsius IS NOT NULL\n  AND timestamp >= $__timeFrom()\n  AND timestamp <= $__timeTo()\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -3037,7 +3037,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    ffmpeg_service_uptime_seconds,\n    monitor_service_uptime_seconds,\n    timestamp\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND (ffmpeg_service_uptime_seconds IS NOT NULL OR monitor_service_uptime_seconds IS NOT NULL)\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n),\nservice_uptime_data AS (\n  SELECT host_name, 'Stream' as service, ffmpeg_service_uptime_seconds as uptime_seconds FROM latest_host_metrics WHERE ffmpeg_service_uptime_seconds IS NOT NULL\n  UNION ALL\n  SELECT host_name, 'Monitor' as service, monitor_service_uptime_seconds as uptime_seconds FROM latest_host_metrics WHERE monitor_service_uptime_seconds IS NOT NULL\n)\nSELECT \n  NOW() as time,\n  CONCAT(host_name, ' - ', service) as metric,\n  uptime_seconds as value\nFROM service_uptime_data\nORDER BY host_name, service;",
+          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    ffmpeg_service_uptime_seconds,\n    monitor_service_uptime_seconds,\n    timestamp\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND (ffmpeg_service_uptime_seconds IS NOT NULL OR monitor_service_uptime_seconds IS NOT NULL)\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n),\nservice_uptime_data AS (\n  SELECT host_name, 'Stream' as service, ffmpeg_service_uptime_seconds as uptime_seconds FROM latest_host_metrics WHERE ffmpeg_service_uptime_seconds IS NOT NULL\n  UNION ALL\n  SELECT host_name, 'Monitor' as service, monitor_service_uptime_seconds as uptime_seconds FROM latest_host_metrics WHERE monitor_service_uptime_seconds IS NOT NULL\n)\nSELECT \n  NOW() as time,\n  CONCAT(host_name, ' - ', service) as metric,\n  uptime_seconds as value\nFROM service_uptime_data\nORDER BY host_name, service;",
           "refId": "A"
         }
       ],
@@ -3171,7 +3171,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "WITH ffmpeg_uptime_analysis AS (\n  SELECT \n    timestamp, host_name, ffmpeg_service_uptime_seconds,\n    LAG(ffmpeg_service_uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND ffmpeg_service_uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom() AND timestamp <= $__timeTo()\n),\nmonitor_uptime_analysis AS (\n  SELECT \n    timestamp, host_name, monitor_service_uptime_seconds,\n    LAG(monitor_service_uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND monitor_service_uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom() AND timestamp <= $__timeTo()\n),\nffmpeg_restarts AS (\n  SELECT host_name, timestamp, 'Stream' as service\n  FROM ffmpeg_uptime_analysis\n  WHERE prev_uptime IS NOT NULL AND prev_uptime > ffmpeg_service_uptime_seconds\n    AND (prev_uptime - ffmpeg_service_uptime_seconds) > 300\n),\nmonitor_restarts AS (\n  SELECT host_name, timestamp, 'Monitor' as service\n  FROM monitor_uptime_analysis\n  WHERE prev_uptime IS NOT NULL AND prev_uptime > monitor_service_uptime_seconds\n    AND (prev_uptime - monitor_service_uptime_seconds) > 300\n),\nall_restarts AS (\n  SELECT * FROM ffmpeg_restarts\n  UNION ALL\n  SELECT * FROM monitor_restarts\n),\nfiltered_restarts AS (\n  SELECT \n    host_name, service, timestamp,\n    LAG(timestamp) OVER (PARTITION BY host_name, service ORDER BY timestamp) as prev_restart\n  FROM all_restarts\n),\nfinal_restarts AS (\n  SELECT host_name, service\n  FROM filtered_restarts\n  WHERE prev_restart IS NULL OR timestamp > prev_restart + INTERVAL '5 minutes'\n)\nSELECT \n  CONCAT(host_name, ' - ', service) as \"Host - Service\",\n  COUNT(*) as \"Restarts\"\nFROM final_restarts\nGROUP BY host_name, service\nORDER BY host_name, service",
+          "rawSql": "WITH ffmpeg_uptime_analysis AS (\n  SELECT \n    timestamp, host_name, ffmpeg_service_uptime_seconds,\n    LAG(ffmpeg_service_uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND ffmpeg_service_uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom() AND timestamp <= $__timeTo()\n),\nmonitor_uptime_analysis AS (\n  SELECT \n    timestamp, host_name, monitor_service_uptime_seconds,\n    LAG(monitor_service_uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND monitor_service_uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom() AND timestamp <= $__timeTo()\n),\nffmpeg_restarts AS (\n  SELECT host_name, timestamp, 'Stream' as service\n  FROM ffmpeg_uptime_analysis\n  WHERE prev_uptime IS NOT NULL AND prev_uptime > ffmpeg_service_uptime_seconds\n    AND (prev_uptime - ffmpeg_service_uptime_seconds) > 300\n),\nmonitor_restarts AS (\n  SELECT host_name, timestamp, 'Monitor' as service\n  FROM monitor_uptime_analysis\n  WHERE prev_uptime IS NOT NULL AND prev_uptime > monitor_service_uptime_seconds\n    AND (prev_uptime - monitor_service_uptime_seconds) > 300\n),\nall_restarts AS (\n  SELECT * FROM ffmpeg_restarts\n  UNION ALL\n  SELECT * FROM monitor_restarts\n),\nfiltered_restarts AS (\n  SELECT \n    host_name, service, timestamp,\n    LAG(timestamp) OVER (PARTITION BY host_name, service ORDER BY timestamp) as prev_restart\n  FROM all_restarts\n),\nfinal_restarts AS (\n  SELECT host_name, service\n  FROM filtered_restarts\n  WHERE prev_restart IS NULL OR timestamp > prev_restart + INTERVAL '5 minutes'\n)\nSELECT \n  CONCAT(host_name, ' - ', service) as \"Host - Service\",\n  COUNT(*) as \"Restarts\"\nFROM final_restarts\nGROUP BY host_name, service\nORDER BY host_name, service",
           "refId": "A"
         }
       ],
@@ -3308,7 +3308,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH ffmpeg_uptime_analysis AS (\n  SELECT \n    timestamp,\n    ffmpeg_service_uptime_seconds,\n    host_name,\n    LAG(ffmpeg_service_uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND ffmpeg_service_uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY host_name, timestamp\n),\nmonitor_uptime_analysis AS (\n  SELECT \n    timestamp,\n    monitor_service_uptime_seconds,\n    host_name,\n    LAG(monitor_service_uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND monitor_service_uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY host_name, timestamp\n),\nffmpeg_restart_candidates AS (\n  SELECT \n    timestamp,\n    host_name,\n    ffmpeg_service_uptime_seconds,\n    prev_uptime,\n    (prev_uptime - ffmpeg_service_uptime_seconds) as uptime_drop\n  FROM ffmpeg_uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > ffmpeg_service_uptime_seconds\n    AND (prev_uptime - ffmpeg_service_uptime_seconds) > 300  -- 5 min significant drop\n),\nmonitor_restart_candidates AS (\n  SELECT \n    timestamp,\n    host_name,\n    monitor_service_uptime_seconds,\n    prev_uptime,\n    (prev_uptime - monitor_service_uptime_seconds) as uptime_drop\n  FROM monitor_uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > monitor_service_uptime_seconds\n    AND (prev_uptime - monitor_service_uptime_seconds) > 300  -- 5 min significant drop\n),\nffmpeg_restart_events AS (\n  SELECT \n    timestamp,\n    host_name,\n    'FFmpeg' as service,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_restart_time\n  FROM ffmpeg_restart_candidates\n),\nmonitor_restart_events AS (\n  SELECT \n    timestamp,\n    host_name,\n    'Monitor' as service,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_restart_time\n  FROM monitor_restart_candidates\n),\nfiltered_ffmpeg_restarts AS (\n  SELECT \n    timestamp as time,\n    CONCAT(host_name, ' - Stream') as metric,\n    1 as value\n  FROM ffmpeg_restart_events\n  WHERE prev_restart_time IS NULL  -- First restart for this host\n     OR timestamp > prev_restart_time + INTERVAL '5 minutes'  -- At least 5 min gap\n),\nfiltered_monitor_restarts AS (\n  SELECT \n    timestamp as time,\n    CONCAT(host_name, ' - Monitor') as metric,\n    2 as value  -- Different value for visual distinction\n  FROM monitor_restart_events\n  WHERE prev_restart_time IS NULL  -- First restart for this host\n     OR timestamp > prev_restart_time + INTERVAL '5 minutes'  -- At least 5 min gap\n),\nall_service_restarts AS (\n  SELECT * FROM filtered_ffmpeg_restarts\n  UNION ALL\n  SELECT * FROM filtered_monitor_restarts\n)\nSELECT \n  time,\n  metric,\n  value\nFROM all_service_restarts\nORDER BY time",
+          "rawSql": "WITH ffmpeg_uptime_analysis AS (\n  SELECT \n    timestamp,\n    ffmpeg_service_uptime_seconds,\n    host_name,\n    LAG(ffmpeg_service_uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND ffmpeg_service_uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY host_name, timestamp\n),\nmonitor_uptime_analysis AS (\n  SELECT \n    timestamp,\n    monitor_service_uptime_seconds,\n    host_name,\n    LAG(monitor_service_uptime_seconds) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_uptime\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND monitor_service_uptime_seconds IS NOT NULL\n    AND timestamp >= $__timeFrom()\n    AND timestamp <= $__timeTo()\n  ORDER BY host_name, timestamp\n),\nffmpeg_restart_candidates AS (\n  SELECT \n    timestamp,\n    host_name,\n    ffmpeg_service_uptime_seconds,\n    prev_uptime,\n    (prev_uptime - ffmpeg_service_uptime_seconds) as uptime_drop\n  FROM ffmpeg_uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > ffmpeg_service_uptime_seconds\n    AND (prev_uptime - ffmpeg_service_uptime_seconds) > 300  -- 5 min significant drop\n),\nmonitor_restart_candidates AS (\n  SELECT \n    timestamp,\n    host_name,\n    monitor_service_uptime_seconds,\n    prev_uptime,\n    (prev_uptime - monitor_service_uptime_seconds) as uptime_drop\n  FROM monitor_uptime_analysis\n  WHERE prev_uptime IS NOT NULL \n    AND prev_uptime > monitor_service_uptime_seconds\n    AND (prev_uptime - monitor_service_uptime_seconds) > 300  -- 5 min significant drop\n),\nffmpeg_restart_events AS (\n  SELECT \n    timestamp,\n    host_name,\n    'FFmpeg' as service,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_restart_time\n  FROM ffmpeg_restart_candidates\n),\nmonitor_restart_events AS (\n  SELECT \n    timestamp,\n    host_name,\n    'Monitor' as service,\n    LAG(timestamp) OVER (PARTITION BY host_name ORDER BY timestamp) as prev_restart_time\n  FROM monitor_restart_candidates\n),\nfiltered_ffmpeg_restarts AS (\n  SELECT \n    timestamp as time,\n    CONCAT(host_name, ' - Stream') as metric,\n    1 as value\n  FROM ffmpeg_restart_events\n  WHERE prev_restart_time IS NULL  -- First restart for this host\n     OR timestamp > prev_restart_time + INTERVAL '5 minutes'  -- At least 5 min gap\n),\nfiltered_monitor_restarts AS (\n  SELECT \n    timestamp as time,\n    CONCAT(host_name, ' - Monitor') as metric,\n    2 as value  -- Different value for visual distinction\n  FROM monitor_restart_events\n  WHERE prev_restart_time IS NULL  -- First restart for this host\n     OR timestamp > prev_restart_time + INTERVAL '5 minutes'  -- At least 5 min gap\n),\nall_service_restarts AS (\n  SELECT * FROM filtered_ffmpeg_restarts\n  UNION ALL\n  SELECT * FROM filtered_monitor_restarts\n)\nSELECT \n  time,\n  metric,\n  value\nFROM all_service_restarts\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -3410,7 +3410,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  host_name as metric, \n  AVG(disk_write_mb_per_sec::float) as value \nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time, \n  host_name as metric, \n  AVG(disk_write_mb_per_sec::float) as value \nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -3576,7 +3576,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    download_mbps,\n    upload_mbps,\n    timestamp\n  FROM system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND download_mbps IS NOT NULL\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n),\nnetwork_data AS (\n  SELECT host_name, 'Download' as metric_type, download_mbps as speed FROM latest_host_metrics\n  UNION ALL\n  SELECT host_name, 'Upload' as metric_type, upload_mbps as speed FROM latest_host_metrics\n)\nSELECT \n  NOW() as time,\n  CONCAT(host_name, ' - ', metric_type) as metric,\n  speed as value\nFROM network_data\nORDER BY host_name, metric_type ASC;",
+          "rawSql": "WITH latest_host_metrics AS (\n  SELECT DISTINCT ON (host_name) \n    host_name,\n    download_mbps,\n    upload_mbps,\n    timestamp\n  FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \n  WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n    AND download_mbps IS NOT NULL\n    AND $__timeFilter(timestamp)\n  ORDER BY host_name, timestamp DESC\n),\nnetwork_data AS (\n  SELECT host_name, 'Download' as metric_type, download_mbps as speed FROM latest_host_metrics\n  UNION ALL\n  SELECT host_name, 'Upload' as metric_type, upload_mbps as speed FROM latest_host_metrics\n)\nSELECT \n  NOW() as time,\n  CONCAT(host_name, ' - ', metric_type) as metric,\n  speed as value\nFROM network_data\nORDER BY host_name, metric_type ASC;",
           "refId": "A"
         }
       ],
@@ -3699,7 +3699,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(download_mbps) as value\nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host_download:sqlstring})\n  AND download_mbps IS NOT NULL\n  AND download_mbps > 0\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(download_mbps) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host_download:sqlstring})\n  AND download_mbps IS NOT NULL\n  AND download_mbps > 0\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
           "refId": "A"
         }
       ],
@@ -3822,7 +3822,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(upload_mbps) as value\nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host_upload:sqlstring})\n  AND upload_mbps IS NOT NULL\n  AND upload_mbps > 0\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(upload_mbps) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host_upload:sqlstring})\n  AND upload_mbps IS NOT NULL\n  AND upload_mbps > 0\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
           "refId": "A"
         }
       ],
@@ -3929,7 +3929,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(uptime_seconds) as value\nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND uptime_seconds IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(uptime_seconds) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND uptime_seconds IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
           "refId": "A"
         }
       ],
@@ -4032,7 +4032,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(download_mbps) as value\nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND download_mbps IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(download_mbps) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND download_mbps IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
           "refId": "A"
         }
       ],
@@ -4135,7 +4135,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(upload_mbps) as value\nFROM system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND upload_mbps IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
+          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(upload_mbps) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND upload_mbps IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
           "refId": "A"
         }
       ],
@@ -4154,19 +4154,57 @@
   "templating": {
     "list": [
       {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
         "current": {},
         "datasource": {
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "WITH RECURSIVE h AS (\n  (SELECT host_name FROM system_device_metrics ORDER BY host_name LIMIT 1)\n  UNION ALL\n  SELECT (SELECT host_name FROM system_device_metrics WHERE host_name > h.host_name ORDER BY host_name LIMIT 1) FROM h WHERE h.host_name IS NOT NULL\n)\nSELECT host_name FROM h WHERE host_name IS NOT NULL AND host_name != 'server' ORDER BY host_name",
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "WITH RECURSIVE h AS (\n  (SELECT host_name FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics ORDER BY host_name LIMIT 1)\n  UNION ALL\n  SELECT (SELECT host_name FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics WHERE host_name > h.host_name ORDER BY host_name LIMIT 1) FROM h WHERE h.host_name IS NOT NULL\n)\nSELECT host_name FROM h WHERE host_name IS NOT NULL AND host_name != 'server' ORDER BY host_name",
         "hide": 0,
         "includeAll": true,
         "label": "Host",
         "multi": true,
         "name": "host",
         "options": [],
-        "query": "WITH RECURSIVE h AS (\n  (SELECT host_name FROM system_device_metrics ORDER BY host_name LIMIT 1)\n  UNION ALL\n  SELECT (SELECT host_name FROM system_device_metrics WHERE host_name > h.host_name ORDER BY host_name LIMIT 1) FROM h WHERE h.host_name IS NOT NULL\n)\nSELECT host_name FROM h WHERE host_name IS NOT NULL AND host_name != 'server' ORDER BY host_name",
+        "query": "WITH RECURSIVE h AS (\n  (SELECT host_name FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics ORDER BY host_name LIMIT 1)\n  UNION ALL\n  SELECT (SELECT host_name FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics WHERE host_name > h.host_name ORDER BY host_name LIMIT 1) FROM h WHERE h.host_name IS NOT NULL\n)\nSELECT host_name FROM h WHERE host_name IS NOT NULL AND host_name != 'server' ORDER BY host_name",
         "refresh": 2,
         "regex": "",
         "sort": 1,
@@ -4178,14 +4216,14 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT host_name FROM system_metrics WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND download_mbps IS NOT NULL AND download_mbps > 0 AND $__timeFilter(timestamp) ORDER BY host_name",
+        "definition": "SELECT DISTINCT host_name FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND download_mbps IS NOT NULL AND download_mbps > 0 AND $__timeFilter(timestamp) ORDER BY host_name",
         "hide": 2,
         "includeAll": true,
         "label": "Host (download data)",
         "multi": true,
         "name": "host_download",
         "options": [],
-        "query": "SELECT DISTINCT host_name FROM system_metrics WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND download_mbps IS NOT NULL AND download_mbps > 0 AND $__timeFilter(timestamp) ORDER BY host_name",
+        "query": "SELECT DISTINCT host_name FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND download_mbps IS NOT NULL AND download_mbps > 0 AND $__timeFilter(timestamp) ORDER BY host_name",
         "refresh": 2,
         "regex": "",
         "sort": 1,
@@ -4197,14 +4235,14 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT host_name FROM system_metrics WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND upload_mbps IS NOT NULL AND upload_mbps > 0 AND $__timeFilter(timestamp) ORDER BY host_name",
+        "definition": "SELECT DISTINCT host_name FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND upload_mbps IS NOT NULL AND upload_mbps > 0 AND $__timeFilter(timestamp) ORDER BY host_name",
         "hide": 2,
         "includeAll": true,
         "label": "Host (upload data)",
         "multi": true,
         "name": "host_upload",
         "options": [],
-        "query": "SELECT DISTINCT host_name FROM system_metrics WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND upload_mbps IS NOT NULL AND upload_mbps > 0 AND $__timeFilter(timestamp) ORDER BY host_name",
+        "query": "SELECT DISTINCT host_name FROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics WHERE host_name != 'server' AND host_name IN (${host:sqlstring}) AND upload_mbps IS NOT NULL AND upload_mbps > 0 AND $__timeFilter(timestamp) ORDER BY host_name",
         "refresh": 2,
         "regex": "",
         "sort": 1,

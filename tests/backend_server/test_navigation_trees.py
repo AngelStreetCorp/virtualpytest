@@ -897,3 +897,21 @@ def test_dom_report_unknown_interface_returns_not_found_html(get, api_headers, t
     )
     assert resp.status_code == 200, resp.text
     assert "not found" in resp.text.lower()
+
+
+def test_dom_report_url_requires_params(get, api_headers):
+    resp = get("/server/userinterface/domReport/url", headers=api_headers)
+    assert resp.status_code == 400, resp.text
+
+
+def test_dom_report_url_unknown_interface_returns_404(get, api_headers, team_id):
+    name = f"__nonexistent_ui_{uuid.uuid4().hex[:8]}__"
+    resp = get(
+        "/server/userinterface/domReport/url",
+        headers=api_headers,
+        params={"userinterface": name, "team_id": team_id},
+    )
+    assert resp.status_code == 404, resp.text
+    body = resp.json()
+    assert body.get("success") is False
+    assert "not found" in body.get("message", "").lower()

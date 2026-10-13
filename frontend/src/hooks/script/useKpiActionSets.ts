@@ -35,21 +35,37 @@ export interface KpiActionSet {
   tree_id: string;
   from_label: string;
   to_label: string;
-  reason: 'kpi_references' | 'target_verifications';
+  /** 'none' = can't be measured itself; only returned with kpiOnly=false. */
+  reason: 'kpi_references' | 'target_verifications' | 'target_fingerprint' | 'none';
+  /** Whether the edge's OTHER direction has actions (goto can traverse it). */
+  reverse_has_actions: boolean;
+  /** Whether the edge's OTHER direction can be measured (standby wake check). */
+  reverse_kpi: boolean;
+  /** Label of the edge's other direction, e.g. "standby → home"; '' if none. */
+  reverse_label: string;
 }
 
-// Cache key is "<ui>|<variant or __base__>" so distinct variants on the same
-// UI don't collide. Matches the server-side cache key shape and the
+// Cache key is "<ui>|<variant or __base__>|<kpi|all>" so distinct variants on
+// the same UI don't collide. Matches the server-side cache key shape and the
 // `_variant_cache_key` sentinel.
 const cache = new Map<string, KpiActionSet[]>();
 const inFlight = new Map<string, Promise<KpiActionSet[]>>();
 
-const buildCacheKey = (ui: string, variant?: string | null) =>
-  `${ui}|${(variant || '').trim().toLowerCase() || '__base__'}`;
+const buildCacheKey = (ui: string, variant: string | null | undefined, kpiOnly: boolean) =>
+  `${ui}|${(variant || '').trim().toLowerCase() || '__base__'}|${kpiOnly ? 'kpi' : 'all'}`;
 
-export function useKpiActionSets(userinterfaceName?: string, variant?: string | null) {
+/**
+ * `kpiOnly` (default true) limits the list to action_sets that can be measured
+ * themselves. false returns every action_set (standby_measurement's picker,
+ * which judges an edge by its reverse direction instead).
+ */
+export function useKpiActionSets(
+  userinterfaceName?: string,
+  variant?: string | null,
+  kpiOnly: boolean = true,
+) {
   const variantNorm = (variant || '').trim() || null;
-  const key = userinterfaceName ? buildCacheKey(userinterfaceName, variantNorm) : '';
+  const key = userinterfaceName ? buildCacheKey(userinterfaceName, variantNorm, kpiOnly) : '';
   const initial = key ? cache.get(key) ?? [] : [];
   const hadCache = key ? cache.has(key) : false;
 
@@ -75,10 +91,11 @@ export function useKpiActionSets(userinterfaceName?: string, variant?: string | 
         const variantParam = variantNorm
           ? `&variant=${encodeURIComponent(variantNorm)}`
           : '';
+        const kpiOnlyParam = kpiOnly ? '' : '&kpi_only=false';
         const url = buildServerUrl(
           `/server/navigationTrees/kpi-action-sets?userinterface_name=${encodeURIComponent(
             userinterfaceName,
-          )}${variantParam}`,
+          )}${variantParam}${kpiOnlyParam}`,
         );
         const response = await apiClient(url);
         if (!response.ok) {
@@ -109,7 +126,7 @@ export function useKpiActionSets(userinterfaceName?: string, variant?: string | 
     } finally {
       setLoading(false);
     }
-  }, [key, userinterfaceName, variantNorm]);
+  }, [key, userinterfaceName, variantNorm, kpiOnly]);
 
   useEffect(() => {
     if (!key) {

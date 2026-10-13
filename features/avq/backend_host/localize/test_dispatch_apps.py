@@ -14,6 +14,7 @@ menus. The harness:
 """
 import argparse
 import importlib.util
+import os
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -33,8 +34,10 @@ def fxy(fp):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mcp-config", default=".mcp.json")
-    ap.add_argument("--mcp-url", default="https://rpitest.angelstreet.io/server/mcp")
+    ap.add_argument("--mcp-url", default=os.getenv("VPT_MCP_URL"))
     args = ap.parse_args()
+    if not args.mcp_url:
+        ap.error("--mcp-url or the VPT_MCP_URL environment variable is required (e.g. https://<server>/server/mcp)")
 
     client = ab.MCPClient(args.mcp_url, ab._find_auth(args.mcp_config), verify_tls=False)
     ab._validate_target(client, HOST, DEVICE, NAME)

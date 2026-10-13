@@ -9,10 +9,15 @@ Uses Playwright sync_api for simplicity and thread safety (no async complexity).
 """
 
 import os
+import signal
 import time
 import subprocess
 import socket
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Optional, Tuple
+
+# SIGKILL does not exist on Windows; the host only ever runs Chrome on Linux, but the
+# module must still import (unit tests, the Windows host build).
+_SIGKILL = getattr(signal, 'SIGKILL', 9)
 
 from shared.src.lib.utils.browser_window_utils import build_window_flags, detect_primary_display_bounds
 
@@ -28,6 +33,42 @@ except ImportError:
     def auto_accept_cookies(*args, **kwargs): return False
 
 
+PLAYWRIGHT_STOP_TIMEOUT_SECONDS = 5.0
+
+# Launch readiness. A launched Chromium is ready for a CDP attach once its debug endpoint lists
+# a page target (the startup tab). That used to be three fixed 2 s sleeps after the port
+# opened (launcher, connect(), connect_browser()) on top of a port poll every 1 s: ~7 s of an
+# ~8.5 s start measured on host-clone-3 (2026-09-29). Now it is polled every CHROME_READY_POLL_S
+# and gives up after CHROME_PAGE_READY_MAX_WAIT_S, the sum of those sleeps, and carries on as
+# the sleeps did, so a browser that never lists its tab is never waited on for longer than before.
+CHROME_READY_POLL_S = 0.1
+CHROME_PAGE_READY_MAX_WAIT_S = 6.0
+
+
+async def stop_playwright(playwright, timeout: float = PLAYWRIGHT_STOP_TIMEOUT_SECONDS) -> None:
+    """Stop a Playwright instance so its Node driver process exits (BUG-0191).
+
+    Every `async_playwright().start()` spawns one driver (`ps` shows it as `MainThread`, the
+    name Node gives its main thread) that lives until `stop()`. One that is dropped without
+    stopping lives as long as vpt-host: about 30 MB each, ~20 an hour, 8 GB in half a day.
+    When `stop()` does not return in time, the driver is killed through its pipe transport.
+    """
+    if playwright is None:
+        return
+    import asyncio
+    try:
+        await asyncio.wait_for(playwright.stop(), timeout=timeout)
+        return
+    except Exception as e:
+        print(f'[PlaywrightConnection] Playwright stop did not complete ({type(e).__name__}: {e}); killing its driver')
+    try:
+        proc = playwright._impl_obj._connection._transport._proc
+        if proc.returncode is None:
+            proc.kill()
+    except Exception as e:
+        print(f'[PlaywrightConnection] Could not kill the Playwright driver: {type(e).__name__}: {e}')
+
+
 def resolve_user_data_dir(user_data_dir: str) -> str:
     """Resolve user_data_dir to absolute path from project root."""
     if os.path.isabs(user_data_dir):
@@ -41,51 +82,97 @@ def resolve_user_data_dir(user_data_dir: str) -> str:
 class ChromeManager:
     """Manages Chrome process lifecycle for remote debugging."""
     
+    # ------------------------------------------------------------------
+    # Shutdown. Three layers, each one a hard guarantee for the one before:
+    #   1. the Popen we launched (its whole process group: Chrome is launched
+    #      as a session leader, so the zygote/renderers/gpu helpers go with it),
+    #   2. whatever still LISTENS on the debug port (a browser we only attached
+    #      to, or one left by a run that died) - never a CDP client (BUG-0114),
+    #   3. wait for the port to actually be free.
+    # The graceful CDP `Browser.close` is sent by the controller over its
+    # Playwright connection before this runs; there is no HTTP endpoint for it.
+    # ------------------------------------------------------------------
+
     @staticmethod
-    def close_chrome_gracefully(debug_port: int = 9222, chrome_process = None):
-        """Close Chrome gracefully via CDP, fallback to process termination."""
-        print('[ChromeManager] Closing Chrome gracefully...')
-        
-        # First try CDP shutdown using Browser.close command
+    def _pgid(pid: int) -> Optional[int]:
         try:
-            import requests
-            print('[ChromeManager] Attempting CDP shutdown...')
-            
-            # Send Browser.close command via CDP
-            response = requests.post(f'http://localhost:{debug_port}/json/runtime/evaluate',
-                                   json={
-                                       'expression': 'window.chrome && window.chrome.app ? window.chrome.app.window.current().close() : window.close()'
-                                   }, timeout=3)
-            
-            if response.status_code == 200:
-                print('[ChromeManager] CDP shutdown command sent successfully')
-                time.sleep(3)  # Give Chrome time to shut down gracefully
-                
-                # Check if Chrome actually closed
-                try:
-                    check_response = requests.get(f'http://localhost:{debug_port}/json', timeout=1)
-                    if check_response.status_code != 200:
-                        print('[ChromeManager] Chrome closed successfully via CDP')
-                        return
-                except:
-                    print('[ChromeManager] Chrome closed successfully via CDP')
-                    return
-                    
-        except Exception as e:
-            print(f'[ChromeManager] CDP shutdown failed: {e}')
-        
-        # Fallback to process termination (but use SIGTERM first, not SIGKILL)
-        if chrome_process and chrome_process.poll() is None:
-            print('[ChromeManager] Using process termination fallback...')
-            chrome_process.terminate()  # SIGTERM - allows graceful shutdown
+            return os.getpgid(pid)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _signal(pid: int, sig: int, whole_group: bool) -> None:
+        if whole_group:
+            os.killpg(pid, sig)
+        else:
+            os.kill(pid, sig)
+
+    @classmethod
+    def _terminate_pid(cls, pid: int, timeout: float, is_alive) -> bool:
+        """SIGTERM then SIGKILL `pid`. The whole process group when `pid` leads one
+        (our own launches always do); a process that lives in someone else's group -
+        typically the vpt-host service's - is signalled alone so the kill can never
+        reach that service. Returns True when `is_alive()` turns False in time."""
+        whole_group = cls._pgid(pid) == pid
+        what = f'process group {pid}' if whole_group else f'process {pid}'
+        for sig, label in ((signal.SIGTERM, 'SIGTERM'), (_SIGKILL, 'SIGKILL')):
             try:
-                chrome_process.wait(timeout=10)  # Give more time for graceful shutdown
-                print('[ChromeManager] Chrome process terminated gracefully')
-            except subprocess.TimeoutExpired:
-                print('[ChromeManager] Graceful termination timeout, force killing...')
-                chrome_process.kill()  # Only use SIGKILL as last resort
-                chrome_process.wait()
-    
+                cls._signal(pid, sig, whole_group)
+            except ProcessLookupError:
+                return True
+            except Exception as e:
+                print(f'[ChromeManager] {label} to {what} failed: {type(e).__name__}: {e}')
+                return not is_alive()
+            deadline = time.time() + timeout
+            while time.time() < deadline:
+                if not is_alive():
+                    print(f'[ChromeManager] {what} exited after {label}')
+                    return True
+                time.sleep(0.1)
+            print(f'[ChromeManager] {what} still alive {timeout:.0f}s after {label}')
+        return not is_alive()
+
+    @staticmethod
+    def listener_pid(debug_port: int) -> Optional[int]:
+        """PID of the process LISTENING on the debug port, or None. `-sTCP:LISTEN` is
+        what keeps this from ever matching a Playwright driver connected to it."""
+        try:
+            result = subprocess.run(['lsof', '-t', '-sTCP:LISTEN', '-i', f':{debug_port}'],
+                                    capture_output=True, text=True, timeout=5)
+        except Exception as e:
+            print(f'[ChromeManager] lsof on port {debug_port} failed: {type(e).__name__}: {e}')
+            return None
+        for line in result.stdout.split():
+            if line.strip().isdigit():
+                return int(line.strip())
+        return None
+
+    @classmethod
+    def shutdown_chrome(cls, debug_port: int = 9222, chrome_process=None, timeout: float = 5.0) -> bool:
+        """Take the debug port back. Terminates the browser this process launched (if any),
+        then whatever is still listening on the port, and returns True once nothing is."""
+        if chrome_process is not None and chrome_process.poll() is None:
+            print(f'[ChromeManager] Terminating launched Chrome (PID {chrome_process.pid})')
+            cls._terminate_pid(chrome_process.pid, timeout, lambda: chrome_process.poll() is None)
+        elif chrome_process is not None:
+            print(f'[ChromeManager] Launched Chrome (PID {chrome_process.pid}) already exited (code {chrome_process.returncode})')
+
+        pid = cls.listener_pid(debug_port)
+        if pid is not None:
+            print(f'[ChromeManager] Port {debug_port} still has a listener (PID {pid}) - terminating it')
+            cls._terminate_pid(pid, timeout, lambda: cls.listener_pid(debug_port) == pid)
+
+        # "Free" means no listener. A bind() probe would also see the TIME_WAIT sockets
+        # the dead browser's CDP connections leave on the port for a minute.
+        deadline = time.time() + 3
+        while cls.listener_pid(debug_port) is not None:
+            if time.time() > deadline:
+                print(f'[ChromeManager] Port {debug_port} STILL has a listener after shutdown')
+                return False
+            time.sleep(0.2)
+        print(f'[ChromeManager] Port {debug_port} is free')
+        return True
+
     @staticmethod
     def _fix_preferences(user_data_dir: str):
         """
@@ -137,6 +224,48 @@ class ChromeManager:
             return requests.get(f'http://127.0.0.1:{debug_port}/json/version', timeout=timeout).status_code == 200
         except Exception:
             return False
+
+    @staticmethod
+    def port_listening(debug_port: int = 9222, timeout: float = 0.25) -> bool:
+        """True when something accepts TCP connections on 127.0.0.1:<port>.
+
+        A connect, not a bind (is_port_in_use binds, i.e. briefly takes the port a browser is
+        about to listen on). Refused answers at once, so a free port costs ~1 ms."""
+        try:
+            with socket.create_connection(('127.0.0.1', debug_port), timeout=timeout):
+                return True
+        except OSError:
+            return False
+
+    @staticmethod
+    def cdp_page_ready(debug_port: int = 9222, timeout: float = 1.0) -> bool:
+        """True when the DevTools endpoint lists at least one page target (the startup tab).
+
+        /json/version answers as soon as the port opens; the tab a CDP attach adopts as the
+        persistent page comes a little later. Attaching before it exists makes Playwright open
+        a second tab, which is not the one on screen."""
+        try:
+            import requests
+            response = requests.get(f'http://127.0.0.1:{debug_port}/json/list', timeout=timeout)
+            if response.status_code != 200:
+                return False
+            return any(isinstance(t, dict) and t.get('type') == 'page' for t in response.json())
+        except Exception:
+            return False
+
+    @classmethod
+    def wait_for_cdp_page(cls, debug_port: int = 9222, max_wait: float = CHROME_PAGE_READY_MAX_WAIT_S,
+                          interval: float = CHROME_READY_POLL_S) -> Tuple[bool, int]:
+        """Poll cdp_page_ready until it holds or max_wait passes. Returns (ready, polls)."""
+        deadline = time.monotonic() + max_wait
+        polls = 0
+        while True:
+            polls += 1
+            if cls.cdp_page_ready(debug_port):
+                return True, polls
+            if time.monotonic() >= deadline:
+                return False, polls
+            time.sleep(interval)
     
     @staticmethod
     def find_chrome_executable() -> str:
@@ -229,33 +358,15 @@ class ChromeManager:
             memory_max: Maximum memory limit (e.g., "1G", "512M")
             memory_high: Memory high limit for early pressure (e.g., "768M")
         """
-        # Close existing Chrome instances gracefully
-        cls.close_chrome_gracefully(debug_port)
-        
-        # Kill the process LISTENING on the debug port - never its CDP clients.
-        # A bare `lsof -i :PORT` also matches established client sockets, i.e. every
-        # Playwright node driver connected to that Chrome; killing one of those aborts
-        # its run with "Connection closed while reading from the driver" (BUG-0114).
-        if cls.is_port_in_use(debug_port):
-            print(f'[ChromeManager] Port {debug_port} is in use. Killing the listener...')
-            # Use subprocess to avoid xargs executing kill with no arguments
-            try:
-                result = subprocess.run(['lsof', '-t', '-sTCP:LISTEN', '-i', f':{debug_port}'],
-                                      capture_output=True, text=True, timeout=5)
-                if result.returncode == 0 and result.stdout.strip():
-                    pids = result.stdout.strip().split('\n')
-                    for pid in pids:
-                        if pid.strip():
-                            subprocess.run(['kill', '-9', pid.strip()], timeout=3)
-                            print(f'[ChromeManager] Killed process {pid.strip()} using port {debug_port}')
-                else:
-                    print(f'[ChromeManager] No processes found using port {debug_port}')
-            except subprocess.TimeoutExpired:
-                print(f'[ChromeManager] Timeout finding processes on port {debug_port}')
-            except Exception as e:
-                print(f'[ChromeManager] Error killing processes on port {debug_port}: {e}')
-            time.sleep(1)
-        
+        # Whatever still listens on the debug port is an orphan (the device lock guarantees
+        # no other run is driving it): take the port, listener only, never a CDP client (BUG-0114).
+        if cls.listener_pid(debug_port) is not None:
+            print(f'[ChromeManager] Port {debug_port} has a listener - taking it over')
+            from shared.src.lib.utils.phase_timing import t0 as _phase_t0, log_phase as _log_phase
+            _t = _phase_t0()
+            cls.shutdown_chrome(debug_port)
+            _log_phase('chrome.shutdown_orphan_listener', _t)
+
         # Find Chrome executable
         executable_path = cls.find_chrome_executable()
         print(f'[ChromeManager] Launching Chrome with remote debugging: {executable_path}')
@@ -321,8 +432,11 @@ class ChromeManager:
         env = os.environ.copy()
         env["DISPLAY"] = os.environ.get("DISPLAY", ":1")
         
-        # Launch Chrome (with or without cgroup limits) - capture stderr to detect errors
-        process = subprocess.Popen(cmd_line, env=env, stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        # Launch Chrome (with or without cgroup limits) - capture stderr to detect errors.
+        # start_new_session makes Chrome a session/group leader, so shutdown_chrome can
+        # killpg() the browser together with its zygote/renderer/gpu helpers.
+        process = subprocess.Popen(cmd_line, env=env, stderr=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   start_new_session=(os.name != 'nt'))
         print(f'[ChromeManager] Chrome launched with PID: {process.pid}')
         
         # Add process monitoring for debugging
@@ -348,8 +462,10 @@ class ChromeManager:
             RuntimeError: If Chrome process fails to start
         """
         print(f'[ChromeManager] Waiting up to {max_wait} seconds for Chrome on port {debug_port}...')
-        
+        from shared.src.lib.utils.phase_timing import t0 as _phase_t0, log_phase as _log_phase
+
         start_time = time.time()
+        _t_port = _phase_t0()
         port_open = False
         
         while time.time() - start_time < max_wait:
@@ -384,10 +500,17 @@ class ChromeManager:
                 port_open = True
                 elapsed = time.time() - start_time
                 print(f'[ChromeManager] Chrome ready! Port {debug_port} open after {elapsed:.2f}s')
-                time.sleep(2)  # Ensure Chrome is fully initialized
+                _log_phase('chrome.wait_for_debug_port', _t_port, f'polled every {CHROME_READY_POLL_S} s')
+                # The port answers before the startup tab exists: wait for the tab, not a clock.
+                _t_page = _phase_t0()
+                page_ready, polls = ChromeManager.wait_for_cdp_page(debug_port)
+                _log_phase('chrome.wait_for_cdp_page', _t_page, f'ready={page_ready} polls={polls}')
+                if not page_ready:
+                    print(f'[ChromeManager] No page target on port {debug_port} after '
+                          f'{CHROME_PAGE_READY_MAX_WAIT_S}s - continuing, as the fixed sleeps did')
                 break
             except (socket.timeout, socket.error):
-                time.sleep(1)
+                time.sleep(CHROME_READY_POLL_S)
         
         if not port_open:
             error_msg = f'Timed out waiting for Chrome port {debug_port} after {max_wait} seconds'
@@ -433,7 +556,8 @@ class PlaywrightConnection:
         import threading
         
         print(f'[PlaywrightConnection] Thread: {threading.current_thread().name}')
-        
+
+        playwright = None
         try:
             print(f'[PlaywrightConnection] Starting Playwright and connecting to Chrome at {cdp_url}')
             playwright = await async_playwright().start()
@@ -460,7 +584,12 @@ class PlaywrightConnection:
             print(f'[PlaywrightConnection] Connection established successfully')
             return playwright, browser, context, page
             
-        except Exception as e:
+        except BaseException as e:
+            # The driver started before the CDP attach: nobody gets a handle to stop it, so stop
+            # it here. This is the common path - connect_browser() probes before Chrome runs.
+            await stop_playwright(playwright)
+            if not isinstance(e, Exception):
+                raise
             error_type = type(e).__name__
             print(f'[PlaywrightConnection] Connection failed - {error_type}: {str(e)}')
             print(f'[PlaywrightConnection] CDP URL: {cdp_url}')
@@ -486,10 +615,11 @@ class PlaywrightUtils:
     """Main utility class combining Chrome management, Playwright operations, and cookie management using SYNC API."""
     
     def __init__(self, auto_accept_cookies: bool = True, user_data_dir: str = "./config/user_data",
-                 use_cgroup: bool = False, cpu_quota: str = "100%", memory_max: str = "4G", memory_high: str = "3G"):
+                 use_cgroup: bool = False, cpu_quota: str = "100%", memory_max: str = "4G", memory_high: str = "3G",
+                 debug_port: int = 9222):
         """
         Initialize PlaywrightUtils with auto-sizing browser.
-        
+
         Args:
             auto_accept_cookies: Whether to automatically inject consent cookies
             user_data_dir: Chrome user data directory for persistent sessions
@@ -497,12 +627,14 @@ class PlaywrightUtils:
             cpu_quota: CPU quota limit (e.g., "50%" for 50% of one core)
             memory_max: Maximum memory limit (e.g., "1G", "512M")
             memory_high: Memory high limit for early pressure (e.g., "768M")
+            debug_port: Chrome remote-debugging port (one per host: see BUG-0114 "Not fixed here")
         """
         self.chrome_manager = ChromeManager()
         self.connection = PlaywrightConnection()
         self.cookie_manager = CookieManager() if auto_accept_cookies else None
         self.auto_accept_cookies = auto_accept_cookies
         self.user_data_dir = resolve_user_data_dir(user_data_dir)
+        self.debug_port = debug_port
         
         # Cgroup v2 resource limits
         self.use_cgroup = use_cgroup
@@ -544,11 +676,11 @@ class PlaywrightUtils:
         # For all other URLs, default to https
         return f'https://{url}'
     
-    def launch_chrome(self, debug_port: int = 9222) -> subprocess.Popen:
+    def launch_chrome(self, debug_port: Optional[int] = None) -> subprocess.Popen:
         """Launch Chrome with remote debugging and persistent data."""
         # Launch Chrome maximized with persistent user data directory and optional cgroup limits
         return self.chrome_manager.launch_chrome_with_remote_debugging(
-            debug_port, 
+            debug_port if debug_port is not None else self.debug_port,
             user_data_dir=self.user_data_dir,
             use_cgroup=self.use_cgroup,
             cpu_quota=self.cpu_quota,
@@ -556,11 +688,12 @@ class PlaywrightUtils:
             memory_high=self.memory_high
         )
     
-    def kill_chrome(self, chrome_process=None):
-        """Close Chrome instances gracefully."""
-        self.chrome_manager.close_chrome_gracefully(chrome_process=chrome_process)
-    
-    async def connect_to_chrome(self, cdp_url: str = 'http://localhost:9222', target_url: str = None):
+    def kill_chrome(self, chrome_process=None) -> bool:
+        """Terminate the browser on the debug port: the one we launched, or whatever we attached to.
+        Returns True once the port has no listener."""
+        return self.chrome_manager.shutdown_chrome(self.debug_port, chrome_process=chrome_process)
+
+    async def connect_to_chrome(self, cdp_url: Optional[str] = None, target_url: str = None):
         """
         Connect to Chrome via CDP with automatic cookie injection.
         
@@ -572,6 +705,8 @@ class PlaywrightUtils:
             Tuple of (playwright, browser, context, page)
         """
         # Connect with browser default viewport
+        if cdp_url is None:
+            cdp_url = f'http://localhost:{self.debug_port}'
         playwright, browser, context, page = await self.connection.connect_to_chrome(cdp_url)
         
         # Auto-inject cookies if enabled and target URL provided

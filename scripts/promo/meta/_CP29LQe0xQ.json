@@ -1,0 +1,21 @@
+{
+ "id": "_CP29LQe0xQ",
+ "title": "Map your app once, test it everywhere: navigation trees in VirtualPyTest",
+ "description": "Every screen becomes a node, every transition an edge. Map the app once and every test reuses the map: change a screen once, and every test that crosses it follows.\n\nIn this video, the YouTube web app mapped in the tree editor, a real device attached from inside the editor, and a single goto command that computes the path and performs the clicks on a real browser. The run ends in a report where every hop is a step with its timing, screenshots and the DOM it saw.\n\nWorks the same on set-top boxes, Android TV, phones and web apps.",
+ "tags": [
+  "virtualpytest",
+  "navigation tree",
+  "model based testing",
+  "test automation",
+  "ui automation",
+  "web testing",
+  "set-top box testing",
+  "android tv testing",
+  "goto",
+  "test report",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-27"
+}

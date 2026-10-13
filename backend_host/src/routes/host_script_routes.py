@@ -407,7 +407,7 @@ def abort_script():
         }), 400
 
     from shared.src.lib.executors.script_executor import abort_running_script
-    result = abort_running_script(device_id)
+    result = abort_running_script(device_id, task_id=data.get('task_id') or None)
 
     status_code = 200 if result.get('success') else 500
     return jsonify(result), status_code

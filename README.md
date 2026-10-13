@@ -90,6 +90,96 @@ It runs on Linux, Raspberry Pi, Docker, or the cloud, and targets set-top boxes,
       <a href="https://www.youtube.com/watch?v=xWZyBp7Npck"><b>QuickTest Builder</b></a><br>
       <sub>No code, just steps: press CH+, check the picture moves, run</sub>
     </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=hHnKrb9vIc0"><img src="frontend/public/readme/videos/12_2048.jpg" alt="Agentic AI on real devices" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=hHnKrb9vIc0"><b>Agentic AI on real devices</b></a><br>
+      <sub>2048 played by the same AI on a phone and in a browser, at the same time</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=YlOJau8WPqE"><img src="frontend/public/readme/videos/13_avq.jpg" alt="Audio Video Quality" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=YlOJau8WPqE"><b>Audio Video Quality</b></a><br>
+      <sub>A/V quality metrics collected for you 24/7, no scripts</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=hdcoyhftNEs"><img src="frontend/public/readme/videos/15_streams.jpg" alt="24 streams, one host" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=hdcoyhftNEs"><b>24 streams, one host</b></a><br>
+      <sub>HLS, RTSP or file streams monitored 24/7 before they reach a device</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=HF2Kuiw8zaE"><img src="frontend/public/readme/videos/16_atlas.jpg" alt="Ask your data" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=HF2Kuiw8zaE"><b>Ask your data</b></a><br>
+      <sub>Plain questions to Atlas, real charts from your test runs</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=RdMTfT4MjAM"><img src="frontend/public/readme/videos/11_campaign.jpg" alt="Create and run a campaign" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=RdMTfT4MjAM"><b>Create and run a campaign</b></a><br>
+      <sub>Pick the tests, save, run: one report for the whole campaign</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=sDkJ3U14mlE"><img src="frontend/public/readme/videos/14_ai_map.jpg" alt="Map an app automatically" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=sDkJ3U14mlE"><b>Map an app automatically</b></a><br>
+      <sub>Every screen of an Android app found and tested on a real phone</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=ehsC4x7_5KQ"><img src="frontend/public/readme/videos/17_test_prompt.jpg" alt="AI Test Prompting" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=ehsC4x7_5KQ"><b>AI Test Prompting</b></a><br>
+      <sub>Natural language to a test, save, replay without AI</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=x0ghHYXUFeI"><img src="frontend/public/readme/videos/18_virtual_script.jpg" alt="Write a script in the browser" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=x0ghHYXUFeI"><b>Write a script in the browser</b></a><br>
+      <sub>Paste a test, save it, run it on a real device</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=ujmCqAn-RvE"><img src="frontend/public/readme/videos/20_atlas_grafana.jpg" alt="Ask, get a Grafana dashboard" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=ujmCqAn-RvE"><b>Ask, get a Grafana dashboard</b></a><br>
+      <sub>One sentence to Atlas, a Grafana dashboard filtered to your device</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=pSYvpoRfTIM"><img src="frontend/public/readme/videos/19_mcp.jpg" alt="MCP Server to connect your AI Agent" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=pSYvpoRfTIM"><b>MCP Server to connect your AI Agent</b></a><br>
+      <sub>Claude Code drives a real device through VirtualPyTest's MCP server</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=IP7rehiSBo4"><img src="frontend/public/readme/videos/22_whats_new.jpg" alt="What's new in VirtualPyTest" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=IP7rehiSBo4"><b>What's new in VirtualPyTest</b></a><br>
+      <sub>A new look, EN/FR/DE, shareable reports, analytics</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=03jh3MMb6PM"><img src="frontend/public/readme/videos/21_subtitle_qa.jpg" alt="Automatic Subtitle Analysis" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=03jh3MMb6PM"><b>Automatic Subtitle Analysis</b></a><br>
+      <sub>Subtitles a device displays, checked against the source</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=qAm6YmmvU5g"><img src="frontend/public/readme/videos/23_fingerprint.jpg" alt="Localize with Fingerprint" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=qAm6YmmvU5g"><b>Localize with Fingerprint</b></a><br>
+      <sub>Which screen is it on? One click, no references to maintain</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=Dvd5CpA2SwU"><img src="frontend/public/readme/videos/24_switch_firetv.jpg" alt="Switch & Fire TV Vega OS" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=Dvd5CpA2SwU"><b>Switch & Fire TV Vega OS</b></a><br>
+      <sub>Now compatible: a Switch game console and Fire TV on Vega OS</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=Sj9kyKj98s8"><img src="frontend/public/readme/videos/25a_device_layouts.jpg" alt="Device view: 1 to 48 devices" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=Sj9kyKj98s8"><b>Device view: 1 to 48 devices</b></a><br>
+      <sub>Grid, side by side, 2×2 or one stream: the layout that fits</sub>
+    </td>
+    <td align="center" width="33%">
+      <a href="https://www.youtube.com/watch?v=Pt384v3ucDA"><img src="frontend/public/readme/videos/25b_group_control.jpg" alt="Group control" width="100%"></a><br>
+      <a href="https://www.youtube.com/watch?v=Pt384v3ucDA"><b>Group control</b></a><br>
+      <sub>One remote drives several devices at once</sub>
+    </td>
   </tr>
 </table>
 

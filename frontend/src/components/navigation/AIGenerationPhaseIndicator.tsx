@@ -7,6 +7,7 @@ import {
   CheckCircle as FinalizeIcon
 } from '@mui/icons-material';
 import type { ExplorationPhase } from '../../types/exploration';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface AIGenerationPhaseIndicatorProps {
   currentPhase: ExplorationPhase | null;
@@ -24,6 +25,7 @@ export const AIGenerationPhaseIndicator: React.FC<AIGenerationPhaseIndicatorProp
   currentPhase,
   strategy
 }) => {
+  const P = useAgentChatPalette();
   const getActiveStep = () => {
     if (!currentPhase) return -1;
     return phases.findIndex(p => p.id === currentPhase);
@@ -52,11 +54,12 @@ export const AIGenerationPhaseIndicator: React.FC<AIGenerationPhaseIndicatorProp
                       alignItems: 'center',
                       justifyContent: 'center',
                       bgcolor: isCompleted
-                        ? 'success.main'
+                        ? P.success
                         : isActive
-                        ? 'primary.main'
-                        : 'grey.300',
-                      color: 'white'
+                        ? P.accent
+                        : P.hoverBg,
+                      color: isActive || isCompleted ? 'primary.contrastText' : P.textSecondary,
+                      border: `1px solid ${isActive ? P.accent : P.borderColor}`,
                     }}
                   >
                     <Icon fontSize="small" />

@@ -161,7 +161,6 @@ def execute_navigation(tree_id):
         'target_node_id': target_node_id,
         'target_node_label': target_node_label,
         'device_id': device_id,
-        'current_node_id': current_node_id,
         'image_source_url': image_source_url,
         'host_name': host_name,
         'userinterface_name': userinterface_name,
@@ -169,6 +168,11 @@ def execute_navigation(tree_id):
         'is_test': is_test,
         'verification_mode': verification_mode,
     }
+    # The host reads the KEY, not the value: a present key (even null) means "the caller says
+    # where the device is" and wipes the tracked position, so the run restarts from the entry
+    # edge (relaunch + waits). Forward it only when the caller sent it (BUG-0411).
+    if 'current_node_id' in data:
+        execution_payload['current_node_id'] = current_node_id
     
     # Pass team_id as query parameter to host
     query_params = {}
@@ -177,7 +181,7 @@ def execute_navigation(tree_id):
     
     # Navigation always uses web actions (Playwright) - execute synchronously
     # Use longer timeout for sync execution (navigation can take time with waits)
-    print(f"[@route:navigation_execution:execute_navigation] Using 120s timeout for synchronous navigation execution")
+    print(f"[@route:navigation_execution:execute_navigation] Starting host navigation (the host answers with an execution_id; poll /execution/<id>/status)")
     timeout = 120  # Navigation can be long with multiple edges + wait times
     
     response_data, status_code = proxy_to_host_with_params(f'/host/navigation/execute/{tree_id}', 'POST', execution_payload, query_params, timeout=timeout)
@@ -324,6 +328,7 @@ def batch_execute_navigation():
     {
         "host": {"host_name": "...", "device_model": "...", ...},
         "device_id": "optional_device_id",
+        "userinterface_name": "required",
         "team_id": "optional_team_id",
         "navigations": [
             {
@@ -345,8 +350,15 @@ def batch_execute_navigation():
     device_id = data.get('device_id')
     team_id = request.args.get('team_id')
     navigations = data.get('navigations', [])
+    userinterface_name = data.get('userinterface_name')
     
     # Validate required parameters
+    if not userinterface_name:
+        return jsonify({
+            'success': False,
+            'error': 'userinterface_name is required'
+        }), 400
+
     if not host_name:
         return jsonify({
             'success': False,

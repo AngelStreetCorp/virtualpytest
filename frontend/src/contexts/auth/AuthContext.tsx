@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase, signOutAllIdentities } from '../../lib/supabase';
 import { clearServerIdentities } from '../../lib/serverIdentity';
-import { UserProfile } from '../../types/auth';
+import { Permission, UserProfile } from '../../types/auth';
 import { clearAutoSignSession, tryActivateAutoSign } from '../../lib/autoSign';
 import {
   profileCacheKey,
@@ -26,6 +26,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// How long the first session resolution may take before the app gives up and shows login.
+const AUTH_INIT_FALLBACK_MS = 35_000;
+
 export const useAuthContext = () => {
   const context = useContext(AuthContext);
   if (!context) {
@@ -36,6 +39,19 @@ export const useAuthContext = () => {
 
 interface AuthProviderProps {
   children: React.ReactNode;
+}
+
+// The team permission ceiling (TASK-31) exactly as the server enforces it: the `team_ceiling`
+// claim the database writes into the session's app_metadata. null = no limit, also for a
+// session minted before the claim existed.
+async function teamCeilingFromSession(): Promise<Permission[] | null> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const claim = (data.session?.user?.app_metadata as { team_ceiling?: unknown } | undefined)?.team_ceiling;
+    return Array.isArray(claim) ? (claim as Permission[]) : null;
+  } catch {
+    return null;
+  }
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
@@ -90,30 +106,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
       if (!data) return null;
 
-      // Fetch team permissions (union of all teams the user belongs to)
-      const teamPermissions: string[] = [];
-      try {
-        const { data: memberships } = await supabase
-          .from('team_members')
-          .select('teams(permissions)')
-          .eq('user_id', userId);
-        if (memberships) {
-          const seen = new Set<string>();
-          for (const m of memberships) {
-            const perms: string[] = (m as { teams?: { permissions?: string[] } }).teams?.permissions ?? [];
-            for (const p of perms) {
-              if (!seen.has(p)) { seen.add(p); teamPermissions.push(p); }
-            }
-          }
-        }
-      } catch {
-        // Non-fatal — team permissions just won't be applied
-      }
+      const teamCeiling = await teamCeilingFromSession();
 
       const profile: UserProfile = {
         ...data,
         denied_permissions: data.denied_permissions ?? [],
-        team_permissions: teamPermissions,
+        team_ceiling: teamCeiling,
       } as UserProfile;
 
       // Update cache
@@ -146,7 +144,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           role: 'admin',
           permissions: [],
           denied_permissions: [],
-          team_permissions: [],
+          team_ceiling: null,
           created_at: now,
           updated_at: now,
         });
@@ -157,13 +155,18 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       };
     }
 
-    // Safety timeout - clear loading if auth completely fails
+    // Last-resort fallback only (BUG-0392). getSession() refreshes an expired access token
+    // over the network and waits on supabase-js's storage lock, which every request that
+    // starts on page load (server discovery, one hosts fetch per selected server) also takes.
+    // The former 3 s cut-off fired while that was still running and ended loading with no
+    // user: ProtectedRoute redirected the reload to /login although the session was valid.
+    // Wait past supabase-js's refresh retry window (~30 s) before giving up.
     const timeout = setTimeout(() => {
-      if (mounted && isLoading && !initialLoadHandled) {
+      if (mounted && !initialLoadHandled) {
         console.warn('[@AuthContext] Auth initialization timeout - clearing loading state');
         setIsLoading(false);
       }
-    }, 3000); // 3 second timeout as fallback
+    }, AUTH_INIT_FALLBACK_MS);
 
     const initAuth = async () => {
       try {
@@ -385,7 +388,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           const refreshed: UserProfile = {
             ...data,
             denied_permissions: data.denied_permissions ?? [],
-            team_permissions: [],
+            team_ceiling: await teamCeilingFromSession(),
           } as UserProfile;
           localStorage.setItem(profileCacheKey(user.id), JSON.stringify(refreshed));
           setProfile(refreshed);

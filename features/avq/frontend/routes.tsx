@@ -3,9 +3,9 @@
  * Imported by the vpt-features Vite plugin only when the feature is enabled.
  */
 import React from 'react';
-import { QueryStats as QualityIcon } from '@mui/icons-material';
 
 import type { FeatureDefinition } from '../../../frontend/src/config/features';
+import { AvqActivityIcon as QualityIcon } from '../../../frontend/src/components/common/icons/CustomIcons';
 
 const AVQDevicePage = React.lazy(() => import('./AVQDevicePage'));
 
@@ -17,7 +17,7 @@ const feature: FeatureDefinition = {
   deviceLinks: [
     {
       label: 'Audio/Video Quality',
-      icon: <QualityIcon sx={{ fontSize: 15 }} />,
+      icon: <QualityIcon fontSize="medium" />,
       path: avqDevicePath,
     },
   ],

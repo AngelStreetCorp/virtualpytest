@@ -18,6 +18,7 @@ import {
   PlayArrow as InProgressIcon
 } from '@mui/icons-material';
 import type { ExplorationContext } from '../../types/exploration';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface Phase2IncrementalViewProps {
   context: ExplorationContext | null;
@@ -32,6 +33,8 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
   selectedNodes = new Set(),
   onToggleNode
 }) => {
+  const P = useAgentChatPalette();
+
   if (!context) {
     return (
       <Box sx={{ p: 2 }}>
@@ -70,7 +73,7 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
       )}
 
       {/* Items List */}
-      <Paper variant="outlined" sx={{ maxHeight: 300, overflow: 'auto', border: '1px solid white' }}>
+      <Paper variant="outlined" sx={{ maxHeight: 300, overflow: 'auto', border: `1px solid ${P.borderColor}` }}>
         <List dense>
           {predicted_items.map((item, index) => {
             const isCompleted = completed_items.includes(item);
@@ -78,51 +81,53 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
             const isCurrent = index === current_step && !isCompleted && !isFailed;
             const isSelected = selectedNodes.has(item);
 
-            let icon = <PendingIcon color="disabled" />;
-            let statusChip = <Chip 
-              label="Pending" 
-              size="small" 
+            let icon = <PendingIcon sx={{ color: P.textMuted }} />;
+            let statusChip = <Chip
+              label="Pending"
+              size="small"
               variant="outlined"
               onClick={() => onToggleNode?.(item)}
-              sx={{ 
+              sx={{
                 cursor: 'pointer',
-                bgcolor: isSelected ? 'primary.dark' : 'grey.800',
+                bgcolor: isSelected ? P.hoverBg : P.surface,
+                color: P.textSecondary,
+                borderColor: P.borderColor,
                 opacity: isSelected ? 1 : 0.5
               }}
             />;
 
             if (isCompleted) {
-              icon = <SuccessIcon color="success" />;
-              statusChip = <Chip 
-                label="✓ Tested" 
-                size="small" 
+              icon = <SuccessIcon sx={{ color: P.success }} />;
+              statusChip = <Chip
+                label="✓ Tested"
+                size="small"
                 color="success"
                 onClick={() => onToggleNode?.(item)}
-                sx={{ 
+                sx={{
                   cursor: 'pointer',
                   opacity: isSelected ? 1 : 0.5
                 }}
               />;
             } else if (isFailed) {
-              icon = <ErrorIcon color="error" />;
-              statusChip = <Chip 
-                label="Failed" 
-                size="small" 
+              icon = <ErrorIcon sx={{ color: P.error }} />;
+              statusChip = <Chip
+                label="Failed"
+                size="small"
                 color="error"
                 onClick={() => onToggleNode?.(item)}
-                sx={{ 
+                sx={{
                   cursor: 'pointer',
                   opacity: isSelected ? 1 : 0.5
                 }}
               />;
             } else if (isCurrent) {
-              icon = <InProgressIcon color="primary" />;
-              statusChip = <Chip 
-                label="Testing..." 
-                size="small" 
+              icon = <InProgressIcon sx={{ color: P.accentText }} />;
+              statusChip = <Chip
+                label="Testing..."
+                size="small"
                 color="primary"
                 onClick={() => onToggleNode?.(item)}
-                sx={{ 
+                sx={{
                   cursor: 'pointer',
                   opacity: isSelected ? 1 : 0.5
                 }}
@@ -133,9 +138,9 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
               <ListItem
                 key={item}
                 sx={{
-                  bgcolor: isCurrent ? 'action.hover' : 'transparent',
+                  bgcolor: isCurrent ? P.hoverBg : 'transparent',
                   borderLeft: isCurrent ? 3 : 0,
-                  borderColor: 'primary.main'
+                  borderColor: P.accent,
                 }}
               >
                 <ListItemIcon sx={{ minWidth: 40 }}>{icon}</ListItemIcon>
@@ -143,7 +148,7 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
                   primary={item}
                   primaryTypographyProps={{
                     fontWeight: isCurrent ? 'bold' : 'normal',
-                    color: isCompleted ? 'success.main' : isFailed ? 'error.main' : 'text.primary'
+                    color: isCompleted ? P.success : isFailed ? P.error : 'text.primary'
                   }}
                 />
                 {statusChip}
@@ -155,7 +160,7 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
 
       {/* Sub-steps (for current item) */}
       {current_step < total_steps && !error && (
-        <Box sx={{ mt: 2, p: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+        <Box sx={{ mt: 2, p: 2, bgcolor: P.hoverBg, borderRadius: 1 }}>
           <Typography variant="caption" color="text.secondary" display="block">
             Current item steps:
           </Typography>
@@ -170,4 +175,3 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
     </Box>
   );
 };
-

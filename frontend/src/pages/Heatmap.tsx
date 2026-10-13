@@ -1,20 +1,16 @@
-import {
-  GridView as HeatmapIcon,
-  OpenInNew,
-  GridView,
-} from '@mui/icons-material';
+import { GridView, SkipNext } from '@mui/icons-material';
 import {
   Box,
   Typography,
+  Button,
   Card,
   CardContent,
   Alert as MuiAlert,
-  Tooltip,
-  IconButton,
-  Select,
-  MenuItem,
-  FormControl,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PageTitle, StatTiles, goldButtonSx, pageSurfaceSx, segmentedSx } from '../components/common/PageChrome';
 import React, { useState, useRef } from 'react';
 
 import { HeatMapAnalysisSection } from '../components/heatmap/HeatMapAnalysisSection';
@@ -29,6 +25,7 @@ import { useHostData } from '../hooks/useHostManager';
 import { Host, Device } from '../types/common/Host_Types';
 
 const HeatmapContent: React.FC = () => {
+  const P = useAgentChatPalette();
   const { isMobile, isTablet } = useResponsiveMode();
   const historyRef = useRef<HeatMapHistoryRef>(null);
   const {
@@ -42,7 +39,8 @@ const HeatmapContent: React.FC = () => {
     hasDataError,
     generateReport,
     getMosaicUrl,
-    getFilteredDevices
+    getFilteredDevices,
+    isWorkspaceMode
   } = useHeatmap();
 
   // Access to real host/device data
@@ -52,7 +50,9 @@ const HeatmapContent: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [analysisExpanded, setAnalysisExpanded] = useState(!(isMobile || isTablet));
   const [isGeneratingReport, setIsGeneratingReport] = useState(false);
-  const [filter, setFilter] = useState<'ALL' | 'OK' | 'KO'>('ALL');
+  const [selectedFilter, setSelectedFilter] = useState<'ALL' | 'OK' | 'KO'>('ALL');
+  // A workspace has no OK/KO mosaics (only ALL), so the filter is forced to ALL there
+  const filter = isWorkspaceMode ? 'ALL' : selectedFilter;
   
   // Stream modal state
   const [streamModalOpen, setStreamModalOpen] = useState(false);
@@ -61,6 +61,9 @@ const HeatmapContent: React.FC = () => {
   // The loader can fall back a few minutes, so the header names the frame on screen.
   const displayedItem = loadedItem || (hasDataError ? null : timeline[currentIndex]);
   const filteredDevices = getFilteredDevices(analysisData?.devices || [], filter);
+  const allDevices: any[] = analysisData?.devices || [];
+  const activeDevices = allDevices.filter((d: any) => d.image_url).length;
+  const missingDevices = allDevices.length - activeDevices;
   const hasAnalysisRows = filteredDevices.some((device: any) => device.analysis_json && typeof device.analysis_json === 'object');
 
   // Handle overlay click to open stream modal
@@ -118,7 +121,7 @@ const HeatmapContent: React.FC = () => {
   };
 
   return (
-    <Box>
+    <Box sx={pageSurfaceSx(P)}>
       {error && (
         <MuiAlert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
           {error}
@@ -138,75 +141,60 @@ const HeatmapContent: React.FC = () => {
         </MuiAlert>
       )}
 
-      {/* Header */}
-      <Box sx={{ mb: 1.5 }}>
-        <Card>
-          <CardContent sx={{ py: 1 }}>
-            <Box display="flex" alignItems={isMobile ? 'stretch' : 'center'} justifyContent="space-between" flexDirection={isMobile ? 'column' : 'row'} gap={isMobile ? 1 : isTablet ? 1 : 0}>
-              <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
-                <HeatmapIcon color="primary" />
-                <Typography variant={isMobile ? 'subtitle1' : 'h6'}>24h Heatmap</Typography>
-                {displayedItem && (
-                  <Typography variant="body2" sx={{ ml: isMobile ? 0 : 1, color: 'text.primary' }}>
-                    {displayedItem.isToday ? 'Today' : 'Yesterday'} {displayedItem.displayTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
-                  </Typography>
-                )}
-                {!isMobile && (
-                  <Typography variant="body2" sx={{ ml: 1, color: 'text.secondary' }}>
-                    Frame {currentIndex + 1} / {timeline.length}
-                  </Typography>
-                )}
-                {hasIncidents() && !isMobile && (
-                  <Typography variant="body2" sx={{ ml: 1, color: 'error.main', fontWeight: 'bold' }}>
-                    Incidents Detected
-                  </Typography>
-                )}
-              </Box>
-
-              <Box display="flex" alignItems="center" gap={isMobile ? 1 : isTablet ? 2 : 4} flexWrap="wrap">
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Devices</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {analysisData?.hosts_count || 0}
-                  </Typography>
-                </Box>
-                
-                <FormControl size="small" sx={{ minWidth: isMobile ? 0 : 80, width: isMobile ? 120 : 'auto' }}>
-                  <Select
-                    value={filter}
-                    onChange={(e) => setFilter(e.target.value as 'ALL' | 'OK' | 'KO')}
-                    sx={{ fontSize: '0.75rem', height: '24px' }}
-                  >
-                    <MenuItem value="ALL">ALL</MenuItem>
-                    <MenuItem value="OK">OK</MenuItem>
-                    <MenuItem value="KO">KO</MenuItem>
-                  </Select>
-                </FormControl>
-
-                {/* Go to Latest Button */}
-                <Tooltip title="Go to Latest">
-                  <IconButton size="small" onClick={goToLatest}>
-                    <OpenInNew />
-                  </IconButton>
-                </Tooltip>
-                
-                {/* Generate Report Button */}
-                <Tooltip title="Generate Report for Current Frame">
-                  <span>
-                    <IconButton 
-                      size="small" 
-                      onClick={handleGenerateReport}
-                      disabled={isGeneratingReport || !analysisData || !timeline[currentIndex]}
-                    >
-                      <GridView />
-                    </IconButton>
-                  </span>
-                </Tooltip>
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-      </Box>
+      {/* Header: title + filter + actions, then stat tiles */}
+      <PageTitle
+        title="24h Heatmap"
+        subtitle={
+          displayedItem
+            ? `One frame per minute for the last 24 hours · showing ${displayedItem.isToday ? 'Today' : 'Yesterday'} ${displayedItem.displayTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}`
+            : 'One frame per minute for the last 24 hours'
+        }
+        right={
+          <>
+            {!isWorkspaceMode && (
+              <ToggleButtonGroup
+                size="small"
+                exclusive
+                value={filter}
+                onChange={(_e, v) => v && setSelectedFilter(v as 'ALL' | 'OK' | 'KO')}
+                sx={segmentedSx(P, 'sm')}
+              >
+                <ToggleButton value="ALL">All</ToggleButton>
+                <ToggleButton value="OK">OK</ToggleButton>
+                <ToggleButton value="KO">KO</ToggleButton>
+              </ToggleButtonGroup>
+            )}
+            <Button variant="outlined" size="small" startIcon={<SkipNext />} onClick={goToLatest} sx={{ whiteSpace: 'nowrap', flexShrink: 0 }}>
+              Latest
+            </Button>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<GridView />}
+              onClick={handleGenerateReport}
+              disabled={isGeneratingReport || !analysisData || !timeline[currentIndex]}
+              sx={{ ...goldButtonSx(P), whiteSpace: 'nowrap', flexShrink: 0 }}
+            >
+              Generate report
+            </Button>
+          </>
+        }
+      />
+      <StatTiles
+        tiles={[
+          { label: 'Devices', value: allDevices.length || analysisData?.hosts_count || 0 },
+          { label: 'Active', value: activeDevices, color: P.success },
+          { label: 'Missing', value: missingDevices, color: missingDevices ? P.warning : undefined },
+          {
+            label: 'Incidents',
+            value: analysisData?.incidents_count || 0,
+            color: analysisData?.incidents_count ? P.error : P.success,
+            onClick: isWorkspaceMode || !hasIncidents() ? undefined : () => setSelectedFilter(filter === 'KO' ? 'ALL' : 'KO'),
+            active: filter === 'KO',
+            title: isWorkspaceMode ? undefined : filter === 'KO' ? 'Show all devices' : 'Show only KO devices',
+          },
+        ]}
+      />
 
       {/* Mosaic Player */}
       <Box sx={{ mb: 3 }}>

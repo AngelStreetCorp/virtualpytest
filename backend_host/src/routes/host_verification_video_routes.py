@@ -283,7 +283,7 @@ def analyze_image_ai():
     
     # Execute AI image analysis
     start_time = time.time()
-    result = video_controller.analyze_image_ai(final_image_path, user_query)
+    result = video_controller.analyze_image_ai(final_image_path, user_query, team_id=data.get('team_id'))
     execution_time = int((time.time() - start_time) * 1000)
     
     # Add execution time to result
@@ -324,7 +324,8 @@ def analyze_image_complete():
     
     # Execute combined AI analysis
     start_time = time.time()
-    result = video_controller.analyze_image_complete(final_image_path, extract_text, include_description)
+    result = video_controller.analyze_image_complete(final_image_path, extract_text, include_description,
+                                                     team_id=data.get('team_id'))
     execution_time = int((time.time() - start_time) * 1000)
     
     # Add execution time to result
@@ -365,7 +366,7 @@ def analyze_language_menu():
     
     # Execute AI language menu analysis
     start_time = time.time()
-    result = video_controller.analyze_language_menu_ai(final_image_path)
+    result = video_controller.analyze_language_menu_ai(final_image_path, team_id=data.get('team_id'))
     execution_time = int((time.time() - start_time) * 1000)
     
     # Add execution time to result

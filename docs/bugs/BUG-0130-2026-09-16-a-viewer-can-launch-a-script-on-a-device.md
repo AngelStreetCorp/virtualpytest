@@ -50,7 +50,7 @@ assertion `status_code == 403` failed for a reason unrelated to permissions.
 ## Fix
 
 - `@require_permission('execution.run:run_test')` on `/server/script/execute`. Admin and the
-  shared service principal bypass the check inside the decorator, so host callbacks, dmacp and
+  shared service principal bypass the check inside the decorator, so host callbacks, idp and
   MCP are unaffected; `tester` holds the permission by default.
 - The test now sends a complete payload, so a 403 means "denied", not "missing field".
 - `_get_host_name` reads `/server/system/getAllHosts` and prefers VirtualPyTest's own device

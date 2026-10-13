@@ -29,8 +29,8 @@ import {
   Error as ErrorIcon,
   OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
-import { useTheme } from '@mui/material/styles';
-import { AGENT_CHAT_PALETTE as PALETTE } from '../../constants/agentChatTheme';
+import { AGENT_CHAT_PALETTE as PALETTE, useAgentChatPalette } from '../../constants/agentChatTheme';
+import { AnalyticsArtifactSpec, AnalyticsArtifactViewer } from './AnalyticsArtifactViewer';
 
 // Real viewer components
 import { NavigationTreeViewer } from './NavigationTreeViewer';
@@ -75,8 +75,9 @@ export interface ContentData {
   stream_urls?: string[];
 
   // Report/Chart
-  chart_type?: 'bar' | 'line' | 'pie' | 'area';
+  chart_type?: 'bar' | 'stacked-bar' | 'line' | 'pie' | 'area' | 'radar' | 'scatter' | 'heatmap' | 'stat' | 'state-timeline' | 'table' | 'canvas';
   chart_data?: any;
+  artifact_spec?: AnalyticsArtifactSpec;
 
   // Data table
   columns?: { field: string; header: string }[];
@@ -86,7 +87,15 @@ export interface ContentData {
   log_entries?: { timestamp: string; level: string; message: string }[];
 }
 
-export type ContentTab = 'navigation' | 'testcase' | 'campaign' | 'device-preview' | 'heatmap' | 'alerts';
+export type ContentTab = 'navigation' | 'testcase' | 'campaign' | 'device-preview' | 'heatmap' | 'alerts' | 'analytics';
+
+/** The last chart/table Atlas produced; kept apart so switching tabs never drops it. */
+export interface AnalyticsContent {
+  title?: string;
+  data: ContentData;
+  /** User-message index of the agent turn that produced it (merging key, see analyticsMerge.ts). */
+  turn?: number;
+}
 
 interface ContentViewerProps {
   contentType: ContentType | null;
@@ -101,6 +110,7 @@ interface ContentViewerProps {
   selectedTestCase?: string;
   selectedCampaign?: string;
   selectedDevices?: string[];
+  analyticsContent?: AnalyticsContent | null;
   // Fullscreen support
   isFullscreen?: boolean;
   onFullscreenChange?: (fullscreen: boolean) => void;
@@ -144,11 +154,11 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
   selectedTestCase,
   selectedCampaign,
   selectedDevices,
+  analyticsContent,
   isFullscreen = false,
   onFullscreenChange,
 }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
+  const P = useAgentChatPalette();
 
   // Get hosts and devices for REC preview
   const { getAllHosts, getDevicesFromHost } = useHostData();
@@ -240,7 +250,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
       case 'report-chart':
         return <ReportChartContent data={contentData} />;
       case 'data-table':
-        return <DataTableContent data={contentData} />;
+        return contentData?.artifact_spec ? <ReportChartContent data={contentData} /> : <DataTableContent data={contentData} />;
       case 'execution-log':
         return <ExecutionLogContent data={contentData} />;
       default:
@@ -337,6 +347,8 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
             <AlertsViewer />
           </Box>
         );
+      } else if (activeTab === 'analytics' && analyticsContent) {
+        return <ReportChartContent data={analyticsContent.data} />;
       } else {
         // No valid selection for active tab
         return (
@@ -368,6 +380,13 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 <TestCaseIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Select a Campaign to view flow
+                </Typography>
+              </>
+            ) : activeTab === 'analytics' ? (
+              <>
+                <ChartIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <Typography variant="body1" color="text.secondary">
+                  Ask Atlas for a chart or table
                 </Typography>
               </>
             ) : activeTab === 'device-preview' ? (
@@ -423,9 +442,9 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
         height: '100%',
         display: 'flex',
         flexDirection: 'column',
-        bgcolor: isDarkMode ? PALETTE.sidebarBg : 'grey.50',
+        bgcolor: P.background,
         borderBottom: '1px solid',
-        borderColor: isDarkMode ? PALETTE.borderColor : 'grey.200',
+        borderColor: P.borderColor,
         overflow: 'hidden',
       }}
     >
@@ -437,8 +456,8 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
           justifyContent: 'space-between',
           px: 1,
           borderBottom: '1px solid',
-          borderColor: isDarkMode ? PALETTE.borderColor : 'grey.200',
-          bgcolor: isDarkMode ? PALETTE.surface : '#fff',
+          borderColor: P.borderColor,
+          bgcolor: P.surface,
           minHeight: 44,
         }}
       >
@@ -617,6 +636,22 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 pointerEvents: 'auto',
               }}
             />
+            {analyticsContent && (
+              <Tab
+                value="analytics"
+                label={analyticsContent.title || 'Analytics'}
+                sx={{
+                  minHeight: 42,
+                  py: 1,
+                  px: 2,
+                  textTransform: 'none',
+                  fontSize: '0.85rem',
+                  fontWeight: activeTab === 'analytics' ? 600 : 400,
+                  color: activeTab === 'analytics' ? 'text.primary' : 'text.secondary',
+                  maxWidth: 260,
+                }}
+              />
+            )}
           </Tabs>
         ) : (
           /* Simple header when showing AI-triggered content */
@@ -631,8 +666,8 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
               sx={{
                 height: 20,
                 fontSize: '0.7rem',
-                bgcolor: isDarkMode ? 'rgba(99, 102, 241, 0.2)' : 'rgba(99, 102, 241, 0.1)',
-                color: PALETTE.accent,
+                bgcolor: `${P.accent}1f`,
+                color: P.accentText,
               }}
             />
           </Box>
@@ -643,8 +678,8 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
             size="small"
             onClick={() => onFullscreenChange?.(!isFullscreen)}
             sx={{
-              color: 'text.secondary',
-              '&:hover': { color: PALETTE.accent },
+              color: P.textSecondary,
+              '&:hover': { color: P.accentText },
             }}
           >
             {isFullscreen ? <FullscreenExitIcon fontSize="small" /> : <FullscreenIcon fontSize="small" />}
@@ -652,9 +687,9 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
           <IconButton
             size="small"
             onClick={onClose}
-            sx={{ 
-              color: 'text.secondary',
-              '&:hover': { color: 'error.main' },
+            sx={{
+              color: P.textSecondary,
+              '&:hover': { color: P.error },
             }}
           >
             <CloseIcon fontSize="small" />
@@ -768,6 +803,7 @@ const AlertsContent: React.FC<{ data: ContentData | null }> = () => {
 
 // REC Preview Content - Uses DeviceStreamGrid for actual stream display
 const RecPreviewContent: React.FC<{ data: ContentData | null, allHosts: any[], getDevicesFromHost: (hostName: string) => any[] }> = ({ data, allHosts, getDevicesFromHost }) => {
+  const P = useAgentChatPalette();
   // Convert device_ids to DeviceStreamGrid format
   const devices = (data?.device_ids || []).map(deviceId => {
     const [hostName, deviceId_part] = deviceId.split(':');
@@ -786,7 +822,7 @@ const RecPreviewContent: React.FC<{ data: ContentData | null, allHosts: any[], g
         p: 4,
         bgcolor: '#000',
       }}>
-        <StreamIcon sx={{ fontSize: 64, color: 'grey.600', opacity: 0.3 }} />
+        <StreamIcon sx={{ fontSize: 64, color: P.textMuted, opacity: 0.3 }} />
         <Typography variant="body1" color="grey.500">
           No devices specified
         </Typography>
@@ -810,56 +846,33 @@ const RecPreviewContent: React.FC<{ data: ContentData | null, allHosts: any[], g
   );
 };
 
-// Report Chart Content (placeholder - will integrate charting library)
 const ReportChartContent: React.FC<{ data: ContentData | null }> = ({ data }) => {
-  return (
-    <Box sx={{ 
-      flex: 1, 
-      display: 'flex', 
-      alignItems: 'center', 
-      justifyContent: 'center',
-      flexDirection: 'column',
-      gap: 2,
-      p: 4,
-    }}>
-      <ChartIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
-      <Typography variant="body1" color="text.secondary">
-        Report Chart Viewer
-      </Typography>
-      {data?.chart_type && (
-        <Chip label={`Type: ${data.chart_type}`} size="small" variant="outlined" />
-      )}
-      <Typography variant="caption" color="text.disabled" sx={{ mt: 2, maxWidth: 400, textAlign: 'center' }}>
-        Chart integration coming soon. This will display test results and metrics.
-      </Typography>
-    </Box>
-  );
+  return <AnalyticsArtifactViewer spec={data?.artifact_spec} chartType={data?.chart_type} chartData={data?.chart_data} />;
 };
 
 // Data Table Content (placeholder - will integrate DataGrid)
 const DataTableContent: React.FC<{ data: ContentData | null }> = ({ data }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
-  
+  const P = useAgentChatPalette();
+
   // Simple table rendering if data is provided
   if (data?.columns && data?.rows && data.rows.length > 0) {
     return (
       <Box sx={{ p: 2, overflow: 'auto' }}>
-        <table style={{ 
-          width: '100%', 
+        <table style={{
+          width: '100%',
           borderCollapse: 'collapse',
           fontSize: '0.85rem',
         }}>
           <thead>
-            <tr style={{ 
-              borderBottom: `2px solid ${isDarkMode ? PALETTE.borderColor : '#e0e0e0'}`,
+            <tr style={{
+              borderBottom: `2px solid ${P.borderColor}`,
             }}>
               {data.columns.map((col, i) => (
-                <th key={i} style={{ 
-                  padding: '8px 12px', 
+                <th key={i} style={{
+                  padding: '8px 12px',
                   textAlign: 'left',
                   fontWeight: 600,
-                  color: isDarkMode ? '#fff' : '#333',
+                  color: P.textPrimary,
                 }}>
                   {col.header}
                 </th>
@@ -868,16 +881,16 @@ const DataTableContent: React.FC<{ data: ContentData | null }> = ({ data }) => {
           </thead>
           <tbody>
             {data.rows.map((row, rowIndex) => (
-              <tr 
+              <tr
                 key={rowIndex}
-                style={{ 
-                  borderBottom: `1px solid ${isDarkMode ? PALETTE.borderColor : '#e0e0e0'}`,
+                style={{
+                  borderBottom: `1px solid ${P.borderColor}`,
                 }}
               >
                 {data.columns!.map((col, colIndex) => (
-                  <td key={colIndex} style={{ 
+                  <td key={colIndex} style={{
                     padding: '8px 12px',
-                    color: isDarkMode ? '#ccc' : '#666',
+                    color: P.textSecondary,
                   }}>
                     {row[col.field] ?? '-'}
                   </td>
@@ -913,34 +926,33 @@ const DataTableContent: React.FC<{ data: ContentData | null }> = ({ data }) => {
 
 // Execution Log Content
 const ExecutionLogContent: React.FC<{ data: ContentData | null }> = ({ data }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
-  
+  const P = useAgentChatPalette();
+
   if (data?.log_entries && data.log_entries.length > 0) {
     return (
-      <Box sx={{ 
-        p: 1, 
-        fontFamily: 'monospace', 
+      <Box sx={{
+        p: 1,
+        fontFamily: 'monospace',
         fontSize: '0.75rem',
         overflow: 'auto',
-        bgcolor: isDarkMode ? '#1a1a1a' : '#f5f5f5',
+        bgcolor: P.background,
       }}>
         {data.log_entries.map((entry, i) => (
-          <Box 
+          <Box
             key={i}
-            sx={{ 
+            sx={{
               py: 0.5,
               px: 1,
               display: 'flex',
               gap: 1,
               borderBottom: '1px solid',
-              borderColor: isDarkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+              borderColor: P.borderColor,
             }}
           >
-            <Typography 
-              component="span" 
-              sx={{ 
-                color: 'text.disabled',
+            <Typography
+              component="span"
+              sx={{
+                color: P.textMuted,
                 fontSize: 'inherit',
                 fontFamily: 'inherit',
                 minWidth: 80,
@@ -948,13 +960,13 @@ const ExecutionLogContent: React.FC<{ data: ContentData | null }> = ({ data }) =
             >
               {entry.timestamp}
             </Typography>
-            <Typography 
-              component="span" 
-              sx={{ 
-                color: entry.level === 'error' ? 'error.main' 
-                  : entry.level === 'warn' ? 'warning.main' 
-                  : entry.level === 'success' ? 'success.main'
-                  : 'text.secondary',
+            <Typography
+              component="span"
+              sx={{
+                color: entry.level === 'error' ? P.error
+                  : entry.level === 'warn' ? P.warning
+                  : entry.level === 'success' ? P.success
+                  : P.textSecondary,
                 fontSize: 'inherit',
                 fontFamily: 'inherit',
                 minWidth: 50,
@@ -963,10 +975,10 @@ const ExecutionLogContent: React.FC<{ data: ContentData | null }> = ({ data }) =
             >
               [{entry.level}]
             </Typography>
-            <Typography 
-              component="span" 
-              sx={{ 
-                color: isDarkMode ? '#e0e0e0' : '#333',
+            <Typography
+              component="span"
+              sx={{
+                color: P.textPrimary,
                 fontSize: 'inherit',
                 fontFamily: 'inherit',
                 flex: 1,
@@ -1002,4 +1014,3 @@ const ExecutionLogContent: React.FC<{ data: ContentData | null }> = ({ data }) =
 };
 
 export default ContentViewer;
-

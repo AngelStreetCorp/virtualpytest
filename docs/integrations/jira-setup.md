@@ -108,12 +108,13 @@ POST /server/integrations/jira/:id/test
 
 ## Configuration File
 
-Instances are stored in:
+Instances are stored in `jira_instances.json` under `~/.config/virtualpytest/` of the user the server runs as (`vpt_user`), or `$VPT_CONFIG_DIR`:
 ```
-backend_server/config/integrations/jira_instances.json
+~/.config/virtualpytest/jira_instances.json
 ```
 
-**Warning**: Do not commit this file if it contains API tokens!
+It lives outside the project tree so a deploy (`rsync --delete`) cannot wipe it. It holds API
+tokens — never copy it into the repository.
 
 ## Future Enhancements
 

@@ -33,7 +33,12 @@ import io
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import re
+
 from shared.src.lib.utils.cloudflare_utils import get_cloudflare_utils
+
+# Workspace ids become storage keys: strict UUID only
+_WORKSPACE_ID_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
 
 
 def _ascii_safe(text: object) -> str:
@@ -216,14 +221,17 @@ class HeatmapProcessor:
             # Create complete device list with placeholders for missing captures
             complete_device_list = self.create_complete_device_list(hosts_devices, current_captures)
             
+            # Download every frame ONCE; ALL/OK/KO and workspace mosaics all reuse these cells
+            cells = self.prepare_cells(complete_device_list)
+
             # Create mosaic image (always full grid)
-            mosaic_image = self.create_mosaic_image(complete_device_list)
+            mosaic_image = self.compose_mosaic(complete_device_list, cells)
             
             # Create OK and KO mosaics - OPTIMIZED: single pass filtering
             ok_devices, ko_devices = self.filter_devices_by_status(complete_device_list)
             
-            ko_mosaic_image = self.create_mosaic_image(ko_devices) if ko_devices else None
-            ok_mosaic_image = self.create_mosaic_image(ok_devices) if ok_devices else None
+            ko_mosaic_image = self.compose_mosaic(ko_devices, cells) if ko_devices else None
+            ok_mosaic_image = self.compose_mosaic(ok_devices, cells) if ok_devices else None
             
             logger.info(f"📊 Created mosaics: ALL({len(complete_device_list)}), OK({len(ok_devices)}), KO({len(ko_devices)})")
             
@@ -246,11 +254,80 @@ class HeatmapProcessor:
                              f"If the error is XMinioStorageFull, check `df -i` on the storage VM — "
                              f"inodes, not bytes.")
             self.write_status(time_key, success, '' if success else 'Upload failed')
+
+            # Per-workspace mosaics: never part of the global cycle's outcome (status is already written)
+            self.process_workspaces(time_key, complete_device_list, cells)
             
         except Exception as e:
             logger.error(f"❌ Error processing {time_key}: {e}")
             self.write_status(time_key, False, str(e))
     
+    def load_workspaces(self) -> List[Dict]:
+        """Workspaces of THIS server (read fresh every cycle, so new ones appear on their own).
+        A DB failure returns [] - it must never break the global heatmap."""
+        try:
+            from shared.src.lib.database.workspaces_db import get_all_workspaces, this_server_name
+            owner = this_server_name()
+            return [w for w in get_all_workspaces()
+                    if owner is not None and w.get('server_name') == owner
+                    and _WORKSPACE_ID_RE.fullmatch(str(w.get('id', '')))]
+        except Exception as e:
+            logger.warning(f"⚠️ Could not load workspaces, skipping workspace heatmaps: {e}")
+            return []
+
+    def process_workspaces(self, time_key: str, complete_device_list: List[Dict], cells: Dict) -> None:
+        """One extra mosaic (jpg + json only, no ok/ko) per workspace owning a current device."""
+        generated = failed = 0
+        try:
+            for workspace in self.load_workspaces():
+                try:
+                    device_filter = set(workspace.get('device_filter') or [])
+                    devices = [d for d in complete_device_list
+                               if f"{d['host_name']}:{d['device_id']}" in device_filter]
+                    if not devices:
+                        continue
+                    mosaic = self.compose_mosaic(devices, cells)
+                    analysis = self.create_analysis_json(devices, time_key)
+                    analysis['workspace_id'] = workspace['id']
+                    prefix = f"heatmaps/{self.server_path}/ws/{workspace['id'].lower()}"
+                    if self.upload_pair(prefix, time_key, mosaic, analysis):
+                        generated += 1
+                    else:
+                        failed += 1
+                except Exception as e:
+                    failed += 1
+                    logger.error(f"❌ Workspace heatmap {workspace.get('id')} failed for {time_key}: {e}")
+        except Exception as e:
+            logger.error(f"❌ Workspace heatmaps failed for {time_key}: {e}")
+        logger.info(f"🗂️ workspaces: {generated} generated, {failed} failed")
+
+    def upload_pair(self, prefix: str, time_key: str, mosaic_image: Image.Image, analysis_json: Dict) -> bool:
+        """Upload {prefix}/{time_key}.jpg and .json. Returns True when both stored."""
+        import tempfile
+        paths = []
+        try:
+            with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as img_temp:
+                paths.append(img_temp.name)
+            mosaic_image.save(paths[0], format='JPEG', quality=85)
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as json_temp:
+                paths.append(json_temp.name)
+                json.dump(analysis_json, json_temp, indent=2)
+            result = get_cloudflare_utils().upload_files([
+                {'local_path': paths[0], 'remote_path': f'{prefix}/{time_key}.jpg', 'content_type': 'image/jpeg'},
+                {'local_path': paths[1], 'remote_path': f'{prefix}/{time_key}.json', 'content_type': 'application/json'},
+            ], for_report_assets=True)
+            failed = result.get('failed_uploads') or []
+            for f in failed:
+                logger.error(f"   ❌ {f['remote_path']}: {f['error']}")
+            return not failed
+        except Exception as e:
+            logger.error(f"❌ Upload failed for {prefix}/{time_key}: {e}")
+            return False
+        finally:
+            for path in paths:
+                if os.path.exists(path):
+                    os.unlink(path)
+
     def get_hosts_devices(self, attempts: int = 3, retry_delay: int = 3) -> List[Dict]:
         """Get hosts and devices, retrying briefly: the local Flask server runs a
         single worker, so a restart makes one call fail and would otherwise punch a
@@ -804,16 +881,82 @@ class HeatmapProcessor:
             logger.error(f"❌ [{host_name}/{device_id}] Error loading image: {e} - {image_data.get('image_url')}")
             return None, image_data
     
-    def create_mosaic_image(self, images_data: List[Dict]) -> Image.Image:
-        """Create mosaic image from device images - OPTIMIZED with parallel downloads"""
+    @staticmethod
+    def _cell_key(image_data: Dict) -> str:
+        """Cache key of one device cell; same format as workspace device_filter entries."""
+        return f"{image_data.get('host_name')}:{image_data.get('device_id')}"
+
+    def _make_placeholder_cell(self, image_data: Dict, cell_width: int, cell_height: int) -> Image.Image:
+        """Cell for a device with no usable frame (missing capture or failed download)."""
+        is_placeholder = image_data.get('is_placeholder', False)
+        placeholder_color = '#2a2a2a' if is_placeholder else '#4a2a2a'  # Dark gray for missing, dark red for None
+        placeholder = Image.new('RGB', (cell_width, cell_height), color=placeholder_color)
+        try:
+            from PIL import ImageDraw
+            draw = ImageDraw.Draw(placeholder)
+
+            font = self._get_cached_font("/System/Library/Fonts/Arial.ttf", 24)
+            small_font = self._get_cached_font("/System/Library/Fonts/Arial.ttf", 16)
+
+            text1 = f"{image_data['host_name']}"
+            text2 = f"{_clean_device_name(image_data.get('device_name'), image_data.get('device_id')) or 'Unknown'}"
+            text3 = "NO CAPTURE" if is_placeholder else "NOT FOUND"
+
+            bbox1 = draw.textbbox((0, 0), text1, font=font)
+            bbox2 = draw.textbbox((0, 0), text2, font=small_font)
+            bbox3 = draw.textbbox((0, 0), text3, font=small_font)
+
+            draw.text(((cell_width - (bbox1[2] - bbox1[0])) // 2, cell_height//2 - 40), text1, fill='white', font=font)
+            draw.text(((cell_width - (bbox2[2] - bbox2[0])) // 2, cell_height//2 - 10), text2, fill='lightgray', font=small_font)
+            draw.text(((cell_width - (bbox3[2] - bbox3[0])) // 2, cell_height//2 + 15), text3, fill='red', font=small_font)
+        except Exception as e:
+            logger.warning(f"⚠️ Could not add text to placeholder: {e}")
+        return placeholder
+
+    def prepare_cells(self, images_data: List[Dict], cell_width: int = 400, cell_height: int = 300) -> Dict[str, Image.Image]:
+        """Download every frame ONCE (parallel) and build one ready-to-paste cell per device.
+
+        Returns {"host:device_id": cell}. Every mosaic of the cycle (ALL/OK/KO and each
+        workspace) is composed from this dict, so no frame is fetched twice."""
+        start_time = time.time()
+        cells: Dict[str, Image.Image] = {}
+        to_download = []
+        for image_data in images_data:
+            image_url = image_data.get('image_url')
+            if not image_data.get('is_placeholder', False) and image_url and image_url != 'None':
+                to_download.append(image_data)
+
+        if to_download:
+            logger.info(f"📥 Downloading {len(to_download)} images in parallel...")
+            with ThreadPoolExecutor(max_workers=min(10, len(to_download))) as executor:
+                future_to_data = {
+                    executor.submit(self._download_and_process_image, img_data, cell_width, cell_height): img_data
+                    for img_data in to_download
+                }
+                for future in as_completed(future_to_data):
+                    img_data = future_to_data[future]
+                    try:
+                        result_img, _ = future.result()
+                        if result_img:
+                            cells[self._cell_key(img_data)] = result_img
+                    except Exception as e:
+                        logger.error(f"❌ Future failed for {self._cell_key(img_data)}: {e}")
+
+        downloaded = len(cells)
+        for image_data in images_data:
+            key = self._cell_key(image_data)
+            if key not in cells:
+                cells[key] = self._make_placeholder_cell(image_data, cell_width, cell_height)
+
+        logger.info(f"🎨 Prepared {len(cells)} cells in {time.time() - start_time:.2f}s ({downloaded} downloaded)")
+        return cells
+
+    def compose_mosaic(self, images_data: List[Dict], cells: Dict[str, Image.Image], cell_width: int = 400, cell_height: int = 300) -> Image.Image:
+        """Compose a mosaic from already prepared cells (no network)."""
         if not images_data:
             logger.warning("⚠️ No images provided for mosaic - creating empty black image")
             return Image.new('RGB', (800, 600), color='black')
-        
-        logger.info(f"🎨 Creating mosaic from {len(images_data)} images")
-        start_time = time.time()
-        
-        # Calculate grid layout
+
         count = len(images_data)
         if count <= 1:
             cols, rows = 1, 1
@@ -829,121 +972,16 @@ class HeatmapProcessor:
             # For more than 9 devices, use 6 columns max
             cols = min(6, count)
             rows = math.ceil(count / cols)
-        
-        logger.info(f"📐 Grid layout: {cols}x{rows} (total cells: {cols*rows})")
-        
-        # Create mosaic
-        cell_width, cell_height = 400, 300
-        mosaic_width = cols * cell_width
-        mosaic_height = rows * cell_height
-        
-        logger.info(f"🖼️ Mosaic dimensions: {mosaic_width}x{mosaic_height} pixels ({cell_width}x{cell_height} per cell)")
-        mosaic = Image.new('RGB', (mosaic_width, mosaic_height), color='black')
-        
-        # PERFORMANCE: Download and process images in parallel
-        processed_images = {}
-        images_to_download = []
-        
-        for i, image_data in enumerate(images_data):
-            if i >= cols * rows:
-                break
-            
-            image_url = image_data.get('image_url')
-            is_placeholder = image_data.get('is_placeholder', False)
-            
-            if not is_placeholder and image_url and image_url != 'None':
-                images_to_download.append((i, image_data))
-        
-        # Download images in parallel if there are any
-        if images_to_download:
-            logger.info(f"📥 Downloading {len(images_to_download)} images in parallel...")
-            with ThreadPoolExecutor(max_workers=min(10, len(images_to_download))) as executor:
-                future_to_index = {
-                    executor.submit(self._download_and_process_image, img_data, cell_width, cell_height): idx
-                    for idx, img_data in images_to_download
-                }
-                
-                for future in as_completed(future_to_index):
-                    idx = future_to_index[future]
-                    try:
-                        result_img, img_data = future.result()
-                        if result_img:
-                            processed_images[idx] = result_img
-                            device_name = img_data.get('device_name', 'Unknown')
-                            logger.debug(f"✅ Downloaded {img_data['host_name']}/{img_data['device_id']}/{device_name}")
-                    except Exception as e:
-                        logger.error(f"❌ Future failed for image {idx}: {e}")
-        
-        # Now assemble the mosaic
-        for i, image_data in enumerate(images_data):
-            if i >= cols * rows:
-                break
-                
-            row = i // cols
-            col = i % cols
-            
-            x = col * cell_width
-            y = row * cell_height
-            
-            # Check if we have a pre-downloaded image
-            if i in processed_images:
-                # Use pre-downloaded and processed image
-                mosaic.paste(processed_images[i], (x, y))
-                continue
-            
-            # Otherwise create placeholder
-            image_url = image_data.get('image_url')
-            is_placeholder = image_data.get('is_placeholder', False)
-            
-            if True:  # Always create placeholder for non-downloaded images
-                # Create placeholder with device info
-                placeholder_color = '#2a2a2a' if is_placeholder else '#4a2a2a'  # Dark gray for missing, dark red for None
-                placeholder = Image.new('RGB', (cell_width, cell_height), color=placeholder_color)
-                
-                # Add text overlay with device info
-                try:
-                    from PIL import ImageDraw
-                    draw = ImageDraw.Draw(placeholder)
-                    
-                    # Use cached fonts (OPTIMIZED)
-                    font = self._get_cached_font("/System/Library/Fonts/Arial.ttf", 24)
-                    small_font = self._get_cached_font("/System/Library/Fonts/Arial.ttf", 16)
-                    
-                    # Device info text
-                    host_name = image_data['host_name']
-                    device_name = _clean_device_name(image_data.get('device_name'), image_data.get('device_id')) or 'Unknown'
 
-                    # Center the text
-                    text1 = f"{host_name}"
-                    text2 = f"{device_name}"
-                    text3 = "NO CAPTURE" if is_placeholder else "NOT FOUND"
-                    
-                    # Calculate text positions (centered)
-                    bbox1 = draw.textbbox((0, 0), text1, font=font)
-                    bbox2 = draw.textbbox((0, 0), text2, font=small_font)
-                    bbox3 = draw.textbbox((0, 0), text3, font=small_font)
-                    
-                    text1_x = (cell_width - (bbox1[2] - bbox1[0])) // 2
-                    text2_x = (cell_width - (bbox2[2] - bbox2[0])) // 2
-                    text3_x = (cell_width - (bbox3[2] - bbox3[0])) // 2
-                    
-                    # Draw text
-                    draw.text((text1_x, cell_height//2 - 40), text1, fill='white', font=font)
-                    draw.text((text2_x, cell_height//2 - 10), text2, fill='lightgray', font=small_font)
-                    draw.text((text3_x, cell_height//2 + 15), text3, fill='red', font=small_font)
-                    
-                except Exception as e:
-                    logger.warning(f"⚠️ Could not add text to placeholder: {e}")
-                
-                mosaic.paste(placeholder, (x, y))
-                status_text = "placeholder" if is_placeholder else "not found"
-                device_name = image_data.get('device_name', 'Unknown')
-                logger.debug(f"📝 Added {status_text} for {image_data['host_name']}/{image_data['device_id']}/{device_name}")
-        
-        elapsed = time.time() - start_time
-        logger.info(f"🎨 Mosaic created in {elapsed:.2f}s ({len(processed_images)} images downloaded in parallel)")
+        mosaic = Image.new('RGB', (cols * cell_width, rows * cell_height), color='black')
+        for i, image_data in enumerate(images_data):
+            cell = cells.get(self._cell_key(image_data))
+            if cell is None:
+                cell = self._make_placeholder_cell(image_data, cell_width, cell_height)
+            mosaic.paste(cell, ((i % cols) * cell_width, (i // cols) * cell_height))
+        logger.info(f"🎨 Mosaic composed: {count} cells, grid {cols}x{rows}")
         return mosaic
-    
+
     def create_analysis_json(self, images_data: List[Dict], time_key: str) -> Dict:
         """Create analysis JSON for the minute - replace local paths with R2 URLs from alerts"""
         devices = []

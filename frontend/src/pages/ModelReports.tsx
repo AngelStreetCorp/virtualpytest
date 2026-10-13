@@ -34,11 +34,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useExecutionResults, ExecutionResult } from '../hooks/pages/useExecutionResults';
 import { useUserInterface } from '../hooks/pages/useUserInterface';
 import { useMetrics } from '../hooks/navigation/useMetrics';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PageTitle, StatTiles, pageSurfaceSx, rateColor, segmentedSx } from '../components/common/PageChrome';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 
 type FilterType = 'all' | 'action' | 'verification';
 
 const ModelReports: React.FC = () => {
+  const P = useAgentChatPalette();
   const { getAllExecutionResults } = useExecutionResults();
   const { getAllUserInterfaces } = useUserInterface();
   const metricsHook = useMetrics();
@@ -384,13 +387,10 @@ const ModelReports: React.FC = () => {
 
 
   return (
-    <Box>
+    <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ mb: 1 }}>
-        <Typography variant="h4" sx={{ mb: 1 }}>
-          Model Analysis Reports
-        </Typography>
+        <PageTitle title="Model Analysis Reports" subtitle="How reliably each node and edge of an interface's navigation model executes" />
 
-        
         {/* User Interface Selector */}
         <FormControl size="small" sx={{ minWidth: 250, zIndex: 9999, position: 'relative' }}>
           <Select
@@ -443,7 +443,7 @@ const ModelReports: React.FC = () => {
       {!selectedUserInterface ? (
         <Card>
           <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <ModelIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 1 }} />
+            <ModelIcon sx={{ fontSize: 48, color: P.accentText, mb: 1 }} />
             <Typography variant="h6" color="text.secondary" gutterBottom>
               Select User Interface to Analyze
             </Typography>
@@ -456,69 +456,21 @@ const ModelReports: React.FC = () => {
       ) : (
         <>
           {/* Quick Stats */}
-          <Box sx={{ mb: 1 }}>
-            <Card>
-              <CardContent sx={{ py: 0.5 }}>
-                <Box display="flex" alignItems="center" justifyContent="space-between">
-                  <Box display="flex" alignItems="center" gap={1}>
-                    <ModelIcon color="primary" />
-                    <Typography variant="h6" sx={{ my: 0 }}>Execution Stats</Typography>
-                  </Box>
-
-              <Box display="flex" alignItems="center" gap={2}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">
-                    {filter === 'all' ? 'Total Elements' : 'Filtered Elements'}
-                  </Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {totalElements}
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Total Executions</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {totalVolume}
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">This Week</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {thisWeekCount}
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Success Rate</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {successRate}%
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Duration</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {avgDuration}
-                  </Typography>
-                </Box>
-                {filter === 'all' && (
-                  <>
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <Typography variant="body2">Edges</Typography>
-                      <Typography variant="body2" fontWeight="bold">
-                        {actionExecutions.length}
-                      </Typography>
-                    </Box>
-                    <Box display="flex" alignItems="center" gap={1}>
-                      <Typography variant="body2">Nodes</Typography>
-                      <Typography variant="body2" fontWeight="bold">
-                        {verificationExecutions.length}
-                      </Typography>
-                    </Box>
-                  </>
-                )}
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-      </Box>
+          <StatTiles
+            tiles={[
+              { label: filter === 'all' ? 'Elements' : 'Filtered elements', value: totalElements },
+              { label: 'Executions', value: totalVolume },
+              { label: 'This week', value: thisWeekCount },
+              { label: 'Success rate', value: `${successRate}%`, color: rateColor(Number(successRate), P) },
+              { label: 'Avg duration', value: avgDuration },
+              ...(filter === 'all'
+                ? [
+                    { label: 'Edges', value: actionExecutions.length },
+                    { label: 'Nodes', value: verificationExecutions.length },
+                  ]
+                : []),
+            ]}
+          />
 
       {/* Recent Execution Results */}
       <Card>
@@ -536,7 +488,8 @@ const ModelReports: React.FC = () => {
                 selected={showFailuresOnly}
                 onChange={() => setShowFailuresOnly(!showFailuresOnly)}
                 size="small"
-                sx={{ minWidth: 'auto', px: 1 }}
+                title="Only elements below 100% success"
+                sx={{ minWidth: 'auto', px: 1, textTransform: 'none', borderRadius: 2, '&.Mui-selected': { color: P.accentText, bgcolor: `${P.accent}26`, borderColor: P.accent } }}
               >
                 <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                   ≠100%
@@ -548,7 +501,8 @@ const ModelReports: React.FC = () => {
                 selected={showUnexecutedOnly}
                 onChange={() => setShowUnexecutedOnly(!showUnexecutedOnly)}
                 size="small"
-                sx={{ minWidth: 'auto', px: 1 }}
+                title="Only elements never executed"
+                sx={{ minWidth: 'auto', px: 1, textTransform: 'none', borderRadius: 2, '&.Mui-selected': { color: P.accentText, bgcolor: `${P.accent}26`, borderColor: P.accent } }}
               >
                 <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
                   Vol=0
@@ -564,6 +518,7 @@ const ModelReports: React.FC = () => {
                 onChange={handleFilterChange}
                 size="small"
                 aria-label="execution type filter"
+                sx={segmentedSx(P, 'sm')}
               >
                 <ToggleButton value="all" aria-label="all executions">
                   All
@@ -581,7 +536,8 @@ const ModelReports: React.FC = () => {
           </Box>
 
           <TableContainer component={Paper} variant="outlined">
-            <Table size="small" sx={{ '& .MuiTableRow-root': { height: '36px' } }}>
+            <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 1000, '& .MuiTableCell-root': { overflowWrap: 'anywhere' }, '& .MuiTableRow-root': { height: '36px' } }}>
+<colgroup><col style={{ width: 40 }} /><col style={{ width: 100 }} /><col style={{ width: 130 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 90 }} /><col style={{ width: 100 }} /><col style={{ width: 110 }} /><col style={{ width: 150 }} /><col style={{ width: 90 }} /></colgroup>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ py: 1, px: 0.5, width: 40 }}>
@@ -661,7 +617,7 @@ const ModelReports: React.FC = () => {
                         <TableRow
                           sx={{
                             '&:hover': {
-                              backgroundColor: 'rgba(0, 0, 0, 0.04) !important',
+                              backgroundColor: `${P.hoverBg} !important`,
                             },
                           }}
                         >
@@ -686,7 +642,7 @@ const ModelReports: React.FC = () => {
                               label={result.execution_type === 'action' ? 'Edge' : 'Node'}
                               size="small"
                               variant="outlined"
-                              color={result.execution_type === 'action' ? 'primary' : 'secondary'}
+                              sx={{ height: 22, fontSize: '0.72rem', borderColor: P.borderColor, color: P.textSecondary, '& .MuiChip-icon': { fontSize: 15, color: P.accentText } }}
                             />
                           </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
@@ -696,8 +652,7 @@ const ModelReports: React.FC = () => {
                         <TableCell sx={{ py: 0.5 }}>
                           <Typography variant="body2" sx={{ 
                             color: (metrics?.volume || 0) === 0 ? 'text.secondary' : 
-                                   (metrics?.success_rate || 0) >= 0.8 ? 'success.main' : 
-                                   (metrics?.success_rate || 0) >= 0.5 ? 'warning.main' : 'error.main'
+                                   rateColor((metrics?.success_rate || 0) * 100, P)
                           }}>
                             {(metrics?.volume || 0) === 0 ? 'N/A' : `${((metrics?.success_rate || 0) * 100).toFixed(0)}%`}
                           </Typography>
@@ -724,8 +679,7 @@ const ModelReports: React.FC = () => {
                                 fontWeight: 'bold',
                                 fontSize: '0.9rem',
                                 color: (metrics?.volume || 0) === 0 ? 'text.secondary' : 
-                                       (metrics?.confidence || 0) >= 0.7 ? 'success.main' : 
-                                       (metrics?.confidence || 0) >= 0.5 ? 'warning.main' : 'error.main'
+                                       (metrics?.confidence || 0) >= 0.7 ? P.success : (metrics?.confidence || 0) >= 0.5 ? P.warning : P.error
                               }}
                             >
                               {(metrics?.volume || 0) === 0 ? 'N/A' : `${metrics?.confidence ? Math.round(metrics.confidence * 10) : 0}/10`}
@@ -743,7 +697,7 @@ const ModelReports: React.FC = () => {
                               href={reportUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}
+                              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: P.accentText }}
                             >
                               Report
                               <OpenInNew sx={{ fontSize: 14 }} />

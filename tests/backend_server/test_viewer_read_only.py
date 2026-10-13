@@ -102,11 +102,26 @@ def test_exempt_list_is_the_reviewed_one():
     """
     Growing this list is a deliberate act, not drift. Each entry was walked in the UI
     and read in the handler; anything added without that should fail here first.
+
+    '/server/av/getStreamUrl' and '/server/av/getStatus' (BUG-0166): auto_proxy.py
+    forces both to GET before reaching the host regardless of the viewer's original
+    method, and their handlers (auto_proxy.py's server-side stream-URL cache plus
+    host_av_routes.py's get_stream_url()/get_status()) only build a URL or read
+    av_controller.get_status() — neither writes device or DB state. Unlike
+    '/server/system/vnc-info' (deliberately left blocked), they hand back no
+    credential either.
+
+    '/server/run-management/query' (TASK-42): structured run-report queries whose
+    validated filter model only travels as JSON. The handler reads script_results
+    and returns rows/CSV — it writes nothing.
     """
     assert auth_middleware.VIEWER_WRITE_EXEMPT_PREFIXES == (
         '/server/storage/signed-url',
         '/server/storage/signed-urls-batch',
         '/server/host-session/session',
+        '/server/av/getStreamUrl',
+        '/server/av/getStatus',
+        '/server/run-management/query',
     )
 
 
@@ -183,16 +198,16 @@ def test_missing_claim_falls_back_to_the_database(monkeypatch):
     assert _team_status(f'/server/x?team_id={TEAM_B}', 'tester', None) == 200
 
 
-# ------------------------------------------------------- team-level permission grants
+# ------------------------------------------------------- team ceilings (TASK-31)
 
-def _perm_status(permission, role, *, individual=(), team=(), denied=()):
+def _perm_status(permission, role, *, individual=(), ceiling=None, denied=()):
     """Status require_permission(permission) would answer for this principal."""
     app = Flask(__name__)
     with app.test_request_context('/server/x', method='POST'):
         from flask import request
         request.user_role = role
         request.user_permissions = list(individual)
-        request.user_team_permissions = list(team)
+        request.user_team_ceiling = None if ceiling is None else list(ceiling)
         request.user_denied_permissions = list(denied)
 
         @auth_middleware.require_permission(permission)
@@ -203,25 +218,42 @@ def _perm_status(permission, role, *, individual=(), team=(), denied=()):
         return 200 if result == 'ok' else result[1]
 
 
-def test_team_grant_is_honoured():
+def test_a_team_ceiling_grants_nothing(monkeypatch):
+    """A team is a ceiling, not a grant: listing a permission does not give it.
+
+    The DB has tester with execution.run:run_test as a role default, so without
+    the stub the role default already grants the permission we're checking and
+    the ceiling is just the union's filter — the test would be 200 not 403.
+    Stub role defaults to empty for tester so the only way to hold the
+    permission is the individual grant (which is empty here).
     """
-    teams.permissions was summed by the matrix API and the frontend but never read by
-    require_permission, so a team grant showed as held and still 403'd.
-    """
-    assert _perm_status('execution.run:run_test', 'viewer', team=['execution.run:run_test']) == 200
+    monkeypatch.setattr(auth_middleware, '_load_role_defaults', lambda: {'viewer': [], 'tester': []})
+    auth_middleware.invalidate_role_defaults_cache()
+    assert _perm_status('execution.run:run_test', 'tester', ceiling=['execution.run:run_test'],
+                        individual=[]) == 403
+
+
+def test_a_team_ceiling_blocks_an_individual_grant():
+    assert _perm_status('testcases:delete', 'tester', individual=['testcases:delete'],
+                        ceiling=['testcases:view']) == 403
 
 
 def test_without_the_team_grant_it_is_still_refused():
     assert _perm_status('execution.run:run_test', 'viewer') == 403
 
 
-def test_a_denial_still_beats_a_team_grant():
-    """Denials are the highest priority for non-admins — a team cannot grant around one."""
+def test_a_denial_still_beats_a_grant_inside_the_ceiling():
+    """Denials are the highest priority for non-admins."""
     assert _perm_status('execution.run:run_test', 'tester',
-                        team=['execution.run:run_test'],
+                        individual=['execution.run:run_test'],
+                        ceiling=['execution.run:run_test'],
                         denied=['execution.run:run_test']) == 403
 
 
-def test_role_default_and_individual_grant_still_work():
+def test_role_default_and_individual_grant_still_work(monkeypatch):
+    # Role defaults come from public.role_permissions; serve a stub instead of the database.
+    monkeypatch.setattr(auth_middleware, '_load_role_defaults', lambda: {'viewer': ['dashboard:view'], 'tester': []})
+    monkeypatch.setitem(auth_middleware._role_defaults_cache, 'value', None)
+    auth_middleware.invalidate_role_defaults_cache()
     assert _perm_status('dashboard:view', 'viewer') == 200
     assert _perm_status('testcases:delete', 'tester', individual=['testcases:delete']) == 200

@@ -5,6 +5,7 @@
  */
 
 import React, { useEffect } from 'react';
+import { AgentChatErrorAlert } from './AgentChatErrorAlert';
 import {
   Box,
   Paper,
@@ -23,6 +24,7 @@ import {
   InputAdornment,
 } from '@mui/material';
 import VpnKeyIcon from '@mui/icons-material/VpnKey';
+import SettingsIcon from '@mui/icons-material/Settings';
 import Visibility from '@mui/icons-material/Visibility';
 import VisibilityOff from '@mui/icons-material/VisibilityOff';
 import {
@@ -31,8 +33,6 @@ import {
   Error as ErrorIcon,
   ExpandMore as ExpandIcon,
   Psychology as ThinkingIcon,
-  ThumbUp,
-  ThumbDown,
   ContentCopy as CopyIcon,
   AccessTime as TimeIcon,
   DataUsage as TokenIcon,
@@ -43,21 +43,25 @@ import { useTheme } from '@mui/material/styles';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
+import { AGENT_CHAT_PALETTE, useAgentChatPalette } from '../../constants/agentChatTheme';
 import { dedupeEvents, getInitials, mergeToolEvents } from '../../utils/agentChatUtils';
 import { AgentEvent, Message } from '../../hooks/aiagent/useAgentChat';
 import { useToolExecutionTiming } from '../../hooks/aiagent/useToolExecutionTiming';
 import { ChatInput } from './ChatInput';
+import { MessageFeedbackBar } from './MessageFeedbackBar';
+import { MasterchiefConfirmCard } from '../ai/panels/MasterchiefConfirmCard';
 
 // Colorize PASSED (green) and FAILED (red) in agent responses
-// Handles both strings and React node arrays from ReactMarkdown
+// Handles both strings and React node arrays from ReactMarkdown.
+// Static palette import: status colour is a fixed semantic (success/error) shared
+// across both themes, so we read AGENT_CHAT_PALETTE directly.
 const colorizeStatus = (node: React.ReactNode): React.ReactNode => {
   // Handle strings - split and colorize PASSED/FAILED
   if (typeof node === 'string') {
     const parts = node.split(/(PASSED|FAILED)/g);
     return parts.map((part, i) => {
-      if (part === 'PASSED') return <span key={i} style={{ color: '#22c55e', fontWeight: 600 }}>PASSED</span>;
-      if (part === 'FAILED') return <span key={i} style={{ color: '#ef4444', fontWeight: 600 }}>FAILED</span>;
+      if (part === 'PASSED') return <span key={i} style={{ color: AGENT_CHAT_PALETTE.success, fontWeight: 600 }}>PASSED</span>;
+      if (part === 'FAILED') return <span key={i} style={{ color: AGENT_CHAT_PALETTE.error, fontWeight: 600 }}>FAILED</span>;
       return part;
     });
   }
@@ -89,7 +93,7 @@ interface ChatMessagesProps {
   allAgentsMap: Record<string, { nickname: string; icon?: string; color?: string }>;
   selectedAgentId: string;
   messageFeedback: Record<string, number>;
-  submitMessageFeedback: (messageId: string, rating: number, agentId: string, prompt?: string) => void;
+  submitMessageFeedback: (messageId: string, rating: number, agentId: string, prompt?: string, comment?: string) => void;
   input: string;
   sendMessage: () => void;
   setInput: (input: string) => void;
@@ -112,7 +116,7 @@ interface ChatMessagesProps {
   isValidating: boolean;
   activeProvider: string;
   activeModel: string;
-  activeKeyEnv: string;
+  activeEndpoint: string;
 }
 
 // Helper function to get agent nickname from agents map
@@ -177,6 +181,25 @@ const renderToolActivity = (
   shouldShowExecutingAnimation: (key: string, isExecuting: boolean) => boolean,
   theme: any
 ) => {
+  // Masterchief proposal: render a confirm card instead of the generic JSON
+  // dump. The propose tool returns { success, data: { audit_id, op, ... } };
+  // the card shows blast radius + permission + Confirm/Requeue/Abandon and
+  // POSTs /server/masterchief/execute with the user's JWT.
+  if (
+    event.tool_name === 'propose_masterchief_op' &&
+    event.tool_result &&
+    typeof event.tool_result === 'object' &&
+    (event.tool_result as any).success &&
+    (event.tool_result as any).data
+  ) {
+    return (
+      <MasterchiefConfirmCard
+        key={`propose-${event.tool_name}-${idx}-${(event.tool_result as any).data?.audit_id || ''}`}
+        proposal={(event.tool_result as any).data}
+      />
+    );
+  }
+
   // Extract error information from multiple possible sources
   const hasError = event.success === false;
   const isExecuting = event.tool_result === undefined && event.success === undefined;
@@ -323,12 +346,12 @@ const renderToolActivity = (
           variant="outlined"
           sx={{
             p: 1.5,
-            bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'grey.50',
+            bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : AGENT_CHAT_PALETTE.hoverBg,
             borderColor: hasError
               ? 'error.main'
               : showExecutingAnimation
                 ? `${AGENT_CHAT_PALETTE.accent}40`
-                : (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'grey.300'),
+                : (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : AGENT_CHAT_PALETTE.borderColor),
             borderRadius: 2
           }}
         >
@@ -542,10 +565,12 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
   isValidating,
   activeProvider,
   activeModel,
-  activeKeyEnv,
+  activeEndpoint,
 }) => {
+  const P = useAgentChatPalette();
   const theme = useTheme();
   const [showKey, setShowKey] = React.useState(false);
+  // Per-message feedback comment state lives inside MessageFeedbackBar (one row per message id).
 
   // Tool execution timing hook (5-second delay for animations)
   const { shouldShowExecutingAnimation } = useToolExecutionTiming();
@@ -670,29 +695,32 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                   textAlign: 'center',
                 }}
               >
-                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1.5 }}>
-                  <Box sx={{ p: 1.5, borderRadius: '50%', bgcolor: 'warning.main', display: 'flex' }}>
-                    <VpnKeyIcon sx={{ fontSize: 28, color: 'background.paper' }} />
-                  </Box>
+                <Box sx={{ position: 'relative', mb: 1 }}>
+                  <Tooltip title="Settings → AI → Endpoints">
+                    <IconButton
+                      size="small"
+                      href="/configuration/settings?tab=ai"
+                      sx={{ position: 'absolute', top: -12, right: -12, color: 'text.secondary' }}
+                    >
+                      <SettingsIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                  <VpnKeyIcon sx={{ fontSize: 28, color: 'warning.main' }} />
                 </Box>
-                <Typography variant="h6" gutterBottom>AI Provider Configuration Required</Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 2.5 }}>
-                  The active provider is <strong>{activeProvider}</strong>{activeModel ? ` using ${activeModel}` : ''}. Enter its API key here, or set it permanently in{' '}
-                  <Typography component="span" variant="body2" color="primary.main" sx={{ cursor: 'pointer', textDecoration: 'underline' }}
-                    onClick={() => window.location.href = '/configuration/settings?tab=ai'}
-                  >
-                    Settings → AI
-                  </Typography>
-                  {' '}or add <code>{activeKeyEnv}</code> to your server <code>.env</code>.
+                <Typography variant="h6" gutterBottom>API key needed</Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  <strong>{activeEndpoint || activeProvider || 'unknown'}</strong>
+                  {activeModel ? ` · ${activeModel}` : ''} has no key.
                 </Typography>
                 <TextField
                   fullWidth
                   size="small"
-                  label={`${activeProvider} API Key`}
+                  label="API key"
                   placeholder={activeProvider === 'anthropic' ? 'sk-ant-...' : activeProvider === 'openrouter' ? 'sk-or-v1-...' : 'Paste provider API key'}
                   value={apiKeyInput}
                   onChange={e => setApiKeyInput(e.target.value)}
                   type={showKey ? 'text' : 'password'}
+                  autoComplete="new-password"
                   onKeyDown={e => { if (e.key === 'Enter') saveApiKey(); }}
                   sx={{ mb: 1.5 }}
                   InputProps={{
@@ -712,7 +740,7 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                   disabled={isValidating || !apiKeyInput.trim()}
                   startIcon={isValidating ? <CircularProgress size={14} /> : undefined}
                 >
-                  {isValidating ? 'Validating…' : 'Save & Connect'}
+                  {isValidating ? 'Checking…' : 'Save'}
                 </Button>
               </Paper>
             </Box>
@@ -756,10 +784,10 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                     flex: 1,
                     bgcolor: theme.palette.mode === 'dark'
                       ? (isUser ? AGENT_CHAT_PALETTE.userBubble : AGENT_CHAT_PALETTE.agentBubble)
-                      : (isUser ? 'grey.100' : 'grey.50'),
+                      : (isUser ? P.hoverBg : P.surface),
                     border: isUser
                       ? `1px solid ${theme.palette.mode === 'dark' ? `${AGENT_CHAT_PALETTE.accent}50` : `${AGENT_CHAT_PALETTE.accent}40`}`
-                      : `1px solid ${theme.palette.mode === 'dark' ? AGENT_CHAT_PALETTE.agentBorder : 'grey.200'}`,
+                      : `1px solid ${theme.palette.mode === 'dark' ? AGENT_CHAT_PALETTE.agentBorder : P.borderColor}`,
                     borderRadius: 2.5,
                     borderTopRightRadius: isUser ? 4 : 10,
                     borderTopLeftRadius: !isUser ? 4 : 10,
@@ -791,8 +819,8 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                               sx={{
                                 height: 18,
                                 fontSize: '0.65rem',
-                                borderColor: '#FFD700',
-                                color: '#FFD700',
+                                borderColor: P.accent,
+                                color: P.accentText,
                                 fontWeight: 600,
                                 '& .MuiChip-label': { px: 0.75 }
                               }}
@@ -906,7 +934,7 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                                 variant="outlined"
                                 sx={{
                                   p: 1.5,
-                                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'grey.50',
+                                  bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : AGENT_CHAT_PALETTE.hoverBg,
                                   borderRadius: 2,
                                   borderColor: AGENT_CHAT_PALETTE.accent + '40'
                                 }}
@@ -932,7 +960,7 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                   })()}
 
                   {!isUser && msg.events && msg.events.filter(e => e.type === 'tool_call').length > 0 && (
-                    <Box sx={{ mb: 1, p: 1, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'grey.100', borderRadius: 1.5 }}>
+                    <Box sx={{ mb: 1, p: 1, bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : AGENT_CHAT_PALETTE.hoverBg, borderRadius: 1.5 }}>
                       {mergeToolEvents(msg.events).map((event, idx) => renderToolActivity(event, idx, toolExpanded, setToolExpanded, shouldShowExecutingAnimation, theme))}
                     </Box>
                   )}
@@ -1079,59 +1107,24 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                     };
 
                     const currentFeedback = messageFeedback[msg.id];
-                    const isPositive = currentFeedback === 5;
-                    const isNegative = currentFeedback === 1;
 
-                    // Get first user message for context
+                    // Get first user message for context (used as task_description on the POST)
                     const userMsgIndex = messages.findIndex(m => m.id === msg.id) - 1;
                     const userPrompt = userMsgIndex >= 0 ? messages[userMsgIndex]?.content : undefined;
 
                     return (
-                      <Box sx={{ mt: 1, pt: 0.75, borderTop: '1px solid', borderColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap' }}>
-                        {/* Feedback buttons */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                          <Tooltip title={isPositive ? "Remove helpful rating" : "Mark as helpful"}>
-                            <IconButton
-                              size="small"
-                              onClick={() => submitMessageFeedback(msg.id, 5, msg.agent || selectedAgentId, userPrompt)}
-                              sx={{
-                                p: 0.25,
-                                color: isPositive ? '#22c55e' : 'text.disabled',
-                                bgcolor: isPositive ? 'rgba(34, 197, 94, 0.15)' : 'transparent',
-                                borderRadius: 1,
-                                transition: 'all 0.2s',
-                                '&:hover': {
-                                  color: '#22c55e',
-                                  bgcolor: 'rgba(34, 197, 94, 0.1)',
-                                },
-                              }}
-                            >
-                              <ThumbUp sx={{ fontSize: 13 }} />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title={isNegative ? "Remove not helpful rating" : "Mark as not helpful"}>
-                            <IconButton
-                              size="small"
-                              onClick={() => submitMessageFeedback(msg.id, 1, msg.agent || selectedAgentId, userPrompt)}
-                              sx={{
-                                p: 0.25,
-                                color: isNegative ? '#ef4444' : 'text.disabled',
-                                bgcolor: isNegative ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
-                                borderRadius: 1,
-                                transition: 'all 0.2s',
-                                '&:hover': {
-                                  color: '#ef4444',
-                                  bgcolor: 'rgba(239, 68, 68, 0.1)',
-                                },
-                              }}
-                            >
-                              <ThumbDown sx={{ fontSize: 13 }} />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
+                      <Box sx={{ mt: 1, pt: 0.75, borderTop: '1px solid', borderColor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                        <MessageFeedbackBar
+                          messageId={msg.id}
+                          agentId={msg.agent || selectedAgentId}
+                          prompt={userPrompt}
+                          currentRating={currentFeedback}
+                          submitFeedback={submitMessageFeedback}
+                          variant="inline"
+                        />
 
                         {hasMetrics && (
-                          <>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                             <Box sx={{ width: '1px', height: 12, bgcolor: theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)', flexShrink: 0 }} />
 
                             <Tooltip title="Processing time">
@@ -1169,7 +1162,7 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                                 <CopyIcon sx={{ fontSize: 12 }} />
                               </IconButton>
                             </Tooltip>
-                          </>
+                          </Box>
                         )}
                       </Box>
                     );
@@ -1211,9 +1204,9 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                 sx={{
                   p: 1.5,
                   flex: 1,
-                  bgcolor: theme.palette.mode === 'dark' ? AGENT_CHAT_PALETTE.agentBubble : 'grey.50',
+                  bgcolor: theme.palette.mode === 'dark' ? AGENT_CHAT_PALETTE.agentBubble : P.surface,
                   border: '1px solid',
-                  borderColor: theme.palette.mode === 'dark' ? AGENT_CHAT_PALETTE.agentBorder : 'grey.200',
+                  borderColor: theme.palette.mode === 'dark' ? AGENT_CHAT_PALETTE.agentBorder : P.borderColor,
                   borderRadius: 2.5,
                   borderTopRightRadius: 10,
                   borderTopLeftRadius: 4,
@@ -1241,8 +1234,8 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                           sx={{
                             height: 18,
                             fontSize: '0.65rem',
-                            borderColor: '#FFD700',
-                            color: '#FFD700',
+                            borderColor: P.accent,
+                            color: P.accentText,
                             fontWeight: 600,
                             '& .MuiChip-label': { px: 0.75 }
                           }}
@@ -1354,7 +1347,7 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
                               variant="outlined"
                               sx={{
                                 p: 1.5,
-                                bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : 'grey.50',
+                                bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.2)' : AGENT_CHAT_PALETTE.hoverBg,
                                 borderRadius: 2,
                                 borderColor: AGENT_CHAT_PALETTE.accent + '40'
                               }}
@@ -1485,11 +1478,7 @@ export const ChatMessages: React.FC<ChatMessagesProps> = ({
             </Box>
           )}
 
-          {error && (
-            <Alert severity="error" sx={{ mt: 1 }} onClose={() => {}}>
-              {error}
-            </Alert>
-          )}
+          <AgentChatErrorAlert error={error} />
 
           <div ref={messagesEndRef} />
         </Box>

@@ -1,0 +1,19 @@
+{
+ "id": "9cjzYpDVROs",
+ "title": "Automatic zap detection: zap with the remote, no code to write",
+ "description": "Zap with the remote and VirtualPyTest detects it on its own. The backend watches every captured frame, spots the channel change, and measures how long it took: no script, no code, no one watching the screen.\n\nWhat you see:\n1. A set-top box, live. Turn on monitoring: the backend analyses every frame.\n2. Zap with the remote. Nothing else: no script, no code.\n3. Detected automatically: the new channel and programme, 2.0 s zap time, 0.4 s of freeze, 0.6 s of silence.\n4. Its report: the frame at the key press, the freeze start and end, and the new channel.\n5. The numbers, measured on every zap.\n\nChapters\n0:00 Automatic zap detection\n0:04 Live\n0:11 Zap with the remote\n0:20 Detected automatically\n0:27 The report\n0:37 The numbers",
+ "tags": [
+  "automatic zap detection",
+  "zapping test",
+  "channel change time",
+  "set-top box testing",
+  "iptv testing",
+  "no code test automation",
+  "video monitoring",
+  "open source",
+  "virtualpytest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-28"
+}

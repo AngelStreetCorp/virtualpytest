@@ -1,4 +1,8 @@
-"""AI Exploration Tools - Automated tree building via screen analysis"""
+"""Map builder tool (auto_discover_screen): rule-based mapping of the current screen into nodes/edges.
+
+Not an AI agent. On Android/web it reads the UI dump with no model call; only TV/STB menus are read
+by a vision model. Agents (Atlas build-tree-*, QualiAI) call it as one step of their own plan.
+"""
 
 import json
 from typing import Dict, Any
@@ -9,7 +13,7 @@ DEFAULT_TEAM_ID = '7fdeb4bb-3639-4ec3-959f-b54769a219ce'
 
 
 class ExplorationTools:
-    """AI exploration tools for automated tree building"""
+    """Map builder: rule-based screen mapping (vision model on TV/STB only)"""
     
     def __init__(self, api_client: MCPAPIClient):
         self.api_client = api_client
@@ -17,7 +21,14 @@ class ExplorationTools:
     
     def auto_discover_screen(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Auto-discover screen elements, create nodes/edges, and validate them.
+        Build a map of the device's current screen: one node per screen reachable from it, one edge
+        each, every edge validated on the device. A rule-based mapping step, not an AI agent: on
+        Android and web it reads the UI dump (tappable elements of the app's own window, tab bar and
+        toolbar before list items) with no model call; only on TV/STB does a vision model read the
+        menu from the screenshot. It accepts every proposal (no review), then taps each target and
+        tries its way back (tap Home, BACK, BACK x2). It does not add node verifications or rename
+        the _temp labels; the editor's Build Map does both. Use it as one tool inside an agent's
+        plan (Atlas build-tree-*, QualiAI): the agent picks the start screen and fixes failed edges.
         
         Example: auto_discover_screen(tree_id='abc', host_name='host1', userinterface_name='google_tv')
         

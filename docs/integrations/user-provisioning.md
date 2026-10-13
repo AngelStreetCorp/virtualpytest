@@ -79,8 +79,9 @@ curl -X POST "https://your-server.example.com/server/users?grafana=true" \
         "email": "marie.dupont@example.com",
         "password": "a strong password",
         "full_name": "Marie Dupont",
-        "group": "QA Team",
-        "provider_type": "dmacp"
+        "team": "QA Team",
+        "role": "DevUser",
+        "provider_type": "idp"
       }'
 ```
 
@@ -93,7 +94,9 @@ reach the dashboards.
 | `email` | yes | The identifier both systems recognise the person by |
 | `password` | on create | At least 6 characters |
 | `full_name` | no | Defaults to the part before the `@` — `marie.dupont@example.com` becomes `marie.dupont`. See [Names](#the-default-name) |
-| `group` | no | Team name, created if it doesn't exist. Omit it and the person lands in the installation's default team. See [Teams](#teams-and-the-default-team) |
+| `role` | no | The person's role: your own name for it (`"DevUser"`) or VirtualPyTest's (`"developer"`). Omit it and a new account gets the installation's default role. See [Roles](#roles) |
+| `team` | no | Team name, created if it doesn't exist. Omit it and the person lands in the installation's default team. `group` is the same field under its older name. See [Teams](#teams-and-the-default-team) |
+| `replace_teams` | no | `true` also takes the person out of every other team, so `team` *moves* them. Needs `team`. |
 | `provider_type` | no | Your platform's name. Defaults to `virtualpytest`. See [Where an account comes from](#where-an-account-comes-from) |
 
 ### The default name
@@ -109,26 +112,46 @@ who renames themselves in VirtualPyTest keeps that name across every future rese
 Whatever name ends up being used is written to the account itself as well as to VirtualPyTest, so
 it is what Supabase's own **Display name** column shows for that user — not a blank.
 
+### Roles
+
+VirtualPyTest has five roles, from most to least privileged: `admin`, `manager`, `developer`,
+`tester`, `viewer`. Each has one **preferred name**, set by an admin on the **Roles** page — the
+name the app shows, and the name your platform sends. If your platform calls its top role
+`SuperAdmin`, the admin renames `admin` to `SuperAdmin` and you send:
+
+```json
+{ "role": "SuperAdmin" }
+```
+
+- Matching ignores case and surrounding spaces. The role id itself (`"admin"`) is always accepted too.
+- Preferred names are unique, so a name always means one role. `provider_type` plays no part.
+- An unknown name changes nothing and answers `400`, listing every name that would be accepted.
+- A call made with the server API key may set **any** role, `admin` included. Treat the key
+  accordingly.
+- Changing the role also updates the person's Grafana org role when you send `?grafana=true`.
+
 ### Teams and the default team
 
-Every installation has one default team, and a new account is put in it automatically. Send `group`
-to place them somewhere else instead: the team is looked up by name and **created if it doesn't
+Every installation has one default team, and a new account is put in it automatically. Send `team`
+(or its older name `group`) to place them somewhere else instead: the team is looked up by name and **created if it doesn't
 exist**, then the person is added to it and it becomes their primary team.
 
-An auto-created team is created empty — no team-level permission grants, exactly like every other
-team including the default one. Team permissions are additive grants on top of a person's role, so
-a new team grants nothing by itself and a provisioned account can never come out with more access
-than its role allows. If a team is meant to grant something extra, an admin sets that on the team
-in the Users page afterwards; provisioning never does it for you.
+An auto-created team has no limit. A team never grants anything: what a person can do comes from
+their role (and any individual grants an admin adds), and a team can only *cap* it — an admin may
+set a permission limit and a device limit on the team afterwards. So a provisioned account can
+never come out with more access than its role allows.
 
-Note that `group` **adds** a team rather than moving the person out of the default one — they stay
-a member of both, and permissions are the union across every team they belong to.
+Note that `team` **adds** a team rather than moving the person out of the default one — they stay
+a member of both. Team limits add up across every team they belong to, the default team counting
+only when it is their only one. Send
+`"replace_teams": true` with it to *move* them instead: they are removed from every other team,
+the default one included.
 
 ### Where an account comes from
 
 `provider_type` records which platform administers the account. Anything created inside
 VirtualPyTest — a UI signup, an admin, our own tooling — is `virtualpytest`. Send your own platform
-name (`"provider_type": "dmacp"`) and the account is marked as yours, so it is obvious in the users
+name (`"provider_type": "idp"`) and the account is marked as yours, so it is obvious in the users
 list and in the database which side owns a given person.
 
 It is only written when you send it. A password reset that omits it leaves the existing value
@@ -163,7 +186,8 @@ meant, so a dropped `-X PUT` can't be mistaken for a successful reset:
 }
 ```
 
-Resetting a password **never changes the person's role or permissions.**
+Resetting a password **never changes the person's role or permissions** unless you also send
+`role` in the same call.
 
 `PUT` also creates the user if they don't exist yet, so if your side treats "set password" as one
 operation you can use it for both onboarding and reset and ignore `POST` entirely.
@@ -180,12 +204,14 @@ curl -X PUT "https://your-server.example.com/server/users/marie.dupont@example.c
   -H "Content-Type: application/json" \
   -d '{
         "full_name": "Marie Dupont",
-        "provider_type": "dmacp",
-        "group": "QA Team"
+        "provider_type": "idp",
+        "role": "SuperUser",
+        "team": "QA Team",
+        "replace_teams": true
       }'
 ```
 
-All three fields are independent — send one, two or all of them. Their password is left exactly as
+Every field is independent — send only the ones you want to change. Their password is left exactly as
 it was, and so is anything you don't mention.
 
 `password` is only **required** when the person doesn't exist yet, because then the call has to
@@ -195,12 +221,8 @@ create them. Editing someone who isn't there yet returns:
 { "status": "error", "error": "invalid_payload", "detail": "password is required to create a user" }
 ```
 
-Two things this route deliberately will not do:
-
-- **Change their role or permissions.** VirtualPyTest owns those; an admin sets them in the Users
-  page. A provisioning call never changes them, on purpose.
-- **Remove them from a team.** `group` adds a team and makes it their primary one. Taking someone
-  out of a team is an admin action in the Users page, or `DELETE` the user entirely.
+What this route deliberately will not do: **change individual permissions.** The role decides
+what someone can do; per-person extra grants and denials are set by an admin on the Users page.
 
 ---
 
@@ -213,10 +235,11 @@ Two things this route deliberately will not do:
   "email": "marie.dupont@example.com",
   "user_id": "7fdb81c8-b5de-46fd-aaa4-cd9cbc5a5a8d",
   "platform": {
-    "role": "viewer",
+    "role": "developer",
+    "teams": ["Default Team", "QA Team"],
     "team": "QA Team",
     "full_name": "marie.dupont",
-    "provider_type": "dmacp"
+    "provider_type": "idp"
   },
   "grafana":  { "user_id": 3, "org_role": "Viewer" }
 }
@@ -225,7 +248,7 @@ Two things this route deliberately will not do:
 | Field | Meaning |
 |-------|---------|
 | `action` | `created` for a new person, `updated` for an existing one. Useful for your own audit log. |
-| `platform` | Their role, team, name and `provider_type` inside VirtualPyTest — the values as stored after the call, so you can confirm the defaults that were applied. |
+| `platform` | Their role (VirtualPyTest's id), every team they are in, their primary `team`, name and `provider_type` — the values as stored after the call, so you can confirm the defaults that were applied. |
 | `grafana` | Confirms the Grafana account was written. **If this key is absent, the Grafana half did not run** — check that you sent `?grafana=true`. |
 
 ---
@@ -348,7 +371,7 @@ access in your own admin screen rather than guessing from the role:
   "user_id": "7fdb81c8-b5de-46fd-aaa4-cd9cbc5a5a8d",
   "role": "tester",
   "role_permissions": ["dashboard:view", "campaigns:execute", "..."],
-  "team_permissions": [],
+  "team_ceiling": null,
   "individual_grants": [],
   "denied_permissions": [],
   "effective": ["campaigns:execute", "dashboard:view", "..."]
@@ -365,21 +388,17 @@ anything explicitly revoked.
 Ownership is split, and agreeing on it early avoids a lot of confusion about which team handles
 which support request.
 
-**The external system owns identity:**
+**The external system owns identity, and may own the role:**
 - Email address — the permanent identifier that links the two systems
 - Password, and every reset of it
 - Full name
-- Group
+- Team
+- Role — when it sends one. Otherwise a new person starts with the installation's default role
+  (`viewer`, read-only) and an admin inside VirtualPyTest changes it.
 
-**VirtualPyTest owns access:**
-- The person's **role**
-- What they can see and do
+**VirtualPyTest owns the rest of access:**
+- What each role can see and do (the Roles page)
 - Any individually granted or revoked permissions
-
-The practical consequence: **a newly provisioned person can log in everywhere immediately, but
-starts as a `viewer` — read-only.** Somebody with admin rights inside VirtualPyTest raises them to
-`tester` or `admin`. The external system never sends a role, and password resets leave the role
-untouched.
 
 ---
 
@@ -391,8 +410,13 @@ Grafana — so the two never drift apart.
 | Role | In VirtualPyTest | In Grafana |
 |------|------------------|------------|
 | `viewer` *(default for new users)* | Read-only: dashboard, test cases, campaigns, reports, monitoring. Cannot run or change anything. | **Viewer** — reads dashboards |
-| `tester` | Everything a viewer has, plus running tests and campaigns, building them, device control, the AI agent, Jira | **Editor** — can edit dashboards |
+| `tester` | Everything a viewer has, plus running tests and campaigns, building them, device control, the AI agent, Jira | **Viewer** — reads dashboards, only their own devices |
+| `developer` | Everything a tester has, plus building and editing navigation trees | **Viewer** |
+| `manager` | Everything a developer has, plus managing the people and team members **of their own teams**. Never roles, server settings, deployments or other teams | **Viewer** |
 | `admin` | Everything, including user management and settings | **Admin** — manages the organisation |
+
+These are the default permission sets; an installation can adjust each role on its Roles page, and
+shows the roles under its own names.
 
 The mapping is configurable in `backend_server/config/integrations/grafana_config.json`
 (`grafana_role_by_role`, `default_role`, `grafana_org_id`).
@@ -431,7 +455,7 @@ what a person can do  =  ( role  +  group grants  +  individual grants )  −  a
 
 | Code | Meaning | What to do |
 |------|---------|------------|
-| `400` | Missing or invalid input — usually no email, a password under 6 characters, or a blank `provider_type` | Fix the payload; retrying as-is won't help |
+| `400` | Missing or invalid input — usually no email, a password under 6 characters, a blank `provider_type`, a `role` nobody recognises (`detail` lists the accepted names), or `replace_teams` without a `team` | Fix the payload; retrying as-is won't help |
 | `401` | API key missing or wrong | Check your configuration |
 | `403` | The key authenticated but isn't allowed here | Confirm you're sending `API_KEY`, not a user token |
 | `405` | A `GET` on `/server/users/{email}` carried a password or `?grafana=`, i.e. a write addressed to the read-only status check | Send the same call as a `PUT` — usually a missing `-X PUT` in curl |

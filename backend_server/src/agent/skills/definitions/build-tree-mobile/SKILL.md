@@ -68,8 +68,10 @@ triggers:
 Build navigation trees for mobile apps.
 
 STEP 0 — CONSULT THE AI UI KNOWLEDGE BASE FIRST (DB-backed):
-1. Resolve the foreground app via `adb shell dumpsys window | grep mCurrentFocus`,
-   then call resolve_ai_userinterface(fingerprint_type='foreground_package', value=<pkg>).
+1. Take the app's package from the interface's entry edge (list_edges: the Entry → home
+   edge's `launch_app` param `package`) or from the user, then call
+   resolve_ai_userinterface(fingerprint_type='foreground_package', value=<pkg>).
+   There is no adb shell tool: never try one.
 2. If a ui_id is returned: get_ai_userinterface(ui_id) for the full bundle.
    - Reuse verified flows instead of re-exploring known paths.
    - Respect quirks (e.g. keys absorbed by certain apps).

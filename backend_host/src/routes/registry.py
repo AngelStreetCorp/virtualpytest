@@ -16,6 +16,7 @@ if not _IS_RUNNER:
     from . import (
         host_actions_routes,
         host_ai_disambiguation_routes,
+        host_drone_routes,
         host_ai_exploration_routes,
         host_ai_routes,
         host_av_routes,
@@ -80,6 +81,7 @@ else:
         (host_navigation_routes.host_navigation_bp, 'Navigation execution'),
         (host_ai_routes.host_ai_bp, 'AI execution'),
         (host_ai_disambiguation_routes.host_ai_disambiguation_bp, 'AI disambiguation'),
+        (host_drone_routes.host_drone_bp, 'Tello pairing (host-side nmcli + link verify)'),
         (host_testcase_routes.host_testcase_bp, 'TestCase Builder'),
         (host_campaign_routes.host_campaign_bp, 'Campaign execution'),
         (host_transcript_routes.host_transcript_bp, 'Transcript services'),

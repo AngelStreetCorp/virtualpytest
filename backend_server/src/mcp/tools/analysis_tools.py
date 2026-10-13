@@ -368,7 +368,6 @@ class AnalysisTools:
                 f"⏱️  Session Uptime: {uptime_str}",
                 "",
                 "📊 Redis Queues (Pending):",
-                f"   • P1 Alerts:  {queue_status.get('p1_alerts', 0)}",
                 f"   • P2 Scripts: {queue_status.get('p2_scripts', 0)}",
                 f"   • P3 Reserved: {queue_status.get('p3_reserved', 0)}",
                 "",
@@ -505,4 +504,4 @@ class AnalysisTools:
             
         except Exception as e:
             print(f"[@analysis] Error getting Redis queue status: {e}")
-            return {'p1_alerts': 0, 'p2_scripts': 0, 'p3_reserved': 0, 'error': str(e)}
+            return {'p2_scripts': 0, 'p3_reserved': 0, 'error': str(e)}

@@ -142,6 +142,8 @@ export interface AlertsSection {
 export interface ProjectMetrics {
   generated_at: string;
   build: string | null;
+  /** Full VERSION.txt name, e.g. main-2026.09.29-9404 — what the footer shows. */
+  build_name: string | null;
   build_date: string | null;
   loc: {
     total: number;
@@ -153,6 +155,10 @@ export interface ProjectMetrics {
   releases: Array<{
     build: string;
     date: string;
+    /** Full release name, e.g. main-2026.09.26-9369. */
+    name: string;
+    /** The running build's `## Unreleased` section, not a cut release. */
+    unreleased: boolean;
     features: number;
     fixes: number;
     security: number;
@@ -164,7 +170,17 @@ export interface ProjectMetrics {
     by_status: Record<string, number>;
     fixed_per_build: Record<string, number>;
     unshipped: number;
+    fixed_unreleased: number;
     internal_only: number;
+    /** Reports whose status is open or in progress. */
+    open: Array<{
+      id: string;
+      title: string;
+      status: 'open' | 'in progress';
+      severity: string;
+      /** In-app docs path, e.g. /docs/bugs/BUG-0190-2026-09-29-… */
+      doc: string;
+    }>;
   };
 }
 

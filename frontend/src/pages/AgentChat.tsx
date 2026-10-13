@@ -8,6 +8,7 @@
  */
 
 import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { AgentChatErrorAlert } from '../components/agent-chat/AgentChatErrorAlert';
 import { createPortal } from 'react-dom';
 import {
   Box,
@@ -41,18 +42,20 @@ import { useAgentChatContext } from '../contexts/AgentChatContext';
 import type { BackgroundAgentInfo } from '../hooks/aiagent';
 import { useToolExecutionTiming } from '../hooks/aiagent/useToolExecutionTiming';
 import { buildServerUrl } from '../utils/buildUrlUtils';
-import { AGENT_CHAT_PALETTE as PALETTE, AGENT_COLORS } from '../constants/agentChatTheme';
+import { AGENT_CHAT_PALETTE as PALETTE, agentColor, useAgentChatPalette } from '../constants/agentChatTheme';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { UserinterfaceSelector } from '../components/common/UserinterfaceSelector';
 import { MobileAgentChat } from '../components/ai/MobileAgentChat';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { useHostData, useHostControl } from '../hooks/useHostManager';
+import { useServerManager } from '../hooks/useServerManager';
 import { VNCStateProvider } from '../contexts/VNCStateContext';
 import { useUserInterface } from '../hooks/pages/useUserInterface';
 import { ConversationList } from '../components/agent-chat/ConversationList';
 import { ChatMessages } from '../components/agent-chat/ChatMessages';
 import { DevicePanel } from '../components/agent-chat/DevicePanel';
-import { ContentViewer, type ContentType, type ContentData, type ContentTab } from '../components/agent-chat/ContentViewer';
+import { mergeAnalyticsArtifact } from '../components/agent-chat/analyticsMerge';
+import { ContentViewer, type AnalyticsContent, type ContentType, type ContentData, type ContentTab } from '../components/agent-chat/ContentViewer';
 import { PromptPresets, type PromptPresetCategory } from '../components/agent-chat/PromptPresets';
 import { RemotePanel } from '../components/controller/remote/RemotePanel';
 import { DesktopPanel } from '../components/controller/desktop/DesktopPanel';
@@ -61,30 +64,6 @@ import { useStream } from '../hooks/controller';
 import { DEFAULT_DEVICE_RESOLUTION } from '../config/deviceResolutions';
 import { useInteractivityManager } from '../hooks/aiagent/useInteractivityManager';
 
-
-// Colorize PASSED (green) and FAILED (red) in agent responses
-// Handles both strings and React node arrays from ReactMarkdown
-const _colorizeStatus = (node: React.ReactNode): React.ReactNode => {
-  // Handle strings - split and colorize PASSED/FAILED
-  if (typeof node === 'string') {
-    const parts = node.split(/(PASSED|FAILED)/g);
-    return parts.map((part, i) => {
-      if (part === 'PASSED') return <span key={i} style={{ color: '#22c55e', fontWeight: 600 }}>PASSED</span>;
-      if (part === 'FAILED') return <span key={i} style={{ color: '#ef4444', fontWeight: 600 }}>FAILED</span>;
-      return part;
-    });
-  }
-  
-  // Handle arrays (mixed content from ReactMarkdown like text + links)
-  if (Array.isArray(node)) {
-    return node.map((child, i) => (
-      <React.Fragment key={i}>{_colorizeStatus(child)}</React.Fragment>
-    ));
-  }
-  
-  // Handle React elements (like <a>, <strong>, etc.) - return as-is
-  return node;
-};
 
 // Shorten model identifiers like "claude-sonnet-4-20250514" → "sonnet-4",
 // "openai/gpt-4.1-mini" → "gpt-4.1-mini", "microsoft/phi-3-mini-128k-instruct" → "phi-3-mini".
@@ -191,6 +170,7 @@ const AgentChat: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const theme = useTheme();
+  const P = useAgentChatPalette();
   const isDarkMode = theme.palette.mode === 'dark';
   const { isMobile } = useResponsiveMode();
 
@@ -198,7 +178,7 @@ const AgentChat: React.FC = () => {
   const getDropdownStyles = () => ({
     formControl: {
       '& .MuiInputLabel-root': {
-        color: isDarkMode ? PALETTE.textSecondary : 'rgba(0, 0, 0, 0.6)',
+        color: P.textSecondary,
       },
       '& .MuiInputLabel-root.Mui-focused': {
         color: PALETTE.accent,
@@ -207,11 +187,11 @@ const AgentChat: React.FC = () => {
     select: {
       height: 32,
       fontSize: '0.85rem',
-      color: isDarkMode ? PALETTE.textPrimary : '#000',
-      bgcolor: isDarkMode ? PALETTE.inputBg : '#fff',
+      color: P.textPrimary,
+      bgcolor: P.surface,
       borderRadius: 1.5,
       '& .MuiOutlinedInput-notchedOutline': {
-        borderColor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+        borderColor: P.borderColor,
       },
       '&:hover .MuiOutlinedInput-notchedOutline': {
         borderColor: PALETTE.accent,
@@ -224,15 +204,15 @@ const AgentChat: React.FC = () => {
         alignItems: 'center',
         gap: 1,
         py: 0.5,
-        color: isDarkMode ? PALETTE.textPrimary : '#000',
+        color: P.textPrimary,
       },
     },
     menuProps: {
       PaperProps: {
         sx: {
-          bgcolor: isDarkMode ? PALETTE.surface : '#fff',
+          bgcolor: P.surface,
           border: '1px solid',
-          borderColor: isDarkMode ? PALETTE.borderColor : 'grey.200',
+          borderColor: P.borderColor,
           boxShadow: PALETTE.cardShadow,
         }
       }
@@ -240,14 +220,14 @@ const AgentChat: React.FC = () => {
     menuItemPlaceholder: {
       fontSize: '0.85rem',
       py: 0.75,
-      color: isDarkMode ? PALETTE.textSecondary : 'rgba(0, 0, 0, 0.6)',
+      color: P.textSecondary,
     },
     menuItem: {
       fontSize: '0.85rem',
       py: 0.75,
-      color: isDarkMode ? PALETTE.textPrimary : '#000',
-      '&:hover': { bgcolor: isDarkMode ? PALETTE.hoverBg : 'grey.100' },
-      '&.Mui-selected': { bgcolor: isDarkMode ? PALETTE.hoverBg : 'grey.100' },
+      color: P.textPrimary,
+      '&:hover': { bgcolor: P.hoverBg },
+      '&.Mui-selected': { bgcolor: P.hoverBg },
     },
   });
 
@@ -268,6 +248,7 @@ const AgentChat: React.FC = () => {
   // Content panel state - controlled by AI agent or user selections
   const [contentType, setContentType] = useState<ContentType | null>(null);
   const [contentData, setContentData] = useState<ContentData | null>(null);
+  const [analyticsContent, setAnalyticsContent] = useState<AnalyticsContent | null>(null);
   const [contentTitle, setContentTitle] = useState<string | undefined>(undefined);
   const [contentLoading, setContentLoading] = useState(false);
 
@@ -316,6 +297,7 @@ const AgentChat: React.FC = () => {
 
   // Get HostManager for device selection
   const { getAllHosts, getAllDevices } = useHostData();
+  const { selectedServer, serverHostsData } = useServerManager();
   const { handleDeviceSelect } = useHostControl();
 
   // Get UserInterface hook for available interfaces
@@ -378,16 +360,22 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [agentsError, setAgentsError] = useState<string | null>(null);
   
-  // Page-level loading state - skip loading screen on subsequent visits
+  // Page-level loading state - skip loading screen on subsequent visits.
+  // This flag MUST be localStorage, not sessionStorage: sessionStorage is scoped to a single
+  // tab, so the full-screen overlay came back on every new tab, every bookmark open and every
+  // browser restart — the opposite of the "first visit only" intent below. localStorage is
+  // scoped to the origin and shared by every tab, so the splash is genuinely shown once.
+  const AGENTCHAT_VISITED_KEY = 'agentchat_visited';
   const [pageReady, setPageReady] = useState(() => {
-    // If we've visited before in this session, skip the loading animation
-    return sessionStorage.getItem('agentchat_visited') === 'true';
+    return localStorage.getItem(AGENTCHAT_VISITED_KEY) === 'true';
   });
   
   // Auto-select first available device only on initial mount (after userinterfaces are ready)
   useEffect(() => {
     if (!selectedDeviceFullValue && userInterfacesLoaded && !hasDoneInitialDeviceSelection) {
-      const hosts = getAllHosts();
+      // Only the selected server's hosts are valid targets (getAllHosts spans every server).
+      const serverHostNames = serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.hosts?.map((h) => h.host_name);
+      const hosts = getAllHosts().filter((h) => !serverHostNames || serverHostNames.includes(h.host_name));
       const allDevices = hosts.flatMap(host => host.devices || []);
 
       if (allDevices.length > 0) {
@@ -401,7 +389,19 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
         }
       }
     }
-  }, [selectedDeviceFullValue, userInterfacesLoaded, hasDoneInitialDeviceSelection, getAllHosts]); // Include dependencies
+  }, [selectedDeviceFullValue, userInterfacesLoaded, hasDoneInitialDeviceSelection, getAllHosts, selectedServer, serverHostsData]); // Include dependencies
+
+  // Switching the server picker: a Target that is not one of the new server's hosts is dropped, and the
+  // first device of the new server is auto-selected again (same default as on page load).
+  useEffect(() => {
+    if (!selectedDeviceFullValue) return;
+    const serverHosts = serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.hosts;
+    if (!serverHosts) return;
+    const targetHost = selectedDeviceFullValue.split(':', 1)[0];
+    if (serverHosts.some((h) => h.host_name === targetHost)) return;
+    handleDeviceSelection('');
+    setHasDoneInitialDeviceSelection(false);
+  }, [selectedServer, serverHostsData, selectedDeviceFullValue]);
 
   // Load agents from API (ONLY source of truth)
   useEffect(() => {
@@ -427,7 +427,7 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
           const id = a.metadata?.id || a.id;
           const nickname = a.metadata?.nickname || a.nickname || a.name || id;
           const icon = a.metadata?.icon || a.icon;
-          const color = AGENT_COLORS[id] || PALETTE.accent;
+          const color = agentColor(id, P);
           
           // Index by all possible keys
           agentMap[id] = { nickname, icon, color };
@@ -448,7 +448,7 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
               nickname: a.metadata?.nickname || a.nickname || a.name,
               icon: a.metadata?.icon || a.icon || '🤖',
               description: a.metadata?.description || a.description || '',
-              color: AGENT_COLORS[id] || PALETTE.accent,
+              color: agentColor(id, P),
               tips: a.metadata?.suggestions || [], // Load from YAML suggestions
               prompt_presets: a.metadata?.prompt_presets || [], // Load from YAML prompt presets
               isDefault: a.metadata?.default === true, // Track default for sorting
@@ -483,7 +483,7 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
             nickname: a.metadata?.nickname || a.nickname || a.name,
             queues: a.config.background_queues,
             dryRun: a.config.dry_run || false,
-            color: AGENT_COLORS[a.metadata?.id || a.id] || PALETTE.accent,
+            color: agentColor(a.metadata?.id || a.id, P),
           }));
         
         if (bgAgents.length > 0) {
@@ -500,7 +500,6 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
         if (!pageReady) {
           setTimeout(() => {
             setPageReady(true);
-            sessionStorage.setItem('agentchat_visited', 'true');
           }, 700);
         }
       } catch (err) {
@@ -508,6 +507,11 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
         setAgentsError(err instanceof Error ? err.message : 'Failed to load agents');
         setAgentsLoading(false);
         setPageReady(true); // Show page even on error
+      } finally {
+        // Record the visit whether or not the agents call succeeded. Previously this only
+        // happened on the success path, so one transient backend failure left the flag unset
+        // and brought the full-screen overlay back on every later load.
+        localStorage.setItem(AGENTCHAT_VISITED_KEY, 'true');
       }
     };
     loadAgents();
@@ -545,9 +549,10 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   };
 
   // Submit feedback for a message
-  const submitMessageFeedback = async (messageId: string, rating: number, agentId: string, prompt?: string) => {
-    // If clicking same rating, remove it (toggle off)
-    if (messageFeedback[messageId] === rating) {
+  const submitMessageFeedback = async (messageId: string, rating: number, agentId: string, prompt?: string, comment?: string) => {
+    // If clicking same rating (and not adding a comment), remove it (toggle off). Sending a
+    // comment after a thumb is set is a write — the thumb stays highlighted.
+    if (!comment && messageFeedback[messageId] === rating) {
       setMessageFeedback(prev => {
         const newState = { ...prev };
         delete newState[messageId];
@@ -555,22 +560,25 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
       });
       return;
     }
-    
-    // Update local state immediately
+
+    // Update local state immediately so the thumb stays highlighted (or flips to the new rating)
     setMessageFeedback(prev => ({ ...prev, [messageId]: rating }));
-    
+
     // Send to backend
     try {
-      const response = await fetch(buildServerUrl('/server/benchmarks/feedback'), {
+      const response = await fetch(buildServerUrl('/server/agents/feedback'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agent_id: agentId || selectedAgentId,
           rating: rating,
           task_description: prompt,
+          comment: comment || undefined,
+          message_id: messageId,
+          session_id: session?.id,
         }),
       });
-      
+
       if (response.ok) {
         console.log('✅ Chat feedback submitted');
       }
@@ -614,7 +622,7 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
     isValidating,
     activeProvider,
     activeModel,
-    activeKeyEnv,
+    activeEndpoint,
   } = useAgentChatContext();
 
   // Interactivity manager for automatic UI updates based on text analysis
@@ -637,6 +645,10 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
     campaignList,
     availableUserInterfaces // Pass already loaded user interfaces
   );
+
+  // Index of the user message that started the current agent turn (Atlas artifacts merge within one turn).
+  const turnRef = useRef(0);
+  turnRef.current = messages.filter((m) => m.role === 'user').length;
 
   // Get visual feedback for auto-selected items
   const autoSelectionFeedback = interactivityManager.getAutoSelectionFeedback();
@@ -661,6 +673,11 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
         setContentTitle(title);
         setShowContentViewer(true); // Show content viewer when content is shown
         setContentLoading(false);
+        // The panel is in tab mode here; an Atlas chart/table gets its own tab and focus.
+        if ((content_type === 'report-chart' || content_type === 'data-table') && content_data) {
+          setAnalyticsContent((prev) => mergeAnalyticsArtifact(prev, { title, data: content_data }, turnRef.current));
+          setActiveContentTab('analytics');
+        }
       }
     } else if (action === 'hide_content') {
       console.log('[AgentChat] Hiding content panel');
@@ -1097,6 +1114,8 @@ useEffect(() => {
     lastToolEventCount.current = 0;
     setToolExpanded({}); // Clear tool expanded state for new conversation
     analyzedMessageIds.current.clear(); // Clear analyzed messages for new conversation
+    setAnalyticsContent(null); // An artifact belongs to the conversation that produced it
+    setActiveContentTab((tab) => (tab === 'analytics' ? 'device-preview' : tab));
   }, [activeConversationId]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -1189,7 +1208,7 @@ useEffect(() => {
   // Fixed two-pane desktop layout isn't usable on mobile yet — use a simple
   // single-column chat instead (sidebar/selectors/uploads stay desktop-only).
   if (isMobile) {
-    return <MobileAgentChat />;
+    return <MobileAgentChat messageFeedback={messageFeedback} submitMessageFeedback={submitMessageFeedback} />;
   }
 
   // --- Renderers ---
@@ -1222,7 +1241,7 @@ useEffect(() => {
           sx={{
             width: 4,
             cursor: 'ew-resize',
-            bgcolor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+            bgcolor: P.borderColor,
             flexShrink: 0,
             transition: 'background-color 0.2s',
             '&:hover': { bgcolor: PALETTE.accent },
@@ -1267,7 +1286,7 @@ useEffect(() => {
             sx={{
               width: 4,
               cursor: 'ew-resize',
-              bgcolor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+              bgcolor: P.borderColor,
               flexShrink: 0,
               '&:hover': { bgcolor: PALETTE.accent },
               '&:active': { bgcolor: PALETTE.accent },
@@ -1303,7 +1322,7 @@ useEffect(() => {
             sx={{
               width: 4,
               cursor: 'ew-resize',
-              bgcolor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+              bgcolor: P.borderColor,
               flexShrink: 0,
               '&:hover': { bgcolor: PALETTE.accent },
               '&:active': { bgcolor: PALETTE.accent },
@@ -1319,9 +1338,9 @@ useEffect(() => {
               width: remotePanelWidth,
               minWidth: remotePanelWidth,
               height: '100%',
-              bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : 'grey.50',
+              bgcolor: P.sidebarBg,
               borderLeft: '1px solid',
-              borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.200',
+              borderColor: P.borderColor,
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',
@@ -1335,9 +1354,9 @@ useEffect(() => {
               justifyContent: 'center',
               gap: 1,
               p: 0.5,
-              bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : 'grey.100',
+              bgcolor: P.hoverBg,
               borderBottom: '1px solid',
-              borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.300',
+              borderColor: P.borderColor,
               minHeight: '24px',
               flexShrink: 0,
             }}>
@@ -1359,7 +1378,7 @@ useEffect(() => {
                       fontSize: '0.65rem',
                       lineHeight: 1.4,
                       textTransform: 'none',
-                      borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.400',
+                      borderColor: P.borderColor,
                       color: 'text.secondary',
                     },
                     '& .Mui-selected': {
@@ -1386,7 +1405,7 @@ useEffect(() => {
                   sx={{
                     height: '100%',
                     p: 1,
-                    bgcolor: theme.palette.mode === 'dark' ? '#111' : 'grey.100',
+                    bgcolor: P.surface,
                     overflow: 'hidden',
                   }}
                 >
@@ -1396,7 +1415,7 @@ useEffect(() => {
                       overflow: 'hidden',
                       borderRadius: 1,
                       border: '1px solid',
-                      borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.300',
+                      borderColor: P.borderColor,
                       bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : '#fff',
                     }}
                   >
@@ -1503,9 +1522,9 @@ useEffect(() => {
               p: 1,
               display: 'flex',
               alignItems: 'center',
-              bgcolor: isDarkMode ? PALETTE.inputBg : '#fff',
+              bgcolor: P.surface,
               border: '1px solid',
-              borderColor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+              borderColor: P.borderColor,
               borderRadius: 3,
               boxShadow: isDarkMode ? PALETTE.cardShadow : '0 2px 8px rgba(0,0,0,0.08)',
               transition: 'all 0.2s',
@@ -1544,6 +1563,8 @@ useEffect(() => {
             </IconButton>
           </Paper>
 
+          <AgentChatErrorAlert error={error} />
+
           {/* Suggestion Chips - Loaded from YAML metadata.suggestions */}
           {!agentsLoading && availableAgents.length > 0 && availableAgents.find(a => a.id === selectedAgentId)?.tips?.length > 0 && (
             <Box sx={{ mt: 3, display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -1554,9 +1575,9 @@ useEffect(() => {
                   onClick={() => setInput(suggestion)}
                   size="small"
                   sx={{
-                    bgcolor: isDarkMode ? PALETTE.surface : 'grey.100',
+                    bgcolor: P.hoverBg,
                     border: '1px solid',
-                    borderColor: isDarkMode ? PALETTE.borderColor : 'grey.200',
+                    borderColor: P.borderColor,
                     borderRadius: 2,
                     fontSize: '0.8rem',
                     '&:hover': { borderColor: PALETTE.accent, cursor: 'pointer' },
@@ -1603,7 +1624,6 @@ useEffect(() => {
                   return campaignList.find(c => c.campaign_id === selectedCampaign)?.campaign_name;
                 })(),
               }}
-              isDarkMode={isDarkMode}
             />
           )}
 
@@ -1662,7 +1682,7 @@ useEffect(() => {
       isValidating={isValidating}
       activeProvider={activeProvider}
       activeModel={activeModel}
-      activeKeyEnv={activeKeyEnv}
+      activeEndpoint={activeEndpoint}
     />
   );
 
@@ -1687,16 +1707,16 @@ useEffect(() => {
           height: 32,
           borderRadius: 1.5,
           bgcolor: active 
-            ? (isDarkMode ? PALETTE.surface : 'grey.200') 
+            ? P.hoverBg 
             : 'transparent',
           color: active ? PALETTE.accent : 'text.disabled',
           border: '1px solid',
           borderColor: active 
-            ? (isDarkMode ? PALETTE.borderColor : 'grey.300')
+            ? P.borderColor
             : 'transparent',
           transition: 'all 0.15s',
           '&:hover': {
-            bgcolor: isDarkMode ? PALETTE.hoverBg : 'grey.100',
+            bgcolor: P.hoverBg,
             color: active ? PALETTE.accent : 'text.secondary',
           },
         }}
@@ -1773,9 +1793,9 @@ useEffect(() => {
         alignItems: 'center',
         justifyContent: 'space-between',
         borderBottom: '1px solid',
-        borderColor: isDarkMode ? PALETTE.borderColor : 'grey.200',
+        borderColor: P.borderColor,
         flexShrink: 0,
-        bgcolor: isDarkMode ? PALETTE.sidebarBg : 'grey.50',
+        bgcolor: P.sidebarBg,
       }}>
         {/* Left: Logo + Agent Selector */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1806,10 +1826,10 @@ useEffect(() => {
               sx={{
                 height: 32,
                 fontSize: '0.85rem',
-                bgcolor: isDarkMode ? PALETTE.inputBg : '#fff',
+                bgcolor: P.surface,
                 borderRadius: 1.5,
                 '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+                  borderColor: P.borderColor,
                 },
                 '&:hover .MuiOutlinedInput-notchedOutline': {
                   borderColor: PALETTE.accent,
@@ -1827,9 +1847,9 @@ useEffect(() => {
               MenuProps={{
                 PaperProps: {
                   sx: {
-                    bgcolor: isDarkMode ? PALETTE.surface : '#fff',
+                    bgcolor: P.surface,
                     border: '1px solid',
-                    borderColor: isDarkMode ? PALETTE.borderColor : 'grey.200',
+                    borderColor: P.borderColor,
                     boxShadow: PALETTE.cardShadow,
                     maxWidth: 280,
                   }
@@ -1846,8 +1866,8 @@ useEffect(() => {
                     alignItems: 'flex-start',
                     py: 0.75,
                     maxWidth: 280,
-                    '&:hover': { bgcolor: isDarkMode ? PALETTE.hoverBg : 'grey.100' },
-                    '&.Mui-selected': { bgcolor: isDarkMode ? PALETTE.hoverBg : 'grey.100' },
+                    '&:hover': { bgcolor: P.hoverBg },
+                    '&.Mui-selected': { bgcolor: P.hoverBg },
                   }}
                 >
                   <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>
@@ -1888,8 +1908,8 @@ useEffect(() => {
                     py: 0.25,
                     borderRadius: 1,
                     border: '1px solid',
-                    borderColor: isDarkMode ? PALETTE.borderColor : 'grey.300',
-                    bgcolor: isDarkMode ? PALETTE.surface : 'grey.100',
+                    borderColor: P.borderColor,
+                    bgcolor: P.hoverBg,
                     color: 'text.secondary',
                     fontSize: '0.7rem',
                     fontWeight: 500,
@@ -1948,6 +1968,10 @@ useEffect(() => {
                   <em>Select Target...</em>
                 </MenuItem>
                 {getAllDevices()
+                  .filter((device) => {
+                    const names = serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.hosts?.map((h) => h.host_name);
+                    return !names || names.includes(device.hostName || '');
+                  })
                   .map((device) => {
                     const hostName = device.hostName || '';
                     const targetLabel = (device.device_name || device.device_id).replace(/_Host$/, '');
@@ -2153,14 +2177,14 @@ useEffect(() => {
             gap: 0.5,
             p: 0.5,
             borderRadius: 2,
-            bgcolor: isDarkMode ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.05)',
+            bgcolor: P.hoverBg,
           }}>
             {/* Interactivity Toggle */}
             <Box sx={{
               pr: 1,
               mr: 1,
               borderRight: '1px solid',
-              borderColor: isDarkMode ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)',
+              borderColor: P.borderColor,
             }}>
               <Tooltip title="Enable smart UI interactivity">
                 <FormControlLabel
@@ -2311,6 +2335,7 @@ useEffect(() => {
                 selectedTestCase={selectedTestCase}
                 selectedCampaign={selectedCampaign}
                 selectedDevices={selectedDevices}
+                analyticsContent={analyticsContent}
                 isFullscreen={contentViewerFullscreen}
                 onFullscreenChange={(fullscreen) => {
                   setContentViewerFullscreen(fullscreen);
@@ -2332,7 +2357,7 @@ useEffect(() => {
               onMouseDown={() => setIsResizing(true)}
               sx={{
                 height: 4,
-                bgcolor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+                bgcolor: P.borderColor,
                 cursor: 'ns-resize',
                 flexShrink: 0,
                 transition: 'background-color 0.2s',

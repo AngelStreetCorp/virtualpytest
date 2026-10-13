@@ -714,8 +714,8 @@ class ADBVerificationController(VerificationControllerInterface):
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=0.0,
-                        description="Maximum time to wait (seconds)"
+                        default=0,
+                        description="Maximum time to wait (ms)"
                     )
                 },
                 'verification_type': 'adb'
@@ -735,8 +735,8 @@ class ADBVerificationController(VerificationControllerInterface):
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=0.0,
-                        description="Maximum time to wait (seconds)"
+                        default=0,
+                        description="Maximum time to wait (ms)"
                     )
                 },
                 'verification_type': 'adb'

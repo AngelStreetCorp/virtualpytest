@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>TASK-79 E2E Latency Test</title>
+  <style>
+    body { margin: 0; background: #000; color: #fff; font: 14px monospace; }
+    video { width: 100vw; height: 90vh; object-fit: contain; background: #000; }
+    #log { padding: 8px; background: #111; max-height: 8vh; overflow: auto; }
+    pre { margin: 0; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+</head>
+<body>
+  <video id="v" muted autoplay playsinline></video>
+  <div id="log"><pre id="lines"></pre></div>
+  <script>
+    const URL = 'http://127.0.0.1:5109/host/vpt-pi3/stream/capture1/segments/output.m3u8';
+    // The CORS forwarder (cors_forwarder.mjs rpitest.angelstreet.io 5109) adds
+    // Access-Control-Allow-Headers: * and forwards to rpitest. The forwarder
+    // handles the host-session auth_request subrequest on the rpitest side.
+    const log = (m) => { document.getElementById('lines').textContent += m + '\n'; };
+
+    const video = document.getElementById('v');
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+        liveSyncDuration: 1.0,
+        liveMaxLatencyDuration: 3,
+        maxLiveSyncPlaybackRate: 1.5,
+        maxBufferLength: 6,
+        maxMaxBufferLength: 150,
+        backBufferLength: 150,
+        maxBufferSize: 15 * 1000 * 1000,
+        liveBackBufferLength: 150,
+        liveDurationInfinity: true,
+        xhrSetup: (xhr) => {
+          // No custom headers — would trigger CORS preflight.
+        },
+      });
+      hls.loadSource(URL);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        log('manifest parsed');
+        video.play();
+      });
+      hls.on(Hls.Events.ERROR, (_e, d) => log('error ' + d.type + ' ' + d.details));
+      window.__hls = hls;
+    } else {
+      log('hls.js not supported');
+    }
+  </script>
+</body>
+</html>

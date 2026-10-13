@@ -17,6 +17,7 @@ import { getCachedCampaignExecutableList, invalidateCampaignExecutableListCache 
 import { getCampaignBadge } from '../../config/constants';
 import type { CampaignExecutableSource } from '../../config/constants';
 import { useIdentityMap } from '../../hooks/useIdentityMap';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export interface CampaignItem {
   id: string;
@@ -47,6 +48,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
   selectedCampaignId,
   showHidden = false,
 }, ref) => {
+  const P = useAgentChatPalette();
   const { isMobile, isTablet } = useResponsiveMode();
   const { resolveCampaign } = useIdentityMap();
   const isCompact = isMobile || isTablet;
@@ -336,7 +338,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                       '&:hover': { bgcolor: isSelected ? 'action.selected' : 'action.hover' },
                       opacity: isHidden ? 0.58 : 1,
                       borderLeft: isSelected ? '3px solid' : 'none',
-                      borderLeftColor: isSelected ? 'primary.light' : undefined,
+                      borderLeftColor: isSelected ? `${P.accent}26` : undefined,
                     }}
                   >
                     <ListItemButton
@@ -403,7 +405,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                           {folderLabel ? (
                             <Typography
                               variant="caption"
-                              color={selectedFolder === folderLabel ? 'primary.main' : 'text.secondary'}
+                              color={selectedFolder === folderLabel ? P.accentText : P.textSecondary}
                               sx={{
                                 display: 'block',
                                 fontSize: '0.68rem',
@@ -442,7 +444,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                                 sx={{
                                   height: '14px',
                                   fontSize: '0.55rem',
-                                  backgroundColor: tag?.color || '#9e9e9e',
+                                  backgroundColor: tag?.color || P.textMuted,
                                   color: 'white',
                                   cursor: 'pointer',
                                   opacity: tagSelected ? 1 : (isSelected ? 0.9 : 1),
@@ -508,8 +510,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
         {(searchQuery || selectedTags.length > 0 || (selectedFolder && selectedFolder !== 'All') || selectedType) && (
           <Typography
             variant="caption"
-            color="primary"
-            sx={{ cursor: 'pointer', textDecoration: 'underline', fontSize: '0.75rem' }}
+            sx={{ color: P.accentText, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.75rem' }}
             onClick={() => {
               setSearchQuery('');
               setSelectedTags([]);

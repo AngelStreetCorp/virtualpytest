@@ -7,10 +7,10 @@ Database is only used for user-created custom agents.
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 
 from agent.registry.config_schema import AgentDefinition
-from agent.registry.validator import validate_agent_yaml, validate_agent_dict, AgentValidationError
+from agent.registry.validator import validate_agent_yaml, AgentValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -106,13 +106,6 @@ class AgentRegistry:
         logger.info(f"[@registry] ═══════════════════════════════════════════════")
         logger.info(f"[@registry] Total: {loaded}/{len(yaml_files)} agents loaded")
         logger.info(f"[@registry] ═══════════════════════════════════════════════")
-    
-    @classmethod
-    def reload(cls) -> None:
-        """Reload all system agents from YAML (for development)"""
-        cls._system_agents.clear()
-        cls._loaded = False
-        cls.load_system_agents()
     
     def list_agents(self) -> List[AgentDefinition]:
         """
@@ -212,8 +205,3 @@ def get_agent_registry() -> AgentRegistry:
     if _agent_registry is None:
         _agent_registry = AgentRegistry()
     return _agent_registry
-
-
-def reload_agents() -> None:
-    """Reload all agents from YAML (for development/hot-reload)"""
-    AgentRegistry.reload()

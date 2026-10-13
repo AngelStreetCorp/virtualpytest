@@ -47,6 +47,7 @@ import {
   getClientForRequest,
   registerServerIdentity,
   resolveServerForRequest,
+  subscribeToServerIdentities,
 } from '../../frontend/src/lib/serverIdentity';
 
 const ANGELSTREET = 'https://virtualpytest.angelstreet.io';
@@ -113,9 +114,53 @@ describe('serverIdentity', () => {
 
     const info = await discoverServerIdentity(QUALIAI);
 
-    expect(fetchMock.fn).toHaveBeenCalledWith(`${QUALIAI}/server/auth/check`, { signal: undefined });
+    // Always bounded by a timeout signal, so one unresponsive server can't leave the
+    // probe pending and stall the auth state of every other server behind it.
+    expect(fetchMock.fn).toHaveBeenCalledWith(`${QUALIAI}/server/auth/check`, {
+      signal: expect.any(AbortSignal),
+    });
     expect(info).toMatchObject({ mode: 'supabase', identity: OTHER, serverName: 'QualiAI' });
     expect(getClientForRequest(`${QUALIAI}/server/x`)).toEqual({ id: `client-for-${OTHER}` });
+  });
+
+  it('notifies subscribers when a server’s identity is learned', () => {
+    // Consumers outside ServerManagerProvider (WorkspaceProvider) read the registry
+    // through useSyncExternalStore; without this event they would sample it once, before
+    // discovery has run, and never re-read it.
+    const onChange = vi.fn();
+    const unsubscribe = subscribeToServerIdentities(onChange);
+
+    registerServerIdentity(QUALIAI, { mode: 'supabase', identity: OTHER, anonKey: 'anon-q' });
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    registerServerIdentity(ANGELSTREET, { mode: 'open' });
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it('coalesces concurrent probes of the same server into one request', async () => {
+    // On first load the picker's discovery pass and the host fetch both want this
+    // server's identity within milliseconds; each sending its own /server/auth/check is
+    // pure waste, and one of the two would race the other's registry write.
+    fetchMock.fn.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        auth: { mode: 'supabase', identity: OTHER, anon_key: 'anon-q', server_name: 'QualiAI' },
+      }),
+    });
+
+    const [first, second] = await Promise.all([
+      discoverServerIdentity(QUALIAI),
+      discoverServerIdentity(QUALIAI),
+    ]);
+
+    expect(fetchMock.fn).toHaveBeenCalledTimes(1);
+    expect(first).toMatchObject({ identity: OTHER });
+    expect(second).toMatchObject({ identity: OTHER });
+
+    // The coalescing window closes once the probe settles — a later probe is a new call.
+    await discoverServerIdentity(QUALIAI);
+    expect(fetchMock.fn).toHaveBeenCalledTimes(2);
   });
 
   it('treats an unreachable server as undiscovered rather than throwing', async () => {

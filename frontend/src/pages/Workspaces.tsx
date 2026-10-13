@@ -37,6 +37,8 @@ import {
   ListItemText,
   ListItemSecondaryAction,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -62,6 +64,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { TargetPanel } from '../components/common/TargetPanel';
+import { ALL_WORKSPACE_LABEL } from '../components/common/WorkspaceSwitcher';
 import { ALL_NAV_ITEMS } from '../config/navItems';
 import { ALL_PERMISSIONS, Permission } from '../types/auth';
 import { buildServerUrl } from '../utils/buildUrlUtils';
@@ -343,42 +346,25 @@ function groupScriptsByFolder(scripts: string[]): Record<string, string[]> {
 const WorkspaceDialog: React.FC<WorkspaceDialogProps> = ({ open, workspace, onClose, onSave, isSaving }) => {
   const [tab, setTab] = useState(0);
   const [form, setForm] = useState<WorkspaceCreatePayload>(buildDefaultForm());
-  // Workspaces are global scope — we must show targets from every registered
-  // server, not just the currently selected one, because the device_filter
-  // applies across the whole platform.
-  const { serverHostsData } = useServerManager();
+  // A workspace belongs to the selected server (BUG-0292), so only that server's devices can go in
+  // it. Merging every server's hosts offered Awesomation's devices in a workspace made on
+  // RPI1-server — and host names can repeat across servers.
+  const { serverHostsData, selectedServer } = useServerManager();
 
   const allHosts = React.useMemo(() => {
-    const byHostName = new Map<string, { host_name: string; devices: any[] }>();
-    serverHostsData.forEach((server) => {
-      server.hosts.forEach((host) => {
-        // If the same host name appears on multiple servers (shouldn't in
-        // practice, but guard anyway), merge their devices rather than drop.
-        const existing = byHostName.get(host.host_name);
-        if (existing) {
-          const seen = new Set(existing.devices.map((d: any) => d.device_id));
-          (host.devices || []).forEach((d: any) => {
-            if (!seen.has(d.device_id)) existing.devices.push(d);
-          });
-        } else {
-          byHostName.set(host.host_name, {
-            host_name: host.host_name,
-            devices: [...(host.devices || [])],
-          });
-        }
-      });
-    });
-    return Array.from(byHostName.values()).sort((a, b) =>
-      a.host_name.localeCompare(b.host_name, undefined, { numeric: true }),
-    );
-  }, [serverHostsData]);
+    const serverUrl = selectedServer || window.location.origin;
+    const server = serverHostsData.find((entry) => entry.server_info.server_url === serverUrl);
+    return (server?.hosts ?? [])
+      .map((host) => ({ host_name: host.host_name, devices: [...(host.devices || [])] }))
+      .sort((a, b) => a.host_name.localeCompare(b.host_name, undefined, { numeric: true }));
+  }, [serverHostsData, selectedServer]);
 
   const getDevicesFromHost = React.useCallback(
     (hostName: string) => allHosts.find((h) => h.host_name === hostName)?.devices ?? [],
     [allHosts],
   );
 
-  // All `hostName:deviceId` keys across every server — used to default a new
+  // All `hostName:deviceId` keys on this server — used to default a new
   // workspace to "every device allowed" (same key format as `TargetPanel`).
   const allDeviceTargetKeys = React.useMemo(() => {
     const keys: string[] = [];
@@ -795,6 +781,7 @@ const WorkspaceDialog: React.FC<WorkspaceDialogProps> = ({ open, workspace, onCl
 // Main page
 // ---------------------------------------------------------------------------
 const Workspaces: React.FC = () => {
+  const P = useAgentChatPalette();
   const {
     workspaces,
     isLoading,
@@ -859,12 +846,12 @@ const Workspaces: React.FC = () => {
   };
 
   return (
-    <Box>
+    <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <WorkspacesIcon fontSize="large" color="primary" />
-          <Typography variant="h4" component="h1">
-            Workspaces Management
+          <WorkspacesIcon sx={{ color: P.accentText, fontSize: 28 }} />
+          <Typography component="h1" sx={PAGE_TITLE_SX}>
+            Workspaces
           </Typography>
         </Box>
         <Button
@@ -893,23 +880,50 @@ const Workspaces: React.FC = () => {
             <TableContainer component={Paper} elevation={0}>
               <Table
                 sx={{
+                  tableLayout: 'fixed', minWidth: 860, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
                   '& .MuiTableRow-root:hover': {
                     backgroundColor: 'transparent !important',
                   },
                 }}
               >
+              <colgroup><col style={{ width: 48 }} /><col style={{ width: 200 }} /><col /><col style={{ width: 120 }} /><col style={{ width: 110 }} /><col style={{ width: 100 }} /><col style={{ width: 100 }} /></colgroup>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ width: 48 }} />
-                    <TableCell><strong>Workspace Name</strong></TableCell>
+                    <TableCell><strong>Name</strong></TableCell>
                     <TableCell><strong>Description</strong></TableCell>
                     <TableCell align="center"><strong>Members</strong></TableCell>
+                    <TableCell align="center"><strong>Devices</strong></TableCell>
                     <TableCell align="center"><strong>Permissions</strong></TableCell>
                     <TableCell><strong>Created</strong></TableCell>
                     <TableCell align="right"><strong>Actions</strong></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
+                  {/* Built-in "All" (no workspace): on every server, never stored, not editable. */}
+                  <TableRow>
+                    <TableCell sx={{ width: 48 }} />
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body1" fontWeight="medium">
+                          {ALL_WORKSPACE_LABEL}
+                        </Typography>
+                        <Chip label="Built-in" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                      </Box>
+                    </TableCell>
+                    <TableCell>Every device, script and page the user's role allows</TableCell>
+                    <TableCell align="center">
+                      <Chip label="Everyone" size="small" color="primary" variant="outlined" />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip label="All" size="small" color="default" />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip label="All" size="small" color="default" />
+                    </TableCell>
+                    <TableCell>—</TableCell>
+                    <TableCell />
+                  </TableRow>
                   {workspaces.map((ws) => (
                     <React.Fragment key={ws.id}>
                       <TableRow>
@@ -939,6 +953,10 @@ const Workspaces: React.FC = () => {
                           <Chip label={ws.member_count} size="small" color="primary" />
                         </TableCell>
                         <TableCell align="center">
+                          {/* Empty device filter = no device limit */}
+                          <Chip label={ws.device_filter?.length ? ws.device_filter.length : 'All'} size="small" color="default" />
+                        </TableCell>
+                        <TableCell align="center">
                           <Chip label={ws.permissions.length} size="small" color="default" />
                         </TableCell>
                         <TableCell>{new Date(ws.created_at).toLocaleDateString()}</TableCell>
@@ -965,7 +983,7 @@ const Workspaces: React.FC = () => {
                       {/* Expanded row — member management, hidden for public workspaces */}
                       {!ws.is_public && (
                         <TableRow>
-                          <TableCell colSpan={7} sx={{ p: 0, border: 0 }}>
+                          <TableCell colSpan={8} sx={{ p: 0, border: 0 }}>
                             <Collapse in={expandedId === ws.id} timeout="auto" unmountOnExit>
                               <ExpandedRow workspace={ws} />
                             </Collapse>
@@ -974,15 +992,6 @@ const Workspaces: React.FC = () => {
                       )}
                     </React.Fragment>
                   ))}
-                  {workspaces.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={7} align="center">
-                        <Typography variant="body2" color="textSecondary" sx={{ py: 4 }}>
-                          No workspaces found. Create your first workspace to get started.
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
                 </TableBody>
               </Table>
             </TableContainer>

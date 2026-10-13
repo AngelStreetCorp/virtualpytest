@@ -29,7 +29,7 @@ Respond with ONLY this JSON (no markdown, no extra text):
 {{"translations": ["translated text 1", "translated text 2", ...]}}"""
         
         estimated_tokens = max(3000, len('\n'.join(texts)) * 2)
-        result = call_text_ai(prompt, max_tokens=estimated_tokens, temperature=0.0)
+        result = call_text_ai(prompt, 'text.transcript', max_tokens=estimated_tokens, temperature=0.0)
         
         if not result['success']:
             return {'success': False, 'error': result.get('error', 'AI call failed'), 'processing_time': time.time() - start_time}
@@ -147,7 +147,7 @@ Respond with JSON only (no markdown):
     }}
 }}"""
 
-        result = call_text_ai(prompt, max_tokens=estimated_tokens, temperature=0.0)
+        result = call_text_ai(prompt, 'text.transcript', max_tokens=estimated_tokens, temperature=0.0)
         
         if not result['success']:
             return {

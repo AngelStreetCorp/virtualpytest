@@ -98,6 +98,8 @@ export interface ScriptAnalysis {
   parameters: ScriptParameter[];
   description?: string;
   estimated_duration?: number;
+  /** Set when the analysis request failed — the panel shows it instead of loading forever. */
+  error?: string;
 }
 
 export interface ScriptParameter {

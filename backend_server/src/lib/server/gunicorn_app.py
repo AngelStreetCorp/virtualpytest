@@ -13,6 +13,7 @@ import threading
 
 from backend_server.src.lib.utils.server_utils import get_server_system_stats
 from shared.src.lib.database.system_metrics_db import store_system_metrics
+from backend_server.src.lib.server.infra_status_collector import collect_infra_status_forever
 
 
 def _resolve_ssl_context():
@@ -65,7 +66,13 @@ def _collect_server_metrics():
             server_stats = get_server_system_stats(skip_speedtest=first_run)
             first_run = False
             try:
-                success = store_system_metrics('server', server_stats)
+                # Key the metrics row by SERVER_NAME (matches the read in
+                # server_system_routes.getAllHosts). Storing as a hardcoded
+                # 'server' broke every deployment that sets SERVER_NAME — the
+                # read then queried a different host_name and returned null,
+                # which blanked the dashboard's CPU/RAM/Disk/Load chips.
+                metrics_host_name = (os.getenv('SERVER_NAME') or '').strip() or 'server'
+                success = store_system_metrics(metrics_host_name, server_stats)
                 if success:
                     print("[@backend_server:metrics] 📊 Server metrics collected and stored")
                 else:
@@ -128,6 +135,8 @@ def run_server(app, on_signal, post_worker_init_callback=None):
         print(f"[@backend_server:worker] 🚀 Worker {worker.pid} initialized")
         metrics_thread = threading.Thread(target=_collect_server_metrics, daemon=True)
         metrics_thread.start()
+        infra_status_thread = threading.Thread(target=collect_infra_status_forever, daemon=True)
+        infra_status_thread.start()
         if post_worker_init_callback:
             post_worker_init_callback()
             print(f"[@backend_server:worker] 🤖 Agent background workers started in worker {worker.pid}")

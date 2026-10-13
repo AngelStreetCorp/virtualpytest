@@ -41,10 +41,12 @@ export const useInfraredRemote = (
   host: Host,
   deviceId?: string,
   isConnected?: boolean,
+  remoteType: 'ir_remote' | 'vega' = 'ir_remote',
+  irTypeOverride?: string,
 ): UseInfraredRemoteReturn => {
   // Get IR type from device configuration
   const device = host?.devices?.find(d => d.device_id === deviceId);
-  const irType = device?.ir_type;
+  const irType = irTypeOverride || device?.ir_type;
 
   // Get the appropriate config based on IR type
   const layoutConfig = irType ? getInfraredRemoteConfig(irType) : infraredRemoteConfig;
@@ -98,7 +100,7 @@ export const useInfraredRemote = (
         success: boolean;
         status?: InfraredStatus;
         error?: string;
-      }>('get_pairing_status', {}, { remote_type: 'ir_remote' }, { includeDeviceId: true });
+      }>('get_pairing_status', {}, { remote_type: remoteType }, { includeDeviceId: true });
       if (result.success && result.status) {
         setStatus(result.status);
       } else if (result.error) {
@@ -107,7 +109,7 @@ export const useInfraredRemote = (
     } catch (e) {
       console.warn(`[@hook:useInfraredRemote] refreshStatus failed: ${e}`);
     }
-  }, [executeRemoteCommand]);
+  }, [executeRemoteCommand, remoteType]);
 
   useEffect(() => {
     if (!host?.host_name || !deviceId) {
@@ -187,7 +189,7 @@ export const useInfraredRemote = (
         const result = await executeRemoteCommand(
           'press_key',
           { key: command, ...params },
-          { remote_type: 'ir_remote' },
+          { remote_type: remoteType },
           { includeDeviceId: true },
         );
         
@@ -208,7 +210,7 @@ export const useInfraredRemote = (
         setIsLoading(false);
       }
     },
-    [session.connected, host.host_name, deviceId],
+    [session.connected, host.host_name, deviceId, executeRemoteCommand, remoteType],
   );
 
   return {

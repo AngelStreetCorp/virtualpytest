@@ -6,11 +6,13 @@ Single thread, minimal complexity
 import os
 import sys
 import logging
+import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 
 from shared.src.lib.utils.storage_path_utils import get_device_info_from_capture_folder
+from shared.src.lib.utils import cv2_io
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 backend_host_dir = os.path.dirname(current_dir)
@@ -71,6 +73,11 @@ logger = logging.getLogger('capture_monitor')
 NORMAL = 0
 INCIDENT = 1
 
+# TASK-27 step 4f: incident types whose frames can show the fault, so they become
+# ``av-fault`` training samples. These are every visual type process_detection emits;
+# audio_loss (and any other audio type) cannot be seen in a frame and is never recorded.
+VISUAL_INCIDENT_TYPES = frozenset({'blackscreen', 'freeze', 'macroblocks'})
+
 class IncidentManager:
     def __init__(self, skip_startup_cleanup=False):
         self.device_states = {}  # {device_id: {state: int, active_incidents: {type: incident_id}, pending_incidents: {type: timestamp}}}
@@ -84,8 +91,8 @@ class IncidentManager:
         # resolve immediately (grace = 0).
         self.RESOLVE_GRACE = {'audio_loss': 5.0}
         # Bound R2 image uploads so a slow/hung R2 can't stall the per-device incident
-        # worker and back up its queue. Uploads are best-effort: on timeout the incident is
-        # still created/resolved, just without the image.
+        # worker and back up its queue. A start frame is required: without one the incident
+        # stays pending and the upload is retried after CREATE_RETRY_BACKOFF.
         self.R2_UPLOAD_TIMEOUT = 8.0
         # Wait this long before retrying a create_incident that failed, so a persistent DB
         # error costs one upload per minute instead of one per detection tick (BUG-0109).
@@ -358,6 +365,9 @@ class IncidentManager:
                     if issue_type == 'freeze':
                         logger.warning(f"[{capture_folder}] ⚠️  NO r2_images in analysis_result for {issue_type} incident!")
             
+            if issue_type == 'freeze':
+                self._stamp_screen_id(enhanced_metadata, host_name, device_id, capture_folder)
+
             # Call database exactly as before
             result = create_alert_safe(
                 host_name=host_name,
@@ -371,6 +381,16 @@ class IncidentManager:
             if result.get('success'):
                 alert_id = result.get('alert_id')
                 logger.info(f"[{capture_folder}] DB INSERT SUCCESS: Created alert {alert_id}")
+                if issue_type == 'freeze':
+                    self._record_jev_facts(alert_id, enhanced_metadata,
+                                           device_info.get('device_model'), capture_folder)
+                    self._record_freeze_strip(alert_id, enhanced_metadata,
+                                              device_info.get('device_model'), capture_folder,
+                                              host_name=host_name, device_id=device_id)
+                else:
+                    self._record_training_frames(alert_id, issue_type,
+                                                 enhanced_metadata.get('last_3_filenames'),
+                                                 device_info.get('device_model'), capture_folder)
                 return alert_id
             else:
                 logger.error(f"[{capture_folder}] DB INSERT FAILED: {result.get('error')}")
@@ -380,6 +400,232 @@ class IncidentManager:
             logger.error(f"[{capture_folder}] DB ERROR: Failed to create {issue_type} incident: {e}")
             return None
     
+    @staticmethod
+    def _stamp_screen_id(metadata, host_name, device_id, capture_folder):
+        """TASK-84: put ``screen_id`` (+ match distance) on a freeze alert's metadata before it is created.
+
+        Only for the host VNC desktop (device 'host' with no HOST_USERINTERFACE) and only when ALERT_SCREEN_MEMORY is dryrun/on. The host is the only
+        writer of screen rows; the server worker reads the stamp. Never raises: no stamp = triage as before.
+        """
+        try:
+            import cv2
+            from shared.src.lib import screen_memory
+            if screen_memory.mode() == 'off':
+                return
+            # Host VNC desktop only (TASK-84 review): a real set-top box hung on a still menu looks like a menu
+            # that is legitimately still, so its screens must never be learned as "expected".
+            if device_id != 'host' or (os.environ.get('HOST_USERINTERFACE') or '').strip():
+                return
+            from shared.src.lib.ai.freeze_strip import select_frames
+            from shared.src.lib.database import screen_fingerprints_db
+            from shared.src.lib.utils.storage_path_utils import get_device_fps
+            picked, _t = select_frames(metadata, fps=get_device_fps(capture_folder))
+            if not picked:
+                return
+            path = picked[-1][0]
+            fp = screen_memory.fingerprint_frame(cv2_io.imread(path, cv2.IMREAD_COLOR))
+            if not fp:
+                logger.info(f"[{capture_folder}] screen memory: frame not keyable (flat or unreadable)")
+                return
+            hit = screen_fingerprints_db.resolve_or_create(f'{host_name}/{device_id}', 'freeze', fp, path)
+            if hit:
+                metadata['screen_id'] = hit['id']
+                metadata['screen_dist'] = hit['dist']
+                metadata['screen_seen'] = hit['seen']  # this alert's own sighting number: the audit gate counts on it
+                logger.info(f"[{capture_folder}] screen memory: screen {hit['id']} "
+                            f"({'new' if hit['is_new'] else 'seen'}, dist {hit['dist']}, verdict {hit['verdict']})")
+        except Exception as e:
+            logger.warning(f"[{capture_folder}] screen memory stamp failed: {e}")
+
+    def _record_training_frames(self, alert_id, issue_type, frame_paths, device_model, label=''):
+        """TASK-27 step 3a: keep the alert frames as pending ``av-fault`` training samples.
+
+        The frames are copied now, while they are still on the host disk: the ``alerts/``
+        copy expires after 14 days and a human discard often comes later. The upload runs
+        in a daemon thread so a slow or down training bucket never delays alert creation.
+        No-op unless ``TRAINING_DATA_ENABLED`` is set, and for any type outside
+        ``VISUAL_INCIDENT_TYPES`` (step 4f: no audio). Freeze alerts do not come here
+        since step 4g: they record one strip (``_record_freeze_strip``). Never raises.
+        """
+        try:
+            if not os.environ.get('TRAINING_DATA_ENABLED', '').strip():
+                return
+            if issue_type not in VISUAL_INCIDENT_TYPES:
+                return
+            paths = [p for p in (frame_paths or []) if p][-3:]
+            if not alert_id or not paths:
+                return
+            threading.Thread(
+                target=self._record_training_frames_worker,
+                args=(alert_id, issue_type, paths, device_model, label),
+                name='incident-training',
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.warning(f"[{label}] training capture not started for alert {alert_id}: {e}")
+
+    @staticmethod
+    def _record_training_frames_worker(alert_id, issue_type, paths, device_model, label=''):
+        """Thread body for ``_record_training_frames``. Never raises."""
+        try:
+            from shared.src.lib.ai.training_samples import record_sample
+            from shared.src.lib.config.constants import get_team_id
+            # alerts rows carry no team_id: the host's team is its TEAM_ID env var
+            team_id = get_team_id()
+            recorded = 0
+            for path in paths:
+                try:
+                    sample_id = record_sample(
+                        image=path,
+                        family='av-fault',
+                        team_id=team_id,
+                        device_model=device_model,
+                        model_answer={'incident_type': issue_type},
+                        label_source='none',
+                        source_ref={'alert_id': alert_id},
+                        # Step 4d: not forced. Freeze/black frames are near-identical, so
+                        # the near-duplicate check applies; the 20-per-group cap does not
+                        # (one group holds every alert of a device model).
+                        force=False,
+                        skip_cap=True,
+                    )
+                    if sample_id:
+                        recorded += 1
+                except Exception as e:
+                    logger.warning(f"[{label}] training sample failed for alert {alert_id}: {e}")
+            if recorded:
+                logger.info(f"[{label}] training: {recorded} av-fault sample(s) for alert {alert_id}")
+        except Exception as e:
+            logger.warning(f"[{label}] training capture failed for alert {alert_id}: {e}")
+
+    def _record_freeze_strip(self, alert_id, metadata, device_model, capture_folder,
+                             host_name=None, device_id=None):
+        """TASK-27 step 4g: one ``av-fault`` sample per freeze alert, a multi-frame strip.
+
+        One frame cannot show a freeze. The strip (``shared/src/lib/ai/freeze_strip.py``)
+        puts 2-3 frames of the alert, at least 500 ms apart and labelled with their
+        relative time, in one JPEG. It reuses the frames the alert already names and the
+        freeze-start frame, all still on the host disk now. Built and uploaded in a daemon
+        thread, like ``_record_training_frames``. No-op unless ``TRAINING_DATA_ENABLED``.
+        Never raises.
+        """
+        try:
+            if not os.environ.get('TRAINING_DATA_ENABLED', '').strip():
+                return
+            if not alert_id or not isinstance(metadata, dict):
+                return
+            from shared.src.lib.ai.freeze_strip import current_frame_path
+            if not current_frame_path(metadata):
+                return
+            # Deep link to the Alerts page (MonitoringIncidents reads host/device/type/at).
+            source_ref = {'alert_id': alert_id}
+            if host_name and device_id:
+                source_ref.update({'host': host_name, 'device': device_id,
+                                   'at': datetime.now(timezone.utc).isoformat()})
+            threading.Thread(
+                target=self._record_freeze_strip_worker,
+                args=(dict(metadata), device_model, capture_folder, source_ref),
+                name='incident-training-strip',
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.warning(f"[{capture_folder}] freeze strip not started for alert {alert_id}: {e}")
+
+    @staticmethod
+    def _record_freeze_strip_worker(metadata, device_model, capture_folder, source_ref):
+        """Thread body for ``_record_freeze_strip``. Never raises."""
+        alert_id = (source_ref or {}).get('alert_id')
+        try:
+            from shared.src.lib.ai.freeze_strip import build_freeze_strip
+            from shared.src.lib.ai.training_samples import record_sample
+            from shared.src.lib.config.constants import get_team_id
+            from shared.src.lib.utils.storage_path_utils import get_device_fps
+            built = build_freeze_strip(metadata, fps=get_device_fps(capture_folder))
+            if not built:
+                logger.info(f"[{capture_folder}] training: no freeze strip for alert {alert_id} "
+                            f"(fewer than 2 frames 500 ms apart on disk)")
+                return
+            jpeg, meta = built
+            sample_id = record_sample(
+                image=jpeg,
+                family='av-fault',
+                team_id=get_team_id(),
+                device_model=device_model,
+                model_answer={
+                    'incident_type': 'freeze',
+                    'evidence': 'strip',
+                    'duration_ms': meta.get('duration_ms'),
+                    'diffs': meta.get('diffs'),
+                    'frames': [f['t_rel_s'] for f in meta.get('frames', [])],
+                },
+                label_source='none',
+                source_ref=source_ref,
+                boxes=None,
+                # Near-duplicate check on, cap off (step 4d): the check now compares the
+                # strips of different alerts, never the frames of one alert.
+                force=False,
+                skip_cap=True,
+            )
+            if sample_id:
+                logger.info(f"[{capture_folder}] training: freeze strip ({len(meta['frames'])} frames, "
+                            f"{meta['time_source']}) for alert {alert_id}")
+        except Exception as e:
+            logger.warning(f"[{capture_folder}] freeze strip failed for alert {alert_id}: {e}")
+
+    def _record_jev_facts(self, alert_id, metadata, device_model, capture_folder):
+        """TASK-55: text facts about the frozen screen, written on the alert for the server's Jev step.
+
+        A daemon thread (like ``_record_freeze_strip``, independent of ``TRAINING_DATA_ENABLED``)
+        measures the frames the strip would use and merges ``metadata.jev_facts`` into the alert.
+        No-op unless ``ALERT_JEV_FACTS_ENABLED`` is true. Never raises.
+        """
+        try:
+            if os.environ.get('ALERT_JEV_FACTS_ENABLED', '').strip().lower() not in ('1', 'true', 'yes', 'on'):
+                return
+            if not alert_id or not isinstance(metadata, dict):
+                return
+            threading.Thread(
+                target=self._record_jev_facts_worker,
+                args=(alert_id, dict(metadata), device_model, capture_folder),
+                name='incident-jev-facts',
+                daemon=True,
+            ).start()
+        except Exception as e:
+            logger.warning(f"[{capture_folder}] jev facts not started for alert {alert_id}: {e}")
+
+    @staticmethod
+    def _record_jev_facts_worker(alert_id, metadata, device_model, capture_folder):
+        """Thread body for ``_record_jev_facts``. Never raises; a failure leaves the alert as it is."""
+        started = time.time()
+        try:
+            import cv2
+            from shared.src.lib.ai.freeze_facts import facts_from_frames, is_camera
+            from shared.src.lib.ai.freeze_strip import select_frames
+            from shared.src.lib.database.alerts_db import merge_alert_metadata
+            from shared.src.lib.utils.storage_path_utils import get_device_fps
+            picked, _time_source = select_frames(metadata, fps=get_device_fps(capture_folder))
+            frames = []
+            for path, _t in picked:
+                img = cv2_io.imread(path, cv2.IMREAD_COLOR)
+                if img is not None and img.size:
+                    frames.append(img)
+            if len(frames) < 2:
+                logger.info(f"[{capture_folder}] jev facts: fewer than 2 frames on disk for alert {alert_id}")
+                return
+            camera = is_camera(device_model)
+            facts = facts_from_frames(frames, with_ocr=not camera)
+            ms = int((time.time() - started) * 1000)
+            record = {'version': 1, 'device_model': device_model, 'n_frames': facts['n_frames'],
+                      'first_last': facts['first_last'], 'pairs': facts['pairs'], 'text': facts['text'],
+                      'content': facts['content'], 'facts': facts['facts'], 'ms': ms}
+            if merge_alert_metadata(alert_id, {'jev_facts': record}):
+                logger.info(f"[{capture_folder}] jev facts for alert {alert_id}: {len(frames)} frames, "
+                            f"{'no OCR (camera)' if camera else 'OCR'}, {ms} ms")
+            else:
+                logger.warning(f"[{capture_folder}] jev facts for alert {alert_id} not stored")
+        except Exception as e:
+            logger.warning(f"[{capture_folder}] jev facts failed for alert {alert_id}: {e}")
+
     def resolve_incident(self, device_id, incident_id, issue_type, closure_metadata=None):
         """Resolve incident in DB with optional closure metadata (e.g., closure image URL)"""
         try:
@@ -572,9 +818,11 @@ class IncidentManager:
                             time_key = f"{now.year}{now.month:02d}{now.day:02d}_{now.hour:02d}{now.minute:02d}{now.second:02d}"
                             
                             if issue_type == 'freeze':
-                                # Upload 3 thumbnails for freeze (paths already in detection_result)
-                                last_3_thumbnails = detection_result.get('last_3_thumbnails', [])
+                                # Upload 3 thumbnails for freeze (paths already in detection_result). A thumbnail
+                                # is not always on disk (the host VNC capture often has none): the capture frames
+                                # themselves are uploaded instead, an alert never goes out without a frame.
                                 last_3_captures = detection_result.get('last_3_filenames', [])
+                                last_3_thumbnails = detection_result.get('last_3_thumbnails') or last_3_captures
                                 if last_3_thumbnails:
                                     # Copy to cold first (freeze thumbnails may be in hot storage)
                                     from shared.src.lib.utils.storage_path_utils import copy_to_cold_storage
@@ -596,7 +844,20 @@ class IncidentManager:
                                 device_id = get_device_info_from_capture_folder(capture_folder).get('device_id', capture_folder)
                                 device_state = self.get_device_state(device_id)
                                 cold_thumbnail_path = device_state.get(f'{issue_type}_start_thumbnail_cold')
-                                
+
+                                # No stored start frame (e.g. audio_loss re-opened after a blackscreen
+                                # auto-resolved it: the monitor only copies a frame when the event
+                                # starts). Use the current frame rather than an alert with no image.
+                                if not (cold_thumbnail_path and os.path.exists(cold_thumbnail_path)):
+                                    current_thumbnails = [t for t in (detection_result.get('last_3_thumbnails')
+                                                                      or detection_result.get('last_3_filenames') or []) if t]
+                                    if current_thumbnails:
+                                        from shared.src.lib.utils.storage_path_utils import copy_to_cold_storage
+                                        cold_thumbnail_path = copy_to_cold_storage(current_thumbnails[-1])
+                                        if cold_thumbnail_path:
+                                            device_state[f'{issue_type}_start_thumbnail_cold'] = cold_thumbnail_path
+                                            logger.info(f"[{capture_folder}] No stored {issue_type} start frame - using current frame")
+
                                 if cold_thumbnail_path and os.path.exists(cold_thumbnail_path):
                                     r2_urls = self._upload_with_timeout(
                                         f"{capture_folder}:{issue_type}:start",
@@ -618,7 +879,12 @@ class IncidentManager:
                             elif 'thumbnail_url' in detection_result.get('r2_images', {}):
                                 logger.info(f"[{capture_folder}] ✅ {issue_type.upper()} incident has start thumbnail: {detection_result['r2_images']['thumbnail_url']}")
                         else:
-                            logger.debug(f"[{capture_folder}] {issue_type.upper()} incident has no R2 images (duration may be < 5s)")
+                            # An alert is never created without a frame: a person and the triage model both
+                            # judge from it. Keep the issue pending and retry the upload after the back-off.
+                            device_state[retry_key] = current_time
+                            logger.warning(f"[{capture_folder}] ⚠️  {issue_type} has no uploaded frame - alert NOT created, "
+                                           f"retry in {self.CREATE_RETRY_BACKOFF:.0f}s")
+                            continue
                         
                         logger.info(f"[{capture_folder}] Calling create_incident for {issue_type}...")
                         incident_id = self.create_incident(capture_folder, issue_type, host_name, detection_result)
@@ -764,8 +1030,8 @@ class IncidentManager:
     def _upload_with_timeout(self, label, fn, *args, **kwargs):
         """Run an R2 upload in a bounded background thread so a slow or hung upload can't
         stall the incident worker (which would back up the incident queue). Returns the
-        upload result, or None on timeout/error — the incident still gets created/resolved,
-        just without the image."""
+        upload result, or None on timeout/error — a create then waits and retries (no alert without a
+        frame), a resolve goes ahead without its closing image."""
         try:
             future = self._io_pool.submit(fn, *args, **kwargs)
             return future.result(timeout=self.R2_UPLOAD_TIMEOUT)

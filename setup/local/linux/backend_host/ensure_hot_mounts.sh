@@ -12,7 +12,9 @@
 # missing tmpfs via `mount | grep` and takes its existing SD fallback.
 #
 # What it does:
-#   1. Parse DEVICE{N}_VIDEO_CAPTURE_PATH entries from .env.
+#   0. Make sure the stream base dir (symlink target) is owned by vpt_user.
+#   1. Parse DEVICE{N}_VIDEO_CAPTURE_PATH entries from .env, and chown each
+#      device's cold dirs (plus metadata/ files) back to vpt_user.
 #   2. For each active device, make sure /hot is a tmpfs mount. If a stale
 #      non-tmpfs /hot directory exists, rename it to hot.stale.<timestamp>
 #      so future mounts never overlay it and Python helpers see a clean
@@ -45,6 +47,21 @@ run() {
   fi
   "$@"
 }
+
+# The stream base dir itself must be owned by vpt_user: run_ffmpeg.sh registers
+# each grabber in active_captures.conf via a temp file + mv in this dir. When the
+# base is root-owned (e.g. a /data/stream symlink target created by hand) ffmpeg
+# still streams but the conf stays empty, and the REC quality switch fails with a
+# 500 ("Failed to set stream quality"). Non-recursive: only the base dir.
+BASE_REAL=$(readlink -f "$BASE_PATH" 2>/dev/null || echo "$BASE_PATH")
+if [ -d "$BASE_REAL" ] && id -u "$VPT_USER" >/dev/null 2>&1; then
+  BASE_OWNER=$(stat -c %U "$BASE_REAL" 2>/dev/null)
+  if [ "$BASE_OWNER" != "$VPT_USER" ]; then
+    log_warn "$BASE_REAL is owned by ${BASE_OWNER:-?} — chowning to $VPT_USER"
+    run chown "$VPT_USER:$VPT_USER" "$BASE_REAL" 2>/dev/null || \
+      log_warn "could not chown $BASE_REAL; active_captures.conf will not be writable"
+  fi
+fi
 
 if [ ! -f "$ENV_FILE" ]; then
   log_warn ".env not found at $ENV_FILE — skipping hot-mount provisioning"
@@ -93,6 +110,23 @@ for DEVICE in "${DEVICES[@]}"; do
 
   run mkdir -p "$DEVICE_DIR" 2>/dev/null
   run chown "$VPT_USER:$VPT_USER" "$DEVICE_DIR" 2>/dev/null || true
+
+  # Cold subdirs (metadata/<hour>, segments/<hour>, ...) left root-owned make
+  # vpt_user writers fail with EACCES — capture_monitor's chunk append does
+  # os.makedirs(metadata/<hour>) and rewrites chunk_10min_*.json in place.
+  # Bounded, not chown -R: every dir (cheap, -xdev stops at the /hot tmpfs),
+  # but files only under metadata/ — captures/segments hold 24h of files and
+  # ExecStartPre must stay well inside TimeoutStartSec.
+  FIXED=$(find "$DEVICE_DIR" -xdev -type d ! -user "$VPT_USER" 2>/dev/null | wc -l)
+  if [ -d "$DEVICE_DIR/metadata" ]; then
+    FIXED=$(( FIXED + $(find "$DEVICE_DIR/metadata" -xdev -type f ! -user "$VPT_USER" 2>/dev/null | wc -l) ))
+  fi
+  if [ "$FIXED" -gt 0 ]; then
+    log_warn "$DEVICE — $FIXED entries not owned by $VPT_USER — chowning"
+    run find "$DEVICE_DIR" -xdev -type d ! -user "$VPT_USER" -exec chown "$VPT_USER:$VPT_USER" {} + 2>/dev/null
+    [ -d "$DEVICE_DIR/metadata" ] && \
+      run find "$DEVICE_DIR/metadata" -xdev -type f ! -user "$VPT_USER" -exec chown "$VPT_USER:$VPT_USER" {} + 2>/dev/null
+  fi
 
   # Already a tmpfs mount: reconcile its SIZE rather than skipping outright.
   # Skipping is what made MOUNT_SIZE unchangeable — an existing host kept the size

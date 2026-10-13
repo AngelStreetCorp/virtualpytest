@@ -1,0 +1,78 @@
+{
+  "run_at": 1791447958.9741619,
+  "manifest": "manifest_real_match.json",
+  "rows": [
+    {
+      "row_id": "game2048_board",
+      "userinterface": "game2048-web",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture1/capture_000000.jpg",
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "actual": {
+        "loaded": "unknown",
+        "overlay": "popup",
+        "playback": "unknown",
+        "error": "unknown",
+        "gate_skip": null
+      },
+      "full_payload": {
+        "node": null,
+        "confidence": 0.0,
+        "excluded": 1,
+        "total": 1,
+        "tier": "rule",
+        "reason": "no v5 region fingerprints",
+        "door": "unknown",
+        "userinterface_company": "brand_b",
+        "loaded": "unknown",
+        "overlay": "popup",
+        "playback": "unknown",
+        "error": "unknown"
+      }
+    },
+    {
+      "row_id": "android_quick_settings",
+      "userinterface": "android_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture1/capture_005000.jpg",
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "actual": {
+        "loaded": "unknown",
+        "overlay": "popup",
+        "playback": "unknown",
+        "error": "unknown",
+        "gate_skip": null
+      },
+      "full_payload": {
+        "node": null,
+        "confidence": 0.0,
+        "excluded": 2,
+        "total": 2,
+        "tier": "rule",
+        "reason": "no v5 region fingerprints",
+        "door": "unknown",
+        "userinterface_company": "brand_c",
+        "loaded": "unknown",
+        "overlay": "popup",
+        "playback": "unknown",
+        "error": "unknown"
+      }
+    }
+  ],
+  "run_summary": {
+    "passed": 0,
+    "failed": 2,
+    "skipped_unreachable": 9,
+    "warned_unlisted": 0
+  }
+}

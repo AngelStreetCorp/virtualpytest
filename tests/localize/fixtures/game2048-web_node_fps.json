@@ -1,0 +1,26 @@
+{
+  "_comment": "Stub node fingerprints for the game2048-web userinterface. The 2048 web game page is the target of EXPERIMENT-01 frame #10 (pi1 capture1). Same v6 shape; company='brand_b' mirrors the existing manifest.json game2048-web userinterface definition. No real brand names (AGENTS.md leak-gate).",
+  "userinterface": "game2048-web",
+  "company": "brand_b",
+  "tier": "rule",
+  "nodes": [
+    {
+      "node_id": "game2048_board",
+      "label": "game2048_board",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "game2048_board",
+        "text": ["game2048_board"]
+      }
+    }
+  ]
+}

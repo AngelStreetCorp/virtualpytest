@@ -24,7 +24,7 @@
 export const MODEL_FAMILIES: Record<string, string[]> = {
   android_phone: ['android_mobile', 'phone_agent', 'cloud_android_mobile', 'runner_android_mobile'],
   android_tablet: ['android_tablet', 'runner_android_tablet'],
-  android_tv: ['android_tv', 'fire_tv', 'runner_android_tv'],
+  android_tv: ['android_tv', 'fire_tv_fireos', 'fire_tv_vega', 'runner_android_tv'],
   ios_phone: ['ios_mobile', 'cloud_ios_mobile'],
   desktop_host: ['host_vnc', 'runner_host'],
 };

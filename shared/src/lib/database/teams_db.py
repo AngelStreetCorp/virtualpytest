@@ -34,7 +34,8 @@ def get_all_teams() -> List[Dict]:
                 'tenant_id': team['tenant_id'],
                 'created_by': team.get('created_by'),
                 'is_default': team.get('is_default', False),
-                'permissions': team.get('permissions', []),
+                'permissions': team.get('permissions'),  # ceiling; None = no limit
+                'allowed_devices': team.get('allowed_devices'),
                 'member_count': member_count,
                 'created_at': team['created_at'],
                 'updated_at': team['updated_at']
@@ -44,6 +45,16 @@ def get_all_teams() -> List[Dict]:
     except Exception as e:
         print(f"[@db:teams_db:get_all_teams] Error: {e}")
         return []
+
+def get_default_team_ids() -> Optional[set]:
+    """Ids of the teams flagged is_default, or None when they cannot be read."""
+    supabase = get_supabase()
+    try:
+        result = supabase.table('teams').select('id').eq('is_default', True).execute()
+        return {str(row['id']) for row in result.data}
+    except Exception as e:
+        print(f"[@db:teams_db:get_default_team_ids] Error: {e}")
+        return None
 
 def get_team(team_id: str) -> Optional[Dict]:
     """Retrieve a team by ID from Supabase."""
@@ -64,7 +75,8 @@ def get_team(team_id: str) -> Optional[Dict]:
                 'tenant_id': team['tenant_id'],
                 'created_by': team.get('created_by'),
                 'is_default': team.get('is_default', False),
-                'permissions': team.get('permissions', []),
+                'permissions': team.get('permissions'),  # ceiling; None = no limit
+                'allowed_devices': team.get('allowed_devices'),
                 'member_count': member_count,
                 'created_at': team['created_at'],
                 'updated_at': team['updated_at']
@@ -110,6 +122,8 @@ def create_team(team_data: Dict, creator_id: str = None) -> Optional[Dict]:
 
         if 'permissions' in team_data:
             insert_data['permissions'] = team_data['permissions']
+        if 'allowed_devices' in team_data:
+            insert_data['allowed_devices'] = team_data['allowed_devices']
 
         result = supabase.table('teams').insert(insert_data).execute()
 
@@ -122,7 +136,8 @@ def create_team(team_data: Dict, creator_id: str = None) -> Optional[Dict]:
                 'tenant_id': team['tenant_id'],
                 'created_by': team.get('created_by'),
                 'is_default': team.get('is_default', False),
-                'permissions': team.get('permissions', []),
+                'permissions': team.get('permissions'),  # ceiling; None = no limit
+                'allowed_devices': team.get('allowed_devices'),
                 'member_count': 0,
                 'created_at': team['created_at'],
                 'updated_at': team['updated_at']
@@ -148,6 +163,8 @@ def update_team(team_id: str, team_data: Dict) -> Optional[Dict]:
             update_data['is_default'] = team_data['is_default']
         if 'permissions' in team_data:
             update_data['permissions'] = team_data['permissions']
+        if 'allowed_devices' in team_data:
+            update_data['allowed_devices'] = team_data['allowed_devices']
 
         result = supabase.table('teams').update(update_data).eq('id', team_id).execute()
         
@@ -164,7 +181,8 @@ def update_team(team_id: str, team_data: Dict) -> Optional[Dict]:
                 'tenant_id': team['tenant_id'],
                 'created_by': team.get('created_by'),
                 'is_default': team.get('is_default', False),
-                'permissions': team.get('permissions', []),
+                'permissions': team.get('permissions'),  # ceiling; None = no limit
+                'allowed_devices': team.get('allowed_devices'),
                 'member_count': member_count,
                 'created_at': team['created_at'],
                 'updated_at': team['updated_at']

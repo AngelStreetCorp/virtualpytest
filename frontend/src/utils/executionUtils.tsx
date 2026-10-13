@@ -133,7 +133,7 @@ export const formatExecutionDuration = (startTime: string, endTime?: string): st
       return `${minutes}m ${remainingSeconds}s`;
     }
     return `${seconds}s`;
-  } catch (error) {
+  } catch {
     return 'Invalid';
   }
 };
@@ -195,7 +195,7 @@ export type ScriptStatus =
 export const getStatusChip = (status: ExecutionStatus | CampaignStatus | ScriptStatus): React.JSX.Element => {
   switch (status) {
     case 'queued':
-      return <Chip label="Queued" color="info" size="small" />;
+      return <Chip label="Queued" variant="outlined" size="small" />;
     case 'pending':
       return <Chip label="Pending" color="default" size="small" />;
     case 'running':

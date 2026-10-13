@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-import { api } from '../../../../frontend/src/utils/apiClient';
+import { api, apiClient } from '../../../../frontend/src/utils/apiClient';
 import { buildServerUrl } from '../../../../frontend/src/utils/buildUrlUtils';
 
 export type VirtualScriptEnv = 'dev' | 'test' | 'prod';
@@ -109,14 +109,23 @@ export const useVirtualScripts = () => {
       doc?: string;
       folder?: string;
     }) => {
-      return api.post<{
+      // Read the body whatever the status (BUG-0392): the server answers a rejected
+      // save with 400 (syntax error, with `validation`), 404 or 409 and a JSON reason.
+      // `api.post` throws on any non-2xx, which dropped that reason — the page showed
+      // nothing and kept "Unsaved", so the save looked like it had not registered.
+      const response = await apiClient(buildServerUrl('/server/virtual-script/save'), {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+      const body = await response.json().catch(() => null);
+      return (body ?? { success: false, error: `HTTP ${response.status}` }) as {
         success: boolean;
         id?: string;
         error?: string;
         validation?: VirtualScriptValidation;
         parameters?: VirtualScriptParam[];
         script?: Partial<VirtualScriptFull>;
-      }>(buildServerUrl('/server/virtual-script/save'), payload);
+      };
     },
     [],
   );

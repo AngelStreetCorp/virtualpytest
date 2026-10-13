@@ -3,6 +3,14 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import HistoryIcon from '@mui/icons-material/History';
+import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import SearchIcon from '@mui/icons-material/Search';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import HighlightOffIcon from '@mui/icons-material/HighlightOff';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import TerminalIcon from '@mui/icons-material/Terminal';
+import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import PublishIcon from '@mui/icons-material/Publish';
 import SaveIcon from '@mui/icons-material/Save';
 import {
@@ -17,30 +25,25 @@ import {
   DialogTitle,
   Divider,
   IconButton,
-  List,
-  ListItemButton,
-  ListItemText,
-  ListSubheader,
+  InputBase,
   Menu,
   MenuItem,
   Paper,
-  Select,
   Stack,
-  Tab,
-  Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
   useTheme,
 } from '@mui/material';
 import { python } from '@codemirror/lang-python';
-import CodeMirror from '@uiw/react-codemirror';
+import CodeMirror, { EditorView, Prec } from '@uiw/react-codemirror';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-// Core component: features import core by relative path (docs/technical/FEATURES.md).
-import { LifecycleChips } from '../../../frontend/src/components/common/LifecycleChips';
+import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
 
 import { BuilderPageLayout } from '../../../frontend/src/components/common/builder';
 import { DeviceControlPanels } from '../../../frontend/src/components/common/DeviceControlPanels';
@@ -69,6 +72,100 @@ import { useToast } from '../../../frontend/src/hooks/useToast';
 // userinterface + variant are surfaced by the shared header selectors (same as
 // QuickTestBuilder); every other _script_args param goes in the params strip.
 const HEADER_PARAMS = new Set(['userinterface', 'variant']);
+
+type Palette = ReturnType<typeof useAgentChatPalette>;
+
+/** Outcome of the last Run on this page (session only — runs are not listed per virtual script). */
+interface LastRun {
+  status: 'passed' | 'failed' | 'error';
+  host: string;
+  deviceId: string;
+  startedAt: number;
+  durationMs: number;
+  reportUrl?: string;
+  logsUrl?: string;
+  error?: string;
+}
+
+/** dev › test › prod — a stage is filled when its row exists; prod opens its rollback history. */
+const LifecyclePipeline: React.FC<{
+  environments: { dev: boolean; test: boolean; prod: boolean };
+  prodVersion?: number | null;
+  onProdClick?: (e: React.MouseEvent<HTMLElement>) => void;
+}> = ({ environments, prodVersion, onProdClick }) => {
+  const P = useAgentChatPalette();
+  const stages: Array<{ key: 'dev' | 'test' | 'prod'; label: string }> = [
+    { key: 'dev', label: 'dev' },
+    { key: 'test', label: 'test' },
+    { key: 'prod', label: prodVersion ? `prod v${prodVersion}` : 'prod' },
+  ];
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', bgcolor: P.hoverBg, borderRadius: 2, p: 0.375 }}>
+      {stages.map((st, i) => {
+        const on = environments[st.key];
+        const isProd = st.key === 'prod';
+        const clickable = isProd && on && !!onProdClick;
+        const chip = (
+          <Box
+            onClick={clickable ? onProdClick : undefined}
+            sx={{
+              px: 1, height: 22, display: 'inline-flex', alignItems: 'center', borderRadius: 1.5,
+              fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap',
+              cursor: clickable ? 'pointer' : 'default',
+              color: !on ? P.textMuted : isProd ? P.gold : P.textPrimary,
+              bgcolor: on ? (isProd ? `${P.gold}1f` : P.surface) : 'transparent',
+              border: `1px solid ${on ? (isProd ? `${P.gold}66` : P.borderColor) : 'transparent'}`,
+              textDecoration: on ? 'none' : 'line-through',
+            }}
+          >
+            {st.label}
+          </Box>
+        );
+        return (
+          <React.Fragment key={st.key}>
+            {i > 0 && <ChevronRightIcon sx={{ fontSize: 14, color: P.textMuted }} />}
+            {clickable ? <Tooltip title="Prod history — roll back">{chip}</Tooltip> : <Tooltip title={on ? `In ${st.key}` : `Not in ${st.key} yet`}>{chip}</Tooltip>}
+          </React.Fragment>
+        );
+      })}
+    </Box>
+  );
+};
+
+/** One line under the editor: how the last Run ended, where, how long, and its report/logs. */
+const LastRunBar: React.FC<{ run: LastRun; P: Palette }> = ({ run, P }) => {
+  const color = run.status === 'passed' ? P.success : run.status === 'failed' ? P.error : P.warning;
+  const Icon = run.status === 'passed' ? CheckCircleOutlineIcon : run.status === 'failed' ? HighlightOffIcon : WarningAmberIcon;
+  const linkSx = { p: 0.5, color: P.textSecondary, '&:hover': { color: P.accentText, bgcolor: P.hoverBg } };
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 2, py: 0.75, borderTop: `1px solid ${P.borderColor}`, fontSize: '0.78rem', bgcolor: `${color}0f` }}>
+      <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>Last run</Typography>
+      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, color, fontWeight: 600 }}>
+        <Icon sx={{ fontSize: 16 }} />
+        {run.status.charAt(0).toUpperCase() + run.status.slice(1)}
+      </Box>
+      <Typography noWrap sx={{ fontSize: '0.75rem', color: P.textSecondary, minWidth: 0 }} title={run.error}>
+        {run.host} · {run.deviceId} · {(run.durationMs / 1000).toFixed(1)}s · {new Date(run.startedAt).toLocaleTimeString([], { hour12: false })}
+        {run.error ? ` · ${run.error}` : ''}
+      </Typography>
+      <Box sx={{ flex: 1 }} />
+      {run.reportUrl && (
+        <Tooltip title="Report">
+          <IconButton size="small" component="a" href={run.reportUrl} target="_blank" rel="noopener noreferrer" aria-label="Report" sx={linkSx}>
+            <DescriptionOutlinedIcon sx={{ fontSize: 17 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+      {run.logsUrl && (
+        <Tooltip title="Logs">
+          <IconButton size="small" component="a" href={run.logsUrl} target="_blank" rel="noopener noreferrer" aria-label="Logs" sx={linkSx}>
+            <TerminalIcon sx={{ fontSize: 17 }} />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Box>
+  );
+};
 
 const STARTER_TEMPLATE = `#!/usr/bin/env python3
 """
@@ -128,7 +225,26 @@ const DOC_TEMPLATE = (name: string) =>
 
 const VirtualScripts: React.FC = () => {
   const theme = useTheme();
-  const actualMode = theme.palette.mode;
+  const P = useAgentChatPalette();
+  // Editor chrome on the palette (the built-in light/dark themes paint grey gutters / a blue-grey page);
+  // syntax colours still come from the built-in theme.
+  const editorChrome = useMemo(
+    () =>
+      Prec.highest(
+        EditorView.theme(
+          {
+            '&': { backgroundColor: P.surface, color: P.textPrimary },
+            '.cm-gutters': { backgroundColor: P.surface, color: P.textMuted, borderRight: `1px solid ${P.borderColor}` },
+            '.cm-activeLine': { backgroundColor: `${P.accent}14` },
+            '.cm-activeLineGutter': { backgroundColor: `${P.accent}26` },
+            '&.cm-focused .cm-selectionBackground, .cm-selectionBackground': { backgroundColor: `${P.accent}40` },
+            '.cm-cursor': { borderLeftColor: P.accentText },
+          },
+          { dark: theme.palette.mode === 'dark' },
+        ),
+      ),
+    [P, theme.palette.mode],
+  );
   const { showInfo, showError, showSuccess } = useToast();
   const {
     scripts,
@@ -218,7 +334,7 @@ const VirtualScripts: React.FC = () => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [folder, setFolder] = useState('');
-  const [folderFilter, setFolderFilter] = useState('All');
+  const [search, setSearch] = useState('');
   // Folders start expanded; clicking a folder header collapses/expands it.
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
   const toggleFolder = useCallback((folderName: string) => {
@@ -234,6 +350,9 @@ const VirtualScripts: React.FC = () => {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
+  // Result of the last Run in this session, shown under the editor (cleared on script switch).
+  const [lastRun, setLastRun] = useState<LastRun | null>(null);
+  const [moreAnchor, setMoreAnchor] = useState<null | HTMLElement>(null);
   const [tab, setTab] = useState(0);
   const [validation, setValidation] = useState<VirtualScriptValidation | null>(null);
   const [params, setParams] = useState<VirtualScriptParam[]>([]);
@@ -283,11 +402,16 @@ const VirtualScripts: React.FC = () => {
 
   // Folder filter for the rail — "All" shows every group; a specific folder
   // shows only that one. Options are folders that actually contain a script.
-  const folderFilterOptions = useMemo(() => allGroupedScripts.map(([name]) => name), [allGroupedScripts]);
-  const groupedScripts = useMemo(
-    () => (folderFilter === 'All' ? allGroupedScripts : allGroupedScripts.filter(([name]) => name === folderFilter)),
-    [allGroupedScripts, folderFilter],
-  );
+  const groupedScripts = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return allGroupedScripts;
+    return allGroupedScripts
+      .map(([folderName, items]) => [
+        folderName,
+        folderName.toLowerCase().includes(q) ? items : items.filter((s) => s.name.toLowerCase().includes(q)),
+      ] as [string, typeof items])
+      .filter(([, items]) => items.length > 0);
+  }, [allGroupedScripts, search]);
 
   const validateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSelectedRef = useRef(false);
@@ -367,6 +491,7 @@ const VirtualScripts: React.FC = () => {
     setVariant('');
     setVersions([]);
     setTab(0);
+    setLastRun(null);
   }, []);
 
   const handleSelect = useCallback(
@@ -374,6 +499,7 @@ const VirtualScripts: React.FC = () => {
       try {
         const res = await getScript(id);
         if (!res?.script) return;
+        if (id !== selectedId) setLastRun(null);
         setSelectedId(id);
         setName(res.script.name);
         setDescription(res.script.description || '');
@@ -392,7 +518,7 @@ const VirtualScripts: React.FC = () => {
         showError('Failed to load script');
       }
     },
-    [getScript, seedParamDefaults, showError, scripts],
+    [getScript, seedParamDefaults, showError, scripts, selectedId],
   );
 
   // Open the first script once the list arrives, so the page never starts on an
@@ -446,6 +572,9 @@ const VirtualScripts: React.FC = () => {
       }
       showSuccess(`Saved "${name.trim()}"`);
       listScripts();
+    } catch (err) {
+      // Network / auth failure: say so instead of leaving a silent "Unsaved" (BUG-0392).
+      showError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setSaving(false);
     }
@@ -513,6 +642,18 @@ const VirtualScripts: React.FC = () => {
     }
     setRunning(true);
     showInfo(`Running "${name}" on ${selectedHost.host_name}:${selectedDeviceId}…`);
+    const startedAt = Date.now();
+    const record = (status: LastRun['status'], result?: any, error?: string) =>
+      setLastRun({
+        status,
+        host: selectedHost.host_name,
+        deviceId: selectedDeviceId,
+        startedAt,
+        durationMs: Date.now() - startedAt,
+        reportUrl: result?.report_url,
+        logsUrl: result?.logs_url,
+        error,
+      });
     try {
       const result = await executeScript(
         name,
@@ -525,16 +666,24 @@ const VirtualScripts: React.FC = () => {
         undefined,
         selectedId, // virtualScriptId
       );
+      const r = result as any;
+      const ok = r?.exit_code === 0 || r?.script_success;
       if (result?.report_url) {
+        // A report means the script ran to the end; it still failed if it said so.
+        record(r?.script_success === false || (r?.exit_code != null && r.exit_code !== 0) ? 'failed' : 'passed', result);
         showSuccess(`"${name}" finished — report ready`);
         window.open(result.report_url, '_blank');
-      } else if ((result as any)?.exit_code === 0 || (result as any)?.script_success) {
+      } else if (ok) {
+        record('passed', result);
         showSuccess(`"${name}" finished`);
       } else {
+        record('failed', result);
         showError(`"${name}" failed — check logs`);
       }
     } catch (err) {
-      showError(`Run failed: ${err instanceof Error ? err.message : 'unknown error'}`);
+      const msg = err instanceof Error ? err.message : 'unknown error';
+      record('error', undefined, msg);
+      showError(`Run failed: ${msg}`);
     } finally {
       setRunning(false);
     }
@@ -598,7 +747,6 @@ const VirtualScripts: React.FC = () => {
 
   const syntaxDot = useMemo(() => {
     if (!source) return null;
-    const color = !validation ? 'text.disabled' : validation.valid ? 'success.main' : 'error.main';
     const title = !validation
       ? 'Checking…'
       : validation.valid
@@ -606,12 +754,17 @@ const VirtualScripts: React.FC = () => {
           ? validation.warnings.join('  •  ')
           : 'Syntax OK'
         : `Line ${validation.error?.line}: ${validation.error?.msg}`;
+    const label = !validation ? 'Checking…' : validation.valid ? (validation.warnings?.length ? 'Warnings' : 'Syntax OK') : `Error line ${validation.error?.line}`;
+    const tone = !validation ? P.textMuted : !validation.valid ? P.error : validation.warnings?.length ? P.warning : P.success;
     return (
       <Tooltip title={title}>
-        <FiberManualRecordIcon sx={{ color, fontSize: 16 }} />
+        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, height: 22, borderRadius: 11, fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap', color: tone, border: `1px solid ${tone}55`, bgcolor: `${tone}14` }}>
+          <FiberManualRecordIcon sx={{ fontSize: 8 }} />
+          {label}
+        </Box>
       </Tooltip>
     );
-  }, [source, validation]);
+  }, [source, validation, P]);
 
   const interfaceDropdownStyles = {
     select: { height: 32, fontSize: '0.75rem', '& .MuiSelect-select': { display: 'flex', alignItems: 'center' } },
@@ -630,34 +783,20 @@ const VirtualScripts: React.FC = () => {
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          background: actualMode === 'dark' ? '#111827' : '#ffffff',
+          background: P.surface,
           height: 46,
           flexShrink: 0,
         }}
       >
-        {/* Title + name */}
+        {/* Title + unsaved marker (the name itself is edited in the editor panel) */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '0 0 auto', minWidth: 0 }}>
-          <Typography variant="h6" fontWeight="bold" sx={{ whiteSpace: 'nowrap' }}>
-            Virtual Script
+          <Typography variant="subtitle1" fontWeight={600} sx={{ whiteSpace: 'nowrap' }}>
+            Virtual Scripts
           </Typography>
-          {name && (
-            <>
-              <Typography variant="h6" sx={{ color: 'text.disabled' }}>•</Typography>
-              {dirty && <Typography variant="h6" sx={{ color: '#f97316', fontWeight: 700 }}>*</Typography>}
-              <Typography
-                variant="h6"
-                sx={{
-                  fontWeight: dirty ? 700 : 600,
-                  color: dirty ? '#f97316' : 'primary.main',
-                  whiteSpace: 'nowrap',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  maxWidth: 180,
-                }}
-              >
-                {name}
-              </Typography>
-            </>
+          {dirty && (
+            <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, fontSize: '0.7rem', fontWeight: 600, color: P.accentText }}>
+              <FiberManualRecordIcon sx={{ fontSize: 8 }} /> Unsaved
+            </Box>
           )}
         </Box>
 
@@ -706,42 +845,35 @@ const VirtualScripts: React.FC = () => {
           />
         </Box>
 
-        {/* Actions */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: '0 0 auto', ml: 2 }}>
-          {/* Lifecycle: which env rows exist + current prod version. Editing always
-              writes dev; Promote copies dev->test then test->prod. */}
+        {/* Actions: lifecycle pipeline + Promote, then history / more / Save / Run */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: '0 0 auto', ml: 2 }}>
           {selectedId && (
             <>
-              {/* Same renderer the Test Cases list uses (core component) — two copies of
-                  these chips would drift. The prod chip stays a rollback affordance here. */}
-              <Box sx={{ mr: 0.5 }}>
-                <LifecycleChips
-                  environments={{
-                    dev: envExists('dev'),
-                    test: envExists('test'),
-                    prod: envExists('prod'),
-                  }}
-                  prodVersion={selectedMeta?.prod_version}
-                  onProdClick={
-                    selectedMeta?.environments?.prod
-                      ? (e) => openHistory(e as any, selectedMeta.environments!.prod as string)
-                      : undefined
-                  }
-                />
-              </Box>
+              <LifecyclePipeline
+                environments={{ dev: envExists('dev'), test: envExists('test'), prod: envExists('prod') }}
+                prodVersion={selectedMeta?.prod_version}
+                onProdClick={
+                  selectedMeta?.environments?.prod
+                    ? (e) => openHistory(e as any, selectedMeta.environments!.prod as string)
+                    : undefined
+                }
+              />
               <Tooltip title={dirty ? 'Save before promoting' : 'Promote dev → test → prod'}>
                 <span>
                   <Button
                     size="small"
                     variant="outlined"
                     startIcon={<PublishIcon />}
+                    endIcon={<ExpandMoreIcon />}
                     onClick={(e) => setPromoteAnchor(e.currentTarget)}
                     disabled={dirty || promoting}
+                    sx={{ textTransform: 'none', borderColor: P.accent, color: P.accentText, '&:hover': { borderColor: P.accent, bgcolor: `${P.accent}1a` } }}
                   >
                     Promote
                   </Button>
                 </span>
               </Tooltip>
+              <Divider orientation="vertical" flexItem sx={{ mx: 0.5, my: 1 }} />
             </>
           )}
           <Tooltip title="Version history">
@@ -751,22 +883,20 @@ const VirtualScripts: React.FC = () => {
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title="Delete">
+          <Tooltip title="More">
             <span>
-              <IconButton size="small" onClick={() => setDeleteOpen(true)} disabled={!selectedId}>
-                <DeleteIcon fontSize="small" />
+              <IconButton size="small" onClick={(e) => setMoreAnchor(e.currentTarget)} disabled={!selectedId}>
+                <MoreHorizIcon fontSize="small" />
               </IconButton>
             </span>
           </Tooltip>
-          <Button size="small" variant="outlined" startIcon={<AddIcon />} onClick={handleNew}>
-            New
-          </Button>
           <Button
             size="small"
             variant="outlined"
             startIcon={saving ? <CircularProgress size={14} /> : <SaveIcon />}
             onClick={handleSave}
             disabled={saving || !dirty}
+            sx={{ textTransform: 'none', ...(dirty && { borderColor: P.accent, color: P.accentText, bgcolor: `${P.accent}14`, '&:hover': { borderColor: P.accent, bgcolor: `${P.accent}22` } }) }}
           >
             Save
           </Button>
@@ -777,144 +907,197 @@ const VirtualScripts: React.FC = () => {
             selectedDeviceId={selectedDeviceId}
             isControlActive={isControlActive}
             userinterfaceName={userinterfaceName}
+            sx={{
+              px: 2, fontWeight: 600, textTransform: 'none', boxShadow: 'none',
+              backgroundColor: P.accent, color: '#1a1a1a',
+              '&:hover': { backgroundColor: P.accentHover, boxShadow: 'none' },
+              '&:disabled': { backgroundColor: P.hoverBg, color: P.textMuted },
+            }}
           />
         </Box>
       </Box>
 
       {/* Content: scripts rail + editor (internal scroll, no page scroll) */}
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', gap: 1, p: 1 }}>
-        <Paper sx={{ width: 230, display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-            <Typography variant="subtitle2">Scripts</Typography>
-            <Select
-              size="small"
-              variant="standard"
-              value={folderFilter}
-              onChange={(e) => setFolderFilter(e.target.value)}
-              disableUnderline
-              sx={{ fontSize: 12 }}
-            >
-              <MenuItem value="All">All folders</MenuItem>
-              {folderFilterOptions.map((f) => (
-                <MenuItem key={f} value={f}>{f}</MenuItem>
-              ))}
-            </Select>
+        <Paper variant="outlined" sx={{ width: 230, display: 'flex', flexDirection: 'column', borderRadius: 2, borderColor: P.borderColor, bgcolor: P.sidebarBg }}>
+          <Box sx={{ px: 1.5, pt: 1.25, pb: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Typography variant="subtitle2" fontWeight={600}>Scripts</Typography>
+            <Tooltip title="New script">
+              <IconButton size="small" onClick={handleNew} sx={{ color: P.accentText, border: `1px solid ${P.borderColor}`, borderRadius: 1.5, p: 0.5 }}>
+                <AddIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
           </Box>
-          <Divider />
-          <List dense sx={{ overflow: 'auto', flex: 1 }} subheader={<li />}>
+          <Box sx={{ px: 1.5, pb: 1 }}>
+            <InputBase
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search scripts or folders"
+              startAdornment={<SearchIcon sx={{ fontSize: 16, color: P.textMuted, mr: 0.75 }} />}
+              sx={{
+                width: '100%', height: 30, px: 1, fontSize: '0.8rem',
+                bgcolor: P.inputBg, border: `1px solid ${P.borderColor}`, borderRadius: 1.5,
+                '&.Mui-focused': { borderColor: P.accent },
+              }}
+            />
+          </Box>
+          <Box sx={{ overflow: 'auto', flex: 1, px: 1, pb: 1 }}>
             {groupedScripts.map(([folderName, items]) => {
-              const collapsed = collapsedFolders.has(folderName);
+              const collapsed = collapsedFolders.has(folderName) && !search.trim();
               return (
-                <li key={folderName}>
-                  <ul style={{ padding: 0 }}>
-                    <ListSubheader
-                      disableSticky
-                      onClick={() => toggleFolder(folderName)}
-                      sx={{
-                        lineHeight: '28px',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 0.5,
-                        userSelect: 'none',
-                        color: 'primary.main',
-                        fontWeight: 700,
-                      }}
-                    >
-                      <ExpandMoreIcon
-                        fontSize="small"
-                        sx={{
-                          transition: 'transform 0.15s',
-                          transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-                          color: 'primary.main',
-                        }}
-                      />
-                      {folderName}
-                    </ListSubheader>
-                    <Collapse in={!collapsed} timeout="auto" unmountOnExit>
-                      {items.map((s) => (
-                        <Tooltip key={s.id} title={s.name} placement="right" enterDelay={400}>
-                          <ListItemButton
-                            selected={s.id === selectedId}
-                            onClick={() => handleSelect(s.id)}
-                            sx={{ '&:hover': { backgroundColor: 'transparent' } }}
-                          >
-                            <ListItemText primary={s.name} primaryTypographyProps={{ noWrap: true }} />
-                          </ListItemButton>
-                        </Tooltip>
-                      ))}
-                    </Collapse>
-                  </ul>
-                </li>
+                <Box key={folderName}>
+                  <Box
+                    onClick={() => toggleFolder(folderName)}
+                    sx={{ display: 'flex', alignItems: 'center', gap: 0.25, px: 0.5, pt: 1, pb: 0.5, cursor: 'pointer', userSelect: 'none', color: P.textMuted, '&:hover': { color: P.textSecondary } }}
+                  >
+                    <ExpandMoreIcon sx={{ fontSize: 16, transition: 'transform 0.15s', transform: collapsed ? 'rotate(-90deg)' : 'none' }} />
+                    <Typography noWrap sx={{ fontSize: '0.7rem', fontWeight: 600 }}>{folderName} · {items.length}</Typography>
+                  </Box>
+                  <Collapse in={!collapsed} timeout="auto" unmountOnExit>
+                    {items.map((s) => {
+                      const selected = s.id === selectedId;
+                      const inProd = !!s.environments?.prod;
+                      return (
+                        <Box
+                          key={s.id}
+                          title={s.name}
+                          onClick={() => handleSelect(s.id)}
+                          sx={{
+                            display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.6, mb: 0.25, borderRadius: 1.5, cursor: 'pointer',
+                            bgcolor: selected ? `${P.accent}26` : 'transparent',
+                            '&:hover': { bgcolor: selected ? `${P.accent}26` : P.hoverBg },
+                          }}
+                        >
+                          <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: '0.8rem', fontWeight: selected ? 600 : 400, color: selected ? P.accentText : P.textPrimary }}>
+                            {s.name}
+                          </Typography>
+                          <Tooltip title={inProd ? `In prod${s.prod_version ? ` (v${s.prod_version})` : ''}` : s.environments?.test ? 'In test' : 'Dev only'}>
+                            <Box sx={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, bgcolor: inProd ? P.accent : s.environments?.test ? P.textSecondary : P.borderColor }} />
+                          </Tooltip>
+                        </Box>
+                      );
+                    })}
+                  </Collapse>
+                </Box>
               );
             })}
             {scripts.length === 0 && (
               <Typography variant="caption" sx={{ p: 2, display: 'block', color: 'text.secondary' }}>
-                No virtual scripts yet. Click New to create one.
+                No virtual scripts yet. Click + to create one.
               </Typography>
             )}
-          </List>
+            {scripts.length > 0 && groupedScripts.length === 0 && (
+              <Typography variant="caption" sx={{ p: 2, display: 'block', color: 'text.secondary' }}>
+                No script matches.
+              </Typography>
+            )}
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1.5, px: 1.5, py: 0.75, borderTop: `1px solid ${P.borderColor}`, fontSize: '0.68rem', color: P.textMuted }}>
+            {([['prod', P.accent], ['test', P.textSecondary], ['dev', P.borderColor]] as const).map(([label, c]) => (
+              <Box key={label} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: c }} />{label}
+              </Box>
+            ))}
+          </Box>
         </Paper>
 
-        <Paper sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* Name + description + script-specific params (node, verify, …) */}
-          <Box sx={{ p: 1, display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-            <TextField
-              size="small"
-              label="Name"
-              value={name}
-              onChange={(e) => {
-                setName(e.target.value);
-                setDirty(true);
-              }}
-              sx={{ width: 180 }}
-            />
-            <TextField
-              size="small"
-              label="Description"
+        <Paper variant="outlined" sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', borderRadius: 2, borderColor: P.borderColor }}>
+          {/* Name (title) + folder + syntax status, description, script-specific params */}
+          <Box sx={{ px: 2, pt: 1.5, pb: 1.25, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Tooltip title="Select an existing folder or type a new name to create one — Save to apply.">
+                <Autocomplete
+                  freeSolo
+                  size="small"
+                  value={folder}
+                  onChange={(_, newValue) => {
+                    setFolder(newValue || '(Root)');
+                    setDirty(true);
+                  }}
+                  options={folders.map((f) => f.name)}
+                  disableClearable
+                  sx={{ width: `${Math.min(200, Math.max(36, (folder || 'Folder').length * 8.5 + 12))}px`, flexShrink: 0 }}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      variant="standard"
+                      placeholder="Folder"
+                      InputProps={{ ...params.InputProps, disableUnderline: true, sx: { fontSize: '0.85rem', color: P.textSecondary } }}
+                    />
+                  )}
+                />
+              </Tooltip>
+              <Typography sx={{ color: P.textMuted }}>/</Typography>
+              <InputBase
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="script_name"
+                inputProps={{ 'aria-label': 'Name' }}
+                sx={{
+                  flex: 1, minWidth: 0, fontSize: '1.15rem', fontWeight: 600, fontFamily: 'monospace',
+                  borderRadius: 1, px: 0.5, '&:hover, &.Mui-focused': { bgcolor: P.hoverBg },
+                }}
+              />
+              {syntaxDot}
+            </Box>
+            <InputBase
               value={description}
               onChange={(e) => {
                 setDescription(e.target.value);
                 setDirty(true);
               }}
-              sx={{ minWidth: 200, flex: 1 }}
+              placeholder="Add a description"
+              inputProps={{ 'aria-label': 'Description' }}
+              fullWidth
+              sx={{ fontSize: '0.82rem', color: P.textSecondary, borderRadius: 1, px: 0.5, mx: -0.5, '&:hover, &.Mui-focused': { bgcolor: P.hoverBg } }}
             />
-            <Tooltip title="Select an existing folder or type a new name to create one — Save to apply.">
-              <Autocomplete
-                freeSolo
-                size="small"
-                value={folder}
-                onChange={(_, newValue) => {
-                  setFolder(newValue || '(Root)');
-                  setDirty(true);
-                }}
-                options={folders.map((f) => f.name)}
-                sx={{ width: 160 }}
-                renderInput={(params) => <TextField {...params} label="Folder" />}
-              />
-            </Tooltip>
-            <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
-              {stripParams.map((p) => (
-                <ScriptParameterRow
-                  key={p.name}
-                  param={p}
-                  value={paramValues[p.name] ?? ''}
-                  onChange={(val) => setParamValues((prev) => ({ ...prev, [p.name]: val }))}
-                  allValues={paramValues}
-                  scriptName={name || 'virtual_script'}
-                  deviceModel={selectedDeviceModel}
-                />
-              ))}
-            </Stack>
-            {syntaxDot}
+            {stripParams.length > 0 && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', pt: 0.5 }}>
+                <Typography sx={{ fontSize: '0.7rem', fontWeight: 600, color: P.textMuted }}>Parameters</Typography>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', alignItems: 'center' }}>
+                  {stripParams.map((p) => (
+                    <ScriptParameterRow
+                      key={p.name}
+                      param={p}
+                      value={paramValues[p.name] ?? ''}
+                      onChange={(val) => setParamValues((prev) => ({ ...prev, [p.name]: val }))}
+                      allValues={paramValues}
+                      scriptName={name || 'virtual_script'}
+                      deviceModel={selectedDeviceModel}
+                    />
+                  ))}
+                </Stack>
+              </Box>
+            )}
           </Box>
-          <Divider />
 
-          <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ minHeight: 36 }}>
-            <Tab label="Script" sx={{ minHeight: 36, py: 0 }} />
-            <Tab label="Doc" sx={{ minHeight: 36, py: 0 }} />
-          </Tabs>
-          <Divider />
+          {/* Script / Doc */}
+          <Box sx={{ px: 2, py: 0.75, borderTop: `1px solid ${P.borderColor}`, borderBottom: `1px solid ${P.borderColor}` }}>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={tab}
+              onChange={(_, v) => v !== null && setTab(v)}
+              sx={{
+                bgcolor: P.sidebarBg, p: 0.375, borderRadius: 2, gap: 0.375,
+                '& .MuiToggleButton-root': {
+                  border: '1px solid transparent !important', borderRadius: '6px !important',
+                  textTransform: 'none', fontSize: 12, fontWeight: 500, color: P.textSecondary, py: 0.25, px: 1.5,
+                  '&:hover': { bgcolor: P.hoverBg },
+                },
+                '& .MuiToggleButton-root.Mui-selected': {
+                  bgcolor: P.surface, color: P.accentText, fontWeight: 600,
+                  borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
+                },
+              }}
+            >
+              <ToggleButton value={0}>Script</ToggleButton>
+              <ToggleButton value={1}>Doc</ToggleButton>
+            </ToggleButtonGroup>
+          </Box>
 
           <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
             {tab === 0 ? (
@@ -923,7 +1106,7 @@ const VirtualScripts: React.FC = () => {
                   value={source}
                   height="100%"
                   theme={theme.palette.mode === 'dark' ? 'dark' : 'light'}
-                  extensions={[python()]}
+                  extensions={[python(), editorChrome]}
                   onChange={(val) => {
                     setSource(val);
                     setDirty(true);
@@ -953,6 +1136,8 @@ const VirtualScripts: React.FC = () => {
               </Box>
             )}
           </Box>
+
+          {lastRun && <LastRunBar run={lastRun} P={P} />}
         </Paper>
       </Box>
 
@@ -984,6 +1169,19 @@ const VirtualScripts: React.FC = () => {
           </Button>
         </DialogActions>
       </StyledDialog>
+
+      {/* More: delete */}
+      <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
+        <MenuItem
+          onClick={() => {
+            setMoreAnchor(null);
+            setDeleteOpen(true);
+          }}
+          sx={{ color: P.error, gap: 1 }}
+        >
+          <DeleteIcon fontSize="small" /> Delete script
+        </MenuItem>
+      </Menu>
 
       {/* Version history */}
       <Menu anchorEl={historyAnchor} open={Boolean(historyAnchor)} onClose={() => setHistoryAnchor(null)}>

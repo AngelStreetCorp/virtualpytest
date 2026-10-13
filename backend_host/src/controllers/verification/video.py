@@ -353,21 +353,22 @@ class VideoVerificationController(VerificationControllerInterface):
         """Analyze full image with AI using user's question."""
         return self.ai_helpers.analyze_full_image_with_ai(image_path, user_question)
 
-    def analyze_image_ai(self, image_path: str, user_query: str) -> Dict[str, Any]:
+    def analyze_image_ai(self, image_path: str, user_query: str, team_id: Optional[str] = None) -> Dict[str, Any]:
         """Wrapper method for analyze_image_with_ai to match route expectations."""
-        return self.ai_helpers.analyze_image_ai_wrapper(image_path, user_query)
-    
-    def analyze_image_complete(self, image_path: str, extract_text: bool = True, include_description: bool = True) -> Dict[str, Any]:
+        return self.ai_helpers.analyze_image_ai_wrapper(image_path, user_query, team_id=team_id)
+
+    def analyze_image_complete(self, image_path: str, extract_text: bool = True, include_description: bool = True,
+                               team_id: Optional[str] = None) -> Dict[str, Any]:
         """Combined AI analysis: subtitles + description in single call."""
-        return self.ai_helpers.analyze_image_complete(image_path, extract_text, include_description)
+        return self.ai_helpers.analyze_image_complete(image_path, extract_text, include_description, team_id=team_id)
 
     def analyze_image_batch_complete(self, image_paths: list, extract_text: bool = True, include_description: bool = True) -> Dict[str, Any]:
         """Batch AI analysis: subtitles + description for multiple images in single call."""
         return self.ai_helpers.analyze_image_batch_complete(image_paths, extract_text, include_description)
 
-    def analyze_language_menu_ai(self, image_path: str) -> Dict[str, Any]:
-        """AI-powered language/subtitle menu analysis using OpenRouter."""
-        return self.ai_helpers.analyze_language_menu_ai(image_path)
+    def analyze_language_menu_ai(self, image_path: str, team_id: Optional[str] = None) -> Dict[str, Any]:
+        """AI-powered language/subtitle menu analysis (usage vision.menu)."""
+        return self.ai_helpers.analyze_language_menu_ai(image_path, team_id=team_id)
 
     # =============================================================================
     # High-Level Verification Methods

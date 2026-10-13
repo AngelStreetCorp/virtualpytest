@@ -8,6 +8,13 @@ A workspace narrows what a user sees to a subset of the fleet. It is **three all
 | `script_filter` | Which scripts are visible | this page |
 | `hidden_pages` | Which navbar items are visible | [nav-visibility.md](nav-visibility.md) |
 
+> **Device limits come first.** A user may also have a device limit from their team, role or own
+> profile. `GET /server/users/<user_id>/scope` returns it as `effective_devices` (`null` = every
+> device). Keep a device only when it is in `effective_devices` (when that is a list) **and** in the
+> active workspace's `device_filter` (when a workspace is active). The web app does this in
+> `WorkspaceContext.isDeviceAllowed`. Same caveat as below: it filters what is shown, it does not
+> authorize.
+
 > **There is no "give me the filtered scripts" endpoint.** The list APIs return everything, exactly as they do without workspaces. The client fetches the workspace once and filters the responses itself. One endpoint is the exception — see [Execution history](#execution-history-the-one-server-side-filter).
 
 > **This is scoping, not authorization.** Team isolation is `team_id` + RLS on the server. Workspace filters shape what a user is *shown*. The workspace's `permissions` / `denied_permissions` fields are a separate mechanism — see `agent/platform/USER_PERMISSION.md` §5.

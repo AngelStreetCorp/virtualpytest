@@ -10,6 +10,10 @@ import { getZIndex } from '../../utils/zIndexUtils';
 import { useValidationColors } from '../../hooks/validation/useValidationColors';
 import { useMetrics } from '../../hooks/navigation/useMetrics';
 import type { UINavigationNode as UINavigationNodeType, UINavigationEdge } from '../../types/pages/Navigation_Types';
+// Target/source handle markers inside the React Flow SVG must read on light +
+// dark backgrounds, so we use the static dark-palette colours (no hooks in
+// this SVG-rendering component).
+import { AGENT_CHAT_PALETTE, useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = ({
   data,
@@ -17,6 +21,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
   id,
 }) => {
   const { currentNodeId } = useNavigation();
+  const P = useAgentChatPalette();
 
   const [isScreenshotModalOpen, setIsScreenshotModalOpen] = useState(false);
   const [imageKey, setImageKey] = useState<string | number>(0); // Key to force image refresh
@@ -83,9 +88,9 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
   // Action node colors from validationColors
   const actionColors = NODE_TYPE_COLORS.action;
 
-  // Current position styling - purple theme (same as navigation node)
+  // Current position styling - gold (same as navigation node)
   const currentPositionStyle = {
-    border: '3px solid #9c27b0',
+    border: `3px solid ${P.accent}`,
     boxShadow: 'none', // Remove shadow
     animation: 'currentPositionPulse 2s ease-in-out infinite',
   };
@@ -155,7 +160,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
               position: 'absolute',
               top: '4px',
               right: '4px',
-              backgroundColor: '#1976d2',
+              backgroundColor: AGENT_CHAT_PALETTE.series[1],
               color: '#fff',
               fontSize: '10px',
               fontWeight: 'bold',
@@ -231,7 +236,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
           isConnectableStart={false}
           isConnectableEnd={true}
           style={{
-            background: '#1976d2',
+            background: AGENT_CHAT_PALETTE.series[1],
             border: '2px solid #fff',
             width: '16px',
             height: '16px',
@@ -299,7 +304,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
           isConnectableStart={false}
           isConnectableEnd={true}
           style={{
-            background: '#1976d2',
+            background: AGENT_CHAT_PALETTE.series[1],
             border: '2px solid #fff',
             width: '16px',
             height: '16px',
@@ -323,7 +328,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
           isConnectableStart={false}
           isConnectableEnd={true}
           style={{
-            background: '#4caf50',
+            background: AGENT_CHAT_PALETTE.success,
             border: '2px solid #fff',
             width: '16px',
             height: '16px',
@@ -345,7 +350,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
           isConnectableStart={true}
           isConnectableEnd={false}
           style={{
-            background: '#1976d2',
+            background: AGENT_CHAT_PALETTE.series[1],
             border: '2px solid #fff',
             width: '16px',
             height: '16px',
@@ -390,7 +395,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
           isConnectableStart={false}
           isConnectableEnd={true}
           style={{
-            background: '#4caf50',
+            background: AGENT_CHAT_PALETTE.success,
             border: '2px solid #fff',
             width: '16px',
             height: '16px',
@@ -414,7 +419,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
           isConnectableStart={false}
           isConnectableEnd={true}
           style={{
-            background: '#9c27b0',
+            background: AGENT_CHAT_PALETTE.series[2],
             border: '2px solid #fff',
             width: '16px',
             height: '16px',

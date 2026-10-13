@@ -78,7 +78,7 @@ export interface TestCaseBlock {
   id: string;
   type: BlockType;
   position: { x: number; y: number };
-  data: ActionBlockData | VerificationBlockData | NavigationBlockData | LoopBlockData | {};
+  data: ActionBlockData | VerificationBlockData | NavigationBlockData | LoopBlockData | Record<string, never>;
 }
 
 // Connection between blocks

@@ -494,7 +494,8 @@ def _build_events(audio, video, window_seconds):
 # --------------------------------------------------------------------------- #
 # capture_monitor already runs Localize ~1/sec (opt-in per device via
 # DEVICE{N}_USERINTERFACE) and writes a `localize` field into each per-frame
-# JSON: {node, confidence, excluded, total[, state]}. We just READ those (no
+# JSON: {node, confidence, excluded, total[, state, gate_skip,
+# loaded, overlay, playback, error]}. We just READ those (no
 # recompute — keeps this analyzer pure + cheap), classify each sample, and
 # run-length-encode runs of the same node into compact epoch-ms spans so the
 # timeline can show where the device was. Empty when localize is disabled.
@@ -508,12 +509,49 @@ def _build_events(audio, video, window_seconds):
 #   unknown    (grey)   — nothing recognised (live video / dark / no match)
 POS_CONF_GREEN = 0.55   # >= this AND a single candidate left ⇒ confident (green)
 
+# Tier-2 field names we RLE as independent lanes alongside `positions`. These
+# are ADDITIVE: the per-frame `localize` JSON may or may not carry them (older
+# frames do not, gate-skip frames do not), so the corresponding lane is
+# simply absent from the analyzer's output for this window.
+_TIER2_FIELDS = ('loaded', 'overlay', 'playback', 'error')
+
+
+def _rle(samples, value_key):
+    """Run-length-encode a list of (t, value) samples into epoch-ms spans.
+
+    `samples` is a list of (epoch_seconds, value) tuples, ascending. Each
+    segment's `end` extends to the next sample (last → +1s) so the lane fills
+    with no fake gaps between adjacent seconds; real gaps (frames missing
+    from the window) stay uncovered. Returns a list of {s, e, value} dicts
+    or None when there is nothing to encode.
+    """
+    if not samples:
+        return None
+    segs = []
+    for i, (t, value) in enumerate(samples):
+        end = samples[i + 1][0] if i + 1 < len(samples) else t + 1.0
+        last = segs[-1] if segs else None
+        if last and last['value'] == value and (t * 1000 - last['e']) <= 2000:
+            last['e'] = int(end * 1000)
+        else:
+            segs.append({'s': int(t * 1000), 'e': int(end * 1000), 'value': value})
+    return segs
+
 
 def analyze_positions(capture_folder, window_seconds=60):
     """RLE'd screen position over the window, from the per-frame `localize` field.
 
-    Returns {'positions': [{s,e,node,kind,conf}, ...]} (epoch-ms spans, ascending)
-    or {'positions': None} when localize is disabled/absent for this device."""
+    Returns a dict:
+        'positions':     [{s, e, node, kind, conf}, ...]   (epoch-ms spans, ascending)
+        'positions_<f>': [{s, e, value}, ...]              (one per Tier-2 field, only
+                                                            when at least one frame in
+                                                            the window carried the field;
+                                                            absent otherwise)
+
+    `positions` is None when localize is disabled/absent for this device; the
+    Tier-2 lanes are absent on older windows where the per-frame JSON predates
+    the Tier-2 cascade. Old readers that only know `positions` keep working.
+    """
     import json
     mdir = _metadata_dir(capture_folder)
     if not os.path.isdir(mdir):
@@ -526,6 +564,7 @@ def analyze_positions(capture_folder, window_seconds=60):
                      if os.path.getmtime(f) >= cutoff), key=lambda x: x[1])
 
     samples = []   # (epoch_s, node|None, conf, kind)
+    tier2_samples = {f: [] for f in _TIER2_FIELDS}   # (epoch_s, value)
     for f, mt in recent:
         try:
             d = json.load(open(f))
@@ -548,28 +587,45 @@ def analyze_positions(capture_folder, window_seconds=60):
         else:
             kind = 'ambiguous'                      # low confidence / >1 candidate
         samples.append((mt, node, round(conf, 3), kind))
+        # Collect Tier-2 field values per frame so we can RLE them as their
+        # own lanes. `unknown` is still a real answer (the screen_state_cv arm
+        # abstained honestly) and is encoded as such — collapsing it to
+        # nothing would lie about the time we DID look.
+        for fld in _TIER2_FIELDS:
+            v = loc.get(fld)
+            if v is None:
+                continue
+            tier2_samples[fld].append((mt, v))
 
-    if not samples:
-        return {'positions': None}
+    out = {}
+    if samples:
+        # Run-length encode consecutive same (node, kind). Each sample represents ~1s;
+        # a run's end extends to the NEXT sample (last → +1s) so the lane fills with no
+        # fake gaps between adjacent seconds; real gaps (localize off) stay uncovered.
+        segs = []
+        for i, (t, node, conf, kind) in enumerate(samples):
+            end = samples[i + 1][0] if i + 1 < len(samples) else t + 1.0
+            last = segs[-1] if segs else None
+            if last and last['node'] == node and last['kind'] == kind \
+                    and (t * 1000 - last['e']) <= 2000:        # contiguous (≤2s gap)
+                last['e'] = int(end * 1000)
+                last['_n'] += 1
+                last['_csum'] += conf
+            else:
+                segs.append({'s': int(t * 1000), 'e': int(end * 1000), 'node': node,
+                             'kind': kind, '_n': 1, '_csum': conf})
+        for seg in segs:
+            seg['conf'] = round(seg.pop('_csum') / seg.pop('_n'), 3)
+        out['positions'] = segs
+    else:
+        out['positions'] = None
 
-    # Run-length encode consecutive same (node, kind). Each sample represents ~1s;
-    # a run's end extends to the NEXT sample (last → +1s) so the lane fills with no
-    # fake gaps between adjacent seconds; real gaps (localize off) stay uncovered.
-    segs = []
-    for i, (t, node, conf, kind) in enumerate(samples):
-        end = samples[i + 1][0] if i + 1 < len(samples) else t + 1.0
-        last = segs[-1] if segs else None
-        if last and last['node'] == node and last['kind'] == kind \
-                and (t * 1000 - last['e']) <= 2000:        # contiguous (≤2s gap)
-            last['e'] = int(end * 1000)
-            last['_n'] += 1
-            last['_csum'] += conf
-        else:
-            segs.append({'s': int(t * 1000), 'e': int(end * 1000), 'node': node,
-                         'kind': kind, '_n': 1, '_csum': conf})
-    for seg in segs:
-        seg['conf'] = round(seg.pop('_csum') / seg.pop('_n'), 3)
-    return {'positions': segs}
+    for fld in _TIER2_FIELDS:
+        segs = _rle(tier2_samples[fld], fld)
+        if segs:
+            out[f'positions_{fld}'] = segs
+
+    return out
 
 
 # --------------------------------------------------------------------------- #

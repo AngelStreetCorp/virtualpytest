@@ -11,11 +11,10 @@
 -- stay the same whether or not the feature is installed.
 --
 -- Idempotent, and applied to every existing team.
-INSERT INTO device_models (team_id, name, types, controllers, description, is_default)
+INSERT INTO device_models (team_id, name, types, description, is_default)
 SELECT t.id,
        'phone_agent',
        '["Android Phone"]'::jsonb,
-       '{"av": "hdmi_stream", "power": "", "remote": "phone_agent", "network": ""}'::jsonb,
        'Phone paired through the VirtualPyTest app (features/mobile-app)',
        true
 FROM teams t

@@ -27,7 +27,9 @@ class AndroidElement:
     
     def __init__(self, element_id: int, tag: str, text: str, resource_id: str,
                  content_desc: str, class_name: str, bounds: str, clickable: bool = False,
-                 enabled: bool = True, xpath: str = None, focusable: bool = False):
+                 enabled: bool = True, xpath: str = None, focusable: bool = False,
+                 package: str = '', in_focused_window: bool = True, in_list: bool = False,
+                 under_clickable: Optional[bool] = None):
         self.id = element_id
         self.tag = tag
         self.text = text
@@ -39,6 +41,13 @@ class AndroidElement:
         self.enabled = enabled
         self.xpath = xpath
         self.focusable = focusable
+        # Where the node sits in the dump: a `--windows` dump also holds the status bar, the
+        # navigation bar and the launcher's edge panel, and a feed's tiles sit in lists.
+        # under_clickable is None when the source has no hierarchy (phone agent's flat dump).
+        self.package = package
+        self.in_focused_window = in_focused_window
+        self.in_list = in_list
+        self.under_clickable = under_clickable
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert element to dictionary for JSON serialization."""
@@ -448,7 +457,34 @@ class ADBUtils:
         except Exception as e:
             print(f"[@lib:adbUtils:launch_app] Error: {e}")
             return False
-            
+
+    def open_url(self, device_id: str, url: str, package_name: str = None) -> bool:
+        """
+        Open a URL with a VIEW intent, optionally pinned to one browser package.
+
+        Args:
+            device_id: Android device ID
+            url: URL to open (no spaces: execute_command splits on whitespace)
+            package_name: Browser package (e.g. com.android.chrome); None lets Android choose
+        """
+        if not url or any(ch.isspace() for ch in url):
+            print(f"[@lib:adbUtils:open_url] Invalid URL (empty or contains whitespace): {url!r}")
+            return False
+        try:
+            command = f"adb -s {device_id} shell am start -a android.intent.action.VIEW -d {url}"
+            if package_name:
+                command += f" -p {package_name}"
+            success, stdout, stderr, exit_code = self.execute_command(command)
+            # am start reports resolution errors on stdout with exit code 0
+            if success and exit_code == 0 and 'Error' not in stdout:
+                print(f"[@lib:adbUtils:open_url] Opened {url}" + (f" in {package_name}" if package_name else ""))
+                return True
+            print(f"[@lib:adbUtils:open_url] Failed to open {url}: {stderr or stdout}")
+            return False
+        except Exception as e:
+            print(f"[@lib:adbUtils:open_url] Error: {e}")
+            return False
+
     def close_app(self, device_id: str, package_name: str) -> bool:
         """
         Close/stop an app by package name using pkill.
@@ -588,9 +624,26 @@ class ADBUtils:
                 current_path = f"{parent_path}/{class_name}[{sibling_index}]" if class_name else f"{parent_path}/node[{sibling_index}]"
                 return current_path
             
-            def traverse_and_extract(node, parent_path="", parent_node=None):
+            # A `--windows` dump wraps each window's hierarchy in <window focused=...>; a plain
+            # dump has no wrapper and is the focused window only.
+            has_windows = root.find('.//window') is not None
+            list_classes = (
+                'androidx.viewpager.widget.ViewPager',
+                'androidx.viewpager2.widget.ViewPager2',
+                'android.support.v7.widget.RecyclerView',
+                'androidx.recyclerview.widget.RecyclerView',
+                'android.widget.AbsListView',
+                'android.widget.ListView',
+                'android.widget.GridView',
+            )
+
+            def traverse_and_extract(node, parent_path="", parent_node=None,
+                                     in_focused_window=not has_windows, in_list=False, under_clickable=False):
                 """Recursively traverse XML tree and extract elements with XPath."""
                 nonlocal element_counter, filtered_out_count
+
+                if node.tag == 'window':
+                    in_focused_window = node.get('focused', 'false') == 'true'
                 
                 # Get node attributes
                 class_name = node.get('class', '').strip()
@@ -691,7 +744,11 @@ class ADBUtils:
                         clickable=clickable,
                         focusable=focusable,
                         enabled=enabled,
-                        xpath=xpath
+                        xpath=xpath,
+                        package=node.get('package', ''),
+                        in_focused_window=in_focused_window,
+                        in_list=in_list,
+                        under_clickable=under_clickable
                     )
                     elements.append(element)
                 else:
@@ -701,7 +758,9 @@ class ADBUtils:
                 
                 # Recursively process children
                 for child in node:
-                    traverse_and_extract(child, xpath, node)
+                    traverse_and_extract(child, xpath, node, in_focused_window,
+                                         in_list or class_name in list_classes,
+                                         under_clickable or clickable)
             
             # Start traversal from root
             traverse_and_extract(root, "", None)
@@ -1042,12 +1101,15 @@ class ADBUtils:
         except Exception as e:
             return False, "", f"Screenshot to file error: {e}"
 
-    def _calculate_match_score(self, search_term: str, matched_value: str, element: Optional[AndroidElement] = None) -> Tuple[int, int, int, int, int]:
+    def _calculate_match_score(self, search_term: str, matched_value: str, element: Optional[AndroidElement] = None) -> Tuple[int, int, int, int, int, int]:
         """
         Calculate match quality score for prioritization.
         
-        Returns tuple of (exact_match, starts_with, widget_priority, case_match_score, length) where:
+        Returns tuple of (exact_match, in_app_window, starts_with, widget_priority, case_match_score, length) where:
         - exact_match: 1 if exact match, 0 otherwise (highest priority)
+        - in_app_window: 1 if the element sits in the focused (app) window. A `--windows` dump also
+          holds Android's navigation bar, whose Home / Back buttons tie with an app's own "Home"
+          tab on every other criterion and came first in the dump (TASK-40)
         - starts_with: 1 if matched value starts with search term (2nd priority)
         - widget_priority: 2 for Button/Tab, 1 for Clickable, 0 otherwise (3rd priority)
         - case_match_score: number of matching case characters (higher is better)
@@ -1059,7 +1121,7 @@ class ADBUtils:
             element: Optional AndroidElement for widget type checking
         
         Returns:
-            Tuple[int, int, int, int, int]: (exact_match, starts_with, widget_priority, case_match_score, -length)
+            Tuple[int, int, int, int, int, int]: (exact_match, in_app_window, starts_with, widget_priority, case_match_score, -length)
         """
         search_stripped = search_term.strip()
         value_stripped = matched_value.strip()
@@ -1069,6 +1131,8 @@ class ADBUtils:
         # 1. Check for exact match (highest priority)
         exact_match = 1 if search_stripped == value_stripped else 0
         
+        in_app_window = 1 if getattr(element, 'in_focused_window', True) else 0
+
         # 2. Check if starts with search term (2nd priority)
         starts_with = 1 if value_lower.startswith(search_lower) else 0
         
@@ -1102,7 +1166,7 @@ class ADBUtils:
         # 5. Get length (we'll negate it for sorting so shorter is better)
         length = len(value_stripped)
         
-        return (exact_match, starts_with, widget_priority, case_match_score, -length)
+        return (exact_match, in_app_window, starts_with, widget_priority, case_match_score, -length)
 
     def smart_element_search(self, device_id: str, search_term: str, **options) -> Tuple[bool, List[Dict[str, Any]], str]:
         """
@@ -1215,14 +1279,14 @@ class ADBUtils:
                     
                     print(f"[@lib:adbUtils:smart_element_search] Match found - Element {element.id}: {primary_match['reason']}")
             
-            # Sort matches by priority: 1) Exact match, 2) Starts with, 3) Widget Type, 4) Case match score, 5) Shortest length
+            # Sort matches by priority: 1) Exact match, 2) In the app's window, 3) Starts with, 4) Widget Type, 5) Case match score, 6) Shortest length
             if matches:
                 matches.sort(key=lambda m: m["match_score"], reverse=True)
                 print(f"[@lib:adbUtils:smart_element_search] Prioritized {len(matches)} matches:")
                 for i, match in enumerate(matches[:5]):  # Show top 5
                     score = match["match_score"]
-                    # Score tuple: (exact_match, starts_with, widget_priority, case_match_score, -length)
-                    print(f"[@lib:adbUtils:smart_element_search]   {i+1}. '{match['matched_value']}' (exact={score[0]}, start={score[1]}, widget={score[2]}, case={score[3]}, len={-score[4]})")
+                    # Score tuple: (exact_match, in_app_window, starts_with, widget_priority, case_match_score, -length)
+                    print(f"[@lib:adbUtils:smart_element_search]   {i+1}. '{match['matched_value']}' (exact={score[0]}, app={score[1]}, start={score[2]}, widget={score[3]}, case={score[4]}, len={-score[5]})")
             
             success = len(matches) > 0
             if success:

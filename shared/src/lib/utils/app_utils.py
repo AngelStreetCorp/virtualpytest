@@ -7,12 +7,14 @@ Focused on app configuration and initialization.
 
 import sys
 import os
+import math
 import time
 import subprocess
 import psutil
 import platform
 import logging
 from flask import Flask, current_app, jsonify, request
+from flask.json.provider import DefaultJSONProvider
 from flask_cors import CORS
 from dotenv import load_dotenv
 import requests
@@ -93,11 +95,10 @@ def load_environment_variables(mode='server', calling_script_dir=None):
         else:
             print(f"⚠️  Service environment file not found: {service_env_path}")
     
-    # List all environment variables with DEVICE in the name
-    print(f"[@app_utils:load_environment_variables] Checking for device configuration...")
-    device_vars = [var for var in os.environ.keys() if 'DEVICE' in var]
-    for var in device_vars:
-        print(f"[@app_utils:load_environment_variables]   {var}={os.environ.get(var)}")
+    # List the DEVICE* variable names only: values include cloud-farm keys and
+    # account names, and this output lands in every script's execution log.
+    device_vars = sorted(var for var in os.environ.keys() if 'DEVICE' in var)
+    print(f"[@app_utils:load_environment_variables] Device configuration variables set: {', '.join(device_vars) or 'none'}")
     
     return project_env_path
 
@@ -200,7 +201,6 @@ def setup_and_cleanup_app(app_name, port_getter_func, app_type="application", se
 # frontend domain, a self-hoster's split frontend/backend hosts — must set the env var.
 DEFAULT_CORS_ALLOWED_ORIGINS = (
     'https://virtualpytest.angelstreet.io,'
-    'https://rpitest.angelstreet.io,'
     'https://virtualpytest.com,'
     'https://www.virtualpytest.com,'
     'https://virtualpytest.vercel.app,'
@@ -227,9 +227,59 @@ def cors_allowed_origins():
     return origins
 
 
+def to_native(obj, nan_to_none=False):
+    """Return `obj` with every numpy value replaced by its plain Python equivalent.
+
+    Recurses through dicts, lists and tuples (a tuple comes back as a list, which
+    is what JSON makes of it anyway). A numpy scalar becomes `.item()`, an array
+    `.tolist()`; anything else is returned unchanged.
+
+    Image/audio verifications compute with numpy and cv2, and a single np.bool_
+    left in a result breaks every JSON encoder downstream: jsonify 500s the
+    status poll, and requests.post(json=...) raises before sending, which lost
+    the terminal execution event and left the server holding the device lock
+    (2026-10-02, waitForImageToDisappear on vpt-pi1/device4).
+
+    `nan_to_none=True` also maps non-finite floats to None, for encoders that
+    refuse NaN/Infinity — requests serializes with allow_nan=False.
+    """
+    try:
+        import numpy as np
+    except ImportError:  # pragma: no cover - numpy is a host dependency
+        np = None
+
+    def convert(o):
+        if isinstance(o, dict):
+            return {k: convert(v) for k, v in o.items()}
+        if isinstance(o, (list, tuple)):
+            return [convert(v) for v in o]
+        if np is not None:
+            if isinstance(o, np.ndarray):
+                return convert(o.tolist())
+            if isinstance(o, np.generic):
+                o = o.item()
+        if nan_to_none and isinstance(o, float) and not math.isfinite(o):
+            return None
+        return o
+
+    return convert(obj)
+
+
+class NumpyJSONProvider(DefaultJSONProvider):
+    """jsonify that also accepts numpy scalars and arrays (see to_native)."""
+
+    @staticmethod
+    def default(o):
+        converted = to_native(o)
+        if converted is not o:
+            return converted
+        return DefaultJSONProvider.default(o)
+
+
 def setup_flask_app(app_name="VirtualPyTest"):
     """Setup and configure Flask application with CORS and WebSocket support"""
     app = Flask(app_name)
+    app.json = NumpyJSONProvider(app)
 
     # Both services are JSON APIs, but Flask's default error page for an
     # uncaught HTTPException (400/404/405/...) is HTML. Without this handler,
@@ -274,7 +324,7 @@ def setup_flask_app(app_name="VirtualPyTest"):
     # Fix (BUG-0092): an explicit allowlist. `CORS_ALLOWED_ORIGINS` (comma-separated, same
     # convention as `PUBLIC_ASK_ALLOWED_ORIGINS` in server_public_ask_routes.py) overrides the
     # default, which covers the deployments already known to call cross-origin: the main
-    # frontend calling a different server (virtualpytest.angelstreet.io -> rpitest.angelstreet.io
+    # frontend calling a different server (virtualpytest.angelstreet.io -> another server's public name
     # and back), the marketing site, the documented Vercel/Render split (cloud-setup.md §4.1),
     # and local dev. Anyone with a different split — a customer overlay's own domain, a
     # self-hoster's separate frontend host — MUST set `CORS_ALLOWED_ORIGINS` in their `.env` or

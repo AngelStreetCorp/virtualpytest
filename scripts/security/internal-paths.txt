@@ -95,7 +95,6 @@ docs/agent/navigation/HANDOVER_variant_edge_create.md
 docs/agent/navigation/userinterface_variant_uuid_migration.md
 
 # Benchmarks and findings measured on our own devices
-docs/agent/ai/agent_benchmarks.md
 docs/agent/ai/langfuse_integration.md
 docs/agent/navigation/AI_USERINTERFACE_BENCHMARKS.md
 docs/agent/navigation/KNOWN_ISSUES_USERINTERFACE.md
@@ -118,3 +117,24 @@ docs/agent/validation/VALIDATION_FIX_LOOP.md
 
 # Describes how authentication is bypassed on a deployment. Never publishes.
 docs/agent/validation/TESTING.md
+
+# --- working directories that are not part of the installable platform ------------------------
+# Added 2026-10-13. Each of these made publish_public.sh abort on its default-deny
+# allow-list check, which is why the public snapshot had been stuck at main-2026.09.27
+# for ~2 weeks: the gate was right and the lists had drifted. A new top-level directory
+# must be listed in ONE of the two files, or no release can be cut at all.
+#
+# LoRA fine-tuning scaffolding: dataset assembly, merge and train scripts, plus a config
+# that points at our model and dataset paths. Internal experimentation, not a shipped
+# capability, and nothing in the public snapshot builds or reads it.
+training/
+
+# The maintainer's own Claude Code plugins for driving THIS fleet (fleet/agents/run-clock/
+# research mod marketplaces, tmux and lease tooling, hooks). They operate our internal
+# hosts, so they are as internal as docs/agent/, and they are not part of the platform a
+# customer installs.
+claude-mods/
+
+# Generated index of internal research loops; it is keyed to docs/agent/research/LOOP.md
+# and carries our task names and run metrics. Regenerate with scripts/research/gen_index.py.
+docs/research/

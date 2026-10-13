@@ -5,6 +5,8 @@ import {
   Search as SearchIcon,
   Clear as ClearIcon,
   ExpandMore as ExpandIcon,
+  UnfoldMore as ExpandAllIcon,
+  UnfoldLess as CollapseAllIcon,
   BarChart as StatsIcon,
   Refresh as RefreshIcon,
   CheckCircle as CheckCircleIcon,
@@ -38,14 +40,19 @@ import {
   DialogActions,
   Tooltip,
   InputAdornment,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import React, { useState } from 'react';
 import { useRequirements, Requirement, RequirementCoverage } from '../hooks/pages/useRequirements';
 import { RequirementCoverageModal } from '../components/requirements/RequirementCoverageModal';
 import { LinkTestcasePickerModal } from '../components/requirements/LinkTestcasePickerModal';
 import { StyledDialog } from '../components/common/StyledDialog';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { segmentedSx } from '../components/common/PageChrome';
 
 const Requirements: React.FC = () => {
+  const P = useAgentChatPalette();
   const {
     requirements,
     isLoading,
@@ -71,6 +78,9 @@ const Requirements: React.FC = () => {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedRequirement, setSelectedRequirement] = useState<Requirement | null>(null);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  const [priorityFilter, setPriorityFilter] = useState<string | null>(null);
+  const [groupBy, setGroupBy] = useState<'none' | 'category'>('none');
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [formError, setFormError] = useState<string | null>(null);
   const [coverageCache, setCoverageCache] = useState<Record<string, RequirementCoverage>>({});
   const [loadingCoverage, setLoadingCoverage] = useState<Set<string>>(new Set());
@@ -152,6 +162,7 @@ const Requirements: React.FC = () => {
 
   // Filter requirements by search query
   const filteredRequirements = requirements.filter(req => {
+    if (priorityFilter && req.priority !== priorityFilter) return false;
     if (!searchQuery) return true;
     const query = searchQuery.toLowerCase();
     return (
@@ -169,12 +180,53 @@ const Requirements: React.FC = () => {
   const activeCount = requirements.filter(r => r.status === 'active').length;
   const uncoveredCount = requirements.filter(r => !coverageCounts[r.requirement_id] || coverageCounts[r.requirement_id].total_count === 0).length;
 
+  // P3 needs its own look: the muted grey vanishes on dark
+  const p3Sx = { bgcolor: P.surface, color: P.textPrimary, border: `1px solid ${P.textSecondary}` };
+  const togglePriority = (pri: string) => setPriorityFilter((cur) => (cur === pri ? null : pri));
+  const priChipSx = (pri: string) => ({
+    cursor: 'pointer',
+    outline: priorityFilter === pri ? `2px solid ${P.accent}` : 'none',
+    outlineOffset: 1,
+    opacity: priorityFilter && priorityFilter !== pri ? 0.45 : 1,
+  });
+
+  const tableRows: Array<{ type: 'group'; key: string; count: number } | { type: 'req'; req: Requirement }> = [];
+  if (groupBy === 'category') {
+    const groups = new Map<string, Requirement[]>();
+    filteredRequirements.forEach((r) => {
+      const k = r.category || 'none';
+      groups.set(k, [...(groups.get(k) || []), r]);
+    });
+    Array.from(groups.keys()).sort().forEach((k) => {
+      tableRows.push({ type: 'group', key: k, count: groups.get(k)!.length });
+      if (!collapsedGroups.has(k)) groups.get(k)!.forEach((req) => tableRows.push({ type: 'req', req }));
+    });
+  } else {
+    filteredRequirements.forEach((req) => tableRows.push({ type: 'req', req }));
+  }
+  const allExpanded = filteredRequirements.length > 0 && filteredRequirements.every((r) => expandedRows.has(r.requirement_id));
+  const toggleGroup = (k: string) =>
+    setCollapsedGroups((prev) => { const n = new Set(prev); if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  const toggleExpandAll = () => {
+    if (allExpanded) { setExpandedRows(new Set()); return; }
+    setExpandedRows(new Set(filteredRequirements.map((r) => r.requirement_id)));
+    filteredRequirements.forEach((r) => {
+      const id = r.requirement_id;
+      if (!coverageCache[id] && !loadingCoverage.has(id)) {
+        setLoadingCoverage((s) => new Set(s).add(id));
+        getRequirementCoverage(id).then((cov) => {
+          if (cov) setCoverageCache((c) => ({ ...c, [id]: cov }));
+          setLoadingCoverage((s) => { const n = new Set(s); n.delete(id); return n; });
+        });
+      }
+    });
+  };
+
   // Get priority color
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case 'P1': return 'error';
       case 'P2': return 'warning';
-      case 'P3': return 'info';
       default: return 'default';
     }
   };
@@ -233,7 +285,7 @@ const Requirements: React.FC = () => {
   const getCoverageBadge = (requirementId: string) => {
     const coverage = coverageCounts[requirementId];
     if (!coverage || coverage.total_count === 0) {
-      return { icon: <ErrorCircleIcon />, color: 'error' as const, text: 'no coverage', borderColor: '#f44336' };
+      return { icon: <ErrorCircleIcon />, color: 'error' as const, text: 'no coverage', borderColor: P.error };
     }
     const { testcase_count, script_count } = coverage;
     let label: string;
@@ -246,7 +298,7 @@ const Requirements: React.FC = () => {
     }
     const color = testcase_count >= 2 ? 'success' as const : 'warning' as const;
     const icon = testcase_count >= 2 ? <CheckCircleIcon /> : <WarningIcon />;
-    const borderColor = testcase_count >= 2 ? '#4caf50' : '#ff9800';
+    const borderColor = testcase_count >= 2 ? P.success : P.warning;
     return { icon, color, text: label, borderColor };
   };
 
@@ -282,17 +334,17 @@ const Requirements: React.FC = () => {
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Tooltip title="Critical priority">
-                    <Chip label={`P1: ${p1Count}`} size="small" color="error" />
+                    <Chip label={`P1: ${p1Count}`} size="small" color="error" onClick={() => togglePriority('P1')} sx={priChipSx('P1')} />
                   </Tooltip>
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Tooltip title="High priority">
-                    <Chip label={`P2: ${p2Count}`} size="small" color="warning" />
+                    <Chip label={`P2: ${p2Count}`} size="small" color="warning" onClick={() => togglePriority('P2')} sx={priChipSx('P2')} />
                   </Tooltip>
                 </Box>
                 <Box display="flex" alignItems="center" gap={1}>
                   <Tooltip title="Medium priority">
-                    <Chip label={`P3: ${p3Count}`} size="small" color="info" />
+                    <Chip label={`P3: ${p3Count}`} size="small" onClick={() => togglePriority('P3')} sx={{ ...p3Sx, ...priChipSx('P3') }} />
                   </Tooltip>
                 </Box>
               </Box>
@@ -403,20 +455,39 @@ const Requirements: React.FC = () => {
         </Box>
       )}
 
+      {!isLoading && (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap' }}>
+          <Button size="small" startIcon={allExpanded ? <CollapseAllIcon /> : <ExpandAllIcon />} onClick={toggleExpandAll} sx={{ textTransform: 'none' }}>
+            {allExpanded ? 'Collapse all' : 'Expand all'}
+          </Button>
+          <ToggleButtonGroup exclusive size="small" value={groupBy} onChange={(_, v) => v && setGroupBy(v)} sx={segmentedSx(P, 'sm')}>
+            <ToggleButton value="none">Flat</ToggleButton>
+            <ToggleButton value="category">By category</ToggleButton>
+          </ToggleButtonGroup>
+          {priorityFilter && (
+            <Chip size="small" label={`Priority: ${priorityFilter}`} onDelete={() => setPriorityFilter(null)} />
+          )}
+        </Box>
+      )}
+
       {/* Requirements Table */}
       {!isLoading && (
         <Card>
           <CardContent>
             <TableContainer>
               <Table size="small" sx={{ 
+                tableLayout: 'fixed', minWidth: 960,
                 '& .MuiTableRow-root': { height: '40px' },
                 '& .MuiTableCell-root': { 
                   px: 1, 
                   py: 0.5,
                   fontSize: '0.875rem',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
                 }
               }}>
+                <colgroup><col style={{ width: 40 }} /><col style={{ width: 190 }} /><col /><col style={{ width: 120 }} /><col style={{ width: 80 }} /><col style={{ width: 140 }} /><col style={{ width: 90 }} /><col style={{ width: 100 }} /></colgroup>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ py: 1, width: 40 }}></TableCell>
@@ -459,7 +530,21 @@ const Requirements: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredRequirements.map((req) => {
+                    tableRows.map((item) => {
+                      if (item.type === 'group') {
+                        return (
+                          <TableRow key={`g-${item.key}`} hover onClick={() => toggleGroup(item.key)} sx={{ cursor: 'pointer', bgcolor: P.hoverBg }}>
+                            <TableCell colSpan={8}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <ExpandIcon fontSize="small" sx={{ transform: collapsedGroups.has(item.key) ? 'rotate(-90deg)' : 'none', transition: 'transform 0.2s' }} />
+                                <Typography variant="body2" fontWeight="bold">{item.key}</Typography>
+                                <Typography variant="caption" color="text.secondary">{item.count}</Typography>
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      }
+                      const req = item.req;
                       const badge = getCoverageBadge(req.requirement_id);
                       return (<React.Fragment key={req.requirement_id}>
                         <TableRow
@@ -499,6 +584,8 @@ const Requirements: React.FC = () => {
                               label={req.priority}
                               size="small"
                               color={getPriorityColor(req.priority) as any}
+                              onClick={() => togglePriority(req.priority)}
+                              sx={{ cursor: 'pointer', ...(req.priority === 'P3' ? p3Sx : {}) }}
                             />
                           </TableCell>
                           <TableCell sx={{ py: 0.5 }}>

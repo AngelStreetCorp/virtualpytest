@@ -33,7 +33,8 @@ export interface ControllerObject {
 export interface DeviceCapabilities {
   av?: string; // 'hdmi_stream' | null
   remote?: string; // 'android_mobile' | 'android_tv' | 'appium' | null
-  power?: string; // 'tapo' | null
+  power?: string; // 'tapo' | 'api_power' | 'wol' | null
+  switch?: string; // 'bluetooth_procon' | 'hdmi_switch' | null
   verification?: string[]; // ['image', 'text', 'adb', 'appium']
 }
 
@@ -48,12 +49,15 @@ export interface Device {
   device_ip?: string; // Device IP address (for ADB/device control)
   device_port?: string; // Device port (for ADB/device control)
   ir_type?: string; // IR remote type (samsung, stb, etc.)
+  // Remote controller + key map per remote (TASK-76): 'ir:stb', 'ble:arris', 'adb_tv', 'vega'…
+  remote_profiles?: string[];
 
   // === VIDEO CAPTURE CONFIGURATION ===
   video_stream_path?: string; // Video stream path for URL building (e.g., '/host/stream/capture1')
   video_capture_path?: string; // Video capture path for URL building (e.g., '/var/www/html/stream/capture1')
   video?: string; // Video device path (e.g., '/dev/video0', '/dev/video2')
   video_fps?: number; // Video capture FPS (frames per second) - used to align segments with captures (e.g., 5 for HDMI, 2 for VNC)
+  stream_protocol?: string; // Live view transport: 'whep' = WebRTC via MediaMTX (falls back to HLS)
 
   device_capabilities: DeviceCapabilities; // New detailed capability format (matches server format)
   device_controller_types?: string[]; // Device-specific controller types (prefixed for consistency)

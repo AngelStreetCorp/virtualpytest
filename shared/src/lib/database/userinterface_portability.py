@@ -220,6 +220,11 @@ def export_userinterface_bundle(ui_id: str, team_id: str, dest_dir: str) -> Dict
             'models': ui.get('models', []),
             'min_version': ui.get('min_version', ''),
             'max_version': ui.get('max_version', ''),
+            # `company` is a free-text label; round-trip it through the
+            # export so an import of a .vptree preserves the metadata.
+            # Optional and additive: an older manifest without the key just
+            # reads as None on import.
+            'company': ui.get('company'),
         },
         'trees': all_trees_data,
         'variants': variants,
@@ -373,6 +378,11 @@ def import_userinterface_bundle(src_dir: str, new_name: str, team_id: str,
         'models': source.get('models', []),
         'min_version': source.get('min_version', ''),
         'max_version': source.get('max_version', ''),
+        # Optional: round-trip the company label if the source manifest had
+        # one. An older manifest without the key passes `None` and
+        # `create_userinterface` will leave the column NULL — same default
+        # as a row that pre-dates the column.
+        'company': source.get('company'),
     }, team_id, creator_id)
     if not new_ui:
         return {'success': False, 'error': 'failed to create userinterface'}

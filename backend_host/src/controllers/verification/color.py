@@ -22,6 +22,7 @@ import re
 import cv2
 import numpy as np
 from typing import Dict, Any, Tuple
+from shared.src.lib.utils import cv2_io
 
 
 class ColorVerificationController:
@@ -71,7 +72,7 @@ class ColorVerificationController:
     def _coverage(self, source_path: str, area: Dict[str, Any], color_bgr: Tuple[int, int, int],
                   tolerance: int) -> Tuple[float, int, int]:
         """Returns (coverage_fraction, matching_pixels, total_pixels)."""
-        img = cv2.imread(source_path, cv2.IMREAD_COLOR)
+        img = cv2_io.imread(source_path, cv2.IMREAD_COLOR)
         if img is None:
             return 0.0, 0, 0
         if area:

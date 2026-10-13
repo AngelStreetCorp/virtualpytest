@@ -16,6 +16,7 @@ import { ScriptIOSections } from '../../testcase/builder/ScriptIOSections';
 import { extractStandardBlockGroups } from '../../../utils/toolboxBuilder';
 
 // Shared builder components
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import {
   ToolboxSearchBox,
   ToolboxMainTabs,
@@ -27,18 +28,17 @@ import {
 } from '../../common/builder';
 
 interface CampaignToolboxProps {
-  actualMode: 'light' | 'dark';
   toggleSidebar: () => void;
   onDragStart?: (item: CampaignToolboxItem) => void;
   standardBlocks?: any[];
 }
 
 export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({ 
-  actualMode, 
   toggleSidebar, 
   onDragStart,
   standardBlocks = [],
 }) => {
+  const P = useAgentChatPalette();
   const {
     campaignInputs,
     campaignOutputs,
@@ -231,7 +231,7 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          background: actualMode === 'dark' ? '#1e293b' : '#ffffff',
+          bgcolor: 'background.paper',
         }}
       >
         <Typography variant="subtitle1" fontWeight="bold">
@@ -240,7 +240,7 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
         <IconButton
           size="small"
           onClick={toggleSidebar}
-          sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
+          sx={{ color: P.textSecondary, '&:hover': { color: P.accentText } }}
         >
           <ChevronLeftIcon />
         </IconButton>

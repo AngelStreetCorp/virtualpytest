@@ -260,12 +260,13 @@ def get_whisper_model(model_name: str = "tiny"):
             
             from faster_whisper import WhisperModel
             print(f"[AudioTranscriptionUtils] Loading faster-whisper model '{model_name}' (one-time load)...")
-            # Use CPU with 4 threads for Raspberry Pi 4 optimization
+            # One thread: on a loaded 4-core Pi 5, 2 threads cost ~37 CPU-s per audio
+            # minute and 1 thread ~22 CPU-s, for identical text and similar wall time.
             _whisper_model = WhisperModel(
                 model_name,
                 device="cpu",
                 compute_type="int8",
-                cpu_threads=2,
+                cpu_threads=1,
                 num_workers=1
             )
             _whisper_model_name = model_name

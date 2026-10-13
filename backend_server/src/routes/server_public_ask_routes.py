@@ -8,8 +8,9 @@ POST /server/public/ask
 Design constraints (see docs/agent/ai/public_ask.md):
 - No user JWT: visitors of https://virtualpytest.com are anonymous. The path is
   listed in the unauthenticated prefixes of app.py.
-- Provider is pinned to MiniMax (flat subscription) regardless of the team's
-  active AI provider — abuse costs quota, never money.
+- The model is the AI route for usage ``public.ask`` (server default only —
+  visitors have no team). Keep it on a flat-rate endpoint (the TASK-30 env import
+  pins it to MiniMax) so abuse costs quota, never money.
 - Tool surface is the three docs tools only (list_docs / search_docs / read_doc),
   executed through the shared MCP server so its sensitive-path gate applies.
 - Origin allowlist + per-IP rate limit + input caps bound the exposure.
@@ -29,10 +30,10 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from flask import Blueprint, jsonify, request
 
-from backend_server.src.lib.auth_middleware import require_role, require_user_auth
+from backend_server.src.lib.auth_middleware import require_permission, require_user_auth
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from shared.src.lib.ai.config import get_active_model, get_provider_api_key
-from shared.src.lib.ai.provider_client import create_provider_client
+from shared.src.lib.ai import caller as ai_caller, router as ai_router, tracing
+from shared.src.lib.ai.provider_client import strip_reasoning
 
 # Add backend_server/src to path for MCP server import (same as server_mcp_proxy_routes)
 current_dir = Path(__file__).parent.parent
@@ -43,7 +44,7 @@ from mcp.mcp_instance import get_mcp_server  # noqa: E402
 
 server_public_ask_bp = Blueprint('server_public_ask', __name__, url_prefix='/server/public')
 
-PROVIDER = 'minimax'
+USAGE = 'public.ask'
 MAX_QUESTION_CHARS = 500
 MAX_ITERATIONS = 4
 MAX_TOKENS = 1024
@@ -59,7 +60,7 @@ _rate_buckets: Dict[str, deque] = {}
 DOCS_TOOL_NAMES = ('list_docs', 'search_docs', 'read_doc')
 
 # Global daily budget of LLM-backed answers across all visitors. Cached answers do
-# not count. Protects the MiniMax quota shared with the internal agents from a
+# not count. Protects the provider quota shared with the internal agents from a
 # distributed abuser that stays under the per-IP limits.
 DAILY_BUDGET = int(os.getenv('PUBLIC_ASK_DAILY_BUDGET', '500'))
 _budget_lock = threading.Lock()
@@ -88,12 +89,96 @@ def _budget_status() -> str:
 # call. Kept in-process and mirrored to a JSON file so it survives restarts.
 CACHE_TTL_SECONDS = int(os.getenv('PUBLIC_ASK_CACHE_TTL', str(7 * 86400)))
 CACHE_MAX_ENTRIES = 500
-CACHE_SIMILARITY = 0.90
+# Lowered from 0.90 → 0.70 so near-paraphrases ("how does VirtualPyTest work" vs
+# "describe VirtualPyTest") hit the cache too. The FAQ is the source of truth for
+# definitional questions, and the aliasing logic prevents low-quality paraphrase
+# answers from overwriting the canonical FAQ entry (see _cache_put).
+CACHE_SIMILARITY = 0.70
 CACHE_FILE = os.getenv('PUBLIC_ASK_CACHE_FILE', os.path.join(tempfile.gettempdir(), 'vpt_public_ask_cache.json'))
 _cache_lock = threading.Lock()
 _cache: Dict[str, Dict[str, Any]] = {}
 _cache_loaded = False
 _VERSION_FILE = Path(__file__).resolve().parents[3] / 'VERSION.txt'
+
+
+def _docs_root() -> Path:
+    """Resolve the docs/ directory regardless of where the server is launched from.
+    backend_server/src/routes/<this> → project root → docs/"""
+    return Path(__file__).resolve().parents[3] / 'docs'
+
+# Canonical questions parsed from docs/faq/README.md '### <question>' headings.
+# When a fresh LLM answer comes in for a question that shares a topic noun with one
+# of these, we ALSO cache that answer under the canonical key — so the next visitor
+# who asks the canonical wording hits instantly instead of triggering a new round trip.
+_faq_keys_lock = threading.Lock()
+_faq_canonical_keys: List[str] = []
+
+
+def _load_faq_canonical_keys_locked() -> List[str]:
+    """Pull '### <question>' headings from docs/faq/README.md and normalize them."""
+    try:
+        text = (_docs_root() / 'faq' / 'README.md').read_text(encoding='utf-8')
+    except Exception:
+        return []
+    keys: List[str] = []
+    for line in text.splitlines():
+        m = re.match(r'^###\s+(.+?)\s*\?\s*$', line) or re.match(r'^###\s+(.+?)\s*$', line)
+        if m:
+            keys.append(_normalize_question(m.group(1)))
+    # Dedup but keep order
+    seen: set = set()
+    return [k for k in keys if k and not (k in seen or seen.add(k))]
+
+
+def _faq_canonicals() -> List[str]:
+    global _faq_canonical_keys
+    with _faq_keys_lock:
+        if not _faq_canonical_keys:
+            _faq_canonical_keys = _load_faq_canonical_keys_locked()
+        return _faq_canonical_keys
+
+
+def _topic_token(key: str) -> str:
+    """Longest non-filler word in the key — used to identify which FAQ section a
+    paraphrased question is asking about."""
+    words = [w for w in key.split() if w not in _FILLER_WORDS and len(w) >= 4]
+    return max(words, key=len, default='')
+
+
+def _is_definitional_question(key: str) -> bool:
+    """A question is 'definitional' (asking what something is / is about) when its
+    normalized form starts with one of these patterns. Other shapes — feature checks
+    ('does X support Y'), comparisons ('how is X different from Y'), procedures
+    ('how do I Z') — must NOT alias the 'what is X' answer, even when they share a
+    topic noun.
+    """
+    return bool(re.match(r'^(what|tell|describe|explain)\b', key))
+
+
+def _sibling_canonical_keys(new_key: str) -> List[str]:
+    """Canonical FAQ keys that should alias this fresh answer.
+
+    Two questions are siblings only when both look definitional AND share the same
+    topic noun — 'tell me about virtualpytest' and 'what is VirtualPyTest' qualify;
+    'does VirtualPyTest support X?' and 'how is VirtualPyTest different from Y?'
+    do not, even though they share the noun. The FAQ is the source of truth, so
+    cross-wording definitional answers are equivalent; comparison / procedural /
+    feature-check answers are not, and never alias the 'what is X' entry.
+    """
+    if not _is_definitional_question(new_key):
+        return []
+    new_topic = _topic_token(new_key)
+    if not new_topic:
+        return []
+    sibs: List[str] = []
+    for ck in _faq_canonicals():
+        if not ck.startswith('what '):
+            continue
+        if ck == new_key:
+            continue
+        if _topic_token(ck) == new_topic:
+            sibs.append(ck)
+    return sibs
 
 
 def _docs_generation() -> str:
@@ -114,6 +199,10 @@ LOG_MAX_LINES = 20000
 _log_lock = threading.Lock()
 
 
+def _client_hash(ip: str) -> str:
+    return hex(hash(ip) & 0xffffffff)[2:]
+
+
 def _log_question(question: str, ip: str, outcome: str, seconds: float, sources: List[str]) -> None:
     """outcome: 'cached' | 'answered' | 'off_topic' | 'error'. IP is shortened to a hash."""
     entry = {
@@ -123,7 +212,7 @@ def _log_question(question: str, ip: str, outcome: str, seconds: float, sources:
         'outcome': outcome,
         'seconds': round(seconds, 2),
         'sources': sources,
-        'ip': hex(hash(ip) & 0xffffffff)[2:],
+        'ip': _client_hash(ip),
     }
     try:
         with _log_lock:
@@ -211,11 +300,21 @@ platform topic, including pricing, licensing and costs, is in the docs.
 read_doc(path='INDEX.md') says which file answers which kind of question;
 docs/faq/README.md covers the most common visitor questions.
 
+DEFINITIONAL QUESTIONS (must read faq/README.md FIRST):
+If the visitor asks what something IS, what it does, how it works, or for an
+overview / introduction of any platform topic (VirtualPyTest itself, navigation
+trees, devices, AI validation, the pricing model, etc.), call
+read_doc(path='faq/README.md') BEFORE any other tool. The FAQ is the canonical
+source of truth for these answers and is pre-cached server-side, so reading it
+gives the visitor a fast, consistent response. Only fall back to INDEX.md and
+other docs if the FAQ does not cover the topic.
+
 WORKFLOW:
-1. If you know the relevant file, read_doc it directly.
-2. Otherwise read INDEX.md, then read_doc the file it points to.
-3. search_docs(query=...) as a fallback when the index does not name a file.
-4. Read at most 3 files, then answer.
+1. For definitional questions: read_doc('faq/README.md') first.
+2. If the FAQ covers the topic, answer from it.
+3. Otherwise read INDEX.md, then read_doc the file it points to.
+4. search_docs(query=...) as a fallback when the index does not name a file.
+5. Read at most 3 files, then answer.
 
 ANSWER STYLE:
 - Plain text for a website visitor: no markdown, no **bold**, no headings, no
@@ -318,12 +417,82 @@ def _cache_save_locked() -> None:
         print(f"[@public_ask] cache save failed: {e}")
 
 
+# Pre-seeded entries have a stable, FAQ-derived payload. They MUST NOT be
+# overwritten by an LLM-generated paraphrase answer that did not cite the FAQ —
+# that was the MIT-vs-AGPL drift: a paraphrase asked first ("Tell me everything
+# about VirtualPyTest") produced an MIT-licensed answer that the cache then
+# served for every later canonical ask. The pre-seeder + write-time guard below
+# close that loop: the canonical slot is reserved for FAQ content.
+_PRELOADED = 'preloaded'
+
+
+def _preload_faq_canonicals_locked() -> None:
+    """Parse '### <question>' sections of the FAQ and seed the cache under each
+    canonical key with the section's own text. No LLM round trip, zero budget
+    cost, and the answer is the authoritative FAQ — no risk of MIT-vs-AGPL.
+
+    Idempotent: only fills slots that are still empty (or hold a stale preloaded
+    entry from an older deploy). LLM-generated entries are left alone.
+    """
+    try:
+        text = (_docs_root() / 'faq' / 'README.md').read_text(encoding='utf-8')
+    except Exception as e:
+        print(f"[@public_ask] FAQ preload: read failed: {e}")
+        return
+    gen = _docs_generation()
+    now = time.time()
+    # Split on '## ' and '### ' headings, keep them with their bodies.
+    sections = re.split(r'^(#{2,3}\s+[^\n]+)$', text, flags=re.MULTILINE)
+    # sections = [pre, h1, body1, h2, body2, ...]
+    preloaded = 0
+    for i in range(1, len(sections) - 1, 2):
+        raw_heading = sections[i]
+        body = sections[i + 1]
+        # Only ### (FAQ item) headings are preloaded — ## sections are groupings.
+        if not raw_heading.lstrip().startswith('###'):
+            continue
+        heading = raw_heading.lstrip('#').strip()
+        canonical_key = _normalize_question(heading)
+        if not canonical_key:
+            continue
+        # Don't clobber any existing entry — even a preloaded one. Preloader must only
+        # fill empty slots, otherwise it overwrites hits counters on every cache_get
+        # call and the batch flush never fires.
+        existing = _cache.get(canonical_key)
+        if existing is not None:
+            continue
+        answer_text = _strip_markdown(body).strip()
+        if not answer_text:
+            continue
+        # Trim to a visitor-friendly length: keep the first meaningful chunk.
+        # The FAQ sections are usually 1–3 paragraphs; cap at ~1200 chars to stay
+        # under the 1024-token model output budget if this entry is ever regenerated.
+        if len(answer_text) > 1800:
+            answer_text = answer_text[:1800].rsplit('.', 1)[0] + '.'
+        entry: Dict[str, Any] = {
+            'question': heading + ('?' if not heading.endswith('?') else ''),
+            'answer': answer_text,
+            'sources': ['faq/README.md'],
+            'ts': now,
+            'hits': 0,
+            'gen': gen,
+            'siblings': [],
+            'seen_keys': [canonical_key],
+            _PRELOADED: True,
+        }
+        _cache[canonical_key] = entry
+        preloaded += 1
+    if preloaded:
+        print(f"[@public_ask] FAQ preload: seeded {preloaded} canonical entries (gen={gen})")
+
+
 def _cache_get(question: str) -> Optional[Dict[str, Any]]:
     """Exact normalized hit first, then the closest similar question above the threshold."""
     key = _normalize_question(question)
     now = time.time()
     with _cache_lock:
         _cache_load_locked()
+        _preload_faq_canonicals_locked()
         expired = [k for k, v in _cache.items() if now - v.get('ts', 0) > CACHE_TTL_SECONDS]
         for k in expired:
             _cache.pop(k, None)
@@ -335,33 +504,114 @@ def _cache_get(question: str) -> Optional[Dict[str, Any]]:
                     break
         if hit is not None:
             hit['hits'] = hit.get('hits', 0) + 1
+            # Persist hit counts to disk in batches. A pure-read burst (FAQ preloader
+            # serving the same canonical over and over) would otherwise leave on-disk
+            # hits stuck at 0 forever — _cache_save_locked only fires on _cache_put.
+            # Flush every 10 hits: cheap enough that the cache file stays roughly
+            # current without an fsync on every request.
+            _hits_since_save = hit.setdefault('_hits_since_save', 0) + 1
+            hit['_hits_since_save'] = _hits_since_save
+            if _hits_since_save >= 10:
+                hit['_hits_since_save'] = 0
+                _cache_save_locked()
         return dict(hit) if hit else None
 
 
 def _cache_put(question: str, answer: str, sources: List[str]) -> None:
     key = _normalize_question(question)
+    siblings = _sibling_canonical_keys(key)
+    is_faq_sourced = any('faq/' in s for s in sources)
     with _cache_lock:
         _cache_load_locked()
-        _cache[key] = {'question': question, 'answer': answer, 'sources': sources, 'ts': time.time(), 'hits': 0, 'gen': _docs_generation()}
+        _preload_faq_canonicals_locked()
+        now = time.time()
+        canonical_sib = siblings[0] if siblings else None
+        canonical_entry = _cache.get(canonical_sib) if canonical_sib else None
+
+        entry: Dict[str, Any] = {
+            'question': question,
+            'answer': answer,
+            'sources': sources,
+            'ts': now,
+            'hits': 0,
+            'gen': _docs_generation(),
+            'siblings': siblings,
+            'seen_keys': [key],
+        }
+
+        # Decide whether to alias under the canonical:
+        # - No canonical sibling: alias freely (this is the first writer for the topic).
+        # - Canonical exists and is FAQ-sourced (preloaded) and our answer is NOT
+        #   FAQ-sourced: do NOT alias — the preloaded slot is the authoritative answer
+        #   and a non-FAQ paraphrase would only pollute it. The paraphrase is still
+        #   cached under its own key so re-asks are instant.
+        # - Canonical exists and our answer IS FAQ-sourced: replace the preloaded
+        #   entry with the freshly-generated one (the model produced a tighter answer).
+        # - Canonical exists with a non-preloaded entry: keep it (first real writer wins)
+        #   unless our answer is FAQ-sourced, in which case we replace.
+        alias_under_canonical = True
+        if canonical_entry is not None:
+            entry_is_preloaded = canonical_entry.get(_PRELOADED, False)
+            if entry_is_preloaded and not is_faq_sourced:
+                alias_under_canonical = False
+            elif not entry_is_preloaded and not is_faq_sourced:
+                # First real writer wins — keep the existing canonical content.
+                alias_under_canonical = False
+
+        if alias_under_canonical and canonical_sib is not None:
+            _cache[canonical_sib] = entry
+        # Always cache under the user's normalized key.
+        _cache[key] = entry
+        # Also alias the user's key under any other siblings that share the topic
+        # (e.g. multiple definitional canonicals in the same topic cluster), so the
+        # other canonical wording serves the same answer too.
+        for sib in siblings[1:] if alias_under_canonical else siblings:
+            if sib not in _cache:
+                _cache[sib] = entry
+        # Evict oldest entries until under the cap. Skip keys that still have aliases
+        # pointing at the same entry — they're not "really" separate entries.
         if len(_cache) > CACHE_MAX_ENTRIES:
-            for k in sorted(_cache, key=lambda k: _cache[k].get('ts', 0))[: len(_cache) - CACHE_MAX_ENTRIES]:
-                _cache.pop(k, None)
+            by_ts = sorted(
+                ((k, _cache[k].get('ts', 0)) for k in _cache),
+                key=lambda kv: kv[1],
+            )
+            evicted = 0
+            target = len(_cache) - CACHE_MAX_ENTRIES
+            for k, _ in by_ts:
+                if evicted >= target:
+                    break
+                entry = _cache[k]
+                aliases = [a for a, e in _cache.items() if e is entry]
+                if len(aliases) > 1:
+                    # Keep one alias alive, drop the rest so eviction stays simple.
+                    for alias in aliases[1:]:
+                        _cache.pop(alias, None)
+                        evicted += 1
+                        if evicted >= target:
+                            break
+                else:
+                    _cache.pop(k, None)
+                    evicted += 1
         _cache_save_locked()
 
 
 def _strip_markdown(text: str) -> str:
-    """The widget renders plain text; drop emphasis, code and heading markers the model may still emit."""
+    """The widget renders plain text; drop emphasis, code, headings, and link brackets
+    the model (or the FAQ preloader) may leave behind."""
     text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
     text = re.sub(r'__(.+?)__', r'\1', text)
     text = re.sub(r'(?<!\w)[*_](.+?)[*_](?!\w)', r'\1', text)
     text = re.sub(r'`([^`]+)`', r'\1', text)
     text = re.sub(r'^\s{0,3}#{1,6}\s+', '', text, flags=re.MULTILINE)
+    # [link text](url) -> link text; bare [text] refs -> text
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+    text = re.sub(r'\[([^\]]+)\]', r'\1', text)
     return text.strip()
 
 
 def _strip_think(text: str) -> str:
-    """MiniMax wraps reasoning in <think> tags; keep only the visible answer."""
-    stripped = re.sub(r'<think>[\s\S]*?</think>\s*', '', text).strip()
+    """Keep only the visible answer; a reply that is all reasoning keeps its inner text."""
+    stripped = strip_reasoning(text)
     if stripped:
         return stripped
     if '<think>' in text:
@@ -376,10 +626,28 @@ def _block_field(block: Any, name: str, default: Any = None) -> Any:
 
 
 def _run_docs_agent(question: str) -> Tuple[str, List[str]]:
-    """Single-question tool loop against MiniMax, restricted to the docs tools."""
-    api_key = get_provider_api_key(PROVIDER)
-    model = get_active_model(PROVIDER, 'agent')
-    client = create_provider_client(PROVIDER, api_key)
+    """Single-question tool loop on the public.ask route, restricted to the docs tools.
+
+    Traced to Langfuse: one trace per question, one generation per model call.
+    """
+    resolution = ai_router.resolve(USAGE)
+    attempts: list = []
+    answer, sources, error = '', [], None
+    try:
+        answer, sources = _docs_agent_loop(question, resolution.primary, attempts, resolution)
+        return answer, sources
+    except Exception as e:
+        error = str(e)
+        raise
+    finally:
+        tracing.trace_call(name=f'AI {USAGE}', usage=USAGE, input=question, attempts=attempts,
+                           resolution=resolution, output=answer or None, ok=error is None and bool(answer),
+                           error=error, extra={'sources': sources})
+
+
+def _docs_agent_loop(question: str, hop, attempts: list, resolution=None) -> Tuple[str, List[str]]:
+    model = hop.model
+    client = hop.client()
     mcp_server = get_mcp_server()
 
     messages: List[Dict[str, Any]] = [{'role': 'user', 'content': question}]
@@ -387,7 +655,8 @@ def _run_docs_agent(question: str) -> Tuple[str, List[str]]:
     answer = ''
 
     for _ in range(MAX_ITERATIONS):
-        response = client.messages.create(
+        response = tracing.traced_create(
+            client, hop, attempts, resolution=resolution,
             model=model,
             max_tokens=MAX_TOKENS,
             system=[{'type': 'text', 'text': SYSTEM_PROMPT}],
@@ -440,7 +709,8 @@ def _run_docs_agent(question: str) -> Tuple[str, List[str]]:
     if not answer:
         # Iteration budget exhausted mid-tool-loop: ask for a final answer without tools
         messages.append({'role': 'user', 'content': 'Answer now with what you have read, in plain prose.'})
-        response = client.messages.create(
+        response = tracing.traced_create(
+            client, hop, attempts, resolution=resolution,
             model=model,
             max_tokens=MAX_TOKENS,
             system=[{'type': 'text', 'text': SYSTEM_PROMPT}],
@@ -479,9 +749,11 @@ def public_ask():
     if cached:
         print(f"[@public_ask] {ip} cache hit for {question[:80]!r} (matched {cached.get('question', '')[:80]!r})")
         _log_question(question, ip, 'cached', 0.0, cached.get('sources', []))
+        with ai_caller.bound(origin='public', client_hash=_client_hash(ip)):
+            ai_router.record_avoided(USAGE, None, None, reason='cache')
         return jsonify({'success': True, 'answer': _strip_markdown(cached['answer']), 'sources': cached.get('sources', []), 'cached': True})
 
-    if not os.getenv('MINIMAX_API_KEY', '').strip():
+    if not ai_router.is_available(USAGE):
         return jsonify({'success': False, 'error': 'Assistant not configured'}), 503
 
     if not _budget_take():
@@ -490,7 +762,8 @@ def public_ask():
 
     print(f"[@public_ask] {ip} asked: {question[:120]!r} (budget {_budget_status()})")
     started = time.time()
-    answer, sources = _run_docs_agent(question)
+    with ai_caller.bound(origin='public', client_hash=_client_hash(ip)):
+        answer, sources = _run_docs_agent(question)
     elapsed = time.time() - started
 
     if not answer:
@@ -512,7 +785,7 @@ def public_ask():
 
 @server_public_ask_bp.route('/stats', methods=['GET'])
 @require_user_auth
-@require_role('admin')
+@require_permission('monitoring.public_ask:view')
 @handle_route_exceptions('public_ask:stats')
 def public_ask_stats():
     """Admin view of what visitors ask: top questions with counts, cache ratio and timing.
@@ -559,11 +832,32 @@ def public_ask_stats():
         g['avg_llm_seconds'] = round(g['llm_seconds'] / g['llm_calls'], 1) if g['llm_calls'] else None
         g.pop('llm_seconds', None)
 
+    # Snapshot of cached entries grouped by their backing dict, so an admin can see
+    # which canonical FAQ questions have aliases that cluster on the same answer.
+    cache_groups: Dict[int, Dict[str, Any]] = {}
+    for k, e in _cache.items():
+        if e.get('gen') != _docs_generation():
+            continue
+        gid = id(e)
+        grp = cache_groups.setdefault(gid, {
+            'answer_preview': (e.get('answer', '') or '')[:140],
+            'sources': e.get('sources', []),
+            'ts': e.get('ts'),
+            'hits': e.get('hits', 0),
+            'aliases': [],
+        })
+        grp['aliases'].append(k)
+    cache_snapshot = sorted(cache_groups.values(), key=lambda g: -(g['hits'] or 0))[:limit]
+    for g in cache_snapshot:
+        g['ts'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(g['ts'])) if g.get('ts') else None
+
     return jsonify({
         'success': True,
         'days': days,
         'totals': {**totals, 'llm_seconds': round(totals['llm_seconds'], 1)},
         'budget': _budget_status(),
         'cache_entries': len(_cache),
+        'faq_canonicals': len(_faq_canonicals()),
+        'cache_snapshot': cache_snapshot,
         'top_questions': top,
     })

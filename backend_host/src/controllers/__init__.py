@@ -21,6 +21,8 @@ from .base_controller import (
 from .audiovideo.hdmi_stream import HDMIStreamController
 from .audiovideo.vnc_stream import VNCStreamController
 from .audiovideo.camera_stream import CameraStreamController
+from .audiovideo.rtsp_stream import RTSPStreamController
+from .audiovideo.video_stream import VideoFileStreamController
 
 # Import real implementations
 from .remote.android_tv import AndroidTVRemoteController
@@ -28,7 +30,10 @@ from .remote.android_mobile import AndroidMobileRemoteController
 from .remote.appium_remote import AppiumRemoteController
 from .remote.infrared import IRRemoteController
 from .remote.irtrans import IRTransRemoteController
+from .remote.irtoy import IRToyRemoteController
 from .remote.bluetooth import BluetoothRemoteController
+from .remote.tello import TelloRemoteController
+from .remote.vega import VegaRemoteController
 
 # Import desktop implementations
 from .desktop.bash import BashDesktopController
@@ -40,6 +45,10 @@ from .web.playwright import PlaywrightWebController
 # Import power implementations
 from .power.tapo_power import TapoPowerController
 from .power.api_power import APIPowerController
+
+# Import switch implementations (TASK-31 follow-up)
+from .switch.base_switch import BaseSwitchController
+from .switch.bluetooth_procon import BluetoothProconSwitchController
 
 # Import verification implementations
 from .verification.image import ImageVerificationController
@@ -58,12 +67,17 @@ CONTROLLER_REGISTRY = {
         'appium_remote': AppiumRemoteController,  # Universal Appium WebDriver controller for iOS/Android
         'ir_remote': IRRemoteController,     # IR remote with classic TV/STB buttons (local lirc/ir-ctl)
         'irtrans_remote': IRTransRemoteController,  # IR remote via networked IRTrans box (UDP)
+        'irtoy_remote': IRToyRemoteController,  # IR remote via USB IR Toy over CDC serial (non-Pi hosts)
         'bluetooth_remote': BluetoothRemoteController,  # Bluetooth HID remote
+        'tello': TelloRemoteController,  # Ryze/DJI Tello drone over the plain UDP SDK (TASK-32)
+        'vega': VegaRemoteController,  # Fire TV on Vega OS over adb: inputd-cli / vmsgr / vlcm (TASK-57)
     },
     'av': {
         'hdmi_stream': HDMIStreamController, # HDMI stream URL controller
         'vnc_stream': VNCStreamController,   # VNC stream URL controller
         'camera_stream': CameraStreamController, # Camera stream URL controller
+        'rtsp_stream': RTSPStreamController, # RTSP / HLS / MJPEG network stream controller (TASK-31)
+        'video_stream': VideoFileStreamController, # Local / HTTP(S) video file controller (TASK-31)
     },
     'verification': {
         'ocr': TextVerificationController,   # OCR-based text verification using Tesseract
@@ -79,6 +93,14 @@ CONTROLLER_REGISTRY = {
     'power': {
         'tapo': TapoPowerController,           # Tapo power control via Tapo API
         'api_power': APIPowerController,       # Power control via custom client REST API
+    },
+    # Switch controllers (TASK-31). `hdmi_switch` is the no-op placeholder for
+    # a future HDMI matrix. `bluetooth_procon` drives a stock Nintendo Switch
+    # as an emulated Bluetooth Pro Controller through the vpt-procon daemon
+    # (docs/agent/devices/NINTENDO_SWITCH.md).
+    'switch': {
+        'hdmi_switch': BaseSwitchController,
+        'bluetooth_procon': BluetoothProconSwitchController,
     },
     'desktop': {
         'bash': BashDesktopController,      # Bash desktop controller for executing commands

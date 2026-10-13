@@ -70,7 +70,7 @@ export const useResizableColumns = (columns: ResizableColumnDef[]) => {
     width: 4,
     cursor: 'col-resize',
     backgroundColor: 'divider',
-    '&:hover': { backgroundColor: 'primary.main' },
+    '&:hover': { backgroundColor: 'action.hover' },
   };
 
   return { widths, onMouseDown, headerCellSx, bodyCellSx, resizeHandleSx };

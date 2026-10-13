@@ -34,6 +34,8 @@ interface VersionHistoryDialogProps {
   emptyMessage: string;
   onClose: () => void;
   onRestore: (versionNumber: number) => void | Promise<void>;
+  /** Rendered below the version list (e.g. a read-only diff between versions). */
+  extraContent?: React.ReactNode;
 }
 
 const formatTimestamp = (value?: string | null) => {
@@ -60,6 +62,7 @@ export const VersionHistoryDialog: React.FC<VersionHistoryDialogProps> = ({
   emptyMessage,
   onClose,
   onRestore,
+  extraContent,
 }) => {
   return (
     <StyledDialog open={open} onClose={onClose} fullWidth maxWidth="md">
@@ -140,6 +143,7 @@ export const VersionHistoryDialog: React.FC<VersionHistoryDialogProps> = ({
             </Stack>
           </Box>
         )}
+        {extraContent ? <Box sx={{ mt: 3 }}>{extraContent}</Box> : null}
       </DialogContent>
       <DialogActions sx={{ borderTop: 1, borderColor: 'divider', px: 3, py: 2 }}>
         <Button onClick={onClose} variant="outlined">

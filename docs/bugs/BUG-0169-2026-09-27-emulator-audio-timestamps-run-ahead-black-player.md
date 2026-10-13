@@ -81,5 +81,7 @@ CPU quota/throttling (none), CPU steal (2–4%), clock steps, and the hot RAM st
 - Before: the replica table above; in production, -9 s at 30 min and -34 s at 66 min, tiles black.
 - 30-second test of the fix: 5 fps captures (138 in ~28 s), 25 segments, gap 0.01 s, 0 pts errors,
   captures show the real picture.
-- Deployed to both emulator hosts at 19:42. The tiles play (`readyState 4`, frames drawn). A
-  30-minute production soak checks the gap and pts errors every minute, past the ~17-minute onset.
+- Deployed to both emulator hosts at 19:42. The tiles play (`readyState 4`, frames drawn).
+- 30-minute production soak on both hosts, checked every minute: one continuous ffmpeg run of
+  29.5 min, gap 0.00–0.02 s throughout (0.02 s at minute 20, where the old pipeline was already at
+  -1.6 s), 0 pts errors, no failed checks. Both emulator tiles still play in the app afterwards.

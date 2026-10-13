@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Validation Report - synthetic</title>
+<script src="https://cdn.example.net/npm/hls.js@latest"></script>
+<style>
+.hero { background-image: url('https://storage.example.com/testbucket/script-reports/model_x/run_1/mosaic.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAEXAMPLE%2F20260101%2Fauto%2Fs3%2Faws4_request&X-Amz-Signature=deadbeef'); }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>synthetic_script</h1>
+  <p>
+    <a href="https://storage.example.com/testbucket/script-logs/model_x/run_1/execution.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=AKIAEXAMPLE%2F20260101%2Fauto%2Fs3%2Faws4_request&amp;X-Amz-Signature=deadbeef" target="_blank">Execution Logs</a>
+    | <a href="https://storage.example.com/testbucket/script-logs/model_x/run_1/script_source.py?X-Amz-Signature=deadbeef">Script Source</a>
+    | <a href="/builder/test-builder?testcase_id=tc-1">Open in TestCase Builder</a>
+    | <a href="https://platform.example.com/script-results">Back to platform</a>
+    | <a href="https://docs.example.org/guide" target="_blank">Public docs</a>
+  </p>
+</div>
+
+<div class="step">
+  <img src="https://storage.example.com/testbucket/script-reports/model_x/run_1/step1.jpg?X-Amz-Algorithm=AWS4-HMAC-SHA256&amp;X-Amz-Credential=AKIAEXAMPLE%2F20260101%2Fauto%2Fs3%2Faws4_request&amp;X-Amz-Date=20260101T000000Z&amp;X-Amz-Expires=604799&amp;X-Amz-Signature=cafe01" alt="Screenshot" onclick="openScreenshot('https://storage.example.com/testbucket/script-reports/model_x/run_1/step1.jpg?X-Amz-Signature=cafe01')">
+  <img src="https://public.example.com/reference-images/example_ui/home.png" alt="Reference">
+  <img srcset="https://public.example.com/navigation/example_ui/home.jpg 1x, https://public.example.com/navigation/example_ui/home@2x.jpg 2x" alt="srcset">
+  <video poster="https://storage.example.com/testbucket/script-reports/model_x/run_1/poster.jpg?X-Amz-Signature=beef02"></video>
+  <p>Failure analysis: <a href="/host/example-host/stream/captures/failure_report.html">View Detailed Comparison Report</a></p>
+  <p>KPI: <a href="https://storage.example.com/testbucket/kpi_measurement/run_1/report.html?X-Amz-Signature=beef03">kpi_report</a>
+     Zap: <a href="https://storage.example.com/testbucket/zap-reports/run_1/report.html?X-Amz-Signature=beef04">Zap Report</a></p>
+  <p>Raw note mentioning script-reports/model_x/run_1/notes.txt and https://storage.example.com/testbucket/script-logs/model_x/run_1/metadata.json?X-Amz-Signature=beef05</p>
+  <p>Hosted at <a href="http://10.0.0.5:6109/host/example-host/vnc/">VNC</a></p>
+</div>
+
+<div class="video-thumbnail" onclick="console.log('Video thumbnail clicked: MP4'); openVideoModal('https://storage.example.com/testbucket/script-reports/model_x/run_1/video.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=cafe99', 'Test video')" style="cursor: pointer;">
+    <video muted preload="metadata" style="width: 100%;">
+        <source src="https://storage.example.com/testbucket/script-reports/model_x/run_1/video.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=cafe99" type="video/mp4">
+    </video>
+    <div class="play-overlay" style="position: absolute;">&#9654;</div>
+</div>
+
+<script>
+const reportData = {
+  "mosaic": "https://storage.example.com/testbucket/script-reports/model_x/run_1/mosaic.jpg?X-Amz-Signature=deadbeef",
+  "logs": "script-logs/model_x/run_1/execution.txt",
+  "ref": 'reference-images/example_ui/home.png'
+};
+function openScreenshot(src) { console.log(src); }
+</script>
+</body>
+</html>

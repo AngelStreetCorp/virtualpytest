@@ -22,7 +22,7 @@ import uuid
 from backend_server.src.lib.utils.response_cache import get_cached_response, set_cached_response
 from backend_server.src.lib.utils.server_utils import get_host_manager, get_server_system_stats
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from backend_server.src.lib.auth_middleware import require_user_auth, require_role
+from backend_server.src.lib.auth_middleware import require_permission, require_user_auth
 from backend_server.src.routes.server_system_socket_routes import emit_system_update
 from shared.src.lib.config.constants import CACHE_CONFIG
 from shared.src.lib.database.system_metrics_db import store_system_metrics, get_latest_system_metrics
@@ -834,7 +834,21 @@ HEATMAP_STATUS_FILE = '/tmp/heatmap_status.json'
 HEATMAP_STALE_AFTER_SECONDS = 180
 
 
-def _heatmap_output_status() -> tuple:
+def _systemd_active_seconds(unit: str):
+    """Seconds since a systemd unit entered 'active', or None when systemd can't say
+    (supervisord inside the Docker image, unit unknown)."""
+    try:
+        out = subprocess.run(['systemctl', 'show', unit, '-p', 'ActiveEnterTimestampMonotonic', '--value'],
+                             capture_output=True, text=True, timeout=5).stdout.strip()
+        entered_usec = int(out)
+    except Exception:
+        return None
+    if entered_usec <= 0:
+        return None
+    return time.monotonic() - entered_usec / 1_000_000
+
+
+def _heatmap_output_status(unit: str) -> tuple:
     """Report the heatmap processor by the frames it actually produced.
 
     The unit can sit at 'active' while producing nothing (no hosts, failed uploads),
@@ -846,7 +860,12 @@ def _heatmap_output_status() -> tuple:
         with open(HEATMAP_STATUS_FILE, 'r', encoding='utf-8') as status_file:
             status = json.load(status_file) or {}
     except FileNotFoundError:
-        return 'unknown', 'No frame generated since startup'
+        # No frame yet is normal for the first minutes after a start; after that the
+        # processor is running but producing nothing, which is a failure.
+        active_seconds = _systemd_active_seconds(unit)
+        if active_seconds is not None and active_seconds < HEATMAP_STALE_AFTER_SECONDS:
+            return 'unknown', f'Starting — no frame yet ({int(active_seconds)}s since start)'
+        return 'stuck', 'Running but no frame generated since startup'
     except Exception as e:
         return 'unknown', f'Cannot read heatmap status: {e}'
 
@@ -946,7 +965,7 @@ def _build_server_service_health() -> dict:
         # Only the heatmap has a per-minute output signal to check; an 'active' unit
         # that stopped producing frames must not read as healthy on the dashboard.
         if definition['label'] == 'Heatmap' and mapped_status == 'active':
-            override, detail = _heatmap_output_status()
+            override, detail = _heatmap_output_status(resolved_name)
             if override:
                 mapped_status = override
 
@@ -964,7 +983,7 @@ def _build_server_service_health() -> dict:
     non_optional_states = [s['status'] for s in services if not s['optional']]
     if any(state in {'error', 'stopped', 'not_installed'} for state in non_optional_states):
         overall = 'error'
-    elif any(state in {'stuck', 'unknown'} for state in non_optional_states):
+    elif any(state in {'stuck', 'unknown', 'restarting'} for state in non_optional_states):
         overall = 'degraded'
     else:
         overall = 'online'
@@ -974,7 +993,7 @@ def _build_server_service_health() -> dict:
 
 @server_system_bp.route('/source/detect', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:source_detect')
 def source_detect():
     """Detect source capabilities for storage path (Git/non-Git)."""
@@ -995,7 +1014,7 @@ def source_detect():
 
 @server_system_bp.route('/source/git/repositories', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:source_git_repositories')
 def source_git_repositories():
     """List deployment repositories permitted by the server-side allow-list."""
@@ -1010,7 +1029,7 @@ def source_git_repositories():
 
 @server_system_bp.route('/source/git/remote', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:source_git_remote')
 def source_git_remote():
     """Reconfigure origin for an existing checkout, then prove it can fetch.
@@ -1078,7 +1097,7 @@ def source_git_remote():
 
 @server_system_bp.route('/source/git/branches', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:source_git_branches')
 def source_git_branches():
     """List available git branches for the storage path."""
@@ -1099,7 +1118,7 @@ def source_git_branches():
 
 @server_system_bp.route('/source/git/prepare', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:source_git_prepare')
 def source_git_prepare():
     """Prepare storage source from Git."""
@@ -1207,7 +1226,7 @@ def source_git_prepare():
 
 @server_system_bp.route('/source/zip/upload', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:source_zip_upload')
 def source_zip_upload():
     """Upload source zip to temporary upload directory."""
@@ -1236,7 +1255,7 @@ def source_zip_upload():
 
 @server_system_bp.route('/source/zip/validate', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:source_zip_validate')
 def source_zip_validate():
     """Validate uploaded zip archive and expected repository structure."""
@@ -1284,7 +1303,7 @@ def source_zip_validate():
 
 @server_system_bp.route('/source/zip/apply', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:source_zip_apply')
 def source_zip_apply():
     """Apply validated zip content to storage source path."""
@@ -1399,6 +1418,7 @@ def register_host():
             'device_ip': device.get('device_ip'),
             'device_port': device.get('device_port'),
             'ir_type': device.get('ir_type'),
+            'remote_profiles': device.get('remote_profiles') or [],
             'video_stream_path': device.get('video_stream_path'),
             'video_capture_path': device.get('video_capture_path'),
             'video': device.get('video'),
@@ -1438,6 +1458,12 @@ def register_host():
         upsert_device_on_registration(host_info['host_name'], device['device_id'], device['device_name'])
     if not success:
         return jsonify({'error': f"Failed to register host {host_info['host_name']}"}), 500
+
+    # Same module path as app.py imports, so this clears the cache the proxy actually serves.
+    from routes.auto_proxy import invalidate_stream_url_cache
+    dropped = invalidate_stream_url_cache(host_info['host_name'])
+    if dropped:
+        print(f"[@route:register_host] Dropped {dropped} cached stream URL(s) for {host_info['host_name']}")
 
     # Reconcile stale server-side execution locks left by this host's previous
     # process (host restarted mid-execution → its completion callback never fired).
@@ -1514,21 +1540,23 @@ def backup_report():
     return jsonify({'ok': True}), 200
 
 
-@server_system_bp.route('/backup/status', methods=['GET'])
-@handle_route_exceptions('server_system:backup_status')
-def backup_status():
-    """Return the status of the last database backup."""
+def get_db_backup_status() -> dict:
+    """Status of the last database backup, as reported by the backup cron.
+
+    Shared by GET /server/system/backup/status (the /status page) and the
+    infra-status collector (System Service Status dashboard).
+    """
     from datetime import timezone
     status_path = Path(DB_BACKUP_STATUS_FILE)
     if not status_path.exists():
-        return jsonify({'status': 'error', 'detail': 'No backup status — backup may never have run'}), 200
+        return {'status': 'error', 'detail': 'No backup status — backup may never have run'}
 
     try:
         with open(status_path) as f:
             data = json.load(f)
     except Exception as e:
         print(f'[@server_system:backup_status] unreadable status file: {e}')
-        return jsonify({'status': 'error', 'detail': 'Could not read backup status file'}), 200
+        return {'status': 'error', 'detail': 'Could not read backup status file'}
 
     ts_iso = data.get('timestamp_iso', '')
     age_hours = None
@@ -1545,12 +1573,39 @@ def backup_status():
         status = 'error'
         detail = f"Last backup {age_hours:.0f}h ago — expected daily. File: {data.get('filename', '?')}"
 
-    return jsonify({
+    return {
         'status': status,
         'detail': detail,
         'filename': data.get('filename'),
         'size': data.get('size'),
         'age_hours': round(age_hours, 1) if age_hours is not None else None,
+    }
+
+
+@server_system_bp.route('/backup/status', methods=['GET'])
+@handle_route_exceptions('server_system:backup_status')
+def backup_status():
+    """Return the status of the last database backup."""
+    return jsonify(get_db_backup_status()), 200
+
+
+@server_system_bp.route('/vmMetrics', methods=['GET'])
+@handle_route_exceptions('server_system:vm_metrics')
+def vm_metrics():
+    """Latest CPU / RAM / disk / load for every infra VM (frontend, proxy,
+    database, storage, …) the collector wrote into `vm_metrics`.
+
+    The Status page reads this to fill in numbers on its top-of-page summary
+    for the VMs that have no in-browser health probe (only the backend
+    server's own resources were available before). The table has no
+    team_id column (a global fact about the platform); no team filter.
+    """
+    from shared.src.lib.database.infra_status_db import get_latest_vm_metrics
+
+    metrics = get_latest_vm_metrics()
+    return jsonify({
+        'metrics': metrics,
+        'timestamp': time.time(),
     }), 200
 
 
@@ -1559,7 +1614,7 @@ def backup_status():
 def get_stats():
     """System statistics endpoint"""
     system_stats = get_server_system_stats(skip_speedtest=True)
-    
+
     return jsonify({
         'stats': system_stats,
         'timestamp': time.time(),
@@ -1648,6 +1703,8 @@ def getAllHosts():
                         # Carried in the lightweight payload so the modal can gate the HD+
                         # quality button without a full-stats fetch (VAAPI hosts only).
                         'hardware_encode': host_info.get('system_stats', {}).get('hardware_encode', False),
+                        # 24h review buffer on (ARCHIVE_VIDEO): gates the Last 24h button.
+                        'archive_video': host_info.get('system_stats', {}).get('archive_video', True),
                     } if host_info.get('system_stats') else {},
                     'devices': []
                 }
@@ -1657,6 +1714,7 @@ def getAllHosts():
                         'device_name': device.get('device_name'),
                         'device_model': device.get('device_model'),
                         'ir_type': device.get('ir_type'),
+                        'remote_profiles': device.get('remote_profiles') or [],
                         'device_capabilities': device.get('device_capabilities'),
                         'video_stream_path': device.get('video_stream_path'),
                         'video_capture_path': device.get('video_capture_path'),
@@ -1707,6 +1765,7 @@ def getAllHosts():
                         'preferred_variant': device.get('preferred_variant'),
                         'has_running_deployment': device.get('has_running_deployment', False),
                         'ir_type': device.get('ir_type'),
+                        'remote_profiles': device.get('remote_profiles') or [],
                         'device_farm_provider': device.get('device_farm_provider'),
                     })
                 valid_hosts.append(dashboard_host)
@@ -1962,6 +2021,10 @@ def execution_event():
         'timestamp': data.get('timestamp', time.time()),
     })
 
+    if execution_type == 'testcase' and status in ('completed', 'error', 'failed', 'aborted'):
+        from backend_server.src.routes.server_testcase_routes import release_testcase_execution_lock
+        release_testcase_execution_lock(execution_id)
+
     return jsonify({'success': True}), 200
 
 
@@ -1996,7 +2059,7 @@ class Host(TypedDict):
 
 @server_system_bp.route('/restartServerService', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_system:restartServerService')
 def restart_server_service():
     """Schedule a restart of vpt-server on this machine.
@@ -2012,7 +2075,7 @@ def restart_server_service():
 
 @server_system_bp.route('/rebootServer', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_system:rebootServer')
 def reboot_server():
     """Reboot the server machine"""
@@ -2027,7 +2090,7 @@ def reboot_server():
 
 @server_system_bp.route('/restartHostService', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_system:restartHostService')
 def restart_host_service_proxy():
     """Proxy restart vpt-host service request to specific host"""
@@ -2048,7 +2111,7 @@ def restart_host_service_proxy():
 
 @server_system_bp.route('/restartHostServices', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_system:restartHostServices')
 def restart_host_services_proxy():
     """Proxy autofix (restart specific down services) to a specific host."""
@@ -2075,7 +2138,7 @@ def restart_host_services_proxy():
 
 @server_system_bp.route('/controlHostService', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_system:controlHostService')
 def control_host_service_proxy():
     """Proxy a single-service start/stop/restart to a specific host."""
@@ -2105,7 +2168,7 @@ def control_host_service_proxy():
 
 @server_system_bp.route('/rebootHost', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_system:rebootHost')
 def reboot_host_proxy():
     """Proxy reboot host request to specific host"""
@@ -2128,7 +2191,7 @@ def reboot_host_proxy():
 
 @server_system_bp.route('/runCommandOnHost', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.hosts:run_command')
 @handle_route_exceptions('server_system:runCommandOnHost')
 def run_command_on_host_proxy():
     """Proxy an admin-authored shell command/script to a single host.
@@ -2186,7 +2249,7 @@ def run_command_on_host_proxy():
 
 @server_system_bp.route('/updateCoreLocal', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:updateCoreLocal')
 def update_core_local():
     """Update local server/frontend code on this VM."""
@@ -2305,7 +2368,7 @@ def update_core_local():
 
 @server_system_bp.route('/rollbackCoreLocal', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:rollbackCoreLocal')
 def rollback_core_local():
     """Rollback local server/frontend code from backup."""
@@ -2512,7 +2575,7 @@ def rollback_core_local():
 
 @server_system_bp.route('/listCoreBackups', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:view')
 @handle_route_exceptions('server_system:listCoreBackups')
 def list_core_backups():
     """List rollback backup options for local server/frontend code."""
@@ -2535,7 +2598,7 @@ def list_core_backups():
 
 @server_system_bp.route('/updateHostCore', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:updateHostCore')
 def update_host_core_proxy():
     """Proxy host core update request to specific host."""
@@ -2578,7 +2641,7 @@ def update_host_core_proxy():
 
 @server_system_bp.route('/rollbackHostCore', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:use')
 @handle_route_exceptions('server_system:rollbackHostCore')
 def rollback_host_core_proxy():
     """Proxy host core rollback request to specific host."""
@@ -2624,7 +2687,7 @@ def rollback_host_core_proxy():
 
 @server_system_bp.route('/listHostCoreBackups', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.code_deploy:view')
 @handle_route_exceptions('server_system:listHostCoreBackups')
 def list_host_core_backups_proxy():
     """Proxy host rollback backup listing request to a specific host."""
@@ -2651,7 +2714,7 @@ def list_host_core_backups_proxy():
 
 @server_system_bp.route('/restartHostStreamService', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('system.services:restart')
 @handle_route_exceptions('server_system:restartHostStreamService')
 def restart_host_stream_service_proxy():
     """Proxy a REAL vpt-stream service restart to a host. vpt-stream is one

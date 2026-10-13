@@ -1,0 +1,21 @@
+{
+ "title": "Localize your screen with Fingerprint: no more image or text references",
+ "description": "Which screen is the device on? With Localize, one click tells you. Localize compares the live picture with every screen of the app's map and names the right one with a confidence score, ruling the others out. If the screen isn't on the map, it says so and never guesses. \nBehind it is the Fingerprint: a visual signature VirtualPyTest makes on its own from each screen's screenshot, covering the whole screen, its key areas and its title. \nThat means no image or text reference to create or maintain for each screen: one screenshot is enough. It's also what lets an AI exploring an app tell a new screen from one it already knows.\n\nOpen source & free.\n\nChapters\n0:00 Localize your screen with Fingerprint\n0:10 Localize: one click names the screen\n0:28 Fingerprint: made automatically from the screenshot\n0:41 Why references are not needed\n0:52 Why it matters for AI",
+ "tags": [
+  "virtualpytest",
+  "localize",
+  "fingerprint",
+  "screen recognition",
+  "visual fingerprint",
+  "test automation",
+  "no reference images",
+  "navigation map",
+  "model based testing",
+  "ai testing",
+  "ui automation",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "id": "qAm6YmmvU5g"
+}

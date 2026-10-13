@@ -394,7 +394,7 @@ setup/docker/hetzner_custom/config.env
 | `API_KEY` | .env, host .env | Quarterly |
 | `SUPABASE_SERVICE_ROLE_KEY` | .env | On compromise |
 | `CLOUDFLARE_R2_SECRET_ACCESS_KEY` | .env | Annually |
-| `OPENROUTER_API_KEY` | .env | Annually |
+| AI provider API keys | `~/.config/virtualpytest/ai_secrets.json` (server only, `0600`; set in Settings → AI → Endpoints) | Annually |
 | `GRAFANA_ADMIN_PASSWORD` | .env | On first login |
 
 ### Secret Rotation

@@ -1,0 +1,36 @@
+[Unit]
+# vpt-ble-hourly.service — read-only BLE health probe (TASK-76)
+#
+# One-shot unit designed to be triggered by vpt-ble-hourly.timer. Wraps the
+# vpt-ble-hourly.sh script for hosts that prefer systemd to cron.
+#
+# Restarts are explicitly disabled (`Restart=no`). The probe is a one-shot
+# diagnostic — if it fails, the next tick is what should re-evaluate; a
+# crash-loop here would mask real outages with probe noise.
+#
+# PartOf= and After= keep the probe off the wire during a bluetoothd
+# restart so we don't accidentally capture a half-flushed journal during
+# a §6.7.28 self-heal cycle.
+
+Description=VPT BLE hourly health probe (TASK-76)
+Documentation=https://...
+After=bluetooth.service vpt-ble-btmon@hci0.service vpt-ble-btmon@hci1.service vpt-ble-btmon@hci2.service
+
+[Service]
+Type=oneshot
+# Run as root so /var/lib/bluetooth (0700) and the FIFOs are reachable.
+User=root
+
+# Path is overridden in the worktree install (snake "%PROJECT_ROOT%" → /opt/virtualpytest)
+ExecStart=%PROJECT_ROOT%/infra/monitoring/ble/vpt-ble-hourly.sh --once
+
+# The probe writes to /var/log/vpt-ble/hourly/. Both Standard streams to
+# journal AND a copy-on-disk match the diagnose_ble.sh convention.
+StandardOutput=journal
+StandardError=journal
+
+# Read-only by design — never restart, never reload, never propagate.
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

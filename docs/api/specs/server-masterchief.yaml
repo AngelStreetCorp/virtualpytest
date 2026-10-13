@@ -1,0 +1,375 @@
+openapi: 3.0.3
+info:
+  title: SERVER - Masterchief Operations
+  version: 1.0.0
+  description: |
+    Elevated system operations for the VirtualPyTest platform. Masterchief is the
+    dedicated execution surface behind the agent chat: it owns a small allow-listed
+    set of ops, a per-op audit trail, and a privilege model that runs on the calling
+    browser's JWT — never on the server API key.
+
+    Companion to: `docs/tasks/TASK-71-masterchief-design.md` (Parts 1-4) and the
+    AgentChat escalation hook (Part 6, see `server-agent-routes.yaml`).
+
+    Hard rules enforced in code, not in prompt text:
+
+    - The op set is a Python registry (`MASTERCHIEF_OPS`). An op not in the registry
+      is refused and recorded as `refused`.
+    - Routes reject `request.user_role == 'service'` outright, so a request carrying
+      the server `X-API-Key` (the path Atlas's `MCPAPIClient` takes) cannot reach
+      any masterchief endpoint. The Atlas-side `propose_masterchief_op` tool is
+      in-process and writes the audit row directly; it never calls these routes.
+    - Every op attempt produces exactly one `masterchief_audit` row, written
+      server-side before execution (state `proposed` or `refused`) and again
+      after (state `executing` → `executed` | `failed`). The audit row is the
+      only thing masterchief may write.
+    - No file contents, no journal bodies, no env values, no command output
+      appear in `result_summary`. Secrets are redacted at the route boundary.
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'https://your-server.example.com'
+        description: Backend server URL (use dev/staging/prod base URL)
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier (the requester's team; the request itself is not team-scoped)
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: User JWT bearer token. Must hold `settings.logs:view` (read ops), `system.services:restart` (restart), or `system.hosts:run_command` per op. Masterchief routes reject the server `X-API-Key` (role=service) outright.
+tags:
+  - name: Execute
+    description: Browser-driven execution of a previously proposed op
+  - name: Status
+    description: Poll an op's audit row
+  - name: Catalog
+    description: List allowed ops and their parameter schemas (drives the confirm card)
+  - name: Audit
+    description: Read paginated audit rows for the caller's team
+paths:
+  /server/masterchief/ops:
+    get:
+      tags: [Catalog]
+      summary: List the allow-listed op set
+      description: |
+        Returns the ops masterchief will accept, their parameter schema, the
+        required permission, and a `mutates` flag. The Atlas-side confirm card
+        fetches this to render its body; the browser fetches it to render the
+        same card from the `/configuration/logs` entry point.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: team_id, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Allowed ops with parameter schemas
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  ops:
+                    type: array
+                    items: { $ref: '#/components/schemas/OpDescriptor' }
+        '401': { description: Authentication required }
+        '403':
+          description: |
+            Caller's role is `service` (the server API key), the request did not
+            carry a user JWT, or the user lacks `settings.logs:view` for the
+            read path. Masterchief never accepts the service key.
+  /server/masterchief/execute:
+    post:
+      tags: [Execute]
+      summary: Execute a previously proposed op
+      description: |
+        The browser's confirmation of a proposal. `audit_id` was returned by the
+        Atlas-side `propose_masterchief_op` tool. Masterchief re-reads the
+        proposal from `masterchief_audit`, re-checks the caller's permission
+        against the op, applies the rate limit, runs the op, and writes the
+        `executed` / `failed` terminal state. Long ops return 202 with a poll
+        URL; short ops return 200 with the result.
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: team_id, in: query, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [audit_id]
+              properties:
+                audit_id:
+                  type: string
+                  format: uuid
+                  description: Proposal returned by `propose_masterchief_op`
+              example:
+                audit_id: '5a0b1c2d-3e4f-5678-9abc-def012345678'
+      responses:
+        '200':
+          description: Op completed synchronously (most read ops)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpResult' }
+        '202':
+          description: |
+            Op accepted and is running in the background (e.g. `service.restart`).
+            Poll `/server/masterchief/status/{audit_id}` for the terminal state.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  audit_id: { type: string, format: uuid }
+                  state: { type: string, enum: [executing] }
+                  status_url: { type: string, description: '`/server/masterchief/status/{audit_id}`' }
+                  estimated_seconds: { type: integer, nullable: true }
+        '400': { description: Proposal not in `proposed` state, or the op no longer exists in the registry }
+        '401': { description: Authentication required }
+        '403':
+          description: |
+            Caller's role is `service` (rejected outright), or the caller does
+            not hold the op's required permission, or the proposal belongs to
+            a different user and `require_same_user_proposer` is on.
+        '404': { description: No proposal with that `audit_id` for this team }
+        '429':
+          description: Per-user or per-op rate limit tripped; the audit row records `refused`
+  /server/masterchief/status/{audit_id}:
+    get:
+      tags: [Status]
+      summary: Poll the status of an in-flight or recently completed op
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: team_id, in: query, required: true, schema: { type: string } }
+        - { name: audit_id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Current state of the proposal
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpStatus' }
+        '401': { description: Authentication required }
+        '403': { description: Caller is the service key, or the audit row belongs to a different team }
+        '404': { description: No audit row with that id for this team }
+  /server/masterchief/audit:
+    get:
+      tags: [Audit]
+      summary: Read paginated masterchief audit rows for the caller's team
+      description: |
+        Admin-only read of the audit table. Filtered by the caller's `team_id`
+        (platform admins may pass `scope=platform` to read across teams; this
+        is the only documented exception to the `team_id` filter rule in
+        `docs/agent/validation/CONTRACTS.md` and is recorded as contract #29
+        pending ratification).
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: team_id, in: query, required: true, schema: { type: string } }
+        - { name: scope, in: query, required: false, schema: { type: string, enum: [team, platform], default: team } }
+        - { name: state, in: query, required: false, schema: { type: string, enum: [proposed, executing, executed, failed, refused] } }
+        - { name: op, in: query, required: false, schema: { type: string } }
+        - { name: days, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 90, default: 30 } }
+        - { name: limit, in: query, required: false, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, minimum: 0, default: 0 } }
+      responses:
+        '200':
+          description: Paginated audit rows (most recent first)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: { type: boolean }
+                  total: { type: integer }
+                  rows:
+                    type: array
+                    items: { $ref: '#/components/schemas/AuditRow' }
+        '401': { description: Authentication required }
+        '403': { description: Administrator role required }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    OpDescriptor:
+      type: object
+      properties:
+        op:
+          type: string
+          enum:
+            - logs.view
+            - logs.services
+            - service.status
+            - service.restart
+            - infra.summary
+            - rollout.explain
+            - deploy.status
+        summary: { type: string, description: 'One-line description used in the confirm card' }
+        mutates: { type: boolean }
+        required_permission: { type: string }
+        platform_admin_only: { type: boolean, description: 'When true, the op also requires `require_platform_admin` (prod lockdown)' }
+        params_schema:
+          type: object
+          additionalProperties: true
+          description: 'JSON Schema for the op params (draft-07 subset). Atlas builds the confirm-card form from this.'
+        blast_radius: { type: string, description: 'Short human-readable risk statement rendered in the card' }
+    OpResult:
+      type: object
+      properties:
+        success: { type: boolean }
+        audit_id: { type: string, format: uuid }
+        op: { type: string }
+        state: { type: string, enum: [executed, failed] }
+        result_summary:
+          type: string
+          description: 'Capped, redacted digest. No file bodies, no env values, no command output.'
+        duration_ms: { type: integer }
+        trace_id: { type: string, nullable: true }
+    OpStatus:
+      type: object
+      properties:
+        success: { type: boolean }
+        audit_id: { type: string, format: uuid }
+        op: { type: string }
+        state:
+          type: string
+          enum: [proposed, executing, executed, failed, refused]
+        result_summary: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time }
+        duration_ms: { type: integer, nullable: true }
+    AuditRow:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        at: { type: string, format: date-time }
+        team_id: { type: string, format: uuid }
+        requester_user_id: { type: string }
+        requester_email: { type: string, format: email }
+        requester_role: { type: string }
+        op: { type: string }
+        params_redacted: { type: object, additionalProperties: true }
+        host: { type: string, nullable: true }
+        state:
+          type: string
+          enum: [proposed, executing, executed, failed, refused]
+        result_summary: { type: string, nullable: true }
+        duration_ms: { type: integer, nullable: true }
+        trace_id: { type: string, nullable: true }
+        session_id: { type: string, nullable: true }
+
+x-op-examples:
+  logs.view:
+    summary: Last 200 lines of vpt-stream.log on host-clone-1
+    propose_tool_call:
+      tool: propose_masterchief_op
+      params:
+        op: logs.view
+        host: host-clone-1
+        service: vpt-stream
+        lines: 200
+    execute_request:
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def012345678'
+    execute_response_200:
+      success: true
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def012345678'
+      op: logs.view
+      state: executed
+      result_summary: '200 lines returned (vpt-stream, host-clone-1, last 3 minutes)'
+      duration_ms: 410
+      trace_id: '01J8XYZ...'
+  logs.services:
+    summary: List whitelisted services available for log review
+    propose_tool_call: { tool: propose_masterchief_op, params: { op: logs.services } }
+    execute_request: { audit_id: '5a0b1c2d-3e4f-5678-9abc-def012345679' }
+    execute_response_200:
+      success: true
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def012345679'
+      op: logs.services
+      state: executed
+      result_summary: '17 services (vpt-server, vpt-host, vpt-stream, vpt-heatmap, ...)'
+      duration_ms: 35
+  service.status:
+    summary: Pre/post status check before a restart
+    propose_tool_call:
+      tool: propose_masterchief_op
+      params: { op: service.status, host: host-clone-1, service: vpt-stream }
+    execute_request: { audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567a' }
+    execute_response_200:
+      success: true
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567a'
+      op: service.status
+      state: executed
+      result_summary: 'active (running) since 2026-10-08 13:42:01Z, MainPID=18421'
+      duration_ms: 80
+  service.restart:
+    summary: Restart vpt-stream on host-clone-1 (mutating, @require_platform_admin on prod)
+    propose_tool_call:
+      tool: propose_masterchief_op
+      params:
+        op: service.restart
+        host: host-clone-1
+        service: vpt-stream
+        reason: 'Owner asked in chat; restart requested via Atlas escalate card'
+    execute_request: { audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567b' }
+    execute_response_202:
+      success: true
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567b'
+      state: executing
+      status_url: '/server/masterchief/status/5a0b1c2d-3e4f-5678-9abc-def01234567b'
+      estimated_seconds: 90
+    status_response_terminal:
+      success: true
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567b'
+      op: service.restart
+      state: executed
+      result_summary: 'restart OK; pre=active (running) 18.4s, post=active (running) MainPID=21087 after 6.2s'
+      updated_at: '2026-10-08T13:55:32Z'
+      duration_ms: 6200
+  infra.summary:
+    summary: Disk/RAM/load snapshot of every registered host
+    propose_tool_call: { tool: propose_masterchief_op, params: { op: infra.summary } }
+    execute_request: { audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567c' }
+    execute_response_200:
+      success: true
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567c'
+      op: infra.summary
+      state: executed
+      result_summary: '5 hosts: 1 alert (vpt-pi1 disk 91%), 4 OK; lab DB VM 102 swap 12 MB'
+      duration_ms: 2300
+  rollout.explain:
+    summary: 'What changed between build 9629 and 9710 (migrations, services, nginx)'
+    propose_tool_call:
+      tool: propose_masterchief_op
+      params: { op: rollout.explain, from_build: 9629, to_build: 9710 }
+    execute_request: { audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567d' }
+    execute_response_200:
+      success: true
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567d'
+      op: rollout.explain
+      state: executed
+      result_summary: '5 release-note entries, 1 migration (20261005a agent_turns), 1 nginx diff (rate-limit 30r/s -> 60r/s), 0 service changes'
+      duration_ms: 1150
+  deploy.status:
+    summary: 'Why is deploy 6406abc8 stuck? (read-only view of lease state)'
+    propose_tool_call:
+      tool: propose_masterchief_op
+      params: { op: deploy.status, deploy_id: '6406abc8' }
+    execute_request: { audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567e' }
+    execute_response_200:
+      success: true
+      audit_id: '5a0b1c2d-3e4f-5678-9abc-def01234567e'
+      op: deploy.status
+      state: executed
+      result_summary: 'state=running 74m; log frozen at 11:06 UTC after `systemctl restart vpt-server.service`; no update_core process on proxmox'
+      duration_ms: 410

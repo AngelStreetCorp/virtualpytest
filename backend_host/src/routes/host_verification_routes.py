@@ -167,6 +167,15 @@ def verification_execute_batch():
     if not hasattr(device, 'navigation_context') or device.navigation_context is None:
         device.navigation_context = {}
     device.navigation_context['is_test'] = is_test
+    # Stamp the run scope too. Without this the recorder and localize read
+    # whatever variant an unrelated earlier request left on the device object —
+    # navigation_context is never reset on take-control or release — so a node
+    # verification could be attributed to the wrong variant entirely, and
+    # localize resolved its unified graph under that stale scope (BUG-0200).
+    # Only the three navigation/action routes used to write it.
+    raw_variant = data.get('variant')
+    variant = raw_variant.strip().lower() if isinstance(raw_variant, str) and raw_variant.strip() else None
+    device.navigation_context['variant'] = variant
 
     # Always execute asynchronously to prevent HTTP timeouts
     # Playwright will run sync INSIDE the thread (no cross-thread issues)

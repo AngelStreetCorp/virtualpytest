@@ -72,6 +72,10 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
 
   // Track the current device to detect changes
   const currentDeviceRef = useRef<string | null>(null);
+  // The device the latest request is for: an answer for any other device arrived after the
+  // selection moved on and must not replace the stream (a slow answer for stb4 used to show
+  // stb4's picture for a phone selected meanwhile).
+  const latestRequestKeyRef = useRef<string | null>(null);
   const { postToHost } = useControllerApi(host, device_id);
 
   const fetchStreamUrl = useCallback(
@@ -80,6 +84,8 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
 
       // Server-scoped for the same reason as the cache key: host names collide across servers.
       const deviceKey = `${host.server_url || ''}|${host.host_name}-${device_id}`;
+      latestRequestKeyRef.current = deviceKey;
+      const isStale = () => latestRequestKeyRef.current !== deviceKey;
 
       // Check 24h cache first
       if (!force) {
@@ -163,21 +169,24 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
             `[@hook:useStream] Stream URL processed: ${result.stream_url} -> ${processedUrl}`,
           );
 
+          // Store in 24h cache (valid for its device, even if the selection moved on)
+          setCachedStreamUrl(host.server_url || '', host.host_name, device_id, processedUrl);
+          if (isStale()) return;
+
           setStreamUrl(processedUrl);
           setUrlError(null);
-
-          // Store in 24h cache
-          setCachedStreamUrl(host.server_url || '', host.host_name, device_id, processedUrl);
 
           // Mark this device as fetched
           fetchedDevicesRef.current.add(deviceKey);
         } else {
+          if (isStale()) return;
           const errorMessage = result.error || 'Failed to get stream URL';
           console.error(`[@hook:useStream] Failed to get stream URL:`, errorMessage);
           setUrlError(errorMessage);
           setStreamUrl(null);
         }
       } catch (error: any) {
+        if (isStale()) return;
         const errorMessage = error.message || 'Network error: Failed to communicate with server';
         console.error(`[@hook:useStream] Error getting stream URL:`, error);
         setUrlError(errorMessage);

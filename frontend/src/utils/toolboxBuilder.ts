@@ -11,6 +11,7 @@ import PublicIcon from '@mui/icons-material/Public';
 import type { Actions } from '../types/controller/Action_Types';
 import type { Verifications } from '../types/verification/Verification_Types';
 
+import { AGENT_CHAT_PALETTE } from '../constants/agentChatTheme';
 /**
  * Sort commands alphabetically, with shorter names appearing before longer ones
  * Example: "home" before "home_tvguide", "home_movies", etc.
@@ -205,7 +206,7 @@ export function buildToolboxFromNavigationData(
               type: 'verification',
               label: 'Verification',
               icon: VerifiedIcon,
-              color: '#3b82f6',
+              color: AGENT_CHAT_PALETTE.series[1],
               outputs: ['success', 'failure'],
               // Seed one sensible check (wait for image to appear) so the block is
               // never empty; sourced from the device's available verifications.

@@ -11,6 +11,7 @@ import time
 import cv2
 from typing import Dict, Any, Optional, Tuple, List
 from .text_helpers import TextHelpers
+from shared.src.lib.utils import cv2_io
 
 
 # Per-field self-healing rules for getMenuInfo.
@@ -704,7 +705,15 @@ class TextVerificationController:
             
             # Detect text in area (includes crop, filter, OCR, language detection)
             result = helpers.detect_text_in_area(image_source_path, area)
-            
+
+            # include_elements: also each text with its area (the explorer's OCR dump), so a
+            # caller can write an OCR check cropped to where its text is, as stb_tv's checks
+            # are. A full-frame OCR check on a picture background reads almost nothing
+            # (stb4 show detail, 2026-10-04: "01:40" only; the button-row crop read
+            # "Aufnehmen Episoden Merkliste" in 0.3 s).
+            if data.get('include_elements') and not area:
+                result['elements'] = helpers.extract_full_ocr_dump(image_source_path, 30)
+
             if not result.get('extracted_text'):
                 return {'success': False, 'message': 'No text detected in image', **result}
             
@@ -814,11 +823,15 @@ class TextVerificationController:
                 source_path = self.av_controller.take_screenshot()
                 if not source_path or not os.path.exists(source_path):
                     reason = getattr(self.av_controller, 'last_screenshot_error', None)
+                    code = getattr(self.av_controller, 'last_screenshot_error_code', None)
                     return {
                         'success': False,
                         'message': 'Failed to capture screenshot automatically for text verification'
                                    + (f': {reason}' if reason else ''),
-                        'screenshot_path': None
+                        'screenshot_path': None,
+                        # A host out of disk is not a verification outcome: the executor
+                        # aborts the batch instead of scoring every leg as failed (BUG-0198).
+                        **({'execution_error': code} if code == 'no_space' else {}),
                     }
                 print(f"[@controller:TextVerification] Using automatically captured screenshot: {source_path}")
                 # Persist the captured original path so downstream consumers (failure-report
@@ -949,6 +962,14 @@ class TextVerificationController:
             else:
                 return {'success': False, 'message': f'Unsupported verification command: {command}'}
 
+            if command == 'waitForTextToAppear':
+                # Shadow second opinion (TASK-47 G13): borderline scores only, background, logged.
+                from .jev_second_opinion import text_shadow
+                text_shadow(team_id=team_id, expected=text, score=details.get('matching_result'),
+                            threshold=details.get('user_threshold', threshold),
+                            ocr_text=details.get('extractedText', ''), area=area, rule_verdict=bool(success),
+                            userinterface_name=userinterface_name, reference_name=reference_name)
+
             # Return frontend-expected format (consistent with image verification).
             # `matching_result` + `user_threshold` mirror image's keys exactly so
             # verification_executor.py renames user_threshold→threshold for the
@@ -998,7 +1019,7 @@ class TextVerificationController:
                         ParamType.NUMBER,
                         required=False,
                         default=0,
-                        description="Maximum time to wait (seconds)"
+                        description="Maximum time to wait (ms)"
                     ),
                     "area": create_param(
                         ParamType.AREA,
@@ -1025,7 +1046,7 @@ class TextVerificationController:
                         ParamType.NUMBER,
                         required=False,
                         default=0,
-                        description="Maximum time to wait (seconds)"
+                        description="Maximum time to wait (ms)"
                     ),
                     "area": create_param(
                         ParamType.AREA,
@@ -1051,8 +1072,8 @@ class TextVerificationController:
                     "timeout": create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=10,
-                        description="Maximum time to wait (seconds)"
+                        default=10000,
+                        description="Maximum time to wait (ms)"
                     ),
                     "threshold": create_param(
                         ParamType.NUMBER,
@@ -1119,8 +1140,9 @@ class TextVerificationController:
             lang_code = result.get('detected_language', 'en')
             lang_confidence = float(result.get('language_confidence', 0.0))
 
-            print(f"[@controller:TextVerification] OCR extracted: '{extracted_text.strip()}' "
-                  f"lang={lang_code} conf={lang_confidence:.2f}")
+            if extracted_text.strip():
+                print(f"[@controller:TextVerification] OCR extracted: '{extracted_text.strip()}' "
+                      f"lang={lang_code} conf={lang_confidence:.2f}")
 
             return extracted_text, lang_code, lang_confidence
 
@@ -1301,7 +1323,7 @@ class TextVerificationController:
         src = self._resolve_local_image_source(image_source_url)
         if not src:
             return None, "Focus requested but the source frame could not be located to learn the accent."
-        img = cv2.imread(src, cv2.IMREAD_COLOR)
+        img = cv2_io.imread(src, cv2.IMREAD_COLOR)
         if img is None:
             return None, "Focus requested but the source frame could not be read."
         h, w = img.shape[:2]
@@ -1326,7 +1348,7 @@ class TextVerificationController:
         at learn time (pad stored in focus_params) so the learned region lines up.
         """
         try:
-            img = cv2.imread(source_path, cv2.IMREAD_COLOR)
+            img = cv2_io.imread(source_path, cv2.IMREAD_COLOR)
             if img is None:
                 return False, 0.0
             h, w = img.shape[:2]

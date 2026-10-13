@@ -74,50 +74,9 @@ export const RecPanelManager: React.FC<RecPanelManagerProps> = ({
           ) : (() => {
             // Handle multiple remote controllers
             const remoteCapability = device?.device_capabilities?.remote;
-            const hasMultipleRemotes = Array.isArray(remoteCapability) || device?.device_model === 'fire_tv';
+            const hasMultipleRemotes = Array.isArray(remoteCapability);
             
-            if (hasMultipleRemotes && device?.device_model === 'fire_tv') {
-              // For Fire TV devices, render both remotes directly (like host VNC)
-              // Account for panel overhead: header (30px) only, no disconnect button in modal
-              const panelOverhead = 30; // Header only, disconnect button removed in modal
-              const availableHeightForRemotes = finalStreamContainerDimensions.height - (panelOverhead * 2); 
-              const stackedDimensions = {
-                ...finalStreamContainerDimensions,
-                height: Math.round(availableHeightForRemotes / 2) + panelOverhead
-              };
-              return (
-                <>
-                  <RemotePanel
-                    host={host}
-                    deviceId={device?.device_id || 'device1'}
-                    deviceModel={device?.device_model || 'fire_tv'}
-                    remoteType="android_tv"
-                    isConnected={isControlActive}
-                    onReleaseControl={onReleaseControl}
-                    initialCollapsed={false}
-                    deviceResolution={stableDeviceResolution}
-                    streamCollapsed={false}
-                    streamMinimized={false}
-                    streamContainerDimensions={stackedDimensions}
-                    disableResize={true}
-                  />
-                  <RemotePanel
-                    host={host}
-                    deviceId={device?.device_id || 'device1'}
-                    deviceModel={device?.device_model || 'fire_tv'}
-                    remoteType="ir_remote"
-                    isConnected={isControlActive}
-                    onReleaseControl={onReleaseControl}
-                    initialCollapsed={false}
-                    deviceResolution={stableDeviceResolution}
-                    streamCollapsed={false}
-                    streamMinimized={false}
-                    disableResize={true}
-                    streamContainerDimensions={stackedDimensions}
-                  />
-                </>
-              );
-            } else if (hasMultipleRemotes) {
+            if (hasMultipleRemotes) {
               // For other devices with multiple remote controllers
               const remoteTypes = Array.isArray(remoteCapability) ? remoteCapability : [remoteCapability];
               const filteredRemoteTypes = remoteTypes.filter(Boolean);

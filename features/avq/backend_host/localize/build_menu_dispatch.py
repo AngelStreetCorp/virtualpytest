@@ -13,6 +13,7 @@ which links child_tree_id so it's navigable.
 import argparse
 import importlib.util
 import json
+import os
 import re
 from pathlib import Path
 
@@ -69,8 +70,10 @@ def main():
     ap.add_argument("--tab-labels", default="",
                     help="comma-separated tab names in order (OCR can't read the strip); overrides auto labels")
     ap.add_argument("--mcp-config", default=".mcp.json")
-    ap.add_argument("--mcp-url", default="https://rpitest.angelstreet.io/server/mcp")
+    ap.add_argument("--mcp-url", default=os.getenv("VPT_MCP_URL"))
     args = ap.parse_args()
+    if not args.mcp_url:
+        ap.error("--mcp-url or the VPT_MCP_URL environment variable is required (e.g. https://<server>/server/mcp)")
 
     entry = parse_keys(args.entry_keys)
     title_match = args.root_label.lower()

@@ -13,6 +13,7 @@
 
 import React, { useEffect, useState, useRef } from 'react';
 import { Box, Typography, LinearProgress, IconButton, Tooltip, Collapse, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import StopIcon from '@mui/icons-material/Stop';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -98,7 +99,8 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
   getNodeLabel,
 }) => {
   const { actualMode } = useTheme();
-  const [elapsedTime, setElapsedTime] = useState(0);
+  const P = useAgentChatPalette();
+const [elapsedTime, setElapsedTime] = useState(0);
   // The overlay stays mounted between runs, so a mount-time seed would count from
   // page load. Reset startTime on each execution's rising edge (see effect below).
   const [startTime, setStartTime] = useState(Date.now());
@@ -417,12 +419,12 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
           zIndex: 1300,
           minWidth: 450,
           maxWidth: 650,
-          backgroundColor: actualMode === 'dark' ? '#1f2937' : '#ffffff',
+          backgroundColor: P.surface,
           borderRadius: 2,
           boxShadow: isDragging ? '0 12px 24px rgba(0, 0, 0, 0.4)' : '0 8px 16px rgba(0, 0, 0, 0.3)',
           borderWidth: '2px',
           borderStyle: 'solid',
-          borderColor: '#3b82f6',
+          borderColor: P.accent,
           cursor: isDragging ? 'grabbing' : 'default',
           userSelect: isDragging ? 'none' : 'auto',
           transition: isDragging ? 'none' : 'box-shadow 0.2s ease',
@@ -465,7 +467,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                     width: 10,
                     height: 10,
                     borderRadius: '50%',
-                    backgroundColor: '#3b82f6',
+                    backgroundColor: P.accent,
                     animation: 'pulse 1.5s ease-in-out infinite',
                     '@keyframes pulse': {
                       '0%, 100%': { opacity: 1, transform: 'scale(1)' },
@@ -473,7 +475,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                     },
                   }}
                 />
-                <Typography variant="subtitle2" fontWeight="bold" color="#3b82f6">
+                <Typography variant="subtitle2" fontWeight="bold" color={P.accentText}>
                   ⚡ {labels.executing}
                 </Typography>
               </>
@@ -481,22 +483,22 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
               <>
                 {executionResult?.success ? (
                   <>
-                    <CheckCircleIcon sx={{ color: '#10b981', fontSize: 20 }} />
-                    <Typography variant="subtitle2" fontWeight="bold" color="#10b981">
+                    <CheckCircleIcon sx={{ color: P.success, fontSize: 20 }} />
+                    <Typography variant="subtitle2" fontWeight="bold" color={P.success}>
                       ✓ {labels.passed}
                     </Typography>
                   </>
                 ) : executionResult?.result_type === 'failure' ? (
                   <>
-                    <ErrorIcon sx={{ color: '#ef4444', fontSize: 20 }} />
-                    <Typography variant="subtitle2" fontWeight="bold" color="#ef4444">
+                    <ErrorIcon sx={{ color: P.error, fontSize: 20 }} />
+                    <Typography variant="subtitle2" fontWeight="bold" color={P.error}>
                       ✗ {labels.failed}
                     </Typography>
                   </>
                 ) : (
                   <>
-                    <ErrorIcon sx={{ color: '#f59e0b', fontSize: 20 }} />
-                    <Typography variant="subtitle2" fontWeight="bold" color="#f59e0b">
+                    <ErrorIcon sx={{ color: P.warning, fontSize: 20 }} />
+                    <Typography variant="subtitle2" fontWeight="bold" color={P.warning}>
                       ⚠ {labels.error}
                     </Typography>
                   </>
@@ -513,7 +515,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                         target="_blank"
                         rel="noopener noreferrer"
                         sx={{
-                          color: '#3b82f6',
+                          color: P.accent,
                           textDecoration: 'none',
                           fontWeight: 'bold',
                           '&:hover': { textDecoration: 'underline' },
@@ -530,7 +532,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                         target="_blank"
                         rel="noopener noreferrer"
                         sx={{
-                          color: '#10b981',
+                          color: P.success,
                           textDecoration: 'none',
                           fontWeight: 'bold',
                           '&:hover': { textDecoration: 'underline' },
@@ -549,17 +551,17 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
             {/* Stats */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {successCount > 0 && (
-                <Typography variant="caption" sx={{ color: '#10b981', fontWeight: 'bold' }}>
+                <Typography variant="caption" sx={{ color: P.success, fontWeight: 'bold' }}>
                   ✓ {successCount}
                 </Typography>
               )}
               {failureCount > 0 && (
-                <Typography variant="caption" sx={{ color: '#ef4444', fontWeight: 'bold' }}>
+                <Typography variant="caption" sx={{ color: P.error, fontWeight: 'bold' }}>
                   ✗ {failureCount}
                 </Typography>
               )}
               {errorCount > 0 && (
-                <Typography variant="caption" sx={{ color: '#f59e0b', fontWeight: 'bold' }}>
+                <Typography variant="caption" sx={{ color: P.warning, fontWeight: 'bold' }}>
                   ⚠ {errorCount}
                 </Typography>
               )}
@@ -584,7 +586,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                   size="small"
                   onClick={onStop}
                   sx={{
-                    color: '#ef4444',
+                    color: P.error,
                     '&:hover': { backgroundColor: 'rgba(239, 68, 68, 0.1)' },
                   }}
                 >
@@ -616,10 +618,10 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
             sx={{
               height: 8,
               borderRadius: 4,
-              backgroundColor: actualMode === 'dark' ? '#374151' : '#e5e7eb',
+              backgroundColor: P.hoverBg,
               '& .MuiLinearProgress-bar': {
                 borderRadius: 4,
-                backgroundColor: '#3b82f6',
+                backgroundColor: P.accent,
                 transition: 'transform 0.3s ease',
               },
             }}
@@ -690,7 +692,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
 
                 {aiReasoning.analysis && !isExecuting && (
                   <Box sx={{ mb: 1.5 }}>
-                    <Typography variant="caption" fontWeight="bold" sx={{ color: '#f59e0b', display: 'block', mb: 0.5 }}>
+                    <Typography variant="caption" fontWeight="bold" sx={{ color: P.warning, display: 'block', mb: 0.5 }}>
                       💡 AI ANALYSIS
                     </Typography>
                     <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
@@ -701,7 +703,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
 
                 {aiReasoning.suggestions && aiReasoning.suggestions.length > 0 && (
                   <Box sx={{ mb: 1.5 }}>
-                    <Typography variant="caption" fontWeight="bold" sx={{ color: '#10b981', display: 'block', mb: 0.5 }}>
+                    <Typography variant="caption" fontWeight="bold" sx={{ color: P.success, display: 'block', mb: 0.5 }}>
                       🔧 SUGGESTED FIXES
                     </Typography>
                     {aiReasoning.suggestions.map((suggestion, idx) => (
@@ -714,7 +716,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
 
                 {aiReasoning.insights && aiReasoning.insights.length > 0 && (
                   <Box sx={{ mb: 1.5 }}>
-                    <Typography variant="caption" fontWeight="bold" sx={{ color: '#3b82f6', display: 'block', mb: 0.5 }}>
+                    <Typography variant="caption" fontWeight="bold" sx={{ color: P.accent, display: 'block', mb: 0.5 }}>
                       📊 INSIGHTS
                     </Typography>
                     {aiReasoning.insights.map((insight, idx) => (
@@ -727,7 +729,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
 
                 {aiReasoning.troubleshooting && aiReasoning.troubleshooting.length > 0 && (
                   <Box>
-                    <Typography variant="caption" fontWeight="bold" sx={{ color: '#ef4444', display: 'block', mb: 0.5 }}>
+                    <Typography variant="caption" fontWeight="bold" sx={{ color: P.error, display: 'block', mb: 0.5 }}>
                       🔍 TROUBLESHOOTING
                     </Typography>
                     {aiReasoning.troubleshooting.map((step, idx) => (
@@ -753,11 +755,11 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                 overflowY: 'auto',
                 '&::-webkit-scrollbar': { width: '6px' },
                 '&::-webkit-scrollbar-track': {
-                  background: actualMode === 'dark' ? '#374151' : '#e5e7eb',
+                  background: P.hoverBg,
                   borderRadius: '3px',
                 },
                 '&::-webkit-scrollbar-thumb': {
-                  background: actualMode === 'dark' ? '#6b7280' : '#9ca3af',
+                  background: P.textMuted,
                   borderRadius: '3px',
                   '&:hover': {
                     background: actualMode === 'dark' ? '#9ca3af' : '#6b7280',
@@ -778,15 +780,15 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                       backgroundColor: actualMode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
                       borderWidth: '1px',
                       borderStyle: 'solid',
-                      borderColor: '#3b82f6',
+                      borderColor: P.accent,
                       animation: 'stepPulse 2s ease-in-out infinite',
                       '@keyframes stepPulse': {
                         '0%, 100%': {
-                          borderColor: '#3b82f6',
+                          borderColor: P.accent,
                           boxShadow: '0 0 0 rgba(59, 130, 246, 0)',
                         },
                         '50%': {
-                          borderColor: '#3b82f6',
+                          borderColor: P.accent,
                           boxShadow: '0 0 8px rgba(59, 130, 246, 0.4)',
                         },
                       },
@@ -797,7 +799,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                         <Typography variant="caption" sx={{ fontSize: '0.875rem' }}>
                           🔵
                         </Typography>
-                        <Typography variant="caption" fontWeight="bold" sx={{ color: '#3b82f6' }}>
+                        <Typography variant="caption" fontWeight="bold" sx={{ color: P.accent }}>
                           {labels.step.toUpperCase()} {executingStepNumber}: {currentExecutingStep.label} EXECUTING...
                         </Typography>
                       </Box>
@@ -812,8 +814,8 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                 
                 const statusIcon = step.state.status === 'success' ? '✅' :
                                   step.state.status === 'failure' ? '❌' : '⚠️';
-                const statusColor = step.state.status === 'success' ? '#10b981' :
-                                   step.state.status === 'failure' ? '#ef4444' : '#f59e0b';
+                const statusColor = step.state.status === 'success' ? P.success :
+                                   step.state.status === 'failure' ? P.error : P.warning;
                 const statusText = step.state.status === 'success' ? 'SUCCESS' :
                                   step.state.status === 'failure' ? 'FAILED' : 'ERROR';
                 
@@ -851,7 +853,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                                 rel="noopener noreferrer"
                                 onClick={(e: React.MouseEvent) => e.stopPropagation()}
                                 sx={{
-                                  color: '#3b82f6',
+                                  color: P.accent,
                                   textDecoration: 'none',
                                   fontSize: '0.7rem',
                                   '&:hover': { textDecoration: 'underline' },
@@ -869,7 +871,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                                 rel="noopener noreferrer"
                                 onClick={(e: React.MouseEvent) => e.stopPropagation()}
                                 sx={{
-                                  color: '#10b981',
+                                  color: P.success,
                                   textDecoration: 'none',
                                   fontSize: '0.7rem',
                                   '&:hover': { textDecoration: 'underline' },
@@ -899,7 +901,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                           }}
                         >
                           <AccordionSummary
-                            expandIcon={<ExpandMoreIcon sx={{ color: '#ef4444', fontSize: 16 }} />}
+                            expandIcon={<ExpandMoreIcon sx={{ color: P.error, fontSize: 16 }} />}
                             sx={{
                               minHeight: '30px !important',
                               padding: '2px 12px !important',
@@ -907,7 +909,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
-                              <Typography variant="caption" sx={{ color: '#ef4444', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                              <Typography variant="caption" sx={{ color: P.error, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                                 ⚠️ Error
                               </Typography>
                               <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
@@ -919,7 +921,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                                     size="small"
                                     onClick={(e) => handleCopyLogs(step.state.result.logs, `error-${step.blockId}`, e)}
                                     sx={{
-                                      color: copiedLogId === `error-${step.blockId}` ? '#10b981' : '#ef4444',
+                                      color: copiedLogId === `error-${step.blockId}` ? P.success : P.error,
                                       padding: '2px',
                                       '&:hover': { backgroundColor: 'rgba(239, 68, 68, 0.1)' },
                                     }}
@@ -954,15 +956,15 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                                   fontSize: '0.7rem',
                                   '&::-webkit-scrollbar': { width: '4px' },
                                   '&::-webkit-scrollbar-track': {
-                                    background: actualMode === 'dark' ? '#374151' : '#e5e7eb',
+                                    background: P.hoverBg,
                                   },
                                   '&::-webkit-scrollbar-thumb': {
-                                    background: actualMode === 'dark' ? '#6b7280' : '#9ca3af',
+                                    background: P.textMuted,
                                     borderRadius: '2px',
                                   },
                                 }}
                               >
-                                <pre style={{ margin: 0, padding: '4px', whiteSpace: 'pre-wrap', color: actualMode === 'dark' ? '#d1d5db' : '#374151' }}>
+                                <pre style={{ margin: 0, padding: '4px', whiteSpace: 'pre-wrap', color: P.textSecondary }}>
                                   {typeof step.state.result.logs === 'string' 
                                     ? step.state.result.logs 
                                     : JSON.stringify(step.state.result.logs, null, 2)}
@@ -987,7 +989,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                           }}
                         >
                           <AccordionSummary
-                            expandIcon={<ExpandMoreIcon sx={{ color: '#10b981', fontSize: 16 }} />}
+                            expandIcon={<ExpandMoreIcon sx={{ color: P.success, fontSize: 16 }} />}
                             sx={{
                               minHeight: '30px !important',
                               padding: '2px 12px !important',
@@ -995,7 +997,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
-                              <Typography variant="caption" sx={{ color: '#10b981', fontWeight: 'bold', whiteSpace: 'nowrap' }}>
+                              <Typography variant="caption" sx={{ color: P.success, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
                                 📋 Execution Logs
                               </Typography>
                               <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', flex: 1 }}>
@@ -1006,7 +1008,7 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                                   size="small"
                                   onClick={(e) => handleCopyLogs(step.state.result.logs, `success-${step.blockId}`, e)}
                                   sx={{
-                                    color: copiedLogId === `success-${step.blockId}` ? '#3b82f6' : '#10b981',
+                                    color: copiedLogId === `success-${step.blockId}` ? P.accent : P.success,
                                     padding: '2px',
                                     '&:hover': { backgroundColor: 'rgba(16, 185, 129, 0.1)' },
                                   }}
@@ -1028,15 +1030,15 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
                                   fontSize: '0.7rem',
                                   '&::-webkit-scrollbar': { width: '4px' },
                                   '&::-webkit-scrollbar-track': {
-                                    background: actualMode === 'dark' ? '#374151' : '#e5e7eb',
+                                    background: P.hoverBg,
                                   },
                                   '&::-webkit-scrollbar-thumb': {
-                                    background: actualMode === 'dark' ? '#6b7280' : '#9ca3af',
+                                    background: P.textMuted,
                                     borderRadius: '2px',
                                   },
                                 }}
                               >
-                                <pre style={{ margin: 0, padding: '4px', whiteSpace: 'pre-wrap', color: actualMode === 'dark' ? '#d1d5db' : '#374151' }}>
+                                <pre style={{ margin: 0, padding: '4px', whiteSpace: 'pre-wrap', color: P.textSecondary }}>
                                   {typeof step.state.result.logs === 'string' 
                                     ? step.state.result.logs 
                                     : JSON.stringify(step.state.result.logs, null, 2)}

@@ -1,0 +1,32 @@
+# VirtualPyTest — stable name for the USB IR Toy / Irdroid infrared transceiver.
+#
+# 04d8:fd08 ("USB Infrared Transceiver", manufacturer "Irdroid") is the same dongle
+# the Raspberry Pi hosts use, but its kernel story differs by platform:
+#
+#   * Raspberry Pi OS — the kernel ir_toy HID driver claims it and publishes
+#     /dev/lirc0, which IRRemoteController drives through ir-ctl.
+#   * Generic Debian/Ubuntu x86 — that kernel ships neither CONFIG_IR_TOY nor
+#     CONFIG_RAW_RC, so nothing claims the dongle for IR. cdc_acm binds it and it
+#     surfaces as a serial port (/dev/ttyACM0). IRToyRemoteController drives it
+#     there instead, using DEVICE{n}_IR_SERIAL.
+#
+# Either way the raw ttyACM number is assigned in enumeration order and moves when
+# the dongle is replugged or moved to another port, so .env must never hardcode
+# /dev/ttyACM*. This symlink is the stable name both platforms can point at.
+#
+# Installed to /etc/udev/rules.d/ by setup/local/linux/backend_host/install_host.sh
+# on any non-Pi host where the dongle is attached.
+
+# Match the tty, NOT the USB device. A `SUBSYSTEM=="usb"` rule creates the symlink
+# next to the raw USB device node (/dev/bus/usb/003/010), which is not a serial port
+# — opening it cannot do termios setup or carry the IrToy handshake.
+#
+# ATTRS (plural) is required: idVendor/idProduct live on the USB parent, not on the
+# tty itself, so ATTR{} would never match. Both details are easy to get wrong and
+# the symptom is simply "no /dev/irtoy", so verify with
+# `readlink -f /dev/irtoy` → should resolve to /dev/ttyACM*.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="04d8", ATTRS{idProduct}=="fd08", SYMLINK+="irtoy", MODE="0660", GROUP="dialout"
+
+# 04d8:f58b is the same dongle family with a different product id; give it the
+# same stable name rather than a second ttyACM number.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="04d8", ATTRS{idProduct}=="f58b", SYMLINK+="irtoy", MODE="0660", GROUP="dialout"

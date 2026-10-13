@@ -1,0 +1,24 @@
+{
+ "id": "6MdT1BnV0bc",
+ "title": "Ask Atlas to generate a Grafana dashboard",
+ "description": "Type one sentence to Atlas, the AI analytics assistant in VirtualPyTest. It queries your test data and draws a canvas with pass rate, duration trend and incidents for the device you selected. One click opens the same panels as a real Grafana dashboard that you can edit, keep or share.",
+ "tags": [
+  "virtualpytest",
+  "grafana",
+  "grafana dashboard",
+  "ai analytics",
+  "test analytics",
+  "atlas ai",
+  "natural language query",
+  "test automation",
+  "qa dashboard",
+  "pass rate",
+  "device testing",
+  "open source",
+  "ai agent",
+  "observability"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

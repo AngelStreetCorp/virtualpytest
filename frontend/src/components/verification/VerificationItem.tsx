@@ -3,8 +3,9 @@ import {
   KeyboardArrowUp as KeyboardArrowUpIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   PlayArrow as PlayArrowIcon,
-  CameraAlt as CameraAltIcon,
 } from '@mui/icons-material';
+
+import { CameraIcon as CameraAltIcon } from '../common/icons/CustomIcons';
 import {
   Box,
   FormControl,

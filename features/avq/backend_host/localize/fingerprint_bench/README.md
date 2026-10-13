@@ -74,3 +74,22 @@ Run all three (drift is the headline — v6 is "better" only if it beats v5 ther
 `docs/agent/FINGERPRINT_V5.md`. Known residual: the detector can grab logo art that mimics the focus ring
 (DAZN's red-bordered tile), mis-cropping a few tiles — harden `no_reference_focus_detector` (grid/position
 prior, prefer a thin uniform ring over a saturated fill) to close those.
+
+## Jev second opinion (TASK-47 G13) — `../jev_second_opinion_bench.py`
+Offline: does Jev, asked only in the borderline band, improve localize and borderline image / text checks?
+Nothing live changes (no device, no host, no production code). Data stays outside the repo
+(`LOCBENCH_DIR`, default `/tmp/claude-1000/locbench`).
+
+| Stage | What |
+|---|---|
+| `nodes` | node reference screenshots (DB SELECT by team + object storage) -> fresh v6 fingerprints |
+| `loc-items` | labelled frames of a `scripts/jev_review` bundle (`LOCBENCH_BUNDLE`) -> items; each frame also gets a leave-one-out twin (true node removed = unknown screen, right answer: abstain) |
+| `loc-run` | today's rule (`identify_screen`: one candidate = answer, none / several = abstain) vs rule + Jev `choice` among the rule's candidates + nearest nodes + `none`; Jev only on abstain / tie / confidence < 0.8 |
+| `ver-items`, `ver-prep` | every image / text check of the bundle's groups on every frame (checks scored with `scripts/jev_review/matchers.py`), kept when within 0.10 of the threshold; pictures for blind judges |
+| (judges) | blind Sonnet agents read `ver_img/*.png` (frame crop + reference, no score) and write `labels_N.json` yes / no / unsure |
+| `ver-run` | rule (score >= threshold) vs rule + Jev `noul` "really on screen" (facts: score vs threshold, location vs area, OCR text, node fingerprint distance) |
+| `report` | the tables; gates 0.9 and 0.8 |
+
+Run order: `nodes`, `loc-items`, `loc-run`, `ver-items`, `ver-prep`, (judges), `ver-run`, `report`.
+Needs `JEV_URL` / `JEV_API_KEY` / `VPT_TEAM_ID` (read from `~/ghosty-sessions/.env` when unset) and `MINIO_*`.
+Title translation is switched off in the bench (the pivot is a network call); results are in the TASK-47 doc, G13.

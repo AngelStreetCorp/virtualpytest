@@ -28,7 +28,7 @@ python test_scripts/gw/dns_lookuptime.py --dns 2001:4860:4860::8888 --url api.ex
 | `--url` | string | `google.com` | Hostname to resolve |
 | `--dns` | string | `system` | DNS server to query (e.g. `8.8.8.8` or `2001:4860:4860::8888`); the sentinel `system` (or empty) uses the host's system resolver |
 
-> **Breaking change:** `--dns` previously meant the hostname to resolve — that role is now `--url`. Callers passing `--dns <hostname>` must switch to `--url <hostname>`.
+> **Breaking change:** `--dns` previously meant the hostname to resolve — that role is now `--url`. Callers passing `--dns <hostname>` must switch to `--url <hostname>`. A hostname in `--dns` now fails fast with an explicit "Invalid --dns" error (`--dns` must be an IP address or `system`).
 
 ## Behavior
 

@@ -100,6 +100,53 @@ silently break at runtime with no build-time error. Turning it on is real harden
 harder to reverse-engineer) but needs an actual install-and-exercise pass on a device before
 shipping, not just a green `assembleRelease`.
 
+## Automatic republish (codebox)
+
+The public APK is rebuilt and published without anyone running the loop above.
+
+| What | Where (on the downloads host, `ssh proxy`, `~/downloads/`) | When it is rebuilt |
+|---|---|---|
+| **Intermediary** — one file, replaced in place | `vpt-mobile-app-debug.apk` + `.json` sidecar (the name `VITE_MOBILE_APP_URL` and the app's update check use) | a push to `main` changed `features/mobile-app/**` or `frontend/**` |
+| **Release** — one per release, kept forever | `releases/vpt-mobile-app-<tag>.apk` + `.json` | a new `release-YYYY.MM.DD` git tag (the pair tag of [RELEASING](../../../docs/agent/release/RELEASING.md)); built from the tagged commit |
+
+Old releases are not backfilled (tags that exist when the job first ran were only recorded), and
+nothing under `releases/` is ever overwritten or pruned automatically. Both are the signed
+release build (same key as every installed phone), not a debuggable build.
+
+**Trigger.** git has no post-push hook, and the pre-push hook only sees pushes made from one
+checkout. Instead a systemd *user timer* on codebox (`vpt-apk-publish.timer`, every 5 min, lingering
+enabled so it survives logout) runs `scripts/auto-publish.sh`, which fetches `origin/main` itself —
+so a push from any machine or session is picked up within 5 minutes, and a push is never slowed.
+CI was ruled out: the GitHub workflows have no Android SDK; codebox does.
+
+`auto-publish.sh` is a no-op unless something is due (it diffs the last built commit against
+`origin/main` over the two paths above, and looks for an unseen `release-*` tag). It takes a
+`flock` so two builds never overlap, builds in its own detached worktree `~/vpt-apk-build` (never
+touches `~/virtualpytest`), and after a failed build does not retry until `main` moves or you
+pass `--force`. After each build attempt (success or failure) the Gradle and Kotlin compile
+daemons are stopped (`./gradlew --stop`) to free ~4 GB of idle RAM on the shared 16 GB coding VM.
+
+- State, signing key, lock and **log**: `~/.vpt-apk/` — `auto-publish.log` (read this first),
+  `last-commit` (last built `origin/main`), `seen-tags`, `failed`, `keystore.properties` +
+  `release.jks` (mode 600, copied into the git-ignored build inputs on each build). The signing keystore is kept in
+  exactly two places: `~/.vpt-apk/` on the coding VM (the builder) and `~/.vpt-apk/` on the backend server VM (the
+  backup), both mode 600. Never commit it; after replacing it, copy it to both.
+- Space: release APKs (~40 MB each) are kept. Only if the proxy has less than 5 GB free, delete the oldest
+  `releases/*.apk` (+ `.json`) by hand, always keeping the latest 10 releases. The intermediary file is always replaced.
+- **Publish by hand now:** `bash features/mobile-app/app/scripts/auto-publish.sh --force`
+  (rebuilds the intermediary from `origin/main`; a release for an unseen tag is built first).
+  Re-publish a release tag by hand: remove it from `~/.vpt-apk/seen-tags`.
+- Status: `systemctl --user list-timers vpt-apk-publish.timer`, `systemctl --user start vpt-apk-publish.service`.
+- Install (once per machine): copy `scripts/systemd/vpt-apk-publish.{service,timer}` to
+  `~/.config/systemd/user/`, then `systemctl --user daemon-reload && systemctl --user enable --now vpt-apk-publish.timer`
+  and `sudo loginctl enable-linger $USER`. Needs a JDK 21 in `~/.jdks`, the Android SDK in
+  `~/android-sdk` (or `ANDROID_HOME`), and ssh access to the downloads host (`VPT_APK_REMOTE_HOST`,
+  default `proxy`).
+- `versionName` is still bumped by hand in `android/app/build.gradle`. `versionCode` is set at build time to
+  `git rev-list --count <built commit>` (env `VPT_APK_VERSION_CODE`; the hand-set value is only the fallback),
+  so every intermediary build is newer than the last one: installed apps offer it in Settings and the
+  download page's `?v=` cache-bust follows the `.json`.
+
 ## How runtime config injection works
 
 The web bundle is generic — one APK serves every deployment (demo, customer overlays, other envs).

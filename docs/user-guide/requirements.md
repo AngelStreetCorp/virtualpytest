@@ -122,7 +122,7 @@ Your Redis queue is ready for job management.
 
 ## 🤖 **4. AI Provider - Test Analysis & Agent (Optional)**
 
-VirtualPyTest's AI agent, vision, and text analysis features need at least one AI provider API key. The default provider is **Anthropic** (used for the agent task by default); OpenRouter, OpenAI, MiniMax, and Google are supported alternates (see `shared/src/lib/ai/config.py`). Vision and text analysis default to OpenRouter unless overridden.
+VirtualPyTest's AI agent, vision, and text analysis features need at least one AI provider API key. A fresh install routes the agents to **Anthropic** and vision / text analysis to **OpenRouter**; OpenAI, MiniMax, Google and any OpenAI-compatible server (LM Studio, Ollama, vLLM — no key needed) are supported too.
 
 ### Step 1: Get an API Key
 
@@ -130,7 +130,9 @@ Pick one provider to start:
 - **Anthropic** (recommended default): sign up at [console.anthropic.com](https://console.anthropic.com), create an API key.
 - **OpenRouter** (alternate, useful for a wider model catalog): sign up at [openrouter.ai](https://openrouter.ai), add credits (minimum $5 recommended for testing), and create a key under **Keys**.
 
-You can configure multiple providers and switch per task (agent/vision/text) via environment variables — see Step 5 below.
+### Step 2: Enter it in the app
+
+After the install, open **Settings → AI → Endpoints**, paste the key into the matching endpoint and press **Test**. The key is stored on the server only (never in `.env`, never on hosts). You can add several providers and choose, per use case (each agent, each vision / text analysis), which model serves it under **Settings → AI → Routing**.
 
 ### ✅ AI Provider Complete
 Your AI analysis service is ready.
@@ -158,22 +160,10 @@ R2_ACCOUNT_ID=your-account-id
 # UPSTASH_REDIS_REST_URL=https://your-db.upstash.io
 # UPSTASH_REDIS_REST_TOKEN=your-rest-token
 
-# AI Provider (pick one or more)
-AI_AGENT_PROVIDER=anthropic
-ANTHROPIC_API_KEY=your-anthropic-api-key
-# Alternates:
-# OPENROUTER_API_KEY=your-openrouter-api-key
-# OPENAI_API_KEY=your-openai-api-key
-# MINIMAX_API_KEY=your-minimax-api-key
-# GOOGLE_API_KEY=your-google-api-key
-#
-# Local model server (provider "local" = any OpenAI-compatible endpoint on your network:
-# Ollama, vLLM, llama.cpp, LM Studio, Colibri...). Keeps AI traffic in-house.
-# AI_PROVIDER=local
-# LOCAL_AI_BASE_URL=http://10.10.10.10:8000/v1     # Ollama: http://<host>:11434/v1
-# LOCAL_AI_MODEL=qwen3:8b                          # vLLM: the HuggingFace id, e.g. Qwen/Qwen3-8B
-# LOCAL_AI_API_KEY=                                # only if the server enforces one
-# LOCAL_AI_TIMEOUT=300                             # seconds per request; local models are slow
+# AI: nothing here. Providers, API keys and which model serves each use case are set in
+# the web app under Settings → AI (Endpoints / Profiles / Routing) and stored server-side.
+# A local model server (Ollama, vLLM, llama.cpp, LM Studio, Colibri...) is an endpoint with
+# the "OpenAI-compatible" preset, e.g. http://10.10.10.10:8000/v1 (Ollama: http://<host>:11434/v1).
 ```
 
 ### Host Configuration (`backend_host/src/.env`)
@@ -252,9 +242,12 @@ Before proceeding to VirtualPyTest installation, ensure you have:
 - Ensure the REST token is copied correctly
 
 **AI provider errors:**
-- Verify the API key matches the provider set in `AI_AGENT_PROVIDER` (or `AI_PROVIDER`)
-- Check account has sufficient credits/quota
-- Ensure model name is correct (case-sensitive) if overriding the default
+- Settings → AI → Routing shows which profile and endpoint serve the failing use case; press
+  **Test** on that endpoint (key, reachability, model list) and on the profile (model name,
+  vision / tool support)
+- Check the account has sufficient credits/quota
+- Ensure the profile's model name is exactly what the endpoint lists (case-sensitive)
+- Server logs show one `[AI] usage=… profile=… endpoint=… ok=…` line per call
 
 ### Getting Help
 

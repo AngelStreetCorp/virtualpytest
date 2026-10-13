@@ -1,0 +1,12 @@
+# NOTE: This is a template file for reference only. See vpt-fleet-health-live.service
+# for install instructions.
+
+[Unit]
+Description=10-minute trigger for the VirtualPyTest live fleet health check
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=10min
+
+[Install]
+WantedBy=timers.target

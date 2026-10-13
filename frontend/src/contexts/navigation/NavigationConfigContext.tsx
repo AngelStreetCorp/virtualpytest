@@ -3,6 +3,7 @@ import React, { createContext, useContext, useState, useRef, useCallback, useEff
 import { buildServerUrl, buildServerUrlWithParams } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { CACHE_CONFIG, STORAGE_KEYS } from '../../config/constants';
+import type { NavigationNode } from '../../types/pages/Navigation_Types';
 
 // Types for nested tree operations
 export interface NavigationTree {
@@ -35,24 +36,11 @@ export interface BreadcrumbItem {
   node_id?: string;
 }
 
-export interface NavigationNode {
-  node_id: string;
-  label: string;
-  node_type: string;
-  position_x: number;
-  position_y: number;
-  verifications: any[];
-  data: any; // description should be stored in data.description
-  // Per-variant overrides live on userinterface_variants, not on this row.
-  // The row only carries `hidden_in_base` for variant-only nodes.
-  hidden_in_base?: boolean;
-
-  // Optional fields
-  screenshot?: string;
-  menu_type?: string;
-  has_subtree?: boolean;
-  subtree_count?: number;
-}
+// The node row shape lives with the other navigation types. It was duplicated here
+// (and, in a third place, declared with verification_pass_condition at the top level,
+// which the save path contradicts) — re-exported so existing importers of this module
+// keep working.
+export type { NavigationNode };
 
 // Action Set interface for bidirectional edge structure
 export interface ActionSet {

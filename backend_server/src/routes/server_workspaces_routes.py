@@ -6,9 +6,11 @@ from flask import Blueprint, request, jsonify
 from typing import Optional
 import logging
 
-from shared.src.lib.database import workspaces_db
+from shared.src.lib.database import users_db, workspaces_db
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 from backend_server.src.lib.auth_middleware import (
+    in_org_scope,
+    org_scope_team_ids,
     principal_holds_permission,
     require_permission,
 )
@@ -16,6 +18,33 @@ from backend_server.src.lib.auth_middleware import (
 logger = logging.getLogger(__name__)
 
 server_workspaces_bp = Blueprint('server_workspaces', __name__, url_prefix='/server/workspaces')
+
+
+# ---------------------------------------------------------------------------
+# Org scope (TASK-31): a non-admin administers only the workspaces of their own teams — those
+# with one of their teams as a member, or a member user who is in one of their teams.
+# ---------------------------------------------------------------------------
+def _workspace_in_scope(workspace_id: str, scope) -> bool:
+    if scope is None:
+        return True
+    for member in workspaces_db.get_workspace_members(workspace_id):
+        if member.get('type') == 'team' and str(member.get('team_id')) in scope:
+            return True
+        if member.get('type') == 'user':
+            user = users_db.get_user(member.get('user_id'))
+            if user and in_org_scope(user.get('team_ids'), scope):
+                return True
+    return False
+
+
+def _not_in_scope(workspace_id: str):
+    """The 404 for a workspace outside the caller's teams or owned by another server, or None."""
+    # get_workspace is None for another server's workspace (servers can share one database).
+    if workspaces_db.get_workspace(workspace_id) is None:
+        return jsonify({"error": "Workspace not found"}), 404
+    if not _workspace_in_scope(workspace_id, org_scope_team_ids()):
+        return jsonify({"error": "Workspace not found"}), 404
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -69,10 +98,11 @@ def _with_device_names(workspace_or_list):
 def get_workspaces():
     """Get every workspace on the deployment.
 
-    This is the administration listing and is not filtered per caller — reaching it at all
-    requires org.workspaces:view. A user's own workspaces come from /workspaces/user/<id>.
+    The administration listing: every workspace for an admin, the workspaces of their own
+    teams for anyone else (TASK-31). A user's own workspaces come from /workspaces/user/<id>.
     """
-    workspaces = workspaces_db.get_all_workspaces()
+    scope = org_scope_team_ids()
+    workspaces = [w for w in workspaces_db.get_all_workspaces() if _workspace_in_scope(w['id'], scope)]
     return jsonify(_with_device_names(workspaces)), 200
 
 
@@ -110,6 +140,9 @@ def get_user_workspaces(user_id: str):
 @handle_route_exceptions('server_workspaces:get_workspace')
 def get_workspace(workspace_id: str):
     """Get a specific workspace by ID"""
+    blocked = _not_in_scope(workspace_id)
+    if blocked:
+        return blocked
     workspace = workspaces_db.get_workspace(workspace_id)
     if not workspace:
         return jsonify({"error": "Workspace not found"}), 404
@@ -131,8 +164,13 @@ def create_workspace():
         # something they can act on. As a 500 it read as an outage — and it silently blocked
         # every rerun of the workspace tests, whose fixture used a fixed name.
         return jsonify({"error": str(e), "slug": e.slug}), 409
+    except workspaces_db.NoServerNameError as e:
+        return jsonify({"error": str(e)}), 500
     if not workspace:
         return jsonify({"error": "Failed to create workspace"}), 500
+    # A non-admin's workspace belongs to their teams: add them, or it would be out of their reach.
+    for team_id in sorted(org_scope_team_ids() or []):
+        workspaces_db.add_workspace_team(workspace['id'], team_id, 'member')
     logger.info(f"Workspace created: {workspace['id']}")
     return jsonify(_with_device_names(workspace)), 201
 
@@ -145,6 +183,9 @@ def update_workspace(workspace_id: str):
     data = request.get_json() or {}
     if not data:
         return jsonify({"error": "No data provided"}), 400
+    blocked = _not_in_scope(workspace_id)
+    if blocked:
+        return blocked
     workspace = workspaces_db.update_workspace(workspace_id, data)
     if not workspace:
         return jsonify({"error": "Workspace not found"}), 404
@@ -157,6 +198,9 @@ def update_workspace(workspace_id: str):
 @handle_route_exceptions('server_workspaces:delete_workspace')
 def delete_workspace(workspace_id: str):
     """Delete a workspace (org.workspaces:delete)"""
+    blocked = _not_in_scope(workspace_id)
+    if blocked:
+        return blocked
     success = workspaces_db.delete_workspace(workspace_id)
     if not success:
         return jsonify({"error": "Workspace not found"}), 404
@@ -169,6 +213,9 @@ def delete_workspace(workspace_id: str):
 @handle_route_exceptions('server_workspaces:get_workspace_members')
 def get_workspace_members(workspace_id: str):
     """Get all members of a workspace (org.workspaces:view)"""
+    blocked = _not_in_scope(workspace_id)
+    if blocked:
+        return blocked
     members = workspaces_db.get_workspace_members(workspace_id)
     return jsonify(members), 200
 
@@ -181,6 +228,11 @@ def add_workspace_user(workspace_id: str):
     data = request.get_json() or {}
     if not data.get('user_id'):
         return jsonify({"error": "user_id is required"}), 400
+    scope = org_scope_team_ids()
+    user = users_db.get_user(data['user_id']) if scope is not None else None
+    if scope is not None and (not user or not in_org_scope(user.get('team_ids'), scope)
+                              or not _workspace_in_scope(workspace_id, scope)):
+        return jsonify({"error": "Workspace or user not found"}), 404
     member = workspaces_db.add_workspace_user(workspace_id, data['user_id'], data.get('role', 'member'))
     if not member:
         return jsonify({"error": "Failed to add workspace user"}), 500
@@ -196,6 +248,10 @@ def add_workspace_team(workspace_id: str):
     data = request.get_json() or {}
     if not data.get('team_id'):
         return jsonify({"error": "team_id is required"}), 400
+    scope = org_scope_team_ids()
+    if scope is not None and (str(data['team_id']) not in scope
+                              or not _workspace_in_scope(workspace_id, scope)):
+        return jsonify({"error": "Workspace or team not found"}), 404
     member = workspaces_db.add_workspace_team(workspace_id, data['team_id'], data.get('role', 'member'))
     if not member:
         return jsonify({"error": "Failed to add workspace team"}), 500
@@ -208,6 +264,9 @@ def add_workspace_team(workspace_id: str):
 @handle_route_exceptions('server_workspaces:remove_workspace_member')
 def remove_workspace_member(workspace_id: str, member_id: str):
     """Remove a member from a workspace (org.workspaces:manage_members)"""
+    blocked = _not_in_scope(workspace_id)
+    if blocked:
+        return blocked
     success = workspaces_db.remove_workspace_member(workspace_id, member_id)
     if not success:
         return jsonify({"error": "Failed to remove workspace member"}), 500

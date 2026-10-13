@@ -27,6 +27,7 @@ import {
 } from '@mui/icons-material';
 import { StyledDialog } from '../common/StyledDialog';
 import { R2Image } from '../common/R2Image';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface NodeVerificationModalProps {
   isOpen: boolean;
@@ -45,6 +46,7 @@ export const NodeVerificationModal: React.FC<NodeVerificationModalProps> = ({
   onApprove,
   isUpdating
 }) => {
+  const P = useAgentChatPalette();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
   // Reset to grid view when modal opens
@@ -130,7 +132,7 @@ export const NodeVerificationModal: React.FC<NodeVerificationModalProps> = ({
                         borderColor: 'divider',
                         transition: 'all 0.2s',
                         '&:hover': {
-                          borderColor: 'primary.main',
+                          borderColor: P.accent,
                           bgcolor: 'action.hover',
                           transform: 'translateY(-2px)',
                           boxShadow: 2

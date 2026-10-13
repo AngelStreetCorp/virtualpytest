@@ -7,6 +7,8 @@ This module contains the script results management API endpoints for:
 """
 
 import json
+import logging
+import uuid
 
 from flask import Blueprint, jsonify, request
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
@@ -25,6 +27,8 @@ from backend_server.src.lib.utils.server_utils import get_host_manager
 
 # Create blueprint
 server_script_results_bp = Blueprint('server_script_results', __name__, url_prefix='/server/script-results')
+
+logger = logging.getLogger(__name__)
 
 # =====================================================
 # SCRIPT RESULTS ENDPOINTS
@@ -63,6 +67,16 @@ def get_all_script_results():
     # show awesomation's results and vice versa.
     registered_host_names = list(get_host_manager().get_all_hosts().keys())
 
+    # Run-governance filters (TASK-42), applied in the query before the limit.
+    governance_filters = {}
+    for name in ('milestone_id', 'run_group_id', 'label_id'):
+        value = (request.args.get(name) or '').strip()
+        if value:
+            try:
+                governance_filters[name] = str(uuid.UUID(value))
+            except ValueError:
+                return jsonify({'error': f'{name} must be a UUID'}), 400
+
     # Get script results from database (include all records for complete view)
     result = get_script_results(
         team_id,
@@ -72,6 +86,7 @@ def get_all_script_results():
         limit=limit,
         host_names=registered_host_names,
         host_filter=host_filter,
+        **governance_filters,
     )
     
     if result['success']:
@@ -118,9 +133,37 @@ def update_script_discard_status_route(script_result_id):
     success = update_script_discard_status(team_id, script_result_id, discard, discard_comment, check_type)
     
     if success:
+        _label_script_training_samples(script_result_id, discard, team_id)
         return jsonify({'status': 'success'})
     else:
         return jsonify({'error': 'Script result not found or failed to update'}), 404
+
+
+def _label_script_training_samples(script_result_id, discard, team_id):
+    """TASK-27 step 3a: a discarded script result means its verification verdicts were
+    wrong. Each training sample recorded for this result (``source_ref.script_result_id``)
+    whose ``model_answer`` carries a boolean ``verified`` gets the opposite as its human
+    label. Samples without a recorded verdict are skipped and logged. Best effort, never
+    raises, and never changes the route's response.
+    """
+    try:
+        if not discard or not team_id:
+            return
+        from shared.src.lib.ai import training_samples
+        from shared.src.lib.database import ai_training_samples_db as samples_db
+        if not training_samples.enabled():
+            return
+        samples = samples_db.get_samples_by_source_ref(team_id, 'script_result_id', script_result_id)
+        for sample in samples:
+            answer = sample.get('model_answer')
+            verdict = answer.get('verified') if isinstance(answer, dict) else None
+            if not isinstance(verdict, bool) or not sample.get('object_key'):
+                logger.info(f"[training] sample {sample.get('id')} of script result {script_result_id} "
+                            f"has no verification verdict or frame, skipped")
+                continue
+            training_samples.attach_ground_truth(sample['id'], team_id, {'verified': not verdict}, 'human')
+    except Exception as e:
+        logger.warning(f"[training] labelling samples of script result {script_result_id} failed: {e}")
 
 
 @server_script_results_bp.route('/getVerificationReviewMarkdown/<script_result_id>', methods=['GET'])

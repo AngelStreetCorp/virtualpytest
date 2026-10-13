@@ -1,0 +1,8 @@
+.token
+raw*/
+out/
+work/
+.youtube_client.json
+.youtube_token.json
+music/
+.promo_denylist

@@ -27,6 +27,7 @@ import {
 import React, { useCallback, useEffect, useState } from 'react';
 
 import { StyledDialog } from '../../../frontend/src/components/common/StyledDialog';
+import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
 import { useIsNativeApp } from '../../../frontend/src/hooks/useIsNativeApp';
 import { buildServerUrl } from '../../../frontend/src/utils/buildUrlUtils';
 import { PAIRING_CODE_RE, PAIRING_CODE_SEP, pairPayloadFromCode } from './hooks/useMobileApp';
@@ -108,6 +109,7 @@ export default function ThisPhonePage() {
 }
 
 function ThisPhoneNative() {
+  const P = useAgentChatPalette();
   const [status, setStatus] = useState<PhoneAgentStatus>(EMPTY_STATUS);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -151,7 +153,7 @@ function ThisPhoneNative() {
     : linkConnecting
       ? 'connecting'
       : 'down';
-  const LINK_COLOR = { streaming: '#4caf50', idle: '#ffb300', connecting: '#ffb300', down: '#9e9e9e' };
+  const LINK_COLOR = { streaming: P.success, idle: P.warning, connecting: P.warning, down: P.textMuted };
   const LINK_TEXT = {
     streaming: `connected · ${status.fps} fps`,
     idle: 'connected · not streaming',

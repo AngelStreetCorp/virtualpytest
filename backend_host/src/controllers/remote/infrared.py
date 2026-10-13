@@ -126,6 +126,7 @@ class IRRemoteController(RemoteControllerInterface):
         """Send IR key press command."""
         if not self.is_connected:
             print(f"Remote[{self.device_type.upper()}]: ERROR - Not connected")
+            self._record_send(False, 'IR remote not connected')
             return False
             
         key_upper = key.upper()
@@ -133,6 +134,7 @@ class IRRemoteController(RemoteControllerInterface):
         # Check if key is available in config
         if key_upper not in self.ir_available_keys:
             print(f"Remote[{self.device_type.upper()}]: Key '{key_upper}' not found")
+            self._record_send(False, f"Key '{key_upper}' not in {self.ir_config_file}")
             return False
             
         print(f"Remote[{self.device_type.upper()}]: Sending {key_upper}")
@@ -163,9 +165,12 @@ class IRRemoteController(RemoteControllerInterface):
             return {'success': True, 'status': self.get_ir_health()}
         else:
             print(f"Remote[{self.device_type.upper()}]: Unknown command: {command}")
-            success = False
+            return {'success': False, 'error': f'Unknown command: {command}'}
 
-        return {'success': success}
+        if success:
+            return {'success': True}
+        # The reason reaches the report ("no error details from controller" otherwise).
+        return {'success': False, 'error': self._last_send_error if key else 'No key given'}
 
     def get_ir_health(self) -> Dict[str, Any]:
         """

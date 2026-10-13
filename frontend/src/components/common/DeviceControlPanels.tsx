@@ -85,7 +85,7 @@ export const DeviceControlPanels: React.FC<DeviceControlPanelsProps> = ({
   const selectedDevice = selectedHost?.devices?.find((d: any) => d.device_id === selectedDeviceId);
   const deviceModel = selectedDevice?.device_model;
   const remoteCapability = selectedDevice?.device_capabilities?.remote;
-  const hasMultipleRemotes = Array.isArray(remoteCapability) || deviceModel === 'fire_tv';
+  const hasMultipleRemotes = Array.isArray(remoteCapability);
   const isDesktopDevice = deviceModel === 'host_vnc';
 
   // Calculate stream position based on sidebar state OR use custom position
@@ -93,6 +93,8 @@ export const DeviceControlPanels: React.FC<DeviceControlPanelsProps> = ({
   const defaultStreamLeft = isSidebarOpen ? `${sidebarWidth + 10}px` : '10px';
   const streamLeftPosition = customPosition?.left || defaultStreamLeft;
   const streamBottomPosition = customPosition?.bottom || `${footerHeight + 10}px`;
+  // A right anchor wins over the left one (picture-in-picture with no remote shown).
+  const streamRightPosition = customPosition?.right;
 
   return (
     <>
@@ -125,51 +127,6 @@ export const DeviceControlPanels: React.FC<DeviceControlPanelsProps> = ({
                 positionBottom={`${footerHeight + 10}px`}
               />
             </>
-          ) : hasMultipleRemotes && deviceModel === 'fire_tv' ? (
-            // Fire TV: AndroidTvRemote + InfraredRemote
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'row',
-                gap: 2,
-                position: 'absolute',
-                right: 10,
-                bottom: 20,
-                zIndex: 1000,
-                height: 'auto',
-              }}
-            >
-              <RemotePanel
-                host={selectedHost}
-                deviceId={selectedDeviceId}
-                deviceModel={deviceModel || 'fire_tv'}
-                remoteType="android_tv"
-                isConnected={isControlActive}
-                onReleaseControl={handleDisconnectComplete}
-                deviceResolution={DEFAULT_DEVICE_RESOLUTION}
-                streamCollapsed={isAVPanelCollapsed}
-                streamMinimized={isAVPanelMinimized}
-                streamHidden={showAVPanel}
-                captureMode={captureMode}
-                initialCollapsed={true}
-                useAbsolutePositioning={true}
-              />
-              <RemotePanel
-                host={selectedHost}
-                deviceId={selectedDeviceId}
-                deviceModel={deviceModel || 'fire_tv'}
-                remoteType="ir_remote"
-                isConnected={isControlActive}
-                onReleaseControl={handleDisconnectComplete}
-                deviceResolution={DEFAULT_DEVICE_RESOLUTION}
-                streamCollapsed={isAVPanelCollapsed}
-                streamMinimized={isAVPanelMinimized}
-                streamHidden={showAVPanel}
-                captureMode={captureMode}
-                initialCollapsed={true}
-                useAbsolutePositioning={true}
-              />
-            </Box>
           ) : hasMultipleRemotes ? (
             // Other devices with multiple remotes
             <Box
@@ -245,6 +202,7 @@ export const DeviceControlPanels: React.FC<DeviceControlPanelsProps> = ({
               useAbsolutePositioning={true}
               positionLeft={streamLeftPosition}
               positionBottom={streamBottomPosition}
+              positionRight={streamRightPosition}
               sx={avPanelSx}
             />
           ) : (
@@ -261,6 +219,7 @@ export const DeviceControlPanels: React.FC<DeviceControlPanelsProps> = ({
               useAbsolutePositioning={true}
               positionLeft={streamLeftPosition}
               positionBottom={streamBottomPosition}
+              positionRight={streamRightPosition}
               isLandscape={isMobileOrientationLandscape}
               sx={avPanelSx}
             />

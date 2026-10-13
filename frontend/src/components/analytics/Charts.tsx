@@ -42,12 +42,25 @@ const tooltipStyle = (mode: Mode) => ({
     background: chrome(mode).surface,
     border: `1px solid ${chrome(mode).grid}`,
     borderRadius: 6,
+    boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+    color: chrome(mode).text,
     fontSize: 11,
     padding: '6px 10px',
   },
   labelStyle: { color: chrome(mode).muted, fontSize: 10 },
   itemStyle: { padding: 0 },
 });
+
+/**
+ * Same tooltip, but the item text uses the chrome text colour instead of the mark's
+ * own fill. recharts colours each row by `entry.color`, which only reads on the
+ * tooltip surface when the mark is a saturated series colour — treemap cells are
+ * dark, surface-like blocks, so their name/value came out near-invisible.
+ */
+const tooltipStyleOnSurface = (mode: Mode) => {
+  const base = tooltipStyle(mode);
+  return { ...base, itemStyle: { ...base.itemStyle, color: chrome(mode).text } };
+};
 
 // ---------------------------------------------------------------------------
 // Horizontal bars — rankings, per-host resources
@@ -159,6 +172,8 @@ export interface StackedBarProps {
   height?: number;
   /** Shorten an ISO date to MM-DD for the axis. */
   shortenDates?: boolean;
+  /** Tooltip heading for an x value — e.g. the full release name behind a build number. */
+  tooltipLabel?: (x: string) => string;
 }
 
 export const StackedBar: React.FC<StackedBarProps> = ({
@@ -167,6 +182,7 @@ export const StackedBar: React.FC<StackedBarProps> = ({
   series,
   height = 170,
   shortenDates = true,
+  tooltipLabel,
 }) => {
   const mode = useMode();
   const tick = axisStyle(mode);
@@ -194,7 +210,11 @@ export const StackedBar: React.FC<StackedBarProps> = ({
           width={44}
           allowDecimals={false}
         />
-        <Tooltip cursor={{ fill: chrome(mode).track }} {...tooltipStyle(mode)} />
+        <Tooltip
+          cursor={{ fill: chrome(mode).track }}
+          {...tooltipStyle(mode)}
+          labelFormatter={tooltipLabel ? (v) => tooltipLabel(String(v)) : undefined}
+        />
         {series.length > 1 && (
           <Legend
             iconType="square"
@@ -415,7 +435,7 @@ export const CodeTreemap: React.FC<CodeTreemapProps> = ({ data, colors, height =
         isAnimationActive={false}
         content={<TreemapCellAdapter surface={chrome(mode).surface} colors={colors} />}
       >
-        <Tooltip {...tooltipStyle(mode)} />
+        <Tooltip {...tooltipStyleOnSurface(mode)} />
       </Treemap>
     </ResponsiveContainer>
   );

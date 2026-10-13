@@ -15,6 +15,8 @@ import time
 import asyncio
 from typing import Dict, Any, List, Tuple
 
+from shared.src.lib.utils.phase_timing import log_duration as _log_duration
+
 
 # We cannot import ensure_controller_loop here due to circular import
 # (playwright.py imports this mixin). Instead, we define it locally.
@@ -59,7 +61,13 @@ class PlaywrightVerificationsMixin:
         # Parse pipe-separated terms
         terms = [t.strip() for t in search_term.split('|')] if '|' in search_term else [search_term]
         start_time = time.time()
-        
+        polls = 0
+
+        def _log_wait(found: bool) -> None:
+            _log_duration('web.waitForElementToAppear', (time.time() - start_time) * 1000,
+                          f"term={search_term[:60]!r} found={found} polls={polls} timeout_s={timeout} "
+                          f"check_interval_s={check_interval}")
+
         # For timeout=0, do at least one check (single-shot mode)
         while True:
             elapsed = time.time() - start_time
@@ -69,6 +77,7 @@ class PlaywrightVerificationsMixin:
 
             # Try each term until one succeeds
             for term in terms:
+                polls += 1
                 try:
                     if remaining_timeout is not None:
                         result = await asyncio.wait_for(self.find_element(term), timeout=remaining_timeout)
@@ -77,6 +86,7 @@ class PlaywrightVerificationsMixin:
                 except asyncio.TimeoutError:
                     # Hard timeout reached during a single find operation.
                     elapsed = time.time() - start_time
+                    _log_wait(False)
                     return False, f"Element not found after {elapsed:.1f}s", {
                         'search_term': search_term,
                         'wait_time': elapsed,
@@ -84,6 +94,7 @@ class PlaywrightVerificationsMixin:
                     }
                 if result.get('success'):
                     elapsed = time.time() - start_time
+                    _log_wait(True)
                     return True, f"Element found after {elapsed:.1f}s", {
                         'search_term': search_term,
                         'successful_term': term,
@@ -102,11 +113,12 @@ class PlaywrightVerificationsMixin:
                     await asyncio.sleep(sleep_for)
             else:
                 break  # Single check mode
-        
+
         # Timeout
         elapsed = time.time() - start_time
+        _log_wait(False)
         return False, f"Element not found after {elapsed:.1f}s", {'search_term': search_term, 'wait_time': elapsed}
-    
+
     @ensure_controller_loop
     async def waitForElementToDisappear(self, search_term: str, timeout: float = 10.0, check_interval: float = 1.0) -> Tuple[bool, str, Dict[str, Any]]:
         """
@@ -435,8 +447,8 @@ class PlaywrightVerificationsMixin:
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=10.0,
-                        description="Maximum time to wait (seconds)"
+                        default=10000,
+                        description="Maximum time to wait (ms)"
                     ),
                     'check_interval': create_param(
                         ParamType.NUMBER,
@@ -464,8 +476,8 @@ class PlaywrightVerificationsMixin:
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=10.0,
-                        description="Maximum time to wait (seconds)"
+                        default=10000,
+                        description="Maximum time to wait (ms)"
                     ),
                     'check_interval': create_param(
                         ParamType.NUMBER,
@@ -493,8 +505,8 @@ class PlaywrightVerificationsMixin:
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=10.0,
-                        description="Maximum time to wait (seconds)"
+                        default=10000,
+                        description="Maximum time to wait (ms)"
                     ),
                     'check_interval': create_param(
                         ParamType.NUMBER,
@@ -584,7 +596,8 @@ class PlaywrightVerificationsMixin:
                         'extractedText': '',
                         'details': {'error': 'Missing title parameter'}
                     }
-                timeout = float(params.get('timeout', 10.0))
+                # `timeout` is MILLISECONDS on the wire; the wait loops run in seconds.
+                timeout = float(params.get('timeout', 10000)) / 1000.0
                 check_interval = float(params.get('check_interval', 1.0))
                 if timeout < 0:
                     timeout = 0.0
@@ -630,9 +643,9 @@ class PlaywrightVerificationsMixin:
                     'details': {'error': 'Missing search_term parameter'}
                 }
             
-            # Optional parameters with defaults (SECONDS)
-            # Align units with other controllers (Text/Image/ADB use seconds)
-            timeout = float(params.get('timeout', 10.0))
+            # `timeout` is MILLISECONDS on the wire (same as every other verification);
+            # the wait loops below run in seconds, so convert at the boundary.
+            timeout = float(params.get('timeout', 10000)) / 1000.0
             check_interval = float(params.get('check_interval', 1.0))
 
             # Normalize bounds

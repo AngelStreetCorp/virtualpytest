@@ -1,0 +1,13 @@
+{
+  "name": "companion",
+  "description": "Live-TV companion (TASK-05): tells what is on a device's screen (screen type, content category, programme) with zero setup, looks up facts about the programme on the web (lineups, cast, synopsis...) and tracks live values (soccer/rugby/basketball score + events via the Labox match card; film/series time left). Parts: vpt-companion host service (backend_host/companion_monitor.py, reads capture files only, writes <metadata>/companion.json), /host/companion/latest and /server/companion/latest, the strip under the live video (frontend), category profiles + trackers (lib/), AI usage keys vision.companion, vision.companion.roi, text.web.companion. Experimental, off by default: the unit ships ENABLE_COMPANION=false (enable per host with a systemd drop-in, like ENABLE_TRANSCRIPTION), then per device DEVICE{N}_COMPANION=true. NOT this feature: web-grounded AI calls (text.web, the 'web' capability) and the 'content-type' training family are core. Core hooks (README.md 'Core hooks'): usages.register(), the videoOverlays slot in config/features.ts + EnhancedHLSPlayer.",
+  "parts": [
+    "backend_server",
+    "backend_host",
+    "frontend",
+    "lib"
+  ],
+  "units": [
+    "companion"
+  ]
+}

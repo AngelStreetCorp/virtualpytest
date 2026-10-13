@@ -202,8 +202,15 @@ directly in your R2 bucket settings if you need automatic expiry.
 
 Live streaming and capture run through FFmpeg on the host
 (`backend_host/scripts/run_ffmpeg.sh`), with runtime-tunable parameters (adaptive fps,
-restart-only tuning) rather than a checked-in HLS/encoding YAML config file. There is no
-documented GPU/NVENC hardware-encoding path in the current implementation.
+restart-only tuning) rather than a checked-in HLS/encoding YAML config file.
+
+**Hardware acceleration (VAAPI).** On a host with an Intel or AMD GPU that exposes H.264 encode
+through VAAPI, the HLS stream is encoded on the GPU (`h264_vaapi`), and network sources
+(RTSP / HLS / video files) are also decoded on it. The capture pipeline detects this by itself
+at startup. Without it (e.g. Raspberry Pi 5) it uses software `libx264`. Captures and
+thumbnails are always produced on the CPU. To enable it, install the VAAPI driver, plus
+`vainfo` and, on AMD, `firmware-amd-graphics`, then restart the stream service. NVIDIA NVENC
+is not supported.
 
 ---
 

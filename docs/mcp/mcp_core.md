@@ -12,7 +12,7 @@
 
 ## 🎯 Core Capabilities
 
-The MCP server exposes **75 tools** for complete device automation:
+The MCP server exposes **77 tools** for complete device automation:
 
 ### 🔐 **Control Tools** (CRITICAL - MUST BE FIRST)
 - **`take_control`** - Lock device & generate navigation cache (REQUIRED FIRST)
@@ -33,12 +33,14 @@ The MCP server exposes **75 tools** for complete device automation:
 - **`save_testcase`** - Save test case graph to database
 - **`list_testcases`** - List all saved test cases
 - **`load_testcase`** - Load saved test case by ID
-- **`execute_testcase`** - Run complete test cases from graph JSON (async; MCP waits for completion)
-- **`execute_testcase_by_id`** - Load and execute saved test case in one call (convenience wrapper)
+- **`execute_testcase`** - Start a test case; returns its `execution_id` at once (does not wait)
+- **`get_testcase_execution_status`** - Read a test case run; waits up to `wait_seconds` (max 50) for it to end
+- **`execute_testcase_by_id`** - Load and start a saved test case in one call (deprecated wrapper)
 
 ### 🐍 **Script Tools**
 - **`list_scripts`** - List all available Python scripts
-- **`execute_script`** - Execute Python scripts with CLI parameters (async; MCP waits for completion)
+- **`execute_script`** - Start a Python script with CLI parameters; returns its `execution_id` at once (does not wait)
+- **`get_script_execution_status`** - Read a script run; waits up to `wait_seconds` (max 50) for it to end
 
 ### 🤖 **AI Tools**
 - **`generate_test_graph`** - Generate tests from natural language (handles disambiguation)
@@ -47,7 +49,18 @@ The MCP server exposes **75 tools** for complete device automation:
 - **`capture_screenshot`** - Capture screenshots for AI vision analysis (returns base64)
 
 ### 📝 **Transcript Tools**
-- **`get_transcript`** - Fetch audio transcripts with translation
+- **`get_transcript`** - Transcript of a device for the last `minutes` (default 10, max 120) or an
+  `hour` [+ `chunk_index`], and **why it is empty** when it is. `device_id` + `host_name` required.
+  Returns a summary line + JSON: `status` (`ok` | `unavailable` | `empty` | `error`), `reason`,
+  `message`, `transcription_enabled`, `service_active`, `audio`, `window`, `language`,
+  `segments [{time, text}]`, `text`. `unavailable` = host not set up to transcribe
+  (`service_inactive`, `transcription_disabled`); `empty` = nothing to transcribe
+  (`no_audio_stream`, `silent_audio`, `no_speech`, `no_audio_recorded`, `processing_pending`);
+  `error` = a real fault (`audio_status_missing`, `audio_check_stale`, `transcription_mode_unknown`,
+  `mp3_missing`, `transcript_missing`, `host_not_found`, `host_unreachable`, `request_failed`) and is returned as an
+  MCP error. Path: `/server/transcript/status` (auto proxy, `call_host()`) ->
+  `/host/transcript/status` (`backend_host/src/lib/utils/transcript_status.py`). No translation
+  (the former `target_language` never worked, BUG-0293).
 
 ### ℹ️ **Device & System Tools**
 - **`get_device_info`** - Get device capabilities and status
@@ -260,7 +273,7 @@ verify_device_state({
     "userinterface_name": "example_mobile",
     "verifications": [{
         "command": "waitForElementToAppear",
-        "params": {"search_term": "Replay", "timeout": 5},
+        "params": {"search_term": "Replay", "timeout": 5000},
         "verification_type": "adb"
     }]
 })
@@ -400,21 +413,28 @@ class ErrorCategory(str, Enum):
 
 ## 🔄 Async Execution Completion
 
-Long-running operations return `execution_id`:
+Actions, navigation and verifications are short: their tools wait for the end of the run.
+
+Test cases and scripts can run for minutes or hours, so their tools return an `execution_id` at
+once and a status tool reads the run. A single MCP call never stays open for a whole run, which a
+proxy in front of the server would cut off (Cloudflare answers 524 after 100 s).
 
 ```python
-# Execute action
-result = execute_device_action({...})
-execution_id = result['execution_id']
+run = execute_testcase({"testcase_name": "Home Verification", "host_name": "host1", "device_id": "device1"})
+execution_id = run["structuredContent"]["execution_id"]
 
-# Optional compatibility fallback status lookup
-status = get_execution_status({
-    "execution_id": execution_id,
-    "operation_type": "action"  # or 'testcase', 'ai'
-})
+status = get_testcase_execution_status({"execution_id": execution_id, "host_name": "host1"})
+while not status["structuredContent"]["done"]:      # each call waits up to wait_seconds (default 20, max 50)
+    status = get_testcase_execution_status({"execution_id": execution_id, "host_name": "host1"})
 
-# status: 'running', 'completed', 'failed'
+status["structuredContent"]["status"]   # completed | failed | aborted
+status["structuredContent"]["passed"]   # True / False
 ```
+
+Scripts: `execute_script` + `get_script_execution_status({"execution_id": ...})`, same shape.
+Status shape and rules: [TestCase Tools](mcp_tools_testcase.md#get_testcase_execution_status).
+
+`get_execution_status` remains for other async operations (`operation_type`: `action`, `ai`).
 
 ---
 

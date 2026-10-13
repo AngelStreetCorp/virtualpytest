@@ -491,38 +491,13 @@ def invalidate_navigation_cache(tree_id):
         }), 400
         
     print(f"[@route:server_navigation:invalidate_navigation_cache] Invalidating cache for tree {tree_id}")
-        
-    # Get all hosts and clear cache on each
-    from backend_server.src.lib.utils.server_utils import get_host_manager
-    from backend_server.src.lib.utils.route_utils import proxy_to_host_direct
-        
-    host_manager = get_host_manager()
-    # get_all_hosts() returns {host_name: host_info}; iterate the host_info
-    # dicts (matching update-edge/update-node). Iterating the dict directly
-    # yields host-name strings, which breaks proxy_to_host_direct + host.get().
-    hosts = list(host_manager.get_all_hosts().values())
 
-    results = []
-    for host in hosts:
-        try:
-            result, _ = proxy_to_host_direct(
-                host,
-                f'/host/navigation/cache/clear/{tree_id}?team_id={team_id}',
-                'POST'
-            )
-            results.append({
-                'host': host.get('host_name'),
-                'success': result.get('success', False) if result else False
-            })
-            print(f"[@route:server_navigation:invalidate_navigation_cache] Cache cleared on {host.get('host_name')}")
-        except Exception as e:
-            print(f"[@route:server_navigation:invalidate_navigation_cache] Failed for {host.get('host_name')}: {e}")
-            results.append({
-                'host': host.get('host_name'),
-                'success': False,
-                'error': str(e)
-            })
-        
+    from .server_navigation_trees_routes import clear_tree_cache_on_hosts
+    results = clear_tree_cache_on_hosts(tree_id, team_id)
+    for r in results:
+        print(f"[@route:server_navigation:invalidate_navigation_cache] {r['host']}: "
+              f"{'cleared' if r['success'] else 'failed - ' + str(r['error'])}")
+
     return jsonify({
         'success': True,
         'message': f'Cache invalidation requested for tree {tree_id}',

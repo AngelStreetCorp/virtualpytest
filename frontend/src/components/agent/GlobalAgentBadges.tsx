@@ -325,7 +325,8 @@ export const GlobalAgentBadges: React.FC = () => {
   const autoAgents = new Set(autoTasks.filter(t => !manualAgents.has(t.agentId)).map(t => t.agentId));
 
   if (Object.keys(activities).length === 0) {
-    console.log('🎯 GlobalAgentBadges: No activities to display');
+    // No log here: this early return runs on every render of this app-root component, so a
+    // console.log above it printed once per render. The render log below is the useful one.
     return null;
   }
   

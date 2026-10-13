@@ -18,6 +18,8 @@ import { useNavigationConfig } from '../../contexts/navigation/NavigationConfigC
 import { useUserInterface } from './useUserInterface';
 import { useTestCaseBuilder } from '../../contexts/testcase/TestCaseBuilderContext';
 import { useTestCaseAI } from '../testcase';
+import { useAIGraphEdit, AIEditControls } from '../testcase/useAIGraphEdit';
+import { TestCaseGraph } from '../../types/testcase/TestCase_Types';
 import { filterCompatibleInterfaces } from '../../utils/userinterface/deviceCompatibilityUtils';
 import { buildToolboxFromNavigationData } from '../../utils/toolboxBuilder';
 import { useBuilder } from '../../contexts/builder/useBuilder';
@@ -62,6 +64,7 @@ export interface UseTestCaseBuilderPageReturn {
   setAiPrompt: (prompt: string) => void;
   isGenerating: boolean;
   handleGenerateWithAI: () => Promise<void>;
+  aiEdit: AIEditControls;
   
   // Test Case Operations
   testcaseName: string;
@@ -324,10 +327,13 @@ export function useTestCaseBuilderPage(): UseTestCaseBuilderPageReturn {
 
   // Load compatible interfaces - using shared compatibility logic
   useEffect(() => {
+    // A newer run (device or interface changed meanwhile) supersedes this one.
+    let cancelled = false;
     const loadCompatibleInterfaces = async () => {
       if (!selectedDeviceId || !selectedHost) {
+        // Keep userinterfaceName: a loaded testcase (?testcase=, Load) sets it before a device
+        // is picked, and clearing it here made the device's first interface win (BUG-0231).
         setCompatibleInterfaceNames([]);
-        setUserinterfaceName('');
         return;
       }
       
@@ -340,6 +346,7 @@ export function useTestCaseBuilderPage(): UseTestCaseBuilderPageReturn {
         }
         
         const interfaces = await getAllUserInterfaces();
+        if (cancelled) return;
         
         // Use shared compatibility utility
         const compatibleInterfaces = filterCompatibleInterfaces(interfaces, selectedDevice);
@@ -357,6 +364,9 @@ export function useTestCaseBuilderPage(): UseTestCaseBuilderPageReturn {
     };
     
     loadCompatibleInterfaces();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedDeviceId, selectedHost, getAllUserInterfaces, userinterfaceName, setUserinterfaceName]);
   
   // Load navigation tree
@@ -514,12 +524,15 @@ export function useTestCaseBuilderPage(): UseTestCaseBuilderPageReturn {
   //   }
   // }, [loadDialogOpen, fetchTestCaseList]);
   
-  // ==================== AUTO-LOAD FROM SESSION STORAGE ====================
-  // Auto-load testcase from TestCaseEditor if stored in sessionStorage
+  // ==================== AUTO-LOAD FROM SESSION STORAGE / URL ====================
+  // Auto-load a testcase from the TestCaseEditor (sessionStorage) or from a link
+  // (?testcase=<id>: Test Prompt's "Open in Test Builder", agent chat)
   useEffect(() => {
     if (hasCheckedSessionStorage.current) return;
     
-    const testcaseToLoad = sessionStorage.getItem('testcase_to_load');
+    const testcaseToLoad =
+      new URLSearchParams(window.location.search).get('testcase') ||
+      sessionStorage.getItem('testcase_to_load');
     if (testcaseToLoad) {
       console.log('[@useTestCaseBuilderPage] Auto-loading testcase from sessionStorage:', testcaseToLoad);
       hasCheckedSessionStorage.current = true;
@@ -695,6 +708,68 @@ export function useTestCaseBuilderPage(): UseTestCaseBuilderPageReturn {
     await performAIGeneration();
   }, [aiPrompt, userinterfaceName, selectedHost, hasUnsavedChanges, nodes.length, currentTestcaseId, showSnackbar]);
 
+  // Put an AI graph on the canvas with a vertical auto-layout (generation and prompt edit).
+  // The builder's history records the change, so Undo restores the previous graph.
+  const loadGraphOntoCanvas = useCallback(async (graph: TestCaseGraph) => {
+    const loadedNodes = graph.nodes.map((node: any) => ({
+      id: node.id,
+      type: node.type as any,
+      position: node.position,
+      data: node.data
+    }));
+    const loadedEdges = graph.edges.map((edge: any) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourceHandle,
+      type: edge.type as any,
+      style: {
+        stroke: edge.type === 'success' ? '#10b981' : '#ef4444',
+        strokeWidth: 2
+      }
+    }));
+    const { getLayoutedElements } = await import('../../components/testcase/ai/autoLayout');
+    const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
+      loadedNodes,
+      loadedEdges,
+      { direction: 'TB' } // Force vertical layout
+    );
+    setNodes(layoutedNodes);
+    setEdges(layoutedEdges);
+  }, [setNodes, setEdges]);
+
+  // ==================== AI EDIT (TASK-36 §3) ====================
+  // "Edit open graph": a prompt changes the canvas' step-list graph; the proposal is
+  // reviewed in the AI tab and applied onto the canvas.
+  const [aiEditMode, setAiEditMode] = useState<'new' | 'edit'>('new');
+  const aiGraphEdit = useAIGraphEdit({
+    hostName: selectedHost?.host_name,
+    deviceId: selectedDeviceId,
+    userinterfaceName,
+  });
+  const handleProposeAIEdit = useCallback(() => {
+    aiGraphEdit.proposeEdit(aiPrompt, {
+      nodes: nodes.map((n: any) => ({ id: n.id, type: n.type, position: n.position, data: n.data })),
+      edges: edges.map((e: any) => ({ id: e.id, source: e.source, target: e.target, sourceHandle: e.sourceHandle, type: e.type })),
+    } as TestCaseGraph);
+  }, [aiGraphEdit, aiPrompt, nodes, edges]);
+  const handleApplyAIEdit = useCallback(async () => {
+    if (!aiGraphEdit.proposal) return;
+    await loadGraphOntoCanvas(aiGraphEdit.proposal.graph);
+    aiGraphEdit.clear();
+    setCreationMode('visual');
+  }, [aiGraphEdit, loadGraphOntoCanvas, setCreationMode]);
+  const aiEdit: AIEditControls = {
+    mode: aiEditMode,
+    setMode: setAiEditMode,
+    isEditing: aiGraphEdit.isEditing,
+    proposal: aiGraphEdit.proposal,
+    error: aiGraphEdit.error,
+    propose: handleProposeAIEdit,
+    apply: handleApplyAIEdit,
+    cancel: aiGraphEdit.clear,
+  };
+
   const performAIGeneration = useCallback(async () => {
     setIsGenerating(true);
     
@@ -722,36 +797,7 @@ export function useTestCaseBuilderPage(): UseTestCaseBuilderPageReturn {
       }
       
       if (result.success && result.graph) {
-        // Load graph onto ReactFlow canvas (like loading a test case)
-        const loadedNodes = result.graph.nodes.map((node: any) => ({
-          id: node.id,
-          type: node.type as any,
-          position: node.position,
-          data: node.data
-        }));
-        
-        const loadedEdges = result.graph.edges.map((edge: any) => ({
-          id: edge.id,
-          source: edge.source,
-          target: edge.target,
-          sourceHandle: edge.sourceHandle,
-          type: edge.type as any,
-          style: { 
-            stroke: edge.type === 'success' ? '#10b981' : '#ef4444',
-            strokeWidth: 2
-          }
-        }));
-        
-        // 🆕 AUTO-LAYOUT: Apply vertical layout immediately after AI generation
-        const { getLayoutedElements } = await import('../../components/testcase/ai/autoLayout');
-        const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-          loadedNodes,
-          loadedEdges,
-          { direction: 'TB' } // Force vertical layout
-        );
-        
-        setNodes(layoutedNodes);
-        setEdges(layoutedEdges);
+        await loadGraphOntoCanvas(result.graph);
         
         // Store the generation result for the result panel
         setAiGenerationResult(result);
@@ -769,7 +815,7 @@ export function useTestCaseBuilderPage(): UseTestCaseBuilderPageReturn {
       setIsGenerating(false);
       setAiGenerateConfirmOpen(false); // Close dialog after generation
     }
-  }, [aiPrompt, userinterfaceName, selectedHost, selectedDeviceId, setNodes, setEdges, setTestcaseName, setDescription, generateTestCaseFromPrompt, setCreationMode, showSnackbar]);
+  }, [aiPrompt, userinterfaceName, selectedHost, selectedDeviceId, loadGraphOntoCanvas, setTestcaseName, setDescription, generateTestCaseFromPrompt, setCreationMode, showSnackbar]);
   
   const handleConfirmAIGenerate = useCallback(() => {
     performAIGeneration();
@@ -881,6 +927,7 @@ export function useTestCaseBuilderPage(): UseTestCaseBuilderPageReturn {
     setAiPrompt,
     isGenerating,
     handleGenerateWithAI,
+    aiEdit,
     
     // Test Case Operations
     testcaseName,

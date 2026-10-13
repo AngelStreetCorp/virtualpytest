@@ -1,6 +1,7 @@
 import { Box, CircularProgress, Tooltip, Typography } from '@mui/material';
 import React, { useMemo, useState } from 'react';
 
+import { useAgentChatPalette } from '../../../../frontend/src/constants/agentChatTheme';
 import { AVQFrame, AVQFrameMeta, useAVQFrames } from '../hooks/useAVQFrames';
 
 interface AVQFrameStripProps {
@@ -23,12 +24,14 @@ const CHUNK_MS = 600_000; // 10-min metadata chunk
 const NEAR_S = 10; // load the adjacent chunk when within this many seconds of an edge
 
 // Per-frame defect → border color (mirrors AVQTimeline INCIDENT_COLORS; clean = green).
-const borderColor = (m: AVQFrameMeta): string =>
-  m.blackscreen ? '#000000'
-    : m.freeze ? '#f44336'
-    : m.macroblocks ? '#9c27b0'
-    : m.audio === false ? '#ff9800'
-    : '#4caf50';
+// palette: drawn as a border ring around an archived still — use the static palette so it
+// reads the same on both themes.
+const borderColor = (m: AVQFrameMeta, P: ReturnType<typeof useAgentChatPalette>): string =>
+  m.blackscreen ? '#000000' // palette: drawn as the ring around a black-screen still — keep solid black
+    : m.freeze ? P.error
+    : m.macroblocks ? P.series[2]
+    : m.audio === false ? P.warning
+    : P.success;
 
 const defectLabel = (m: AVQFrameMeta): string | null =>
   m.blackscreen ? `BLACK ${Math.round(m.blackscreen_percentage)}%`
@@ -53,6 +56,7 @@ export const AVQFrameStrip: React.FC<AVQFrameStripProps> = ({
   selectedEpoch,
   onSelect,
 }) => {
+  const P = useAgentChatPalette();
   // Load the center chunk, plus the adjacent chunk only when near an edge (so ±2
   // can reach into the neighbouring 10-min window). Hooks are called unconditionally;
   // a null target makes useAVQFrames return [] without fetching.
@@ -115,7 +119,7 @@ export const AVQFrameStrip: React.FC<AVQFrameStripProps> = ({
       <Box sx={{ display: 'flex', gap: `${GAP}px`, justifyContent: 'center', overflow: 'hidden' }}>
         {strip.map((f) => {
           const isSelected = selectedEpoch != null && Math.abs(f.epochMs - selectedEpoch) < 500;
-          const bc = borderColor(f.meta);
+          const bc = borderColor(f.meta, P);
           const label = defectLabel(f.meta);
           return (
             <Box
@@ -139,8 +143,8 @@ export const AVQFrameStrip: React.FC<AVQFrameStripProps> = ({
                     borderRadius: 0.5,
                     overflow: 'hidden',
                     border: isSelected ? '4px solid' : '3px solid',
-                    borderColor: isSelected ? '#ffeb3b' : bc,
-                    boxShadow: isSelected ? '0 0 0 2px #ffeb3b' : 'none',
+                    borderColor: isSelected ? P.accent : bc,
+                    boxShadow: isSelected ? `0 0 0 2px ${P.accent}` : 'none',
                     boxSizing: 'border-box',
                   }}
                 >
@@ -157,7 +161,7 @@ export const AVQFrameStrip: React.FC<AVQFrameStripProps> = ({
                 sx={{
                   display: 'block',
                   fontSize: '0.7rem',
-                  color: isSelected ? '#ffeb3b' : label ? bc : 'text.secondary',
+                  color: isSelected ? P.accentText : label ? bc : P.textMuted,
                   fontWeight: isSelected || label ? 700 : 400,
                   lineHeight: 1.5,
                 }}

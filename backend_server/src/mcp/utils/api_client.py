@@ -83,16 +83,21 @@ class MCPAPIClient:
             params={'team_id': team_id}
         )
 
-        if not ui_result.get('success'):
-            return None, f"Failed to fetch userinterface: {ui_result.get('error', 'Unknown error')}"
+        # The route answers with the bare userinterface dict ({id, name, models,
+        # ...}), not {success, data}; only this client's own error wrapper
+        # carries success=False. Reading 'success' made every call fail with
+        # "Failed to fetch userinterface: Unknown error".
+        if not isinstance(ui_result, dict) or ui_result.get('success') is False or not ui_result.get('id'):
+            error = ui_result.get('error') if isinstance(ui_result, dict) else None
+            return None, f"Failed to fetch userinterface: {error or 'not found'}"
 
-        ui_data = ui_result.get('data', {})
-        models = ui_data.get('models', [])
+        models = ui_result.get('models') or []
         device_model = models[0] if models else 'unknown'
 
         return device_model, None
     
-    def post(self, endpoint: str, data: Dict[str, Any] = None, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def post(self, endpoint: str, data: Dict[str, Any] = None, params: Dict[str, Any] = None,
+             timeout: Optional[float] = None) -> Dict[str, Any]:
         """
         POST request to backend_server API
         
@@ -100,11 +105,14 @@ class MCPAPIClient:
             endpoint: API endpoint (e.g., '/server/control/takeControl')
             data: JSON body
             params: Query parameters (e.g., {'team_id': 'xxx'})
+            timeout: Read timeout in seconds for this call (default self.timeout = 30 s).
+                Routes that block on a host for longer (navigation execute) pass their own.
             
         Returns:
             Raw API response dict with 'success', 'error', and data fields
         """
         url = f"{self.base_url}{endpoint}"
+        read_timeout = timeout or self.timeout
         
         try:
             response = requests.post(
@@ -112,7 +120,7 @@ class MCPAPIClient:
                 headers=server_auth_headers(),
                 json=data or {},
                 params=params or {},
-                timeout=self.timeout
+                timeout=read_timeout
             )
             
             # Return raw JSON response
@@ -136,7 +144,7 @@ class MCPAPIClient:
         except requests.exceptions.Timeout:
             return {
                 'success': False,
-                'error': f'Request timeout ({self.timeout}s)',
+                'error': f'Request timeout ({read_timeout}s)',
                 'timeout': True
             }
         except requests.exceptions.RequestException as e:

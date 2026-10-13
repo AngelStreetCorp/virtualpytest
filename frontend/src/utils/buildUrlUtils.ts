@@ -94,8 +94,24 @@ export const getServerBaseUrl = (): string => {
 export const buildServerUrl = (endpoint: string): string => {
   const serverUrl = getServerBaseUrl();
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-  const url = `${serverUrl}/${cleanEndpoint}`;
-  
+  let url = `${serverUrl}/${cleanEndpoint}`;
+
+  // Idempotent team_id: see buildServerUrlForServer above. Strips any existing
+  // team_id before re-appending, so callers that pass a URL we just built don't
+  // double-up the query parameter on every navigation (TASK-66).
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('team_id');
+    // u.toString(), never u.pathname + u.search + u.hash: that concatenation keeps
+    // everything EXCEPT the origin, and a path-only URL is resolved by the browser
+    // against the page's own host. Every cross-server call then silently went to
+    // whichever server served the page — the server picker listed the primary's name
+    // once per configured server (BUG-0430).
+    url = u.toString();
+  } catch {
+    // not a parseable absolute URL — leave as-is and fall through to the append
+  }
+
   // Always add team_id to all server URLs
   return `${url}${url.includes('?') ? '&' : '?'}team_id=${APP_CONFIG.DEFAULT_TEAM_ID}`;
 };
@@ -105,7 +121,7 @@ export const buildServerUrl = (endpoint: string): string => {
 // side with no matching change on the other either mints a useless cookie (harmless) or lets
 // a real request through ungated (a hole), so treat drift here as a security review item.
 const GATED_HOST_PATH_RE =
-  /\/host\/([^/]+)\/(?:vnc_lite\.html|websockify|vnc\/|core\/|vendor\/|include\/|app\/|utils\/|stream\/)/;
+  /\/host\/([^/]+)\/(?:vnc_lite\.html|websockify|vnc\/|core\/|vendor\/|include\/|app\/|utils\/|stream\/|whep\/)/;
 
 /** Whether `url` is proxied through a path the proxy's auth_request gate covers. */
 export const isGatedHostPath = (url: string | null | undefined): boolean =>
@@ -130,8 +146,19 @@ export const ensureHostSession = async (url: string): Promise<boolean> => {
   if (!match) return true;
   const hostName = match[1];
 
+  // Mint at the gated URL's own origin, not the selected server: the cookie is only sent to
+  // (and only validated by) the proxy that serves the URL. A relative `/host/...` URL resolves
+  // against the page, whichever server is selected.
+  let mintUrl: string;
   try {
-    const response = await fetch(buildServerUrl('/server/host-session/session'), {
+    const origin = new URL(url, window.location.origin).origin;
+    mintUrl = `${origin}/server/host-session/session?team_id=${APP_CONFIG.DEFAULT_TEAM_ID}`;
+  } catch {
+    return false;
+  }
+
+  try {
+    const response = await fetch(mintUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
@@ -141,6 +168,16 @@ export const ensureHostSession = async (url: string): Promise<boolean> => {
   } catch {
     return false;
   }
+};
+
+/**
+ * window.open() for a host URL (a capture opened in a new tab): a top-level navigation is not
+ * an <img>, so installHostImageSession never sees its 401 — mint the cookie before opening.
+ * The mint takes well under the browser's 5 s user-activation window, so the tab still opens.
+ */
+export const openHostUrl = async (url: string): Promise<void> => {
+  await ensureHostSession(url);
+  window.open(url, '_blank');
 };
 
 /**
@@ -287,14 +324,31 @@ const isValidServerUrl = (url: string): boolean => {
 };
 
 /**
+ * One server, one entry.
+ *
+ * `<url>`, `<url>/`, `<url>/server` and any letter case are the same server — the
+ * `/server` suffix is already collapsed by `normalizeServerUrl` above, which makes a
+ * slave list containing `<primary>/server` a literal duplicate of the primary. Before
+ * this, such a duplicate became a second row in the server picker AND a second identical
+ * `/getAllHosts` request on every refresh round (BUG-0431). First spelling wins, so the
+ * URL a deployment configured is the one that ends up in state, localStorage and the
+ * links built from it.
+ */
+const serverIdentityKey = (url: string): string =>
+  normalizeServerUrl(url).replace(/\/+$/, '').toLowerCase();
+
+/**
  * Get all configured server URLs (primary + slaves)
  * Reads VITE_SERVER_URL and VITE_SLAVE_SERVER_URL
- * 
+ *
  * Smart parsing handles multiple formats:
  * - Comma-separated: "url1,url2"
  * - JSON array: ["url1", "url2"]
  * - Stringified array: '["url1", "url2"]' or "['url1', 'url2']"
  * - Single URL: "url1"
+ *
+ * Duplicates are removed, keeping the configured order (the picker and the fetch both
+ * depend on it) — see `serverIdentityKey`.
  */
 export const getAllServerUrls = (): string[] => {
   const urls: string[] = [];
@@ -320,7 +374,13 @@ export const getAllServerUrls = (): string[] => {
     urls.push(normalizeServerUrl(SERVER_CONFIG.DEFAULT_URL));
   }
 
-  return urls;
+  const seen = new Set<string>();
+  return urls.filter((url) => {
+    const key = serverIdentityKey(url);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 };
 
 /**
@@ -346,10 +406,27 @@ export const buildServerUrlForServer = (serverUrl: string, endpoint: string): st
 
   // Normalize URL to prevent duplicate /server/server/...
   normalizedServerUrl = normalizeServerUrl(normalizedServerUrl);
-  
+
   const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
-  const url = `${normalizedServerUrl}/${cleanEndpoint}`;
-  
+  let url = `${normalizedServerUrl}/${cleanEndpoint}`;
+
+  // Idempotent team_id: if the input already carries a team_id (e.g. a previous
+  // caller wrapped a URL we just built), strip it before re-appending. Without
+  // the strip every navigation through buildServerUrl re-appends and the CI
+  // report links accumulate `?team_id=...&team_id=...&team_id=...` (TASK-66).
+  try {
+    const u = new URL(url);
+    u.searchParams.delete('team_id');
+    // u.toString(), never u.pathname + u.search + u.hash: that concatenation keeps
+    // everything EXCEPT the origin, and a path-only URL is resolved by the browser
+    // against the page's own host. Every cross-server call then silently went to
+    // whichever server served the page — the server picker listed the primary's name
+    // once per configured server (BUG-0430).
+    url = u.toString();
+  } catch {
+    // not a parseable absolute URL — leave as-is and fall through to the append
+  }
+
   // Always add team_id to all server URLs
   return `${url}${url.includes('?') ? '&' : '?'}team_id=${APP_CONFIG.DEFAULT_TEAM_ID}`;
 };
@@ -476,6 +553,33 @@ export const buildCaptureUrl = (host: any, timestamp: string, deviceId?: string)
   // Get device-specific capture path
   const capturePath = getDeviceCaptureUrlPath(host, deviceId);
   return internalBuildHostUrl(host, `host${capturePath}/capture_${timestamp}.jpg`);
+};
+
+/**
+ * Build URL for the device's latest-frame snapshot served at
+ * `/host/<name>/stream/<capture-folder>/thumbnails/latest.jpg`. Each grabber
+ * in `run_ffmpeg.sh` writes this file 5x/s on top of the existing per-frame
+ * thumbnails, so polling it (TASK-48) is ~12× cheaper than a stream and
+ * avoids per-tile HLS players above 16 tiles.
+ *
+ * Resolves the capture folder the same way `buildCaptureUrl` does — through
+ * `getDeviceCaptureUrlPath(host, deviceId)` and stripping its trailing
+ * `/captures` — so VNC devices (whose `video_stream_path` is a vnc_lite.html
+ * page, not a capture folder) still pick up the right folder from
+ * `video_capture_path`. The host-session cookie must be minted first by the
+ * caller (see `useLatestSnapshot` + `useHostSession`).
+ */
+export const buildLatestSnapshotUrl = (host: any, deviceId: string): string => {
+  if (!deviceId) {
+    throw new Error('deviceId is required for buildLatestSnapshotUrl');
+  }
+  const capturePath = getDeviceCaptureUrlPath(host, deviceId);
+  // capturePath ends with `/captures`; the capture folder is everything before
+  // that suffix. Empty guard avoids a leading slash from disappearing.
+  const captureFolder = capturePath.endsWith('/captures')
+    ? capturePath.slice(0, -'/captures'.length)
+    : capturePath;
+  return internalBuildHostUrl(host, `host${captureFolder}/thumbnails/latest.jpg`);
 };
 
 /**
@@ -1017,10 +1121,11 @@ export const buildRunningLogUrl = (
 export const getStreamMediaSequence = async (host: any, deviceId: string): Promise<number> => {
   try {
     const manifestUrl = buildStreamUrl(host, deviceId);
+    // No custom headers: Cache-Control/Pragma trigger a CORS preflight that host
+    // nginx rejects (allows only Content-Type, Range). no-store + ?_t= bust suffice.
     const response = await fetchHostMedia(`${manifestUrl}?_t=${Date.now()}`, {
       method: 'GET',
       cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', Pragma: 'no-cache' },
     });
     if (!response.ok) return -1;
     const text = await response.text();
@@ -1084,15 +1189,12 @@ export const pollForFreshStream = (
     );
 
     try {
-      // Add timestamp to prevent caching
+      // Timestamp + no-store prevent caching. No custom headers (see getStreamMediaSequence):
+      // a CORS-rejected preflight made every poll fail until the 15s timeout.
       const cacheBustUrl = `${manifestUrl}?_t=${Date.now()}`;
-      const response = await fetch(cacheBustUrl, {
+      const response = await fetchHostMedia(cacheBustUrl, {
         method: 'GET',
-        cache: 'no-store', // Stronger than no-cache
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          Pragma: 'no-cache',
-        },
+        cache: 'no-store',
       });
 
       if (!response.ok) {

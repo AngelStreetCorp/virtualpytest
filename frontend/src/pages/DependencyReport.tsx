@@ -12,7 +12,6 @@ import {
   Box,
   Card,
   CardContent,
-  Chip,
   CircularProgress,
   Collapse,
   FormControl,
@@ -22,17 +21,19 @@ import {
   Paper,
   Select,
   SelectChangeEvent,
-  Tab,
+  ToggleButton,
+  ToggleButtonGroup,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
-  Tabs,
   TextField,
   Typography,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PageTitle, Palette, StatTiles, pageSurfaceSx, rateColor, segmentedSx } from '../components/common/PageChrome';
 import React, { useState, useEffect } from 'react';
 
 import { 
@@ -44,7 +45,15 @@ import {
 } from '../hooks/pages/useDependency';
 import { useUserInterface } from '../hooks/pages/useUserInterface';
 
+/** A success rate as coloured text (≥80 green, ≥50 amber, else red). */
+const RateText: React.FC<{ value: number; P: Palette }> = ({ value, P }) => (
+  <Box component="span" sx={{ fontWeight: 600, fontSize: '0.8rem', color: rateColor(value, P), fontVariantNumeric: 'tabular-nums' }}>
+    {value.toFixed(1)}%
+  </Box>
+);
+
 const DependencyReport: React.FC = () => {
+  const P = useAgentChatPalette();
   const { loadDependencyData, loading, error, setError } = useDependency();
   const { getAllUserInterfaces } = useUserInterface();
 
@@ -157,11 +166,6 @@ const DependencyReport: React.FC = () => {
   );
 
   // Helper functions
-  const getSuccessRateColor = (rate: number) => {
-    if (rate >= 80) return 'success';
-    if (rate >= 60) return 'warning';
-    return 'error';
-  };
 
   // Loading state component
   const LoadingState = () => (
@@ -215,11 +219,9 @@ const DependencyReport: React.FC = () => {
   );
 
   return (
-    <Box>
-      <Box sx={{ mb: 1 }}>
-        <Typography variant="h4" sx={{ mb: 1 }}>
-          Dependency Report
-        </Typography>
+    <Box sx={pageSurfaceSx(P)}>
+      <Box sx={{ mb: 1.5 }}>
+        <PageTitle title="Dependency Report" subtitle="Which scripts touch which nodes and edges of an interface, and how often they pass" />
 
         {/* User Interface Selector */}
         <FormControl size="small" sx={{ minWidth: 250, zIndex: 9999, position: 'relative' }}>
@@ -273,7 +275,7 @@ const DependencyReport: React.FC = () => {
       {!selectedUserInterface ? (
         <Card>
           <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <ModelIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 1 }} />
+            <ModelIcon sx={{ fontSize: 48, color: P.accentText, mb: 1 }} />
             <Typography variant="h6" color="text.secondary" gutterBottom>
               Select User Interface to Analyze
             </Typography>
@@ -283,14 +285,29 @@ const DependencyReport: React.FC = () => {
           </CardContent>
         </Card>
       ) : (
+      <>
+      <StatTiles
+        tiles={[
+          { label: 'Scripts → nodes', value: scriptNodeDependencies.length, onClick: () => setActiveTab(0), active: activeTab === 0 },
+          { label: 'Scripts → edges', value: scriptEdgeDependencies.length, onClick: () => setActiveTab(1), active: activeTab === 1 },
+          { label: 'Nodes covered', value: nodeScriptDependencies.length, onClick: () => setActiveTab(2), active: activeTab === 2 },
+          { label: 'Edges covered', value: edgeScriptDependencies.length, onClick: () => setActiveTab(3), active: activeTab === 3 },
+        ]}
+      />
       <Card>
         <CardContent>
-          <Tabs value={activeTab} onChange={(_, newValue) => setActiveTab(newValue)}>
-            <Tab label="Script → Nodes" />
-            <Tab label="Script → Edges" />
-            <Tab label="Node → Scripts" />
-            <Tab label="Edge → Scripts" />
-          </Tabs>
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={activeTab}
+            onChange={(_, v) => v !== null && setActiveTab(v)}
+            sx={segmentedSx(P)}
+          >
+            <ToggleButton value={0}>Script → Nodes</ToggleButton>
+            <ToggleButton value={1}>Script → Edges</ToggleButton>
+            <ToggleButton value={2}>Node → Scripts</ToggleButton>
+            <ToggleButton value={3}>Edge → Scripts</ToggleButton>
+          </ToggleButtonGroup>
 
           {/* Tab 1: Script → Nodes */}
           {activeTab === 0 && (
@@ -384,7 +401,7 @@ const DependencyReport: React.FC = () => {
                               <Collapse
                                 in={expandedRows.has(`script-node-${script.script_result_id}`)}
                               >
-                                <Box sx={{ pl: 7, pr: 2, py: 1, backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
+                                <Box sx={{ pl: 7, pr: 2, py: 1, backgroundColor: P.hoverBg }}>
                                   <Table
                                     size="small"
                                     sx={{
@@ -424,12 +441,7 @@ const DependencyReport: React.FC = () => {
                                           </TableCell>
                                           <TableCell sx={{ py: 0.5, textAlign: 'center' }}>{node.execution_count}</TableCell>
                                           <TableCell sx={{ py: 0.5, textAlign: 'center' }}>
-                                            <Chip
-                                              label={`${node.success_rate.toFixed(1)}%`}
-                                              color={getSuccessRateColor(node.success_rate)}
-                                              size="small"
-                                              variant="outlined"
-                                            />
+                                            <RateText value={node.success_rate} P={P} />
                                           </TableCell>
                                         </TableRow>
                                       ))}
@@ -540,7 +552,7 @@ const DependencyReport: React.FC = () => {
                               <Collapse
                                 in={expandedRows.has(`script-edge-${script.script_result_id}`)}
                               >
-                                <Box sx={{ pl: 7, pr: 2, py: 1, backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
+                                <Box sx={{ pl: 7, pr: 2, py: 1, backgroundColor: P.hoverBg }}>
                                   <Table
                                     size="small"
                                     sx={{
@@ -577,12 +589,7 @@ const DependencyReport: React.FC = () => {
                                           </TableCell>
                                           <TableCell sx={{ py: 0.5, textAlign: 'center' }}>{edge.execution_count}</TableCell>
                                           <TableCell sx={{ py: 0.5, textAlign: 'center' }}>
-                                            <Chip
-                                              label={`${edge.success_rate.toFixed(1)}%`}
-                                              color={getSuccessRateColor(edge.success_rate)}
-                                              size="small"
-                                              variant="outlined"
-                                            />
+                                            <RateText value={edge.success_rate} P={P} />
                                           </TableCell>
                                         </TableRow>
                                       ))}
@@ -687,12 +694,7 @@ const DependencyReport: React.FC = () => {
                             </TableCell>
                             <TableCell>{node.tree_name}</TableCell>
                             <TableCell>
-                              <Chip
-                                label={`${node.overall_success_rate.toFixed(1)}%`}
-                                color={getSuccessRateColor(node.overall_success_rate)}
-                                size="small"
-                                variant="outlined"
-                              />
+                              <RateText value={node.overall_success_rate} P={P} />
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" color="textSecondary">
@@ -703,7 +705,7 @@ const DependencyReport: React.FC = () => {
                           <TableRow>
                             <TableCell colSpan={5} sx={{ p: 0, border: 0 }}>
                               <Collapse in={expandedRows.has(`node-script-${node.node_id}`)}>
-                                <Box sx={{ pl: 7, pr: 2, py: 1, backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
+                                <Box sx={{ pl: 7, pr: 2, py: 1, backgroundColor: P.hoverBg }}>
                                   <Table
                                     size="small"
                                     sx={{
@@ -733,12 +735,7 @@ const DependencyReport: React.FC = () => {
                                           <TableCell sx={{ py: 0.5 }}>{script.script_name}</TableCell>
                                           <TableCell sx={{ py: 0.5, textAlign: 'center' }}>{script.execution_count}</TableCell>
                                           <TableCell sx={{ py: 0.5, textAlign: 'center' }}>
-                                            <Chip
-                                              label={`${script.success_rate.toFixed(1)}%`}
-                                              color={getSuccessRateColor(script.success_rate)}
-                                              size="small"
-                                              variant="outlined"
-                                            />
+                                            <RateText value={script.success_rate} P={P} />
                                           </TableCell>
                                         </TableRow>
                                       ))}
@@ -843,12 +840,7 @@ const DependencyReport: React.FC = () => {
                             </TableCell>
                             <TableCell>{edge.tree_name}</TableCell>
                             <TableCell>
-                              <Chip
-                                label={`${edge.overall_success_rate.toFixed(1)}%`}
-                                color={getSuccessRateColor(edge.overall_success_rate)}
-                                size="small"
-                                variant="outlined"
-                              />
+                              <RateText value={edge.overall_success_rate} P={P} />
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" color="textSecondary">
@@ -859,7 +851,7 @@ const DependencyReport: React.FC = () => {
                           <TableRow>
                             <TableCell colSpan={5} sx={{ p: 0, border: 0 }}>
                               <Collapse in={expandedRows.has(`edge-script-${edge.edge_id}`)}>
-                                <Box sx={{ pl: 7, pr: 2, py: 1, backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
+                                <Box sx={{ pl: 7, pr: 2, py: 1, backgroundColor: P.hoverBg }}>
                                   <Table
                                     size="small"
                                     sx={{
@@ -889,12 +881,7 @@ const DependencyReport: React.FC = () => {
                                           <TableCell sx={{ py: 0.5 }}>{script.script_name}</TableCell>
                                           <TableCell sx={{ py: 0.5, textAlign: 'center' }}>{script.execution_count}</TableCell>
                                           <TableCell sx={{ py: 0.5, textAlign: 'center' }}>
-                                            <Chip
-                                              label={`${script.success_rate.toFixed(1)}%`}
-                                              color={getSuccessRateColor(script.success_rate)}
-                                              size="small"
-                                              variant="outlined"
-                                            />
+                                            <RateText value={script.success_rate} P={P} />
                                           </TableCell>
                                         </TableRow>
                                       ))}
@@ -914,6 +901,7 @@ const DependencyReport: React.FC = () => {
           )}
         </CardContent>
       </Card>
+      </>
       )}
     </Box>
   );

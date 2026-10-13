@@ -5,6 +5,14 @@ Device model to controller mappings and capabilities.
 This module is in shared/ so it can be used by both backend_host and backend_server.
 """
 
+# Remotes that drive the device from outside: an IR transmitter (lirc / a USB IR Toy
+# over serial / a networked IRTrans box) or an emulated BLE remote. Any device we
+# capture over HDMI or a camera can be wired to one, so every such model accepts all of
+# them, and the host's .env decides: DEVICE{i}_IR_PATH → ir_remote, DEVICE{i}_IR_SERIAL →
+# irtoy_remote, DEVICE{i}_IR_IP → irtrans_remote, DEVICE{i}_BLE_TYPE → bluetooth_remote.
+# One that is not configured is skipped, so listing it costs nothing.
+EXTERNAL_REMOTES = ['ir_remote', 'irtoy_remote', 'irtrans_remote', 'bluetooth_remote']
+
 # Device Model → Controllers Mapping
 DEVICE_CONTROLLER_MAP = {
     'android_mobile': {
@@ -17,18 +25,18 @@ DEVICE_CONTROLLER_MAP = {
     },
     'android_tv': {
         'av': ['hdmi_stream'],
-        'remote': ['android_tv'],
+        'remote': ['android_tv', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo'],
+        'power': ['tapo', 'wol'],
         'network': []
     },
     'android_tablet': {
         'av': ['hdmi_stream'],
-        'remote': ['android_mobile'],
+        'remote': ['android_mobile', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo'],
+        'power': ['tapo', 'wol'],
         'network': []
     },
     # A paired phone running the VirtualPyTest app (features/mobile-app): frames arrive
@@ -42,12 +50,25 @@ DEVICE_CONTROLLER_MAP = {
         'power': [],
         'network': []
     },
-     'fire_tv': {
+    # Fire TV running Fire OS (Amazon's Android): the Android TV adb remote and the android_tv family.
+    'fire_tv_fireos': {
         'av': ['hdmi_stream'], 
-        'remote': ['android_tv', 'ir_remote'],
+        'remote': ['android_tv', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo'],
+        'power': ['tapo', 'wol'],
+        'network': []
+    },
+    # Fire TV on Vega OS (Amazon's Linux TV OS, TASK-57): reached by the stock adb client
+    # like a Fire OS stick, but there is no Android behind it, so the remote is the
+    # Vega one (inputd-cli / vmsgr / vlcm) and there is no adb UI dump. Not in the
+    # android_tv family: its apps and screens are not the Android TV ones.
+    'fire_tv_vega': {
+        'av': ['hdmi_stream'],
+        'remote': ['vega', *EXTERNAL_REMOTES],
+        'desktop': [],
+        'web': [],
+        'power': ['tapo', 'wol'],
         'network': []
     },
     'ios_mobile': {
@@ -83,35 +104,118 @@ DEVICE_CONTROLLER_MAP = {
     },
     'stb': {
         'av': ['hdmi_stream'],
-        'remote': ['ir_remote', 'bluetooth_remote', 'irtrans_remote'],
+        'remote': EXTERNAL_REMOTES,
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'api_power'],
+        'power': ['tapo', 'api_power', 'wol'],
         'network': []
     },
     'apple_tv': {
         'av': ['hdmi_stream'], 
-        'remote': ['ir_remote'],
+        'remote': EXTERNAL_REMOTES,
         'desktop': [],
         'web': [],
-        'power': ['tapo'],
+        'power': ['tapo', 'wol'],
         'network': []
     },
-    'tizen': {
-        'av': ['camera_stream'], 
-        'remote': ['ir_remote'],
+    # TASK-71: an FX voice modem (Conexant CX93001, 0572:1349) on the host.
+    # It is a telephone line, not a screen, so there is no `av` at all — the
+    # whole device is its remote: pick up, hang up, dial, DTMF. The port comes
+    # from DEVICE{i}_FX_PORT (/dev/fx1..fx4, named by udev).
+    #
+    # It deliberately reuses the `remote` slot rather than a new `telephony`
+    # capability: that slot already carries the button panel,
+    # /host/remote/executeCommand, execute_sequence's retry/failure actions and
+    # the action executor's remote branch, so all of it works unchanged. A new
+    # slot would need plumbing through each of those AND an edit to the
+    # seven-slot builder in get_device_capabilities() below.
+    'fx_dongle': {
+        'av': [],
+        'remote': ['fx'],
         'desktop': [],
         'web': [],
         'power': [],
         'network': []
     },
+    'tizen': {
+        'av': ['camera_stream'],
+        'remote': EXTERNAL_REMOTES,
+        'desktop': [],
+        'web': [],
+        'power': [],
+        'network': []
+    },
+    # Generic camera-captured device: anything filmed by a camera instead of tapped
+    # over HDMI (a TV panel with no HDMI out, a kiosk, a phone in a rig). Use this
+    # rather than 'tizen' unless the device under test really does run Tizen —
+    # 'tizen' was the only camera_stream model for a long time, so it got used as a
+    # stand-in for "camera", which is confusing and not what the name means.
+    # Power is the STB set because the filmed device is usually a box on a socket.
+    'camera': {
+        'av': ['camera_stream'],
+        'remote': EXTERNAL_REMOTES,
+        'desktop': [],
+        'web': [],
+        'power': ['tapo', 'api_power', 'wol'],
+        'network': []
+    },
     'host_vnc': {
-        'av': ['vnc_stream'], 
+        'av': ['vnc_stream'],
         'remote': [],
         'desktop': ['bash', 'pyautogui'],
         'web': ['playwright'],
         'power': [],
         'network': []
+    },
+    # TASK-31: a non-device AV source that plays an RTSP / HLS / MJPEG feed
+    # (IP camera, public test stream, IPTV). Loop + on-demand. Audio is
+    # carried when the source has it, so 'audio' verification is exposed.
+    # No remote / power / desktop / web — there is nothing to drive.
+    'rtsp_video': {
+        'av': ['rtsp_stream'],
+        'remote': [],
+        'desktop': [],
+        'web': [],
+        'power': [],
+        'network': []
+    },
+    # TASK-31: a non-device AV source that plays a local .mp4 / .mkv / etc.
+    # file or an HTTP(S) URL. Loop + on-demand. No audio by default
+    # (the source codec may carry it, but we do not promise to capture it).
+    'local_video': {
+        'av': ['video_stream'],
+        'remote': [],
+        'desktop': [],
+        'web': [],
+        'power': [],
+        'network': []
+    },
+    # TASK-32: a Ryze/DJI Tello. Its H.264 video is pushed over UDP to the host
+    # (DEVICE{i}_VIDEO=udp://0.0.0.0:<video_port>), which vpt-stream ingests like any live
+    # network feed (rtsp_stream, source type rtsp); flight commands go through the `tello`
+    # remote (plain UDP SDK, every move guarded). No power, no IR/BLE.
+    'tello': {
+        'av': ['rtsp_stream'],
+        'remote': ['tello'],
+        'desktop': [],
+        'web': [],
+        'power': [],
+        'network': []
+    },
+    # TASK-31: a Nintendo Switch. HDMI out of the dock -> MS2109 grabber (same
+    # AV capture as `android_tv` / `host_vnc`); input through the `switch`
+    # slot.
+    'nintendo_switch': {
+        'av': ['hdmi_stream'],
+        'remote': [],
+        'desktop': [],
+        'web': [],
+        'power': [],
+        'network': [],
+        # `bluetooth_procon`: the host emulates a Bluetooth Pro Controller
+        # (vpt-procon daemon, nxbt). Works on a stock Switch, no custom
+        # firmware. See docs/agent/devices/NINTENDO_SWITCH.md.
+        'switch': ['bluetooth_procon'],
     },
     'web': {
         'av': [],
@@ -160,6 +264,19 @@ CONTROLLER_VERIFICATION_MAP = {
     'hdmi_stream': ['image', 'text', 'color', 'video', 'audio'],
     'camera_stream': ['image', 'text', 'color', 'video', 'audio'],
     'vnc_stream': ['image', 'text', 'color', 'video'],
+    # TASK-31 — same surface as hdmi_stream when the source carries audio,
+    # otherwise text/image/color/video. Loop and on-demand both work.
+    'rtsp_stream': ['image', 'text', 'color', 'video', 'audio'],
+    'video_stream': ['image', 'text', 'color', 'video'],
+    # TASK-31: switch controllers only send input; image/text verifications
+    # on a Nintendo Switch come from its hdmi_stream AV controller.
+    'hdmi_switch': [],
+    'bluetooth_procon': [],
+    # TASK-32: the Tello remote only flies the drone; the picture is verified from rtsp_stream.
+    'tello': [],
+    # TASK-57: Vega has no UI dump reachable without Amazon's automation server; screens
+    # are checked from the hdmi_stream capture.
+    'vega': [],
     'playwright': ['web', 'image', 'text', 'color'],
     'android_mobile': ['adb'],
     'android_tv': ['adb'],
@@ -197,6 +314,7 @@ def get_device_capabilities(device_model: str) -> dict:
             'desktop': None,
             'web': None,
             'power': None,
+            'switch': None,
             'verification': []
         }
     
@@ -214,6 +332,7 @@ def get_device_capabilities(device_model: str) -> dict:
         'desktop': mapping['desktop'][0] if mapping['desktop'] else None,
         'web': mapping['web'][0] if mapping['web'] else None,
         'power': mapping['power'][0] if mapping['power'] else None,
+        'switch': mapping.get('switch', [None])[0] if mapping.get('switch') else None,
         'verification': list(set(verification_types))  # Remove duplicates
     }
     
@@ -253,7 +372,8 @@ MODEL_FAMILIES = {
     ],
     'android_tv': [
         'android_tv',
-        'fire_tv',
+        'fire_tv_fireos',
+        'fire_tv_vega',  # TASK-80: Fire TV on Vega OS shares the Fire TV remote picture with FireOS.
         'runner_android_tv',
     ],
     'ios_phone': [

@@ -600,7 +600,7 @@ class AndroidAppCrawler:
         self.adb_utils = adb_utils
         self.device_id = device_id
         self.device_model = device_model
-        self.is_tv = device_model in ('android_tv', 'fire_tv')
+        self.is_tv = device_model in ('android_tv', 'fire_tv_fireos')
         self.max_depth = max_depth
         self.max_pages = max_pages
         self.skip_patterns = (skip_patterns or []) + DEFAULT_ANDROID_SKIP_PATTERNS

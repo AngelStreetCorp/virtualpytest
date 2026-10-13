@@ -25,6 +25,13 @@ from mcp.mcp_instance import get_mcp_server
 # Note: Routes are prefixed with /server/ for API organization
 mcp_bp = Blueprint('mcp', __name__, url_prefix='/server/mcp')
 
+
+@mcp_bp.before_request
+def _bind_mcp_caller():
+    """AI calls made by an MCP tool (e.g. capture_screenshot with vlm) are origin ``mcp`` (TASK-87)."""
+    from shared.src.lib.ai import caller as ai_caller
+    ai_caller.bind(origin='mcp')
+
 # Get shared MCP server instance (singleton)
 mcp_server = get_mcp_server()
 

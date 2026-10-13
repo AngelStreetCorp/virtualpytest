@@ -108,17 +108,6 @@ def cancel_job(job_id: str) -> bool:
             return True
     return False
 
-def fetch_image_from_url(url: str, timeout: int = 10) -> Optional[Image.Image]:
-    """Fetch image from URL with timeout"""
-    try:
-        response = requests.get(url, timeout=timeout)
-        if response.status_code == 200:
-            image = Image.open(io.BytesIO(response.content))
-            return image
-    except Exception as e:
-        print(f"[@heatmap_utils] Failed to fetch image from {url}: {e}")
-    return None
-
 
 
 def determine_border_color(image_data: Dict) -> str:

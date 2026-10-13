@@ -41,6 +41,7 @@ import { useDeviceControlWithForceUnlock } from '../../../../frontend/src/hooks/
 import { useHostControl, useHostData } from '../../../../frontend/src/hooks/useHostManager';
 import { useExecutionState } from '../../../../frontend/src/hooks/testcase/useExecutionState';
 import { useTestCaseSave } from '../../../../frontend/src/hooks/testcase/useTestCaseSave';
+import { useAIGraphEdit } from '../../../../frontend/src/hooks/testcase/useAIGraphEdit';
 import { useUserInterface } from '../../../../frontend/src/hooks/pages/useUserInterface';
 
 const POLL_INTERVAL_MS = 1000;
@@ -55,6 +56,30 @@ const newStepId = () => `s${Date.now().toString(36)}${(idCounter++).toString(36)
  * QuickTest shows only these; TestCaseBuilder excludes them.
  */
 export const QUICKTEST_CREATED_BY = 'quicktest';
+
+// The rail's list, persisted per server so a refresh does not start empty. Only the
+// fields the rail renders are kept — the full rows carry graph_json.
+const quickTestsCacheKey = () => `virtualpytest:quicktest-list:${buildServerUrl('/server/testcase/list')}`;
+
+function readCachedQuickTests(): any[] {
+  try {
+    const raw = localStorage.getItem(quickTestsCacheKey());
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedQuickTests(list: any[]) {
+  try {
+    const slim = list.map(({ testcase_id, testcase_name, userinterface_name, variant, created_by }) => ({
+      testcase_id, testcase_name, userinterface_name, variant, created_by,
+    }));
+    localStorage.setItem(quickTestsCacheKey(), JSON.stringify(slim));
+  } catch {
+    // Storage full or blocked: the rail just loads from the server as before.
+  }
+}
 
 export interface QuickTestSnackbar {
   open: boolean;
@@ -485,24 +510,28 @@ export const useQuickTestBuilder = () => {
   const { saveTestCase, listTestCases, getTestCase, deleteTestCase } = useTestCaseSave();
   const [testcaseName, setTestcaseName] = useState('');
   const [currentTestcaseId, setCurrentTestcaseId] = useState<string | null>(null);
-  const [testcaseList, setTestcaseList] = useState<any[]>([]);
+  const [testcaseList, setTestcaseList] = useState<any[]>(readCachedQuickTests);
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [isLoadingTestCases, setIsLoadingTestCases] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Saved quick tests are shown in an always-visible left rail (like Virtual
   // Scripts), not behind a Load dialog — so the list is fetched up front and
-  // refreshed after every save/delete instead of on demand.
+  // refreshed after every save/delete instead of on demand. The last list is kept
+  // in localStorage so a page refresh shows it at once; the fetch then revalidates
+  // it in the background (the spinner only shows when there is nothing cached).
   const refreshTestcaseList = useCallback(async () => {
     setIsLoadingTestCases(true);
     try {
       const result = await listTestCases();
+      if (!result.success) return;
       // QuickTest only lists test cases it authored (created_by === 'quicktest').
       // Visual-builder / AI test cases stay in the TestCaseBuilder list.
       const quickTests = (result.testcases || []).filter(
         (tc: any) => tc.created_by === QUICKTEST_CREATED_BY,
       );
       setTestcaseList(quickTests);
+      writeCachedQuickTests(quickTests);
     } finally {
       setIsLoadingTestCases(false);
     }
@@ -565,11 +594,44 @@ export const useQuickTestBuilder = () => {
     [getTestCase, showSnackbar],
   );
 
+  // ==================== AI EDIT (TASK-36 §3) ====================
+  // A prompt changes the open step list; the proposal is shown before it is applied.
+  const aiEdit = useAIGraphEdit({
+    hostName: selectedHost?.host_name,
+    deviceId: selectedDeviceId,
+    userinterfaceName,
+  });
+  const [aiEditPrompt, setAiEditPrompt] = useState('');
+  const applyAIEdit = useCallback(() => {
+    if (!aiEdit.proposal) return;
+    const parsed = parseGraphToSteps(aiEdit.proposal.graph);
+    if (parsed === null) {
+      showSnackbar('The edited test is not a simple linear list — open it in the full Test Builder.', 'error');
+      return;
+    }
+    // The AI graph has no scriptConfig: the variables bar is kept as it is.
+    setUnits(parsed.units);
+    aiEdit.clear();
+    setAiEditPrompt('');
+  }, [aiEdit, showSnackbar]);
+
+  // A link can open a testcase directly (?testcase=<id>, e.g. Test Prompt's
+  // "Open in QuickTest"). A non-linear graph gets handleLoad's snackbar.
+  useEffect(() => {
+    const linked = new URLSearchParams(window.location.search).get('testcase');
+    if (linked) handleLoad(linked);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleDelete = useCallback(
     async (testcaseId: string) => {
       const result = await deleteTestCase(testcaseId);
       if (result.success) {
-        setTestcaseList((prev) => prev.filter((t) => t.testcase_id !== testcaseId));
+        setTestcaseList((prev) => {
+          const next = prev.filter((t) => t.testcase_id !== testcaseId);
+          writeCachedQuickTests(next);
+          return next;
+        });
         if (testcaseId === currentTestcaseId) setCurrentTestcaseId(null);
       } else {
         showSnackbar(result.error || 'Delete failed', 'error');
@@ -833,6 +895,13 @@ export const useQuickTestBuilder = () => {
     handleLoad,
     handleDelete,
     handleNew,
+
+    // AI edit (on the compiled graph of the current units)
+    graph,
+    aiEdit,
+    aiEditPrompt,
+    setAiEditPrompt,
+    applyAIEdit,
 
     // execution
     isExecutable,

@@ -272,6 +272,44 @@ def _append_direction_metrics(lines: list, direction_label: str, results: list):
         lines.append(_fmt_iteration_line(idx, result))
 
 
+def _record_navigation_failure(summary_state: dict, nav_result: dict) -> None:
+    """Keep the first failed navigation's error + verification reports.
+
+    On a conditional edge the host checks the target AND every sibling before
+    failing, and returns one report per candidate in
+    error_details.verification_reports. The summary relays them so the user
+    sees why each possible landing was rejected, like the goto panel does.
+    """
+    if summary_state.get('navigation_failure'):
+        summary_state['navigation_failure']['count'] += 1
+        return
+    err = nav_result.get('error_details') or {}
+    summary_state['navigation_failure'] = {
+        'error': nav_result.get('error') or err.get('original_error') or 'Navigation failed',
+        'reports': err.get('verification_reports') or [],
+        'count': 1,
+    }
+
+
+def _navigation_failure_lines(navigation_failure: dict) -> list:
+    """Summary lines for the recorded navigation failure: error + report links."""
+    if not navigation_failure:
+        return []
+    count = navigation_failure.get('count', 1)
+    suffix = f" (first of {count} failed navigations)" if count > 1 else ""
+    lines = [f"🧭 Navigation failure{suffix}: {navigation_failure.get('error')}"]
+    reports = navigation_failure.get('reports') or []
+    if any(r.get('kind') == 'sibling' for r in reports):
+        lines.append("   Conditional edge — neither the target nor its alternative destination(s) verified:")
+    for r in reports:
+        url = r.get('debug_report_url')
+        if not url:
+            continue
+        kind = 'sibling' if r.get('kind') == 'sibling' else 'target'
+        lines.append(f"   🔍 [View {kind} report — {r.get('label')} ↗]({url})")
+    return lines
+
+
 def capture_kpi_summary(
     context,
     userinterface_name: str,
@@ -294,6 +332,7 @@ def capture_kpi_summary(
     reverse_action_set_ids: set = None,
     recovered_sources: list = None,
     action_set_labels: dict = None,
+    navigation_failure: dict = None,
 ) -> str:
     """Capture KPI measurement summary as text for report.
 
@@ -497,6 +536,8 @@ def capture_kpi_summary(
 
     if context.error_message:
         lines.append(f"\n❌ Error: {context.error_message}")
+    if not context.overall_success:
+        lines.extend(_navigation_failure_lines(navigation_failure))
 
     lines.append("="*60)
 
@@ -845,6 +886,7 @@ def _run_kpi_measurement(context, args, device, summary_state) -> bool:
             context=context
         ))
         if not setup_result.get('success', False):
+            _record_navigation_failure(summary_state, setup_result)
             # Setup-time sibling fallback. The selected edge's source node
             # may itself be a conditional target (e.g. the user picked
             # `replay_asset → replay_asset_stream`; reaching `replay_asset`
@@ -1045,6 +1087,7 @@ def _run_kpi_measurement(context, args, device, summary_state) -> bool:
                 print(f"✅ [kpi_measurement] Iteration {i+1} forward SUCCESS")
         else:
             print(f"❌ [kpi_measurement] Iteration {i+1} forward FAILED")
+            _record_navigation_failure(summary_state, to_result)
 
             # Conditional-sibling fallback. Only triggers when:
             #   1. We haven't already swapped this run (fallback_used).
@@ -1461,6 +1504,16 @@ def _run_kpi_measurement(context, args, device, summary_state) -> bool:
                 f"action_set_id differs from the selected one — check the "
                 f"navigation tree."
             )
+        elif summary_state.get('navigation_failure') and successful_kpis == 0:
+            # The navigation itself failed (e.g. destination verification on a
+            # conditional edge), so there was never a transition to measure —
+            # blaming vpt-kpi here would send the user the wrong way.
+            context.error_message = (
+                f"No KPI could be measured for '{selected_label}': the "
+                f"navigation to '{to_label}' failed "
+                f"({navigation_success_count}/{iter_total} navigations succeeded). "
+                f"See the navigation failure and its verification reports below."
+            )
         else:
             context.error_message = (
                 f"KPI post-processing produced no measurements for "
@@ -1578,6 +1631,8 @@ def main():
             recovered_sources=summary_state.get('recovered_sources'),
             # id→label map so each traversed hop gets its own titled KPI block.
             action_set_labels=summary_state.get('action_set_labels'),
+            # First failed navigation's error + target/sibling report links.
+            navigation_failure=summary_state.get('navigation_failure'),
         )
 
 

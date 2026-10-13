@@ -7,7 +7,7 @@ import LinkIcon from '@mui/icons-material/Link';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import { VerificationConfigDialog } from '../dialogs/VerificationConfigDialog';
-import { useTestCaseBuilder as useTestCaseBuilderContext } from '../../../contexts/testcase/TestCaseBuilderContext';
+import { useOptionalTestCaseBuilder as useOptionalTestCaseBuilderContext } from '../../../contexts/testcase/TestCaseBuilderContext';
 
 interface ScriptInput {
   name: string;
@@ -92,16 +92,10 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
   onUpdateVariables,
   onUpdateMetadata,
 }) => {
-  // Try to get execution values from context (if available)
-  // This allows the component to work both in TestCase and Campaign builders
-  let contextData: any = null;
-  try {
-    contextData = useTestCaseBuilderContext();
-  } catch (error) {
-    // Context not available (e.g., used in Campaign builder)
-    // Continue with null values
-  }
-  
+  // Execution values from context when there is one. Undefined in the Campaign
+  // builder, which mounts this without a TestCaseBuilderProvider.
+  const contextData = useOptionalTestCaseBuilderContext();
+
   const executionVariableValues = contextData?.executionVariableValues || {};
   const executionMetadataValues = contextData?.executionMetadataValues || {};
   

@@ -12,6 +12,7 @@ import {
   CircularProgress,
 } from '@mui/material';
 import React, { useState, useCallback, useRef } from 'react';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 import { Host } from '../../types/common/Host_Types';
 import {
@@ -101,6 +102,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
     recapturingIndex = null,
     linkProps,
   }) => {
+  const P = useAgentChatPalette();
 
     // Merge existing verifications with available ones to ensure existing verifications can always be selected
     const mergedAvailableVerifications = React.useMemo(() => {
@@ -736,9 +738,9 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
                 minWidth: 'auto',
                 fontSize: '0.75rem',
                 py: 0.25,
-                backgroundColor: '#2196f3',
+                backgroundColor: P.accent,
                 '&:hover': {
-                  backgroundColor: '#1976d2',
+                  backgroundColor: P.accent,
                 },
               }}
             >
@@ -759,19 +761,19 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
               backgroundColor:
                 passCondition === 'all'
                   ? testResults.every((result) => result.success)
-                    ? 'rgba(76, 175, 80, 0.1)'
-                    : 'rgba(244, 67, 54, 0.1)'
+                    ? `${P.success}1f`
+                    : `${P.error}1f`
                   : testResults.some((result) => result.success)
-                    ? 'rgba(76, 175, 80, 0.1)'
-                    : 'rgba(244, 67, 54, 0.1)',
+                    ? `${P.success}1f`
+                    : `${P.error}1f`,
               border: `1px solid ${
                 passCondition === 'all'
                   ? testResults.every((result) => result.success)
-                    ? '#4caf50'
-                    : '#f44336'
+                    ? P.success
+                    : P.error
                   : testResults.some((result) => result.success)
-                    ? '#4caf50'
-                    : '#f44336'
+                    ? P.success
+                    : P.error
               }`,
             }}
           >
@@ -782,11 +784,11 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
                 color:
                   passCondition === 'all'
                     ? testResults.every((result) => result.success)
-                      ? '#4caf50'
-                      : '#f44336'
+                      ? P.success
+                      : P.error
                     : testResults.some((result) => result.success)
-                      ? '#4caf50'
-                      : '#f44336',
+                      ? P.success
+                      : P.error,
               }}
             >
               Final Result:{' '}

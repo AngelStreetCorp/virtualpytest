@@ -20,7 +20,7 @@ import React, { useRef, useMemo } from 'react';
 
 import { UseVerificationEditorType } from '../../../hooks/verification/useVerificationEditor';
 import { useR2Url } from '../../../hooks/storage/useR2Url';
-import { AGENT_CHAT_PALETTE } from '../../../constants/agentChatTheme';
+import { useAgentChatPalette, AGENT_CHAT_PALETTE } from '../../../constants/agentChatTheme';
 
 interface DragArea {
   x: number;
@@ -49,6 +49,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
   captureHeight,
   isMobileModel,
 }) => {
+  const P = useAgentChatPalette();
   const captureContainerRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -183,7 +184,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                       <Typography
                         variant="body2"
                         sx={{
-                          color: '#4caf50',
+                          color: P.success,
                           fontSize: '0.9rem',
                           fontWeight: 600,
                           textAlign: 'center',
@@ -233,7 +234,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                     <Typography
                       variant="caption"
                       sx={{
-                        color: '#90caf9',
+                        color: P.accentText,
                         fontSize: '0.65rem',
                         fontWeight: 600,
                       }}
@@ -796,10 +797,10 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                 onClick={handleCaptureReference}
                 disabled={!canCapture}
                 sx={{
-                  bgcolor: '#1976d2',
+                  bgcolor: P.accent,
                   fontSize: '0.75rem',
                   '&:hover': {
-                    bgcolor: '#1565c0',
+                    bgcolor: P.accentHover,
                   },
                   '&:disabled': {
                     bgcolor: '#333',
@@ -817,20 +818,20 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
               onClick={handleSaveReference}
               disabled={!canSave || pendingSave}
               sx={{
-                bgcolor: saveSuccess ? '#4caf50' : pendingSave ? '#666' : '#4caf50',
+                bgcolor: saveSuccess ? P.success : pendingSave ? P.textMuted : P.success,
                 fontSize: '0.75rem',
-                color: saveSuccess ? '#fff' : pendingSave ? 'rgba(255,255,255,0.7)' : '#fff',
+                color: saveSuccess ? P.textPrimary : pendingSave ? 'rgba(255,255,255,0.7)' : P.textPrimary,
                 fontWeight: saveSuccess ? 'bold' : 'normal',
                 '&:hover': {
-                  bgcolor: saveSuccess ? '#4caf50' : pendingSave ? '#666' : '#45a049',
+                  bgcolor: saveSuccess ? P.success : pendingSave ? P.textMuted : P.success,
                 },
                 '&:disabled': {
-                  bgcolor: '#333',
+                  bgcolor: P.hoverBg,
                   color: 'rgba(255,255,255,0.3)',
                 },
                 transition: 'all 0.3s ease',
                 minWidth: '80px', // Ensure consistent width
-                boxShadow: saveSuccess ? '0 0 8px rgba(76, 175, 80, 0.6)' : 'none',
+                boxShadow: saveSuccess ? `0 0 8px ${P.success}99` : 'none',
               }}
             >
               {saveSuccess ? '✓ Saved!' : pendingSave ? 'Saving...' : 'Save'}

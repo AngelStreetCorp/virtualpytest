@@ -1,20 +1,18 @@
 import { Dialog, styled } from '@mui/material';
 
 /**
- * Consistent styled Dialog component with border and white button borders
+ * Consistent styled Dialog: top-aligned. Border, radius, title and action spacing come
+ * from the theme's MuiDialog overrides (docs/agent/platform/UI_STYLE.md "Dialogs").
  */
 export const StyledDialog = styled(Dialog)(({ theme }) => ({
-  '& .MuiDialog-paper': {
-    border: `1px solid ${theme.palette.primary.main}`,
-    borderRadius: theme.spacing(1),
+  // Top-aligned, not centred: dialogs whose content changes height (tabs, loading states)
+  // would otherwise jump up and down as the centred paper re-centres.
+  '& .MuiDialog-container': {
+    alignItems: 'flex-start',
   },
-  '& .MuiDialogActions-root': {
-    '& .MuiButton-outlined, & .MuiButton-contained': {
-      border: '1px solid white',
-      '&:hover': {
-        border: '1px solid white',
-      },
-    },
+  '& .MuiDialog-paper:not(.MuiDialog-paperFullScreen)': {
+    marginTop: '10vh',
+    maxHeight: `calc(90vh - ${theme.spacing(4)})`,
   },
 }));
 

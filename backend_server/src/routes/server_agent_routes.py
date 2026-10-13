@@ -10,14 +10,13 @@ import logging
 import asyncio
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib import socket_auth
-from backend_server.src.lib.auth_middleware import authorize_socket_connection
+from backend_server.src.lib.auth_middleware import authorize_socket_connection, require_platform_admin
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from backend_server.src.routes.server_settings_routes import get_env_paths, write_env_file
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,8 @@ def log_execution_history(
     status: str,
     tool_calls: int = 0,
     error_message: str = None,
-    metadata: dict = None
+    metadata: dict = None,
+    token_usage: int = None
 ):
     """
     Log agent execution to agent_execution_history table for score tracking.
@@ -64,6 +64,8 @@ def log_execution_history(
             'team_id': team_id or 'default',
             'metadata': metadata or {}
         }
+        if token_usage:
+            data['token_usage'] = int(token_usage)
         
         result = supabase.table('agent_execution_history').insert(data).execute()
         if result.data:
@@ -120,14 +122,11 @@ def log_agent_event(event_type: str, session_id: str, data: dict):
 # Blueprint for REST endpoints
 server_agent_bp = Blueprint('server_agent', __name__, url_prefix='/server/agent')
 
-# One agent conversation processes at a time per worker: the manager drives its
-# own asyncio loop inside a greenlet, and a second concurrent asyncio.run() in
-# the same OS thread dies with "asyncio.run() cannot be called from a running
-# event loop" — the second chat thread's message was silently lost. threading
-# is gevent-monkeypatched (app.py), so this Lock queues greenlets
-# cooperatively: parallel conversations are accepted and answered in turn.
-import threading
-_agent_processing_lock = threading.Lock()
+# One agent conversation processes at a time per worker — and, since 2026-10-04, one asyncio
+# loop of any kind (Test Prompt runs, the background queue, route helpers): see
+# agent/async_utils.run_in_worker_loop. Parallel conversations are accepted and answered in turn.
+from agent.async_utils import run_in_worker_loop
+from agent.registry import get_agent_registry
 
 
 def run_agent_coroutine(coro_factory, socketio=None, session_id=None):
@@ -148,8 +147,7 @@ def run_agent_coroutine(coro_factory, socketio=None, session_id=None):
         # runaway one — see the 26-minute session 39d2c4e2 on 2026-09-27) makes
         # every other chat look dead for minutes, and the user has no way to tell
         # "waiting" from "broken".
-        acquired = _agent_processing_lock.acquire(blocking=False)
-        if not acquired:
+        def tell_queued() -> None:
             if socketio is not None and session_id is not None:
                 socketio.emit('agent_event', {
                     'type': 'thinking',
@@ -158,11 +156,8 @@ def run_agent_coroutine(coro_factory, socketio=None, session_id=None):
                     'timestamp': datetime.now().isoformat(),
                     'session_id': session_id,
                 }, room=session_id, namespace='/agent')
-            _agent_processing_lock.acquire()
-        try:
-            asyncio.run(coro)
-        finally:
-            _agent_processing_lock.release()
+
+        run_in_worker_loop(coro, on_wait=tell_queued)
     except Exception as e:
         logger.error(f"Agent background task crashed: {e}", exc_info=True)
         coro.close()  # nothing awaited it — silences "never awaited"
@@ -213,22 +208,6 @@ def get_session_manager():
     return _session_manager
 
 
-def _persist_active_provider_config(provider: str, api_key: str, model: str) -> None:
-    """Persist provider config to the server environment and current process."""
-    from shared.src.lib.ai.config import get_provider_api_env, normalize_provider
-
-    normalized_provider = normalize_provider(provider)
-    api_env = get_provider_api_env(normalized_provider)
-    env_updates = {
-        "AI_AGENT_PROVIDER": normalized_provider,
-        "AI_AGENT_MODEL": model,
-        api_env: api_key,
-    }
-    write_env_file(get_env_paths()["server"], env_updates)
-    for key, value in env_updates.items():
-        os.environ[key] = value
-
-
 # =============================================================================
 # REST Endpoints
 # =============================================================================
@@ -236,83 +215,78 @@ def _persist_active_provider_config(provider: str, api_key: str, model: str) -> 
 @server_agent_bp.route('/health', methods=['GET'])
 @handle_route_exceptions('server_agent:health')
 def health_check():
-    """Health check - returns active provider configuration status."""
+    """Health check - the model that serves the selected agent for this team (TASK-30 routing)."""
     team_id = request.args.get('team_id')
-    from shared.src.lib.ai.config import get_active_ai_settings
+    agent_id = request.args.get('agent_id')
+    from agent.core.manager import QAManagerAgent
 
-    settings = get_active_ai_settings(team_id)
+    settings = QAManagerAgent(user_identifier=team_id, agent_id=agent_id).ai_settings
     return jsonify({
         "success": True,
         "status": "healthy",
+        "usage": settings.get("usage"),
         "api_key_configured": settings["api_key_configured"],
-        "provider": settings["provider"],
-        "model": settings["model"],
-        "api_key_env": settings["api_key_env"],
-        "supports_prompt_caching": settings["supports_prompt_caching"],
+        "provider": settings.get("provider"),
+        "model": settings.get("model"),
+        "profile": settings.get("profile"),
+        "endpoint": settings.get("endpoint"),
+        "supports_prompt_caching": settings.get("supports_prompt_caching", False),
+        "error": settings.get("error"),
         "manager_initialized": _manager is not None,
-    })
-
-
-@server_agent_bp.route('/models', methods=['GET'])
-@handle_route_exceptions('server_agent:models')
-def list_models():
-    """Return the per-provider × per-task default model matrix and task types.
-
-    Used by the AI settings UI to populate provider/model dropdowns.
-    """
-    from shared.src.lib.ai.config import SUPPORTED_PROVIDERS, TASK_TYPES, get_provider_models
-    return jsonify({
-        "success": True,
-        "providers": list(SUPPORTED_PROVIDERS),
-        "tasks": list(TASK_TYPES),
-        "provider_models": get_provider_models(),
     })
 
 
 @server_agent_bp.route('/api-key', methods=['POST'])
 @handle_route_exceptions('server_agent:save_api_key')
+@require_platform_admin
 def save_api_key():
     """
-    Save and validate the active or selected provider API key.
+    Save the API key of the endpoint serving an agent (server default), after a live check.
 
-    Body: { "provider": "...", "api_key": "...", "model": "..." }
+    Body: { "api_key": "...", "agent_id": "assistant" }
+    The key goes to the server-side secrets store under the endpoint's secret name.
     """
     data = request.get_json() or {}
-    api_key = data.get('api_key', '').strip()
-    from shared.src.lib.ai.config import LOCAL_PROVIDER, get_active_model, normalize_provider
-    from shared.src.lib.ai.provider_client import validate_provider_credentials
+    api_key = (data.get('api_key') or '').strip()
+    if not api_key:
+        return jsonify({"success": False, "error": "API key required"}), 400
 
-    provider = normalize_provider(data.get('provider') or os.getenv('AI_AGENT_PROVIDER'))
-    model = (data.get('model') or "").strip() or get_active_model(provider)
+    from agent.core.manager import QAManagerAgent
+    from shared.src.lib.ai import router as ai_router, secrets_store
+    from shared.src.lib.ai.provider_client import check_connectivity, create_client
+    from shared.src.lib.database import ai_routing_db
 
-    # A local OpenAI-compatible server usually has no key; the base URL is its config.
-    if not api_key and provider != LOCAL_PROVIDER:
-        return jsonify({
-            "success": False,
-            "error": "API key required"
-        }), 400
+    manager = QAManagerAgent(agent_id=data.get('agent_id'))
+    try:
+        hop = ai_router.resolve(manager.usage_key).primary
+    except Exception as e:
+        return jsonify({"success": False, "error": f"No AI route for this agent: {e}"}), 400
 
     try:
-        validate_provider_credentials(provider, api_key, model)
-        _persist_active_provider_config(provider, api_key, model)
-        return jsonify({
-            "success": True,
-            "message": "Provider key validated and saved successfully",
-            "provider": provider,
-            "model": model,
-        })
+        check_connectivity(create_client(hop.preset, api_key, base_url=hop.endpoint.get('base_url'),
+                                         timeout=hop.timeout), hop.model)
     except requests.HTTPError as e:
         status_code = e.response.status_code if e.response is not None else 500
         return jsonify({
             "success": False,
-            "error": f"Validation failed for {provider}: {e.response.text[:300] if e.response is not None else str(e)}"
+            "error": f"Validation failed for {hop.endpoint_name}: {e.response.text[:300] if e.response is not None else str(e)}"
         }), 401 if status_code in (401, 403) else status_code
     except Exception as e:
         logger.error(f"API key validation error: {e}")
-        return jsonify({
-            "success": False,
-            "error": f"Validation error: {str(e)}"
-        }), 500
+        return jsonify({"success": False, "error": f"Validation error: {str(e)}"}), 500
+
+    secret_name = hop.endpoint.get('secret_name') or hop.endpoint_name
+    secrets_store.set_secret(secret_name, api_key)
+    if not hop.endpoint.get('secret_name'):
+        ai_routing_db.update_row('ai_endpoints', hop.endpoint['id'], {'secret_name': secret_name})
+    ai_router.invalidate()
+    return jsonify({
+        "success": True,
+        "message": "API key validated and saved",
+        "endpoint": hop.endpoint_name,
+        "provider": hop.preset,
+        "model": hop.model,
+    })
 
 
 @server_agent_bp.route('/sessions', methods=['POST'])
@@ -417,7 +391,7 @@ def approve_action(session_id: str):
             events.append(event.to_dict())
         return events
     
-    events = asyncio.run(run_approval())
+    events = run_in_worker_loop(run_approval())
     
     return jsonify({
         "success": True,
@@ -466,6 +440,24 @@ def _may_use_session(session_id: str) -> bool:
 
     owner = session.get_context(SESSION_OWNER_KEY)
     return owner is None or owner == caller
+
+
+
+_RECENT_CLIENT_MSGS: dict = {}
+_RECENT_CLIENT_MSG_TTL_S = 300
+
+
+def _seen_client_msg(session_id: str, client_msg_id: str) -> bool:
+    """True when this (session, client_msg_id) was already accepted in the last 5 minutes."""
+    import time
+    now = time.time()
+    for key in [k for k, t in _RECENT_CLIENT_MSGS.items() if now - t > _RECENT_CLIENT_MSG_TTL_S]:
+        _RECENT_CLIENT_MSGS.pop(key, None)
+    key = (session_id, client_msg_id)
+    if key in _RECENT_CLIENT_MSGS:
+        return True
+    _RECENT_CLIENT_MSGS[key] = now
+    return False
 
 
 def register_agent_socketio_handlers(socketio):
@@ -565,6 +557,11 @@ def register_agent_socketio_handlers(socketio):
         userinterface_name = data.get('userinterface_name', '')
         testcase_id = data.get('testcase_id', '')
         campaign_id = data.get('campaign_id', '')
+        workspace_id = data.get('workspace_id', '')
+        selected_server = data.get('selected_server', '')
+        selected_server_name = data.get('selected_server_name', '')
+        selected_server_hosts = data.get('selected_server_hosts', [])
+        grafana_base_url = data.get('grafana_base_url', '')
         available_devices = data.get('available_devices', [])
         available_userinterfaces = data.get('available_userinterfaces', [])
         
@@ -573,6 +570,18 @@ def register_agent_socketio_handlers(socketio):
                 'error': 'session_id and message required'
             }, namespace='/agent')
             return
+
+        # team_id is authorization input.  It may arrive from the SPA for routing,
+        # but a signed-in user may only select a team present in the trusted JWT/DB
+        # ceiling.  Never persist an unchecked wire value into Atlas context.
+        principal = socket_auth.principal() or {}
+        if not socket_auth.is_shared_principal():
+            from backend_server.src.lib.auth_middleware import team_ids_for_principal
+            allowed_team_ids = team_ids_for_principal(principal)
+            if not team_id or str(team_id) not in allowed_team_ids:
+                logger.warning("Refused agent team scope outside caller ceiling: %s", team_id)
+                socketio.emit('error', {'message': 'Team scope is not authorized'}, namespace='/agent', to=request.sid)
+                return
 
         if not _may_use_session(session_id):
             logger.warning("Refused send_message for session %s: not the caller's session", session_id)
@@ -587,6 +596,20 @@ def register_agent_socketio_handlers(socketio):
         # from agent within 30s" while the agent actually answered.
         from flask_socketio import join_room
         join_room(session_id)
+
+        # BUG-0401: the SPA's ack watchdog re-sends the same message (same client_msg_id) when the first
+        # copy's ack was lost; process each id once per session, but still ack so the SPA stops waiting.
+        client_msg_id = data.get('client_msg_id')
+        if client_msg_id and _seen_client_msg(session_id, str(client_msg_id)):
+            logger.info("Ignored duplicate send_message %s for session %s", client_msg_id, session_id)
+            socketio.emit('agent_event', {
+                'type': 'thinking',
+                'agent': (agent_id or 'assistant').capitalize(),
+                'content': 'Received...',
+                'timestamp': datetime.now().isoformat(),
+                'session_id': session_id,
+            }, room=session_id, namespace='/agent')
+            return
 
         # Immediate ack: flip the frontend's first-answer watchdog before we
         # block on session lookup, manager init, prompt build, or the provider
@@ -641,6 +664,20 @@ def register_agent_socketio_handlers(socketio):
         session.set_context('userinterface_name', userinterface_name)
         session.set_context('testcase_id', testcase_id)
         session.set_context('campaign_id', campaign_id)
+        session.set_context('workspace_id', workspace_id)
+        session.set_context('selected_server', selected_server)
+        session.set_context('selected_server_name', selected_server_name)
+        session.set_context('selected_server_hosts', selected_server_hosts if isinstance(selected_server_hosts, list) else [])
+        # Link text only: the web app's own Grafana base, accepted when it is a plain http(s) URL.
+        from backend_server.src.lib.analytics.grafana_push import clean_grafana_base
+        session.set_context('grafana_base_url', clean_grafana_base(grafana_base_url))
+        session.set_context('user_id', principal.get('user_id'))
+        # Device-lock identity for the MCP device tools (BUG-0402): the browser tab's Take Control
+        # session, and whether user_id is shared (auto-sign/open mode) and so names nobody.
+        session.set_context('browser_session_id', data.get('browser_session_id') or '')
+        session.set_context('user_shared', socket_auth.is_shared_principal())
+        session.set_context('user_email', principal.get('user_email'))
+        session.set_context('user_role', principal.get('user_role'))
         session.set_context('available_devices', available_devices)
         session.set_context('available_userinterfaces', available_userinterfaces)
         
@@ -669,13 +706,14 @@ def register_agent_socketio_handlers(socketio):
             }, room=session_id, namespace='/agent')
             return
 
-        # Pre-flight: reject wrong-family provider/model combos (e.g.
-        # minimax + sonnet) before the blocking LLM call. Without this check
-        # the request sits in the provider SDK until it times out or returns
-        # a cryptic HTTP error, and the user only sees the 30s front-end
-        # watchdog — not the actual cause.
-        from shared.src.lib.ai.config import validate_provider_model
-        model_error = validate_provider_model(manager.provider, manager.model)
+        # Pre-flight: fail fast when the agent's AI route is missing or its endpoint
+        # has no key, instead of letting the request sit until the 30s front-end
+        # watchdog with no visible cause.
+        ai_settings = manager.ai_settings
+        model_error = ai_settings.get('error') or (
+            None if ai_settings.get('api_key_configured')
+            else f"No API key for the '{ai_settings.get('endpoint')}' AI endpoint (Settings → AI)."
+        )
         if model_error:
             socketio.emit('agent_event', {
                 'type': 'error',
@@ -696,10 +734,14 @@ def register_agent_socketio_handlers(socketio):
         async def process_and_stream():
             # Track execution for leaderboard
             task_id = str(uuid.uuid4())
-            started_at = datetime.now()
+            started_at = datetime.now(timezone.utc)
             tool_call_count = 0
             execution_status = 'completed'
             error_msg = None
+            # TASK-54: what the turn said and did, stored in agent_turns after the turn
+            final_answer = None
+            error_event_text = None
+            tool_calls_log = []
             
             try:
                 event_counter = 0
@@ -710,6 +752,13 @@ def register_agent_socketio_handlers(socketio):
                     # Count tool calls for metrics
                     if event.type == 'tool_call':
                         tool_call_count += 1
+                        tool_calls_log.append({'name': event.tool_name, 'params': event.tool_params, 'success': None})
+                    elif event.type == 'tool_result' and tool_calls_log:
+                        tool_calls_log[-1]['success'] = event.success
+                    elif event.type in ('message', 'result') and isinstance(event.content, str) and event.content:
+                        final_answer = event.content
+                    elif event.type == 'error' and event.content:
+                        error_event_text = str(event.content)
                     
                     # Debug: Print every event being emitted (include session + tool for traceability)
                     print(
@@ -770,18 +819,42 @@ def register_agent_socketio_handlers(socketio):
                 error_msg = str(e)
             finally:
                 # Log execution to database for leaderboard tracking
-                log_execution_history(
+                registry = get_agent_registry()
+                agent = registry.get(agent_id)
+                agent_version = agent.metadata.version if agent else 'unknown'
+                # An error event with no answer is a failed turn (it used to count as completed)
+                if execution_status == 'completed' and error_event_text and not final_answer:
+                    execution_status = 'failed'
+                    error_msg = error_event_text[:500]
+                completed_at = datetime.now(timezone.utc)
+                tokens_in = getattr(manager, 'turn_tokens_in', 0)
+                tokens_out = getattr(manager, 'turn_tokens_out', 0)
+                trace_id = getattr(manager, 'last_trace_id', None)
+                history_id = log_execution_history(
                     agent_id=agent_id,
-                    version='1.0.0',
+                    version=agent_version,
                     team_id=team_id,
                     task_id=task_id,
                     started_at=started_at,
-                    completed_at=datetime.now(),
+                    completed_at=completed_at,
                     status=execution_status,
                     tool_calls=tool_call_count,
                     error_message=error_msg,
-                    metadata={'prompt': message[:200], 'session_id': session_id}
+                    metadata={'prompt': message[:200], 'session_id': session_id, 'trace_id': trace_id},
+                    token_usage=(tokens_in or 0) + (tokens_out or 0)
                 )
+                # Transcript + live tail for the Agent Dashboard (never breaks the chat)
+                try:
+                    from agent.activity import service as agent_activity
+                    agent_activity.record_chat_turn(
+                        team_id=team_id, agent_id=agent_id, session_id=session_id, task_id=task_id,
+                        message=message, answer=final_answer,
+                        tool_calls=agent_activity.compact_tool_calls(tool_calls_log),
+                        tokens_in=tokens_in, tokens_out=tokens_out, trace_id=trace_id,
+                        started_at=started_at, completed_at=completed_at, status=execution_status,
+                        history_id=history_id)
+                except Exception as activity_error:
+                    logger.warning(f"Agent activity capture failed: {activity_error}")
                 
                 # Ensure Langfuse data is flushed even on errors
                 try:

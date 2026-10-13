@@ -22,6 +22,7 @@ import os
 import subprocess
 import time
 import re
+import ipaddress
 from datetime import datetime
 
 # Add project root to path
@@ -47,6 +48,27 @@ _arg_descriptions = {
     "url": "Hostname to resolve",
     "dns": f"DNS server to query (e.g. 8.8.8.8 or 2001:4860:4860::8888); '{DNS_SYSTEM_DEFAULT}' or empty uses the host's system resolver",
 }
+
+
+def validate_dns_server(dns_server: str):
+    """Error text when `--dns` is not a usable DNS server address, else None.
+
+    `--dns` is the resolver to ask: an IPv4/IPv6 address (or the 'system' sentinel / empty,
+    handled by the caller). A hostname there is the old pre-2026-09-02 meaning of the argument
+    (it used to be the name to resolve); nslookup would then try to resolve that hostname to
+    find a server and fail with "couldn't get address" - a misleading product-looking error.
+    """
+    if not dns_server:
+        return None
+    candidate = dns_server.split('%', 1)[0]  # allow a zone id on link-local IPv6
+    try:
+        ipaddress.ip_address(candidate)
+        return None
+    except ValueError:
+        return (
+            f"Invalid --dns '{dns_server}': it must be a DNS server IP address "
+            f"(or '{DNS_SYSTEM_DEFAULT}'), not a hostname. To resolve a hostname use --url {dns_server}"
+        )
 
 
 def parse_nslookup_output(output: str) -> dict:
@@ -104,6 +126,21 @@ def main():
         dns_server = ''
 
     print(f"\n[dns_lookuptime] domain={domain} dns_server={dns_server or '(system default)'}")
+
+    arg_error = validate_dns_server(dns_server)
+    if arg_error:
+        # A test-setup mistake, not a DNS result: fail fast with the cause stated.
+        now = time.time()
+        context.record_step_immediately({
+            "message": "Validate script arguments",
+            "success": False,
+            "verifications": [{"success": False, "label": "--dns is a DNS server address", "details": arg_error}],
+            "start_time": now,
+            "end_time": now,
+        })
+        context.error_message = arg_error
+        context.overall_success = False
+        return False
 
     # Step 1: Execute nslookup
     print(f"\n[Step 1] Running nslookup for {domain}...")

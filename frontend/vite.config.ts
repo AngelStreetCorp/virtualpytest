@@ -166,7 +166,7 @@ const killPort5073 = () => {
     } else {
       console.log('✅ Port 5073 is already available');
     }
-  } catch (error) {
+  } catch {
     // No processes found on port 5073 or lsof command not available (e.g., Vercel)
     // Both cases are fine - just continue
   }
@@ -217,7 +217,7 @@ try {
     localOverrides = JSON.parse(localConfig);
     console.log('✅ Loaded local config overrides from vite.config.local.json');
   }
-} catch (error) {
+} catch {
   console.log('ℹ️ No local config overrides found (vite.config.local.json)');
 }
 
@@ -285,7 +285,7 @@ function vptFeaturesPlugin(): Plugin {
 
 // ─── Runtime config for the mobile app (features/mobile-app) ───────────────────
 // Emits dist/runtime-config.json with the PUBLIC values the web bundle already ships
-// (Supabase URL + anon key, project name). The Android app scans a QR that carries only
+// (Supabase URL + anon key, project name, slave server URLs). The Android app scans a QR that carries only
 // the server URL and fetches this file, which keeps the QR small enough for a phone
 // camera. Nothing secret goes here — these strings are in the JS bundle anyway.
 function vptRuntimeConfigPlugin(): Plugin {
@@ -298,6 +298,7 @@ function vptRuntimeConfigPlugin(): Plugin {
         supabase_anon_key: process.env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY ?? '',
         project_name: (process.env.VITE_PROJECT_NAME ?? env.VITE_PROJECT_NAME ?? '').trim() || 'VirtualPyTest',
         server_url: process.env.VITE_SERVER_URL ?? env.VITE_SERVER_URL ?? '',
+        slave_server_url: process.env.VITE_SLAVE_SERVER_URL ?? env.VITE_SLAVE_SERVER_URL ?? '',
       },
       null,
       2,
@@ -324,6 +325,14 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(appVersionDisplay),
     __APP_VERSION_RAW__: JSON.stringify(appVersionRaw),
+  },
+  // Feature pages reach the app through the `virtual:vpt-features` module, which the dev
+  // dependency scan cannot follow, so a package only a feature imports (qrcode.react for
+  // mobile-app) was found at first page load instead. Vite then re-bundled its deps and
+  // reloaded mid-load, and that page mixed two React copies ("Cannot read properties of null
+  // (reading 'useContext')") — once per cold start, gone after the reload. Scan them up front.
+  optimizeDeps: {
+    entries: ['index.html', '../features/*/frontend/**/*.{ts,tsx}', '!../features/**/*.test.{ts,tsx}'],
   },
   plugins: [
     react(),

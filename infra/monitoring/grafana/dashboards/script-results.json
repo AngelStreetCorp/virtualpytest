@@ -205,7 +205,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  COUNT(*) as \"Nr. of total test\",\n  COUNT(*) FILTER (WHERE success = false) as \"Nr. of failed test\",\n  ROUND((COUNT(*) FILTER (WHERE success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) as \"Success Rate\",\n  ROUND(SUM(execution_time_ms)::decimal / 1000 / 60, 3) as \"Total Time (min)\",\n  ROUND(AVG(execution_time_ms)::decimal / 1000, 1) as \"Avg Duration (s)\"FROM (SELECT * FROM script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE $__timeFilter(started_at) AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL) AND (host_name IN ($host) OR host_name IS NULL) AND (device_name IN ($device_name) OR device_name IS NULL) AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)",
+          "rawSql": "SELECT\n  COUNT(*) as \"Nr. of total test\",\n  COUNT(*) FILTER (WHERE success = false) as \"Nr. of failed test\",\n  ROUND((COUNT(*) FILTER (WHERE success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) as \"Success Rate\",\n  ROUND(SUM(execution_time_ms)::decimal / 1000 / 60, 3) as \"Total Time (min)\",\n  ROUND(AVG(execution_time_ms)::decimal / 1000, 1) as \"Avg Duration (s)\"FROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE $__timeFilter(started_at) AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL) AND (host_name IN ($host) OR host_name IS NULL) AND (device_name IN ($device_name) OR device_name IS NULL) AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)",
           "refId": "A"
         }
       ],
@@ -318,7 +318,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH ident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n)\nSELECT \n  $__timeGroup(started_at, '1d') as time,\n  COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, script_name, 'No Script') as metric,\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as value\nFROM (SELECT * FROM script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results \nLEFT JOIN ident i ON i.name = script_results.script_name\nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nGROUP BY time, script_name, i.prefix, i.display_name\nORDER BY time",
+          "rawSql": "WITH ident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n)\nSELECT \n  $__timeGroup(started_at, '1d') as time,\n  COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, script_name, 'No Script') as metric,\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as value\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results \nLEFT JOIN ident i ON i.name = script_results.script_name\nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nGROUP BY time, script_name, i.prefix, i.display_name\nORDER BY time",
           "refId": "A",
           "sql": {
             "columns": [
@@ -435,7 +435,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT \n  $__timeGroup(started_at, '1d') as time,\n  CASE WHEN userinterface_name IS NULL THEN 'No Interface' ELSE userinterface_name || ' / ' || COALESCE(metadata->>'variant', 'base') END as metric,\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as value\nFROM (SELECT * FROM script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results \nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nGROUP BY time, userinterface_name, metadata->>'variant'\nORDER BY time",
+          "rawSql": "SELECT \n  $__timeGroup(started_at, '1d') as time,\n  CASE WHEN userinterface_name IS NULL THEN 'No Interface' ELSE userinterface_name || ' / ' || COALESCE(metadata->>'variant', 'base') END as metric,\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as value\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results \nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nGROUP BY time, userinterface_name, metadata->>'variant'\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -636,7 +636,7 @@
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "WITH ident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n)\nSELECT\n  COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, script_name, 'No Script') as \"Script\",\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  ROUND(AVG(execution_time_ms))::int AS \"Avg Time\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nLEFT JOIN ident i ON i.name = script_results.script_name\nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nGROUP BY script_name, i.prefix, i.display_name\nHAVING COUNT(*) >= 1\nORDER BY \"Volume\" DESC",
+              "rawSql": "WITH ident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n)\nSELECT\n  COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, script_name, 'No Script') as \"Script\",\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  ROUND(AVG(execution_time_ms))::int AS \"Avg Time\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nLEFT JOIN ident i ON i.name = script_results.script_name\nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nGROUP BY script_name, i.prefix, i.display_name\nHAVING COUNT(*) >= 1\nORDER BY \"Volume\" DESC",
               "refId": "A"
             }
           ],
@@ -825,7 +825,7 @@
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT\n  CASE WHEN userinterface_name IS NULL THEN 'No Interface' ELSE userinterface_name || ' / ' || COALESCE(metadata->>'variant', 'base') END AS \"Variant\",\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  ROUND(AVG(execution_time_ms))::int AS \"Avg Time\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nGROUP BY userinterface_name, metadata->>'variant'\nHAVING COUNT(*) >= 1\nORDER BY \"Volume\" DESC",
+              "rawSql": "SELECT\n  CASE WHEN userinterface_name IS NULL THEN 'No Interface' ELSE userinterface_name || ' / ' || COALESCE(metadata->>'variant', 'base') END AS \"Variant\",\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  ROUND(AVG(execution_time_ms))::int AS \"Avg Time\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nGROUP BY userinterface_name, metadata->>'variant'\nHAVING COUNT(*) >= 1\nORDER BY \"Volume\" DESC",
               "refId": "A"
             }
           ],
@@ -939,7 +939,7 @@
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as \"Script\", userinterface_name as \"Userinterface\", CASE WHEN userinterface_name IS NOT NULL THEN COALESCE(metadata->>'variant', 'base') END as \"Variant\", host_name as \"Host\", device_name as \"Device\", success, started_at, completed_at, execution_time_ms, ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') AS html_report_r2_url, ('<a href=\"' || logs_r2_url || '\" target=\"_blank\">logs</a>') AS logs_r2_url, error_msg, metadata \nFROM (SELECT * FROM script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results \nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nORDER BY started_at DESC \nLIMIT 500",
+              "rawSql": "SELECT COALESCE('[' || (metadata->'script_identity'->>'prefix') || '] ' || (metadata->'script_identity'->>'display_name'),metadata->'script_identity'->>'display_name','[' || (metadata->'script_identity'->>'prefix') || '] ' || script_name,script_name) as \"Script\", userinterface_name as \"Userinterface\", CASE WHEN userinterface_name IS NOT NULL THEN COALESCE(metadata->>'variant', 'base') END as \"Variant\", host_name as \"Host\", device_name as \"Device\", success, started_at, completed_at, execution_time_ms, ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') AS html_report_r2_url, ('<a href=\"' || logs_r2_url || '\" target=\"_blank\">logs</a>') AS logs_r2_url, error_msg, metadata \nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results \nWHERE $__timeFilter(started_at)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND script_name IN ($script_name)\n  AND success::text IN ($success)\n  AND COALESCE(metadata->>'variant', 'base') IN ($variant)\n  AND environment IN ($environment)\nORDER BY started_at DESC \nLIMIT 500",
               "refId": "A",
               "sql": {
                 "columns": [
@@ -1083,17 +1083,55 @@
   "templating": {
     "list": [
       {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
         "current": {},
         "datasource": {
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT host_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT host_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
         "includeAll": true,
         "label": "Host",
         "multi": true,
         "name": "host",
-        "query": "SELECT DISTINCT host_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
+        "query": "SELECT DISTINCT host_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
         "refresh": 1,
         "regex": "",
         "sort": 1,
@@ -1105,12 +1143,12 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "WITH ident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n)\nSELECT COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, s.script_name) as \"__text\", s.script_name as \"__value\"\nFROM (SELECT DISTINCT script_name FROM script_results WHERE $__timeFilter(started_at)) s\nLEFT JOIN ident i ON i.name = s.script_name\nORDER BY 1",
+        "definition": "WITH ident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n)\nSELECT COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, s.script_name) as \"__text\", s.script_name as \"__value\"\nFROM (SELECT DISTINCT script_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at)) s\nLEFT JOIN ident i ON i.name = s.script_name\nORDER BY 1",
         "includeAll": true,
         "label": "Script",
         "multi": true,
         "name": "script_name",
-        "query": "WITH ident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n)\nSELECT COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, s.script_name) as \"__text\", s.script_name as \"__value\"\nFROM (SELECT DISTINCT script_name FROM script_results WHERE $__timeFilter(started_at)) s\nLEFT JOIN ident i ON i.name = s.script_name\nORDER BY 1",
+        "query": "WITH ident AS (\n  SELECT DISTINCT ON (name) regexp_replace(script_ref, '^.*/', '') as name, prefix, display_name\n  FROM executable_identity WHERE kind = 'script'\n  ORDER BY name, updated_at DESC\n)\nSELECT COALESCE('[' || i.prefix || '] ' || i.display_name, i.display_name, s.script_name) as \"__text\", s.script_name as \"__value\"\nFROM (SELECT DISTINCT script_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at)) s\nLEFT JOIN ident i ON i.name = s.script_name\nORDER BY 1",
         "refresh": 1,
         "regex": "",
         "sort": 1,
@@ -1122,12 +1160,12 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT userinterface_name FROM script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
+        "definition": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
         "includeAll": true,
         "label": "Userinterface",
         "multi": true,
         "name": "user_interface",
-        "query": "SELECT DISTINCT userinterface_name FROM script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
+        "query": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
         "refresh": 1,
         "regex": "",
         "sort": 1,
@@ -1139,12 +1177,12 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT COALESCE(metadata->>'variant', 'base') AS variant FROM script_results WHERE $__timeFilter(started_at) AND userinterface_name IS NOT NULL ORDER BY variant",
+        "definition": "SELECT DISTINCT COALESCE(metadata->>'variant', 'base') AS variant FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) AND userinterface_name IS NOT NULL ORDER BY variant",
         "includeAll": true,
         "label": "Variant",
         "multi": true,
         "name": "variant",
-        "query": "SELECT DISTINCT COALESCE(metadata->>'variant', 'base') AS variant FROM script_results WHERE $__timeFilter(started_at) AND userinterface_name IS NOT NULL ORDER BY variant",
+        "query": "SELECT DISTINCT COALESCE(metadata->>'variant', 'base') AS variant FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) AND userinterface_name IS NOT NULL ORDER BY variant",
         "refresh": 1,
         "regex": "",
         "sort": 1,
@@ -1167,12 +1205,12 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT device_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
+        "definition": "SELECT DISTINCT device_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
         "includeAll": true,
         "label": "Device",
         "multi": true,
         "name": "device_name",
-        "query": "SELECT DISTINCT device_name FROM script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
+        "query": "SELECT DISTINCT device_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
         "refresh": 1,
         "regex": "",
         "sort": 1,
@@ -1206,7 +1244,7 @@
         "name": "flag",
         "options": [],
         "refresh": 2,
-        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "query": "SELECT DISTINCT f AS flag FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_flags, unnest(flags) f ORDER BY 1",
         "type": "query"
       }
     ]

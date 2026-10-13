@@ -93,7 +93,9 @@ class VideoVerificationHelpers:
         try:
             motion_threshold = float(params.get('motion_threshold', 5.0))
             duration = int(params.get('duration', 3))
-            timeout = int(params.get('timeout', 10))
+            # `timeout` is MILLISECONDS on the wire; the controller waits in seconds.
+            timeout_ms = int(params.get('timeout', 10000))
+            timeout = timeout_ms / 1000.0
             # Without this the check always measured the centre 60% of the frame,
             # which is the wrong place on any screen where the player does not fill
             # it — a portrait phone puts the video across the top and static page
@@ -110,7 +112,7 @@ class VideoVerificationHelpers:
             details = {
                 'motion_threshold': motion_threshold,
                 'duration': duration,
-                'timeout': timeout,
+                'timeout': timeout_ms,
                 'area': area
             }
             
@@ -148,13 +150,15 @@ class VideoVerificationHelpers:
     def _execute_video_change_detection(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Execute video change detection verification."""
         try:
-            timeout = int(params.get('timeout', 10))
+            # `timeout` is MILLISECONDS on the wire; the controller waits in seconds.
+            timeout_ms = int(params.get('timeout', 10000))
+            timeout = timeout_ms / 1000.0
             threshold = float(params.get('threshold', 10.0))
             
             success = self.controller.wait_for_video_change(timeout, threshold)
             message = f"Video change {'detected' if success else 'not detected'}"
             details = {
-                'timeout': timeout,
+                'timeout': timeout_ms,
                 'threshold': threshold
             }
             
@@ -191,13 +195,15 @@ class VideoVerificationHelpers:
             if not expected_state:
                 return self._create_error_result('No expected state specified for screen state verification')
             
-            timeout = int(params.get('timeout', 5))
+            # `timeout` is MILLISECONDS on the wire; the controller waits in seconds.
+            timeout_ms = int(params.get('timeout', 5000))
+            timeout = timeout_ms / 1000.0
             
             success = self.controller.verify_screen_state(expected_state, timeout)
             message = f"Screen state '{expected_state}' {'verified' if success else 'not verified'}"
             details = {
                 'expected_state': expected_state,
-                'timeout': timeout
+                'timeout': timeout_ms
             }
             
             return self._create_success_result(success, message, details)
@@ -528,8 +534,8 @@ class VideoVerificationHelpers:
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=10.0,
-                        description="Maximum time to wait (seconds)"
+                        default=10000,
+                        description="Maximum time to wait (ms)"
                     )
                 },
                 'verification_type': 'video',
@@ -563,8 +569,8 @@ class VideoVerificationHelpers:
                     'timeout': create_param(
                         ParamType.NUMBER,
                         required=False,
-                        default=10.0,
-                        description="Maximum time to wait (seconds)"
+                        default=10000,
+                        description="Maximum time to wait (ms)"
                     )
                 },
                 'verification_type': 'video',
@@ -730,7 +736,7 @@ class VideoVerificationHelpers:
             numeric_params = {
                 'motion_threshold': (0.0, 100.0),
                 'duration': (0.1, 60.0),
-                'timeout': (1.0, 300.0),
+                'timeout': (1000.0, 300000.0),
                 'threshold': (0.0, 100.0),
                 'tolerance': (0.0, 100.0),
                 'freeze_threshold': (0.0, 10.0),

@@ -33,7 +33,7 @@ class VerificationService:
                     'verification_type': 'adb',
                     'params': {
                         'search_term': '',
-                        'timeout': 10,
+                        'timeout': 10000,
                         'check_interval': 1
                     }
                 },

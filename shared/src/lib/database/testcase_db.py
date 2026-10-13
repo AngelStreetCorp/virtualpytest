@@ -9,6 +9,7 @@ Execution results are stored in script_results table (unified tracking).
 import json
 from typing import Dict, List, Optional, Any
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import chunked_in
 from shared.src.lib.database.folder_tag_db import (
     get_or_create_folder,
     get_or_create_tag,
@@ -836,7 +837,7 @@ def list_testcases(team_id: str, include_inactive: bool = False, environment: st
         if not result.data:
             return []
         
-        # OPTIMIZED: Batch fetch version numbers for ALL testcases in a single query
+        # Batch fetch version numbers for ALL testcases (one query per IN_FILTER_CHUNK ids)
         testcase_ids = [tc['testcase_id'] for tc in result.data]
         version_map = {}
         
@@ -845,38 +846,41 @@ def list_testcases(team_id: str, include_inactive: bool = False, environment: st
                 # Get MAX version for each testcase_id using PostgreSQL aggregation
                 # Note: Supabase Python client doesn't support GROUP BY directly,
                 # so we fetch all and aggregate in Python (still better than N queries)
-                version_result = supabase.table('testcase_definitions_history')\
-                    .select('testcase_id,version_number')\
-                    .eq('team_id', team_id)\
-                    .in_('testcase_id', testcase_ids)\
-                    .order('version_number', desc=True)\
-                    .execute()
+                version_rows = chunked_in(
+                    lambda chunk: supabase.table('testcase_definitions_history')
+                    .select('testcase_id,version_number')
+                    .eq('team_id', team_id)
+                    .in_('testcase_id', chunk)
+                    .order('version_number', desc=True),
+                    testcase_ids)
                 
                 # Build version map (testcase_id -> max_version)
-                for record in version_result.data:
+                for record in version_rows:
                     tc_id = str(record['testcase_id'])
                     if tc_id not in version_map:
                         version_map[tc_id] = record['version_number']
             except Exception as e:
                 print(f"[@testcase_db] Warning: Failed to fetch versions: {e}")
         
-        # OPTIMIZED: Batch fetch execution stats for ALL testcases in a single query
+        # Batch fetch execution stats for ALL testcases (one query per IN_FILTER_CHUNK names)
         testcase_names = [tc['testcase_name'] for tc in result.data]
         exec_map = {}
         
         if testcase_names:
             try:
                 # Fetch all execution records for these testcases
-                exec_result = supabase.table('script_results')\
-                    .select('script_name,success,started_at')\
-                    .eq('script_type', 'testcase')\
-                    .eq('team_id', team_id)\
-                    .in_('script_name', testcase_names)\
-                    .order('started_at', desc=True)\
-                    .execute()
+                # Chunked: every testcase name in one in.() overflowed the URL (414, BUG-0417)
+                exec_rows = chunked_in(
+                    lambda chunk: supabase.table('script_results')
+                    .select('script_name,success,started_at')
+                    .eq('script_type', 'testcase')
+                    .eq('team_id', team_id)
+                    .in_('script_name', chunk)
+                    .order('started_at', desc=True),
+                    testcase_names)
                 
                 # Build execution map (testcase_name -> {count, last_success})
-                for record in exec_result.data:
+                for record in exec_rows:
                     name = record['script_name']
                     if name not in exec_map:
                         exec_map[name] = {
@@ -928,7 +932,7 @@ def get_testcase_execution_history(testcase_name: str, team_id: str, limit: int 
     
     try:
         result = supabase.table('script_results')\
-            .select('script_result_id,script_name,started_at,completed_at,execution_time_ms,success,error_msg,host_name,device_name,html_report_r2_url,logs_r2_url')\
+            .select('id,script_name,started_at,completed_at,execution_time_ms,success,error_msg,host_name,device_name,html_report_r2_url,logs_r2_url,discard')\
             .eq('script_type', 'testcase')\
             .eq('script_name', testcase_name)\
             .eq('team_id', team_id)\
@@ -938,7 +942,8 @@ def get_testcase_execution_history(testcase_name: str, team_id: str, limit: int 
         
         executions = []
         for execution in result.data:
-            execution['script_result_id'] = str(execution['script_result_id'])
+            # script_results has no script_result_id column; callers expect the row id under that key.
+            execution['script_result_id'] = str(execution.pop('id'))
             executions.append(execution)
         
         return executions

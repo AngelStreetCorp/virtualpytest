@@ -1404,7 +1404,44 @@ export const ActionItem: React.FC<ActionItemProps> = ({
         }
         break;
 
-
+      case 'override_page_meta':
+        if (currentActionDef?.requiresInput) {
+          fields.push(
+            <TextField
+              autoComplete="off"
+              key="name"
+              label="Meta name"
+              size="small"
+              value={getParamValue('name') || ''}
+              onChange={(e) => safeHandleParamChange('name', e.target.value)}
+              placeholder="DISABLE_WEB_SEMANTICS"
+              sx={{
+                width: 180,
+                '& .MuiInputBase-input': {
+                  padding: '3px 6px',
+                  fontSize: '0.75rem',
+                },
+              }}
+            />,
+            <TextField
+              autoComplete="off"
+              key="content"
+              label="Content"
+              size="small"
+              value={getParamValue('content') || ''}
+              onChange={(e) => safeHandleParamChange('content', e.target.value)}
+              placeholder="false"
+              sx={{
+                width: 100,
+                '& .MuiInputBase-input': {
+                  padding: '3px 6px',
+                  fontSize: '0.75rem',
+                },
+              }}
+            />,
+          );
+        }
+        break;
 
       case 'tap_x_y':
         // Handle web tap_x_y

@@ -201,7 +201,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  COUNT(*) AS \"Campaign Runs\",\n  COUNT(*) FILTER (WHERE ce.success = false) AS \"Failed\",\n  ROUND((COUNT(*) FILTER (WHERE ce.success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) AS \"Success Rate\",\n  ROUND(SUM(ce.execution_time_ms)::decimal / 1000 / 60, 3) AS \"Total Time (min)\",\n  ROUND(AVG(ce.execution_time_ms)::decimal / 1000, 1) AS \"Avg Duration (s)\"FROM (SELECT * FROM campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (campaign_executions.script_result_ids IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = ANY(campaign_executions.script_result_ids) AND sr_env.environment IN ($environment)))) ce\nWHERE $__timeFilter(ce.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)",
+          "rawSql": "SELECT\n  COUNT(*) AS \"Campaign Runs\",\n  COUNT(*) FILTER (WHERE ce.success = false) AS \"Failed\",\n  ROUND((COUNT(*) FILTER (WHERE ce.success = true)::decimal / NULLIF(COUNT(*),0)) * 100, 1) AS \"Success Rate\",\n  ROUND(SUM(ce.execution_time_ms)::decimal / 1000 / 60, 3) AS \"Total Time (min)\",\n  ROUND(AVG(ce.execution_time_ms)::decimal / 1000, 1) AS \"Avg Duration (s)\"FROM (SELECT * FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (campaign_executions.script_result_ids IS NULL OR EXISTS (SELECT 1 FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr_env WHERE sr_env.id = ANY(campaign_executions.script_result_ids) AND sr_env.environment IN ($environment)))) ce\nWHERE $__timeFilter(ce.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)",
           "refId": "A"
         }
       ],
@@ -313,7 +313,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroup(ce.started_at, '1d') AS time,\n  COALESCE(ce.campaign_name, 'No Campaign') AS metric,\n  ROUND((SUM(CASE WHEN ce.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS value\nFROM (SELECT * FROM campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (campaign_executions.script_result_ids IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = ANY(campaign_executions.script_result_ids) AND sr_env.environment IN ($environment)))) ce\nWHERE $__timeFilter(ce.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)\nGROUP BY time, ce.campaign_name\nORDER BY time",
+          "rawSql": "SELECT\n  $__timeGroup(ce.started_at, '1d') AS time,\n  COALESCE(ce.campaign_name, 'No Campaign') AS metric,\n  ROUND((SUM(CASE WHEN ce.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS value\nFROM (SELECT * FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (campaign_executions.script_result_ids IS NULL OR EXISTS (SELECT 1 FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr_env WHERE sr_env.id = ANY(campaign_executions.script_result_ids) AND sr_env.environment IN ($environment)))) ce\nWHERE $__timeFilter(ce.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)\nGROUP BY time, ce.campaign_name\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -513,7 +513,7 @@
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT\n  COALESCE(ce.campaign_name, 'No Campaign') AS \"Campaign\",\n  ROUND((SUM(CASE WHEN ce.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  ROUND(AVG(ce.execution_time_ms))::int AS \"Avg Time\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (campaign_executions.script_result_ids IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = ANY(campaign_executions.script_result_ids) AND sr_env.environment IN ($environment)))) ce\nWHERE $__timeFilter(ce.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)\nGROUP BY ce.campaign_name\nHAVING COUNT(*) >= 1\nORDER BY \"Volume\" DESC",
+              "rawSql": "SELECT\n  COALESCE(ce.campaign_name, 'No Campaign') AS \"Campaign\",\n  ROUND((SUM(CASE WHEN ce.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success\",\n  ROUND(AVG(ce.execution_time_ms))::int AS \"Avg Time\",\n  COUNT(*) AS \"Volume\"\nFROM (SELECT * FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (campaign_executions.script_result_ids IS NULL OR EXISTS (SELECT 1 FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr_env WHERE sr_env.id = ANY(campaign_executions.script_result_ids) AND sr_env.environment IN ($environment)))) ce\nWHERE $__timeFilter(ce.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)\nGROUP BY ce.campaign_name\nHAVING COUNT(*) >= 1\nORDER BY \"Volume\" DESC",
               "refId": "A"
             }
           ],
@@ -622,7 +622,7 @@
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT\n  ce.campaign_name AS \"Campaign\",\n  ce.campaign_execution_id AS \"Run ID\",\n  ce.userinterface_name AS \"Userinterface\",\n  ce.host_name AS \"Host\",\n  ce.device_name AS \"Device\",\n  ce.success AS \"Success\",\n  ce.started_at,\n  ce.execution_time_ms,\n  ce.html_report_r2_url,\n  ce.error_message,\n  ce.metadata\nFROM (SELECT * FROM campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (campaign_executions.script_result_ids IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = ANY(campaign_executions.script_result_ids) AND sr_env.environment IN ($environment)))) ce\nWHERE $__timeFilter(ce.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)\nORDER BY ce.started_at DESC\nLIMIT 500",
+              "rawSql": "SELECT\n  ce.campaign_name AS \"Campaign\",\n  ce.campaign_execution_id AS \"Run ID\",\n  ce.userinterface_name AS \"Userinterface\",\n  ce.host_name AS \"Host\",\n  ce.device_name AS \"Device\",\n  ce.success AS \"Success\",\n  ce.started_at,\n  ce.execution_time_ms,\n  ce.html_report_r2_url,\n  ce.error_message,\n  ce.metadata\nFROM (SELECT * FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ','))) AND (campaign_executions.script_result_ids IS NULL OR EXISTS (SELECT 1 FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr_env WHERE sr_env.id = ANY(campaign_executions.script_result_ids) AND sr_env.environment IN ($environment)))) ce\nWHERE $__timeFilter(ce.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)\nORDER BY ce.started_at DESC\nLIMIT 500",
               "refId": "A"
             }
           ],
@@ -768,7 +768,7 @@
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT\n  ce.campaign_name AS \"Campaign\",\n  ce.campaign_execution_id AS \"Run ID\",\n  COALESCE('[' || (sr.metadata->'script_identity'->>'prefix') || '] ' || (sr.metadata->'script_identity'->>'display_name'),sr.metadata->'script_identity'->>'display_name','[' || (sr.metadata->'script_identity'->>'prefix') || '] ' || sr.script_name,sr.script_name) as \"Script\",\n  sr.host_name AS \"Host\",\n  sr.device_name AS \"Device\",\n  sr.success AS \"Success\",\n  sr.started_at,\n  sr.completed_at,\n  sr.execution_time_ms,\n  sr.html_report_r2_url,\n  sr.logs_r2_url,\n  sr.error_msg\nFROM script_results sr\nJOIN (SELECT * FROM campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) ce\n  ON sr.id = ANY(ce.script_result_ids)\nWHERE $__timeFilter(sr.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)\n  AND sr.environment IN ($environment)\nORDER BY sr.started_at DESC\nLIMIT 1000",
+              "rawSql": "SELECT\n  ce.campaign_name AS \"Campaign\",\n  ce.campaign_execution_id AS \"Run ID\",\n  COALESCE('[' || (sr.metadata->'script_identity'->>'prefix') || '] ' || (sr.metadata->'script_identity'->>'display_name'),sr.metadata->'script_identity'->>'display_name','[' || (sr.metadata->'script_identity'->>'prefix') || '] ' || sr.script_name,sr.script_name) as \"Script\",\n  sr.host_name AS \"Host\",\n  sr.device_name AS \"Device\",\n  sr.success AS \"Success\",\n  sr.started_at,\n  sr.completed_at,\n  sr.execution_time_ms,\n  sr.html_report_r2_url,\n  sr.logs_r2_url,\n  sr.error_msg\nFROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr\nJOIN (SELECT * FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = campaign_executions.host_name AND df.device_name = campaign_executions.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) ce\n  ON sr.id = ANY(ce.script_result_ids)\nWHERE $__timeFilter(sr.started_at)\n  AND (ce.campaign_name IN ($campaign_name) OR ce.campaign_name IS NULL)\n  AND (ce.host_name IN ($host) OR ce.host_name IS NULL)\n  AND (ce.device_name IN ($device_name) OR ce.device_name IS NULL)\n  AND (ce.userinterface_name IN ($user_interface) OR ce.userinterface_name IS NULL)\n  AND ce.success::text IN ($success)\n  AND sr.environment IN ($environment)\nORDER BY sr.started_at DESC\nLIMIT 1000",
               "refId": "A"
             }
           ],
@@ -790,6 +790,44 @@
     "list": [
       {
         "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
           "selected": false,
           "text": "All",
           "value": [
@@ -800,12 +838,12 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT host_name FROM campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
+        "definition": "SELECT DISTINCT host_name FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
         "includeAll": true,
         "label": "Host",
         "multi": true,
         "name": "host",
-        "query": "SELECT DISTINCT host_name FROM campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
+        "query": "SELECT DISTINCT host_name FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
         "refresh": 2,
         "type": "query"
       },
@@ -821,12 +859,12 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT campaign_name FROM campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
+        "definition": "SELECT DISTINCT campaign_name FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
         "includeAll": true,
         "label": "Campaign",
         "multi": true,
         "name": "campaign_name",
-        "query": "SELECT DISTINCT campaign_name FROM campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
+        "query": "SELECT DISTINCT campaign_name FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
         "refresh": 2,
         "type": "query"
       },
@@ -842,12 +880,12 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT userinterface_name FROM campaign_executions WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY 1",
+        "definition": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY 1",
         "includeAll": true,
         "label": "Userinterface",
         "multi": true,
         "name": "user_interface",
-        "query": "SELECT DISTINCT userinterface_name FROM campaign_executions WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY 1",
+        "query": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY 1",
         "refresh": 2,
         "type": "query"
       },
@@ -863,12 +901,12 @@
           "type": "grafana-postgresql-datasource",
           "uid": "supabase-postgres"
         },
-        "definition": "SELECT DISTINCT device_name FROM campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
+        "definition": "SELECT DISTINCT device_name FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
         "includeAll": true,
         "label": "Device",
         "multi": true,
         "name": "device_name",
-        "query": "SELECT DISTINCT device_name FROM campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
+        "query": "SELECT DISTINCT device_name FROM (SELECT * FROM campaign_executions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) campaign_executions WHERE $__timeFilter(started_at) ORDER BY 1",
         "refresh": 2,
         "type": "query"
       },
@@ -928,7 +966,7 @@
         "name": "flag",
         "options": [],
         "refresh": 2,
-        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "query": "SELECT DISTINCT f AS flag FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_flags, unnest(flags) f ORDER BY 1",
         "type": "query"
       }
     ]

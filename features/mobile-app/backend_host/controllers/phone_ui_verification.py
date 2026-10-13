@@ -219,8 +219,8 @@ class PhoneAgentAdbVerificationController(VerificationControllerInterface):
                     placeholder='Enter element identifier',
                 ),
                 'timeout': create_param(
-                    ParamType.NUMBER, required=False, default=0.0,
-                    description='Maximum time to wait (seconds)',
+                    ParamType.NUMBER, required=False, default=0,
+                    description='Maximum time to wait (ms)',
                 ),
             }
 

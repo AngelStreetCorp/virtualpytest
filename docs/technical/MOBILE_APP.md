@@ -288,3 +288,28 @@ build emits. Embedding them made the code too dense for a phone camera.
 
 The APK link on the page shows the version it hands out when a sidecar `<apk>.json`
 (`version`, `version_code`, `built`, `size_bytes`, `commit`) is published next to the file.
+
+## In-app update check
+
+Inside the APK, Settings shows the installed version and, when the sidecar advertises a
+higher `version_code`, an **Update available** banner. **Update** opens the APK URL in the
+phone's browser; opening the downloaded file lets Android's installer update in place (same
+signing key, data kept). The first time, Android asks to allow installs from the browser.
+
+The URL is baked into the build from `vpt.apkUrl` in `app/android/local.properties` (git-ignored)
+or `VPT_APK_URL`; a build without it never checks. The app fetches `<apk>.json` natively, so the
+download server needs no CORS headers.
+
+Publishing a release:
+
+```bash
+cd features/mobile-app/app
+npm run build:web && npm run sync && npm run apk:release   # after bumping versionCode/versionName
+npm run publish   # the signed release APK, then its sidecar, to vpt.apkPublishTarget
+```
+
+`vpt.apkPublishTarget` (same `local.properties`) is the scp destination of the `.apk` the URL
+serves; the sidecar goes next to it as `<apk>.json`. Only a published build reaches phones —
+an APK built and never published is invisible to the update check. Publish the **release**
+build: phones run it, and Android refuses an update signed with a different (debug) key —
+"package conflicts with an existing package".

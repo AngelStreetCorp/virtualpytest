@@ -359,8 +359,14 @@ health_timeout = "10m"
 enabled = true
 file_size_limit = "50MiB"
 
+# Off: the platform calls neither Edge Functions nor Storage image transforms (files live in
+# MinIO/R2), and their images come from public.ecr.aws, which firewalled customer VMs cannot
+# reach, so 'supabase start' failed on the pull. The Docker stack drops both too.
+[storage.image_transformation]
+enabled = false
+
 [edge_runtime]
-enabled = true
+enabled = false
 
 [studio]
 enabled = true

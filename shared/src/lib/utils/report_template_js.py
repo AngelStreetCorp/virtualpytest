@@ -9,7 +9,9 @@ def get_report_javascript() -> str:
     return """// Theme management system
 class ThemeManager {{
     constructor() {{
-        this.currentMode = this.getSavedTheme() || 'light';
+        // Same key as the web app (ThemeContext 'theme-mode'): reports are served from the app's
+        // origin, so switching the theme in the app or in a report switches both.
+        this.currentMode = this.getSavedTheme() || 'system';
         this.systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         this.init();
     }}
@@ -21,11 +23,21 @@ class ThemeManager {{
     }}
     
     getSavedTheme() {{
-        return localStorage.getItem('validation-report-theme');
+        // Shared snapshots run sandboxed: storage can throw.
+        try {{
+            const mode = localStorage.getItem('theme-mode');
+            return ['light', 'dark', 'system'].includes(mode) ? mode : null;
+        }} catch (e) {{
+            return null;
+        }}
     }}
     
     saveTheme(mode) {{
-        localStorage.setItem('validation-report-theme', mode);
+        try {{
+            localStorage.setItem('theme-mode', mode);
+        }} catch (e) {{
+            // not remembered, still applied
+        }}
     }}
     
     getActualTheme() {{
@@ -49,6 +61,13 @@ class ThemeManager {{
     }}
     
     setupSystemThemeListener() {{
+        // The app (or another report tab) changed the theme: follow it.
+        window.addEventListener('storage', (e) => {{
+            if (e.key === 'theme-mode' && ['light', 'dark', 'system'].includes(e.newValue)) {{
+                this.currentMode = e.newValue;
+                this.applyTheme();
+            }}
+        }});
         const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
         mediaQuery.addEventListener('change', (e) => {{
             this.systemPrefersDark = e.matches;
@@ -61,6 +80,12 @@ class ThemeManager {{
     setupThemeToggle() {{
         const themeOptions = document.querySelectorAll('.theme-option');
         themeOptions.forEach(option => {{
+            option.addEventListener('keydown', (e) => {{
+                if (e.key === 'Enter' || e.key === ' ') {{
+                    e.preventDefault();
+                    option.click();
+                }}
+            }});
             option.addEventListener('click', (e) => {{
                 // Read from currentTarget (the .theme-option we bound to), not
                 // target — a click landing on a child node would otherwise yield
@@ -88,9 +113,205 @@ class ThemeManager {{
     }}
 }}
 
+// Emoji drawn as report icons. The page is built with icons already in place; text the
+// language switch rewrites (textContent) gets them back here. Map: <script id="vpt-emoji-icons">.
+const EmojiIcons = (() => {{
+    let map;
+    let re = null;
+    // Read lazily: the map sits at the end of <body>, after this <head> script has run.
+    function load() {{
+        if (map !== undefined) return map;
+        map = null;
+        try {{
+            const el = document.getElementById('vpt-emoji-icons');
+            map = el ? JSON.parse(el.textContent) : null;
+        }} catch (e) {{
+            map = null;
+        }}
+        if (map) {{
+            // keys are single emoji code points: nothing to escape
+            re = new RegExp('(' + Object.keys(map).join('|') + ')\\uFE0F?', 'gu');
+        }}
+        return map;
+    }}
+    function iconify(root) {{
+        if (!load() || !root) return;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        const hits = [];
+        while (walker.nextNode()) {{
+            re.lastIndex = 0;
+            if (re.test(walker.currentNode.nodeValue)) hits.push(walker.currentNode);
+        }}
+        hits.forEach((node) => {{
+            const holder = document.createElement('template');
+            const escaped = node.nodeValue.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            holder.innerHTML = escaped.replace(re, (whole, emoji) => map[emoji] || whole);
+            node.parentNode.replaceChild(holder.content, node);
+        }});
+    }}
+    return {{ iconify }};
+}})();
+
+// Language switcher. Reads the catalog embedded in the page (<script id="vpt-i18n">):
+// {{default, languages: {{code: name}}, strings: {{code: {{key: template}}}}}}.
+class LanguageManager {{
+    constructor() {{
+        this.storageKey = 'virtualpytest:language';
+        this.catalog = this.readCatalog();
+        if (!this.catalog) {{
+            return;
+        }}
+        this.fallback = this.catalog.default || 'en';
+        this.current = this.pickInitialLanguage();
+        this.placeholderRe = new RegExp(String.fromCharCode(123) + '([A-Za-z0-9_]+)' + String.fromCharCode(125), 'g');
+        this.buildSwitcher();
+        this.apply(this.current);
+    }}
+
+    readCatalog() {{
+        try {{
+            const el = document.getElementById('vpt-i18n');
+            const data = el ? JSON.parse(el.textContent) : null;
+            return data && data.languages && data.strings ? data : null;
+        }} catch (e) {{
+            return null;
+        }}
+    }}
+
+    supported(code) {{
+        return !!code && Object.prototype.hasOwnProperty.call(this.catalog.languages, code);
+    }}
+
+    // 'fr-CH' -> 'fr'; unknown -> null
+    match(code) {{
+        if (!code) {{
+            return null;
+        }}
+        const lower = String(code).toLowerCase();
+        if (this.supported(lower)) {{
+            return lower;
+        }}
+        const base = lower.split('-')[0];
+        return this.supported(base) ? base : null;
+    }}
+
+    fromUrl() {{
+        try {{
+            const query = new URLSearchParams(window.location.search).get('lang');
+            const hash = new URLSearchParams(String(window.location.hash || '').replace(/^#/, '')).get('lang');
+            return this.match(query) || this.match(hash);
+        }} catch (e) {{
+            return null;
+        }}
+    }}
+
+    fromStorage() {{
+        try {{
+            return this.match(localStorage.getItem(this.storageKey));
+        }} catch (e) {{
+            return null;
+        }}
+    }}
+
+    fromBrowser() {{
+        try {{
+            const list = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language];
+            for (const code of list) {{
+                const found = this.match(code);
+                if (found) {{
+                    return found;
+                }}
+            }}
+        }} catch (e) {{
+            // fall through
+        }}
+        return null;
+    }}
+
+    pickInitialLanguage() {{
+        return this.fromUrl() || this.fromStorage() || this.fromBrowser() || this.fallback;
+    }}
+
+    buildSwitcher() {{
+        const host = document.getElementById('lang-switch');
+        if (!host) {{
+            return;
+        }}
+        host.textContent = '';
+        Object.keys(this.catalog.languages).forEach((code) => {{
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'lang-option';
+            button.dataset.lang = code;
+            button.textContent = code.toUpperCase();
+            button.title = this.catalog.languages[code];
+            button.addEventListener('click', () => this.setLanguage(code));
+            host.appendChild(button);
+        }});
+    }}
+
+    setLanguage(code) {{
+        this.current = code;
+        try {{
+            localStorage.setItem(this.storageKey, code);
+        }} catch (e) {{
+            // sandboxed page: applied, not remembered
+        }}
+        this.apply(code);
+    }}
+
+    template(code, key) {{
+        const own = this.catalog.strings[code];
+        if (own && typeof own[key] === 'string') {{
+            return own[key];
+        }}
+        const base = this.catalog.strings[this.fallback];
+        return base && typeof base[key] === 'string' ? base[key] : null;
+    }}
+
+    apply(code) {{
+        document.documentElement.setAttribute('lang', code);
+        document.querySelectorAll('[data-i18n]').forEach((el) => {{
+            const template = this.template(code, el.getAttribute('data-i18n'));
+            if (template === null) {{
+                return;  // keep the English text already in the page
+            }}
+            let args = {{}};
+            try {{
+                args = JSON.parse(el.getAttribute('data-i18n-args') || '{{}}');
+            }} catch (e) {{
+                args = {{}};
+            }}
+            el.textContent = template.replace(this.placeholderRe, (whole, name) => (
+                Object.prototype.hasOwnProperty.call(args, name) ? args[name] : whole
+            ));
+            EmojiIcons.iconify(el);
+        }});
+        document.querySelectorAll('[data-i18n-title]').forEach((el) => {{
+            const template = this.template(code, el.getAttribute('data-i18n-title'));
+            if (template !== null) {{
+                el.title = template;
+                el.setAttribute('aria-label', template);
+            }}
+        }});
+        document.querySelectorAll('.lang-option').forEach((button) => {{
+            button.classList.toggle('active', button.dataset.lang === code);
+        }});
+    }}
+}}
+
 // Initialize theme manager when DOM is loaded
+// Save as PDF: paper is light, whatever theme is on screen.
+window.addEventListener('beforeprint', () => {{
+    document.documentElement.setAttribute('data-theme', 'light');
+}});
+window.addEventListener('afterprint', () => {{
+    if (window.themeManager) window.themeManager.applyTheme();
+}});
+
 document.addEventListener('DOMContentLoaded', () => {{
     window.themeManager = new ThemeManager();
+    window.languageManager = new LanguageManager();
     
     // Handle window resize to recalculate expanded section heights
     let resizeTimeout;
@@ -356,12 +577,12 @@ function openVideoModal(videoUrl, label) {{
                     <button class="modal-close" onclick="closeVideoModal()">&times;</button>
                 </div>
                 <div class="modal-body">
-                    <!-- Fit the viewport in BOTH orientations. 'min-width: 800px' with
-                         'height: auto' blew a portrait phone recording (1080x2400) up to about
-                         1780px tall, which put the player's own controls below the fold with no
-                         way to reach them. Bounding height as well as width lets a landscape
-                         capture still fill the modal while a portrait one scales down to fit. -->
-                    <video id="modal-video" controls style="max-width: 100%; max-height: 78vh; width: auto; height: auto; display: block; margin: 0 auto;">
+                    <!-- Fill the modal body in BOTH orientations, like the screenshot <img>.
+                         'width: auto' kept a small capture (a 640x360 web host) at its native
+                         size in the middle of an empty modal; 'min-width' + 'height: auto' blew a
+                         portrait phone recording past the fold and hid the controls. A box sized
+                         to the body with object-fit: contain scales either one to fit. -->
+                    <video id="modal-video" controls style="width: 100%; height: 100%; object-fit: contain; display: block;">
                         Your browser does not support video playback.
                     </video>
                 </div>
@@ -602,6 +823,7 @@ function openZappingAnalysisModal(modalData) {{
             </div>
         `;
         document.body.appendChild(zappingModal);
+        EmojiIcons.iconify(zappingModal);
     }}
     
     // Populate the modal with mosaic and analysis log
@@ -617,6 +839,7 @@ function openZappingAnalysisModal(modalData) {{
     // Set analysis log
     if (modalData.analysis_log && modalData.analysis_log.length > 0) {{
         logContent.textContent = modalData.analysis_log.join('\\n');
+        EmojiIcons.iconify(logContent);
     }} else {{
         logContent.textContent = 'No detailed analysis log available.';
     }}

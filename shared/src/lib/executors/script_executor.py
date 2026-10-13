@@ -29,6 +29,7 @@ from typing import Dict, List, Optional, Any, Tuple
 
 # Import required modules for context preparation
 from shared.src.lib.utils.app_utils import load_environment_variables
+from shared.src.lib.utils.phase_timing import t0 as _phase_t0, log_phase as _log_phase
 from shared.src.lib.utils.report_generation_utils import generate_and_upload_script_report
 from shared.src.lib.database.script_results_db import record_script_execution_start, update_script_execution_result
 from shared.src.lib.utils.script_identity_utils import (
@@ -79,6 +80,24 @@ def resolve_virtual_script_libs(root_source: str, fetch_source) -> Dict[str, str
     return resolved
 
 
+def _virtual_script_name() -> Optional[str]:
+    """The virtual script's own name when this process runs one, else None (BUG-0391).
+
+    A virtual script runs from a temp file, and its `@script("…")` decorator name is
+    whatever the author typed in the source — often copied from another script. The
+    host parent passes the virtual script's real name as VPT_SCRIPT_REF alongside
+    VPT_VIRTUAL_SCRIPT_ID; that name is what the report, the result row and the
+    artifact paths must carry. Disk scripts keep their decorator name.
+    """
+    if not os.getenv('VPT_VIRTUAL_SCRIPT_ID'):
+        return None
+    ref = (os.getenv('VPT_SCRIPT_REF') or '').strip().strip('/')
+    if not ref:
+        return None
+    # Basename only: script_name is used in artifact paths (`<name>.py`).
+    return ref.rsplit('/', 1)[-1] or None
+
+
 def _normalize_trigger(trigger: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Coerce an incoming trigger dict into {type, caller_ip, caller_user}.
 
@@ -116,7 +135,8 @@ _running_processes_by_device: Dict[str, Dict[str, Any]] = {}
 _running_processes_lock = threading.Lock()
 
 
-def _register_running_process(device_id: str, process: subprocess.Popen, script_name: str):
+def _register_running_process(device_id: str, process: subprocess.Popen, script_name: str,
+                               task_id: Optional[str] = None):
     """Track currently running script process for a device.
 
     The key MUST be the real device_id: abort_running_script() looks the process up by
@@ -135,6 +155,7 @@ def _register_running_process(device_id: str, process: subprocess.Popen, script_
             'process': process,
             'script_name': script_name,
             'started_at': time.time(),
+            'task_id': task_id,
         }
 
 
@@ -201,8 +222,13 @@ def _normalize_windows_param_parts(parameters: str) -> List[str]:
     return normalized
 
 
-def abort_running_script(device_id: str) -> Dict[str, Any]:
-    """Abort any running script process for the specified device."""
+def abort_running_script(device_id: str, task_id: Optional[str] = None) -> Dict[str, Any]:
+    """Abort the running script process for the specified device.
+
+    With ``task_id`` the abort only applies when the process running on the
+    device was launched for that task, so a stale stop request can never kill a
+    later run on the same device.
+    """
     if not device_id:
         return {
             'success': False,
@@ -218,6 +244,13 @@ def abort_running_script(device_id: str) -> Dict[str, Any]:
             'success': True,
             'aborted': False,
             'message': f'No running script found for device {device_id}'
+        }
+
+    if task_id and current.get('task_id') != task_id:
+        return {
+            'success': True,
+            'aborted': False,
+            'message': f'Task {task_id} is not the script running on device {device_id}'
         }
 
     process = current.get('process')
@@ -379,7 +412,7 @@ class ScriptExecutionContext:
         if not self.task_id:
             return
         try:
-            from shared.src.lib.utils.build_url_utils import buildServerUrl
+            from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
             import requests as _requests
 
             step_number = len(self.step_results)
@@ -398,11 +431,18 @@ class ScriptExecutionContext:
             if step:
                 payload['step'] = step
 
-            _requests.post(
+            # /server/* requires a credential. Without it the server answers 401 —
+            # a response, not an exception, so the bare post below read as success
+            # and every progress update vanished (BUG-0199).
+            response = _requests.post(
                 buildServerUrl('server/script/progress'),
                 json=payload,
+                headers=server_auth_headers(),
                 timeout=2,
             )
+            if response.status_code >= 400:
+                print(f"⚠️ [{self.script_name}] Progress emit rejected: "
+                      f"{response.status_code} {response.text[:120]}")
         except Exception:
             # Best-effort — never let progress emission break the script.
             pass
@@ -500,6 +540,7 @@ class ScriptExecutionContext:
                     updated_paths[idx] = url
                 
                 # Place successfully uploaded files and delete local copies
+                deleted_count = 0
                 for uploaded_file in upload_result['uploaded_files']:
                     # Set URL for ALL indices that referenced this path (e.g. initial + final state)
                     for original_idx in path_to_indices[uploaded_file['local_path']]:
@@ -512,9 +553,12 @@ class ScriptExecutionContext:
                     try:
                         if os.path.exists(local_path):
                             os.remove(local_path)
-                            print(f"🗑️  [Context] Deleted local file after upload: {os.path.basename(local_path)}")
+                            deleted_count += 1
                     except Exception as e:
                         print(f"⚠️ [Context] Failed to delete local file {os.path.basename(local_path)}: {e}")
+
+                if deleted_count:
+                    print(f"🗑️  [Context] Deleted {deleted_count} local file(s) after upload")
 
                 # Place failed uploads (keep original path)
                 for failed_file in upload_result['failed_uploads']:
@@ -556,20 +600,33 @@ class ScriptExecutionContext:
         import sys
         import io
         
+        from shared.src.lib.utils.phase_timing import TimestampedLineBuffer
+        from shared.src.lib.utils.detached_output import is_detached
+
         # Store original stdout
         self.original_stdout = sys.stdout
-        
+
+        # Every captured line gets its UTC wall clock and the seconds since this context
+        # started, so the uploaded execution.txt is a timeline. The original stream (the
+        # journal) receives the text unchanged.
+        self.stdout_buffer.append(
+            "[@stdout_capture] line prefix = UTC wall clock HH:MM:SS.mmmZ, then seconds since "
+            "execution start; '⏱ <phase> <ms> ms' lines are printed when that phase ends\n")
+        stamped_buffer = TimestampedLineBuffer(self.stdout_buffer, self.start_time)
+
         # Create a custom stdout that captures and forwards
         class StdoutCapture:
             def __init__(self, original_stdout, buffer):
                 self.original_stdout = original_stdout
                 self.buffer = buffer
-            
+
             def write(self, text):
                 # Write to original stdout (so output still shows)
                 self.original_stdout.write(text)
-                # Capture in buffer for log upload
-                self.buffer.append(text)
+                # Capture in buffer for log upload, each line prefixed with its wall clock --
+                # unless it comes from an earlier run's background report tail.
+                if not is_detached():
+                    self.buffer.append(text)
                 return len(text)
             
             def flush(self):
@@ -580,7 +637,7 @@ class ScriptExecutionContext:
                 return getattr(self.original_stdout, name)
         
         # Replace stdout with capturing version
-        sys.stdout = StdoutCapture(self.original_stdout, self.stdout_buffer)
+        sys.stdout = StdoutCapture(self.original_stdout, stamped_buffer)
     
     def stop_stdout_capture(self):
         """Stop capturing stdout and restore original"""
@@ -775,7 +832,7 @@ class ScriptExecutor:
     def __init__(self, script_name: str = None, description: str = "", host_name: str = None, device_id: str = None, device_model: str = None, default_device: str = "host", capture_artifacts: bool = True):
         """Initialize script executor - supports both context preparation and direct execution modes"""
         # For context preparation mode (test scripts)
-        self.script_name = script_name or "unknown-script"
+        self.script_name = _virtual_script_name() or script_name or "unknown-script"
         self.description = description
         self.default_device = default_device
         # When False, no initial/final screenshot or execution video is captured/uploaded.
@@ -943,6 +1000,81 @@ class ScriptExecutor:
             raise ValueError(f'Script not found: {script_path}')
         
         return script_path
+
+    def _persist_startup_crash_artifacts(self, *, script_name: str, parameters: str,
+                                         stdout: str, exit_code: int,
+                                         execution_time_ms: int) -> Dict[str, Any]:
+        """Report + logs + script_results row for a script that crashed before
+        its @script decorator started (so it produced none of its own).
+
+        The error names the last line of the traceback (e.g. "SyntaxError:
+        invalid syntax"); the full output, traceback included, is the log.
+        Best-effort: returns {} on any failure so the original result stands.
+        """
+        try:
+            import re
+            from shared.src.lib.utils.report_generation_utils import generate_and_upload_script_report
+            from shared.src.lib.database.script_results_db import (
+                record_script_execution_start,
+                update_script_execution_result,
+            )
+
+            lines = [ln.strip() for ln in (stdout or '').splitlines() if ln.strip()]
+            # Last traceback line ("XxxError: ..."), else the last output line.
+            cause = next((ln for ln in reversed(lines)
+                          if re.match(r'^[A-Za-z_][\w.]*(Error|Exception)\b', ln)),
+                         lines[-1] if lines else 'no output')
+            error = (f"Script crashed before it started (exit code {exit_code}) — "
+                     f"the file is likely corrupted or has a syntax/import error: {cause}")
+            print(f"❌ [@script_executor] {error}")
+
+            trigger = getattr(self, 'current_trigger', None) or _normalize_trigger(None)
+            report_result = generate_and_upload_script_report(
+                script_name=script_name,
+                device_info={'device_name': self.device_id, 'device_model': self.device_model,
+                             'device_id': self.device_id},
+                host_info={'host_name': self.host_name},
+                execution_time=execution_time_ms,
+                success=False,
+                error_message=error,
+                stdout=stdout or '',
+                exit_code=exit_code,
+                parameters=parameters or '',
+                trigger=trigger,
+            ) or {}
+            report_url = report_result.get('report_url') or ''
+            logs_url = report_result.get('logs_url') or ''
+
+            script_result_id = record_script_execution_start(
+                team_id=getattr(self, 'current_team_id', None) or os.getenv('TEAM_ID', DEFAULT_TEAM_ID),
+                script_name=script_name,
+                script_type=script_name,
+                host_name=self.host_name,
+                device_name=self.device_id,
+                environment=getattr(self, 'current_environment', None) or _normalize_environment(None),
+            )
+            if script_result_id:
+                update_script_execution_result(
+                    script_result_id=script_result_id,
+                    success=False,
+                    execution_time_ms=execution_time_ms,
+                    html_report_r2_path=report_result.get('report_path') or None,
+                    html_report_r2_url=report_url or None,
+                    logs_r2_path=report_result.get('logs_path') or None,
+                    logs_r2_url=logs_url or None,
+                    error_msg=error,
+                )
+            print(f"📊 [@script_executor] Startup-crash report: {report_url or 'n/a'} | logs: {logs_url or 'n/a'}")
+            return {
+                'script_success': False,
+                'error': error,
+                'report_url': report_url,
+                'logs_url': logs_url,
+                'script_result_id': script_result_id,
+            }
+        except Exception as artifact_err:
+            print(f"⚠️ [@script_executor] Could not build the startup-crash report (non-fatal): {artifact_err}")
+            return {}
 
     def _materialize_virtual_script(self, virtual_script_id: str, team_id: str = DEFAULT_TEAM_ID):
         """Fetch a DB-stored virtual script's source, write it to a temp .py file
@@ -1124,8 +1256,6 @@ class ScriptExecutor:
         trigger_parts = [f"type={current_trigger.get('type') or 'host'}"]
         if current_trigger.get('caller_user'):
             trigger_parts.append(f"user={current_trigger['caller_user']}")
-        if current_trigger.get('caller_ip'):
-            trigger_parts.append(f"ip={current_trigger['caller_ip']}")
         print(f"[@script_executor] TRIGGER: {' | '.join(trigger_parts)}")
 
         print(f"[@script_executor] Executing: {' '.join(command_array)}")
@@ -1195,7 +1325,8 @@ class ScriptExecutor:
             # wrapper alone dying leaves the python child running (see _kill_process_tree).
             start_new_session=(not is_windows),
         )
-        _register_running_process(self.device_id, process, script_name)
+        _register_running_process(self.device_id, process, script_name,
+                                  task_id=getattr(self, 'current_task_id', None))
         
         try:
             # Stream output in real-time with timeout
@@ -1376,6 +1507,21 @@ class ScriptExecutor:
                 'script_result_id': script_result_id,  # Extracted from SCRIPT_RESULT_ID marker
             }
             
+            # The script died before its @script decorator ran (syntax error,
+            # bad import, typo at the top of the file): no SCRIPT_SUCCESS, no
+            # SCRIPT_RESULT_ID, no report, no logs — the run showed up empty with
+            # nothing to debug from. Build them here from the captured output,
+            # which holds the Python traceback. exit_code > 0 only: an abort or
+            # timeout kills the child by signal (negative code) and is not this.
+            if exit_code > 0 and script_success is None and not script_result_id:
+                result.update(self._persist_startup_crash_artifacts(
+                    script_name=script_name,
+                    parameters=parameters,
+                    stdout=stdout,
+                    exit_code=exit_code,
+                    execution_time_ms=total_execution_time,
+                ))
+
             print(f"[@script_executor] RETURNING: About to return result dictionary")
             return result
         finally:
@@ -1435,6 +1581,21 @@ class ScriptExecutor:
         
         return parser
     
+    def _bind_ai_caller(self, context) -> None:
+        """Attribute every AI call this script run makes to its result row (TASK-87)."""
+        try:
+            from shared.src.lib.ai import caller as ai_caller
+            device = getattr(context, 'selected_device', None)
+            ai_caller.update(
+                origin='script', script_name=self.script_name, script_result_id=context.script_result_id,
+                host_name=getattr(getattr(context, 'host', None), 'host_name', None),
+                device_id=getattr(device, 'device_id', None) or getattr(self, 'device_id', None),
+                device_model=getattr(device, 'device_model', None) or getattr(self, 'device_model', None),
+                userinterface_name=getattr(context, 'userinterface', None),
+            )
+        except Exception as e:  # noqa: BLE001 - attribution must never break a run
+            print(f"[@script_executor] ai caller binding skipped: {e}")
+
     def setup_execution_context(self, args, enable_db_tracking: bool = False) -> ScriptExecutionContext:
         """Setup execution context with infrastructure components - NO DEVICE LOCKING"""
         context = ScriptExecutionContext(self.script_name)
@@ -1545,6 +1706,7 @@ class ScriptExecutor:
                     if context.script_result_id:
                         print(f"📝 [{self.script_name}] Script execution recorded with ID: {context.script_result_id}")
                         print(f"SCRIPT_RESULT_ID:{context.script_result_id}")
+                self._bind_ai_caller(context)
 
                 print(f"✅ [{self.script_name}] Host-only execution context setup completed")
                 return context
@@ -1725,6 +1887,7 @@ class ScriptExecutor:
                     # (unconditionally, right after device selection).
 
                     print(f"📝 [{self.script_name}] Script context populated in device navigation_context")
+            self._bind_ai_caller(context)
             
             # 5. Capture initial screenshot (stored in cold, uploaded at script end)
             if context.capture_artifacts:
@@ -1979,8 +2142,6 @@ class ScriptExecutor:
             trigger_bits = [f"type={trigger.get('type')}"]
             if trigger.get('caller_user'):
                 trigger_bits.append(f"user={trigger['caller_user']}")
-            if trigger.get('caller_ip'):
-                trigger_bits.append(f"ip={trigger['caller_ip']}")
             lines.append(f'- trigger: `{" | ".join(trigger_bits)}`')
         lines.append(f'- host_name: `{getattr(context.host, "host_name", "unknown")}`')
         lines.append(f'- device_id: `{getattr(context.selected_device, "device_id", "unknown")}`')
@@ -2076,7 +2237,8 @@ class ScriptExecutor:
             merged['verification_review_r2_path'] = review_path
         return merged
     
-    def generate_report_for_context(self, context: ScriptExecutionContext, device_info: Dict[str, Any], host_info: Dict[str, Any], userinterface_name: str = "") -> Dict[str, str]:
+    def generate_report_for_context(self, context: ScriptExecutionContext, device_info: Dict[str, Any], host_info: Dict[str, Any], userinterface_name: str = "",
+                                    detached_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
         """
         Generate and upload report for a context (reusable by script_executor and testcase_executor).
         
@@ -2088,14 +2250,23 @@ class ScriptExecutor:
             
         Returns:
             Dict with 'success', 'report_url', 'logs_url', 'report_path', 'logs_path'
+
+        detached_inputs: what _detach_report_inputs froze when the report is built in the
+        background -- the captured log (capture already stopped), DOM captures, UI dumps. The
+        execution time is then context.baseline_execution_time_ms, fixed when the run
+        finished, not whenever the tail gets here.
         """
         try:
             # Capture execution time BEFORE any additional processing
-            actual_execution_time_ms = context.get_execution_time_ms()
-            context.baseline_execution_time_ms = actual_execution_time_ms
+            if detached_inputs is not None and getattr(context, 'baseline_execution_time_ms', None) is not None:
+                actual_execution_time_ms = context.baseline_execution_time_ms
+            else:
+                actual_execution_time_ms = context.get_execution_time_ms()
+                context.baseline_execution_time_ms = actual_execution_time_ms
             
             # Capture test execution video BEFORE report generation (for both scripts and test cases)
             print(f"🎥 [{self.script_name}] Capturing test execution video...")
+            _t_video = _phase_t0()
             try:
                 actual_test_duration_seconds = actual_execution_time_ms / 1000.0
                 if not context.capture_artifacts:
@@ -2113,7 +2284,9 @@ class ScriptExecutor:
             except Exception as e:
                 print(f"⚠️ [{self.script_name}] Video capture failed: {e}")
                 context.test_video_url = ""
-            
+            _log_phase('fin.video_extract', _t_video,
+                       f"duration_s={actual_execution_time_ms / 1000.0:.1f} ok={bool(getattr(context, 'test_video_url', ''))}")
+
             # Build the step mosaic BEFORE the batch screenshot upload below: that
             # upload deletes the local "cold" capture files it just sent to R2
             # (cloudflare_utils.upload_files auto_delete_cold=True), so building
@@ -2122,6 +2295,7 @@ class ScriptExecutor:
             # utils.py). Best-effort: any failure here just skips the mosaic.
             mosaic_local_path = ''
             mosaic_tile_count = 0
+            _t_mosaic = _phase_t0()
             try:
                 if context.capture_artifacts and context.step_results:
                     import tempfile
@@ -2136,10 +2310,14 @@ class ScriptExecutor:
                         os.unlink(candidate_mosaic_path)
             except Exception as mosaic_build_error:
                 print(f"⚠️ [{self.script_name}] Mosaic build skipped: {mosaic_build_error}")
+            _log_phase('fin.mosaic_build', _t_mosaic, f"tiles={mosaic_tile_count}")
 
             # Batch upload all screenshots to R2 BEFORE report generation
+            _t_shots = _phase_t0()
+            _shot_count = len(context.screenshot_paths or [])
             url_mapping = context.upload_screenshots_to_r2()
             context.screenshot_url_mapping = url_mapping
+            _log_phase('fin.screenshots_upload', _t_shots, f"screenshots={_shot_count} uploaded={len(url_mapping)}")
 
             # Persist the report's key R2 artifacts (signed URLs) into runtime
             # metadata so downstream consumers (e.g. the Device Info page) can
@@ -2163,11 +2341,17 @@ class ScriptExecutor:
                 print(f"⚠️ [{self.script_name}] Failed to record report artifacts: {artifact_error}")
 
             # Stop stdout capture and get logs
-            context.stop_stdout_capture()
-            captured_stdout = context.get_captured_stdout()
+            if detached_inputs is not None:
+                captured_stdout = detached_inputs.get('stdout', '')
+            else:
+                print(f"[@phase_timing] [{self.script_name}] execution log ends here: the remaining finalize phases "
+                      f"(metadata/report/log/video uploads, DB update) are timed in the vpt-host journal only", flush=True)
+                context.stop_stdout_capture()
+                captured_stdout = context.get_captured_stdout()
 
             # Upload runtime metadata.json BEFORE report generation so the report can link to it
             metadata_url_for_report = ''
+            _t_meta = _phase_t0()
             try:
                 runtime_metadata_snapshot = self._merge_final_metadata(context) or {}
                 if runtime_metadata_snapshot:
@@ -2187,8 +2371,10 @@ class ScriptExecutor:
                         print(f"⚠️ [{self.script_name}] Metadata JSON upload failed: {metadata_upload_result.get('error')}")
             except Exception as metadata_upload_error:
                 print(f"⚠️ [{self.script_name}] Failed to upload metadata JSON: {metadata_upload_error}")
+            _log_phase('fin.metadata_upload', _t_meta)
 
             # Generate and upload report using device info
+            _t_report = _phase_t0()
             report_result = generate_and_upload_script_report(
                 metadata_url=metadata_url_for_report,
                 trigger=getattr(self, 'current_trigger', None) or getattr(context, 'trigger', None) or _normalize_trigger(None),
@@ -2212,8 +2398,12 @@ class ScriptExecutor:
                 script_identity=self._build_script_identity_metadata(context),
                 mosaic_local_path=mosaic_local_path,
                 mosaic_tile_count=mosaic_tile_count,
+                dom_captures=(detached_inputs or {}).get('dom_captures'),
+                ui_dumps=(detached_inputs or {}).get('ui_dumps'),
+                script_i18n=getattr(context, 'i18n_strings', None),
             )
-            
+            _log_phase('fin.report_generate_and_upload', _t_report, f"ok={bool(report_result.get('success'))}")
+
             if report_result.get('success'):
                 print(f"📊 [{self.script_name}] Report generated: {report_result.get('report_url')}")
                 if report_result.get('logs_url'):
@@ -2308,18 +2498,37 @@ class ScriptExecutor:
         if not host_name or not device_id:
             return
         try:
-            from shared.src.lib.utils.build_url_utils import buildServerUrl
+            from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
             import requests as _requests
 
             payload: Dict[str, Any] = {'host_name': host_name, 'device_id': device_id}
             if context.task_id:
                 payload['task_id'] = context.task_id
-            _requests.post(
+            response = _requests.post(
                 buildServerUrl('server/script/releaseDevice'),
                 json=payload,
+                headers=server_auth_headers(),
                 timeout=3,
             )
-            print(f"🔓 [{self.script_name}] Requested early device release for {host_name}:{device_id} (report/video/upload to follow)")
+            # A rejected release is why a device would stay locked through the
+            # report/video/upload tail with nothing saying so (BUG-0199).
+            if response.status_code >= 400:
+                print(f"⚠️ [{self.script_name}] Early device release rejected: "
+                      f"{response.status_code} {response.text[:120]} — device stays locked until completion")
+            else:
+                # 200 does not mean released: the server declines (released=false)
+                # when a user's Take Control session (manual_control) owns the lock,
+                # and the device then stays with that user by design. Say which.
+                try:
+                    body = response.json() or {}
+                except ValueError:
+                    body = {}
+                if body.get('released') is False:
+                    print(f"🔒 [{self.script_name}] Early release not done for {host_name}:{device_id} "
+                          f"({body.get('message') or 'lock not released'}) — the device stays with its "
+                          f"current owner")
+                else:
+                    print(f"🔓 [{self.script_name}] Requested early device release for {host_name}:{device_id} (report/video/upload to follow)")
         except Exception as e:
             # Never let release signalling affect the run — falls back to
             # release-on-completion (previous behaviour).
@@ -2363,6 +2572,7 @@ class ScriptExecutor:
         error_message: Optional[str] = None,
         print_summary: bool = False,
         generate_report: bool = True,
+        defer_report: bool = False,
     ) -> Dict[str, Any]:
         """
         Finalize execution artifacts and database state without exiting the process.
@@ -2374,16 +2584,16 @@ class ScriptExecutor:
         screenshot/metadata/markdown R2 uploads, no HTML report, no DB write. Device
         lifecycle (power-on + early release) and resource cleanup (stop stdout capture,
         clear device script context) still run so the device is left in a clean state.
-        """
-        report_result: Dict[str, Any] = {
-            'success': False,
-            'report_url': '',
-            'report_path': '',
-            'logs_url': '',
-            'logs_path': '',
-        }
-        verification_review_upload = None
 
+        When ``defer_report`` is True (the async testcase worker) everything up to and
+        including the browser close and the final screenshot runs here, then the run's verdict
+        is written to script_results and the report tail (video, mosaic, uploads, HTML report,
+        final DB write) is NOT run: the result carries it as ``report_tail``, a callable the
+        caller runs in the background once it has reported the run finished. Everything the
+        tail would read from process-global state (the log capture, the DOM captures, the UI
+        dumps) is frozen before this returns, and the device's script context is cleared here,
+        so the next run can start while the tail is still uploading.
+        """
         try:
             if success is not None:
                 context.overall_success = success
@@ -2393,18 +2603,24 @@ class ScriptExecutor:
             # Global rule: never leave the device powered off. If a test ended with
             # the device off (e.g. a poweroff KPI step), switch it back on while we
             # still hold the lock — must happen before _release_device_early.
+            _t_fin = _phase_t0()
             self._ensure_device_powered_on(context)
+            _log_phase('fin.ensure_powered_on', _t_fin)
 
             # Release the device now: the remaining work (final screenshot, report
             # video, R2 uploads, DB writes) reads from the continuous HLS capture
             # buffer or is pure I/O and does not need control of the device. Freeing
             # it here lets the next user/job take over without waiting for report
             # generation to finish.
+            _t_fin = _phase_t0()
             self._release_device_early(context)
+            _log_phase('fin.release_device_early', _t_fin)
 
             # Web tests leave Chrome/WebKit running by default (persistent,
             # reused process). Close it now unless VPT_KEEP_BROWSER_OPEN=true.
+            _t_fin = _phase_t0()
             self._close_web_browser_if_needed(context)
+            _log_phase('fin.close_web_browser', _t_fin)
 
             # Ad-hoc single-step runs: bail out before the artifact tail. The device
             # is already powered-on + released above; the `finally` block below still
@@ -2432,15 +2648,115 @@ class ScriptExecutor:
 
             if context.capture_artifacts and context.host and context.selected_device:
                 print(f"📸 [{self.script_name}] Capturing final state screenshot...")
+                _t_fin = _phase_t0()
                 from shared.src.lib.utils.device_utils import capture_screenshot_for_script
                 screenshot_id = capture_screenshot_for_script(context.selected_device, context, "final_state")
                 if screenshot_id:
                     print(f"✅ [{self.script_name}] Final screenshot captured: {screenshot_id}")
+                _log_phase('fin.final_screenshot', _t_fin)
 
+            if defer_report:
+                # The run's time is fixed now, not when the background tail gets to it.
+                context.baseline_execution_time_ms = context.get_execution_time_ms()
+                detached_inputs = self._detach_report_inputs(context)
+                self._record_outcome_before_report(context)
+
+                def report_tail() -> Dict[str, Any]:
+                    return self._finalize_report_tail(context, userinterface_name, detached_inputs)
+
+                return {
+                    'success': True,
+                    'deferred': True,
+                    'report_tail': report_tail,
+                    'report_url': '',
+                    'report_path': '',
+                    'logs_url': '',
+                    'logs_path': '',
+                    'metadata': None,
+                    'verification_review_upload': None,
+                    'execution_time_ms': context.baseline_execution_time_ms,
+                }
+
+            return self._finalize_report_tail(context, userinterface_name, None)
+        except Exception as e:
+            print(f"⚠️ [{self.script_name}] Error during report generation: {e}")
+            return {
+                'success': False,
+                'report_url': '',
+                'report_path': '',
+                'logs_url': '',
+                'logs_path': '',
+                'metadata': self._merge_final_metadata(context),
+                'verification_review_upload': None,
+                'execution_time_ms': getattr(context, 'baseline_execution_time_ms', context.get_execution_time_ms()),
+            }
+        finally:
+            context.stop_stdout_capture()
+            self._clear_device_script_context(context)
+            if print_summary:
+                baseline_time = getattr(context, 'baseline_execution_time_ms', None)
+                self.print_execution_summary(context, userinterface_name, baseline_time)
+
+    def _detach_report_inputs(self, context: ScriptExecutionContext) -> Dict[str, Any]:
+        """Freeze what the report tail reads from process-global state, before the next run
+        can change it: stop the log capture and keep its text; copy the DOM captures out of
+        the folder the next run numbers from 01 again; assemble the UI dump file."""
+        import tempfile
+        print(f"[@phase_timing] [{self.script_name}] execution log ends here: the report tail "
+              f"(video, mosaic, uploads, report, DB update) runs in the background and is timed "
+              f"in the vpt-host journal only", flush=True)
+        context.stop_stdout_capture()
+        inputs: Dict[str, Any] = {'stdout': context.get_captured_stdout(), 'dom_captures': [],
+                                  'dom_dir': '', 'ui_dumps': ('', 0)}
+        try:
+            from shared.src.lib.utils.dom_capture import snapshot_dom_captures
+            inputs['dom_dir'] = tempfile.mkdtemp(prefix='vpt_dom_report_')
+            inputs['dom_captures'] = snapshot_dom_captures(inputs['dom_dir'])
+        except Exception as e:
+            print(f"⚠️ [{self.script_name}] DOM capture snapshot skipped: {e}")
+        try:
+            from shared.src.lib.utils.ui_dump_capture import get_ui_dump_count, get_ui_dump_file
+            ui_dump_path = get_ui_dump_file()
+            inputs['ui_dumps'] = (ui_dump_path, get_ui_dump_count() if ui_dump_path else 0)
+        except Exception as e:
+            print(f"⚠️ [{self.script_name}] UI dump snapshot skipped: {e}")
+        return inputs
+
+    def _record_outcome_before_report(self, context: ScriptExecutionContext) -> None:
+        """The verdict, time and error in script_results now; the report paths follow."""
+        if not context.script_result_id:
+            return
+        _t = _phase_t0()
+        from shared.src.lib.database.script_results_db import record_script_execution_outcome
+        record_script_execution_outcome(
+            script_result_id=context.script_result_id,
+            success=context.overall_success,
+            execution_time_ms=context.baseline_execution_time_ms,
+            error_msg=None if context.overall_success else (context.error_message or 'Script execution failed'),
+        )
+        _log_phase('fin.db_record_outcome', _t, f"success={context.overall_success}")
+
+    def _finalize_report_tail(self, context: ScriptExecutionContext, userinterface_name: str,
+                              detached_inputs: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Video, mosaic, uploads, HTML report, review markdown and the final script_results
+        write. Inline at the end of finalize_execution_context, or in the background with the
+        inputs _detach_report_inputs froze (and then it never touches the log capture or the
+        device's script context: those belong to whichever run is on the device now)."""
+        report_result: Dict[str, Any] = {
+            'success': False,
+            'report_url': '',
+            'report_path': '',
+            'logs_url': '',
+            'logs_path': '',
+        }
+        verification_review_upload = None
+        try:
             device_info = self.get_device_info_for_report_context(context)
             host_info = self.get_host_info_for_report_context(context)
-            report_result = self.generate_report_for_context(context, device_info, host_info, userinterface_name)
-
+            _t_fin = _phase_t0()
+            report_result = self.generate_report_for_context(context, device_info, host_info, userinterface_name,
+                                                             detached_inputs=detached_inputs)
+            _log_phase('fin.generate_report_for_context', _t_fin)
             if report_result and report_result.get('success') and report_result.get('report_url'):
                 if not hasattr(context, 'custom_data') or context.custom_data is None:
                     context.custom_data = {}
@@ -2450,6 +2766,7 @@ class ScriptExecutor:
 
             execution_time_for_db = getattr(context, 'baseline_execution_time_ms', context.get_execution_time_ms())
 
+            _t_fin = _phase_t0()
             try:
                 markdown_content = self._build_verification_review_markdown(context, report_result, execution_time_for_db)
                 logs_path = report_result.get('logs_path') if isinstance(report_result, dict) else ''
@@ -2475,6 +2792,7 @@ class ScriptExecutor:
                     print(f"⚠️ [{self.script_name}] Verification review markdown upload failed: {verification_review_upload.get('error')}")
             except Exception as review_upload_error:
                 print(f"⚠️ [{self.script_name}] Failed to upload verification review markdown: {review_upload_error}")
+            _log_phase('fin.review_markdown_upload', _t_fin)
 
             metadata_to_save = self._build_final_metadata_with_review(
                 context,
@@ -2499,6 +2817,7 @@ class ScriptExecutor:
 
             if context.script_result_id:
                 print(f"📝 [{self.script_name}] Recording {'success' if context.overall_success else 'failure'} in database...")
+                _t_fin = _phase_t0()
                 update_script_execution_result(
                     script_result_id=context.script_result_id,
                     success=context.overall_success,
@@ -2510,6 +2829,7 @@ class ScriptExecutor:
                     error_msg=None if context.overall_success else (context.error_message or 'Script execution failed'),
                     metadata=metadata_to_save,
                 )
+                _log_phase('fin.db_update_script_result', _t_fin)
 
             return {
                 'success': bool(report_result and report_result.get('success')),
@@ -2534,11 +2854,16 @@ class ScriptExecutor:
                 'execution_time_ms': getattr(context, 'baseline_execution_time_ms', context.get_execution_time_ms()),
             }
         finally:
-            context.stop_stdout_capture()
-            self._clear_device_script_context(context)
-            if print_summary:
-                baseline_time = getattr(context, 'baseline_execution_time_ms', None)
-                self.print_execution_summary(context, userinterface_name, baseline_time)
+            if detached_inputs:
+                import shutil
+                if detached_inputs.get('dom_dir'):
+                    shutil.rmtree(detached_inputs['dom_dir'], ignore_errors=True)
+                ui_dump_path = (detached_inputs.get('ui_dumps') or ('', 0))[0]
+                if ui_dump_path and os.path.exists(ui_dump_path):
+                    try:
+                        os.remove(ui_dump_path)
+                    except OSError:
+                        pass
 
     def cleanup_and_exit(self, context: ScriptExecutionContext, userinterface_name: str):
         """Cleanup resources and exit with appropriate code - NO DEVICE UNLOCKING"""

@@ -11,7 +11,7 @@ API reference but is not part of this public workspace.
 - Backend Server core routes: `backend_server/src/app.py` registration list and route blueprints
 - Backend Host core routes: `backend_host/src/routes/registry.py` and route blueprints
 - Optional feature routes: enabled `features/*/manifest.json` packages with service route modules
-- Curated OpenAPI specs: `docs/api/specs/`
+- Curated OpenAPI specs: `docs/api/specs/` (e.g. `server-ai-routing.yaml` for `/server/ai/*` routing + gateway and `/server/agent/{health,api-key}`)
 - Postman importer: `scripts/sync_postman_openapi.py`
 
 ## Generate And Sync

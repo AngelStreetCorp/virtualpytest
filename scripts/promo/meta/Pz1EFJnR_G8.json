@@ -1,0 +1,22 @@
+{
+ "id": "Pz1EFJnR_G8",
+ "title": "What's new in VirtualPyTest: new look, 3 languages, shareable reports, analytics",
+ "description": "A quick tour of what's new in VirtualPyTest. The app has a new look: one clean style on every page, in light or dark. It now speaks English, French and German with one click, and so do the test reports. Any report can be shared as a snapshot link that expires, optionally with a password. Anyone with the link sees the report, screenshots and video with no account needed, and one click revokes it. Analytics: ask Atlas for a canvas in one sentence, then open the same panels as a Grafana dashboard already filtered to your device.\n\nOpen source & free.\n\n0:00 Intro\n0:04 A new look\n0:13 Light or dark, English, French, German\n0:23 Reports in French and German\n0:33 Share a report as a link\n0:44 The snapshot: no account needed\n0:49 Revoke it in one click\n0:58 Analytics, tab by tab\n1:10 Ask Atlas for a canvas\n1:18 Open in Grafana",
+ "tags": [
+  "virtualpytest",
+  "what's new",
+  "ui redesign",
+  "dark mode",
+  "multilingual",
+  "share test report",
+  "report snapshot",
+  "ai analytics",
+  "grafana",
+  "test automation",
+  "qa tools",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

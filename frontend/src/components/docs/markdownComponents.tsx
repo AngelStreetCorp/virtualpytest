@@ -1,4 +1,5 @@
 import { Box, Typography } from '@mui/material';
+import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
 
 /**
  * Shared react-markdown `components` override used by every docs page. Extracted from
@@ -7,7 +8,8 @@ import { Box, Typography } from '@mui/material';
  */
 export const createDocsMarkdownComponents = (
   getCurrentDocPath: () => string,
-  page?: string
+  page?: string,
+  P?: typeof AGENT_CHAT_PALETTE,
 ): Record<string, any> => ({
   // Style images
   img: ({ src, alt, loading }: any) => (
@@ -139,7 +141,7 @@ export const createDocsMarkdownComponents = (
         component="a"
         href={transformedHref}
         sx={{
-          color: 'primary.main',
+          color: P ? P.accentText : 'primary.main',
           textDecoration: 'none',
           '&:hover': { textDecoration: 'underline' },
         }}
@@ -171,7 +173,7 @@ export const createDocsMarkdownComponents = (
     <Box
       sx={{
         borderLeft: '3px solid',
-        borderColor: 'primary.main',
+        borderColor: P ? P.accent : 'primary.main',
         pl: 1.5,
         py: 0.25,
         my: 1.5,
@@ -221,8 +223,9 @@ export const createDocsMarkdownComponents = (
  */
 export const createInlineDocsMarkdownComponents = (
   getCurrentDocPath: () => string,
-  page?: string
+  page?: string,
+  P?: typeof AGENT_CHAT_PALETTE,
 ): Record<string, any> => ({
-  ...createDocsMarkdownComponents(getCurrentDocPath, page),
+  ...createDocsMarkdownComponents(getCurrentDocPath, page, P),
   p: ({ children }: any) => <>{children}</>,
 });

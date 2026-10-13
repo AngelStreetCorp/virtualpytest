@@ -13,7 +13,8 @@ Idempotent: nodes whose data.dom._dom_meta.v already matches DOM_SCHEMA_VERSION 
 skipped unless --force. Use --limit to try a handful first, --node to target a label,
 --workers to parallelize (DOM calls are ~60s each, so concurrency dominates wall time).
 
-Requires OPENAI_API_KEY in the environment (loaded from the project .env).
+The model is the AI route for usage vision.dom (Settings -> AI); the call goes through
+the server gateway, so SERVER_URL (+ API_KEY) must be set in the host .env.
 
 Usage (run on a host/server VM with the repo + .env):
     python3 backend_host/scripts/backfill_dom.py example_tv --limit 5
@@ -61,13 +62,7 @@ def main():
     ap.add_argument('--node', default=None, help='only nodes whose label/node_id contains this substring')
     ap.add_argument('--workers', type=int, default=6, help='concurrent DOM generations')
     ap.add_argument('--force', action='store_true', help='regenerate even if dom._dom_meta.v is current')
-    ap.add_argument('--model', default=None, help='override DOM model (default gpt-5.5)')
-    ap.add_argument('--effort', default=None, help='reasoning effort (default medium)')
     args = ap.parse_args()
-
-    if not os.getenv('OPENAI_API_KEY', '').strip():
-        print("❌ OPENAI_API_KEY not set — source the host .env first")
-        sys.exit(1)
 
     team_id = args.team_id or get_team_id()
     ui = get_userinterface_by_name(args.userinterface_name, team_id)
@@ -127,7 +122,7 @@ def main():
                 print(f"  ✗ {label}: download failed ({dl.get('error')})")
                 return
 
-            dom = generate_dom(tmp_shot, model=args.model, effort=args.effort)
+            dom = generate_dom(tmp_shot)
             u = dom.get('_dom_meta', {}).get('usage', {})
             cost = u.get('prompt_tokens', 0) * RATE_IN / 1e6 + u.get('completion_tokens', 0) * RATE_OUT / 1e6
 

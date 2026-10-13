@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 import React from 'react';
 
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { Verification } from '../../types/verification/Verification_Types';
 
 import { VerificationImageComparisonThumbnails } from './VerificationImageComparisonThumbnails';
@@ -43,6 +44,7 @@ export const VerificationTestResults: React.FC<VerificationTestResultsProps> = (
   onImageClick,
   onSourceImageClick,
 }) => {
+  const P = useAgentChatPalette();
   return (
     <Box sx={{ mt: 0 }}>
       {/* Universal Test Result Status Indicator - shows for ALL verification types */}
@@ -55,15 +57,15 @@ export const VerificationTestResults: React.FC<VerificationTestResultsProps> = (
           padding: '4px 8px',
           borderRadius: 1,
           mb: 1,
-          backgroundColor: testResult.success ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)',
-          border: `2px solid ${testResult.success ? '#4caf50' : '#f44336'}`,
+          backgroundColor: testResult.success ? `${P.success}1f` : `${P.error}1f`,
+          border: `2px solid ${testResult.success ? P.success : P.error}`,
         }}
       >
         <Typography
           sx={{
             fontWeight: 'bold',
             fontSize: '0.75rem',
-            color: testResult.success ? '#4caf50' : '#f44336',
+            color: testResult.success ? P.success : P.error,
           }}
         >
           {testResult.success ? 'PASS' : 'FAIL'}
@@ -75,7 +77,7 @@ export const VerificationTestResults: React.FC<VerificationTestResultsProps> = (
             sx={{
               fontSize: '0.7rem',
               fontWeight: 500,
-              color: testResult.success ? '#4caf50' : '#f44336',
+              color: testResult.success ? P.success : P.error,
               ml: 1,
             }}
           >

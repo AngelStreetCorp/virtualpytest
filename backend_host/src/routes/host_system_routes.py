@@ -7,6 +7,8 @@ System control endpoints for host-level operations:
 - Restart host streaming services
 - Update host core code from shared storage (with backup)
 - Rollback host core code from backup
+- Check storage (df -h equivalent) — used by the system-ops skill
+- Ping host (TCP probe to backend port 6109) — used by the system-ops skill
 """
 
 from flask import Blueprint, request, jsonify, current_app
@@ -118,6 +120,35 @@ def host_config():
     except ValueError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
     return jsonify({'success': True, 'message': 'Host configuration saved'}), 200
+
+
+@host_system_bp.route('/grabbers', methods=['GET'])
+@route_exception_handler()
+def host_grabbers():
+    """Enumerate the capture cards / bluetooth controllers / IR receivers
+    attached to this host, with each UVC video node pre-paired to the USB
+    UAC card that shares its USB parent.
+
+    The pairing is the same logic the operator-facing
+    ``scripts/detect_grabber.sh`` prints, but exposed as JSON so the
+    Host & Devices UI can pre-fill ``DEVICE_VIDEO`` and
+    ``DEVICE_VIDEO_AUDIO`` together (one click, never typed by hand).
+
+    Permission requirement: the user account running vpt-host must be in
+    the ``video`` and ``audio`` groups (set up by
+    ``setup/local/linux/backend_host/setup_permissions.sh``). When the
+    user lacks those groups, ``v4l2-ctl`` errors out and the response
+    is an empty ``grabbers`` array — same silent failure mode the bash
+    script used to have, so the UI surfaces the count to the operator.
+    """
+    from backend_host.src.lib.grabber_detect import detect_grabbers
+    report = detect_grabbers()
+    return jsonify({
+        'success': True,
+        'grabbers': report.get('grabbers', []),
+        'bluetooth': report.get('bluetooth', []),
+        'infrared': report.get('infrared', []),
+    }), 200
 
 
 @host_system_bp.route('/vnc-info', methods=['POST'])
@@ -1326,3 +1357,142 @@ def view_stream_logs():
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# --- Small ops for the system-ops skill (TASK-74) ----------------------------
+# These two routes are intentionally LIGHTWEIGHT and UNAUTH-gated beyond the
+# global /host/* X-API-Key check: they expose only "is the host alive" and
+# "how full is the disk". They do not run arbitrary commands, do not require
+# an admin token, and never log credentials. Designed for the Atlas chat agent
+# to answer "is the host up?" / "how much storage is left?" without escalation.
+# ----------------------------------------------------------------------------
+
+
+@host_system_bp.route('/checkStorage', methods=['GET'])
+@route_exception_handler()
+def check_storage():
+    """Disk usage for the host, df -h equivalent.
+
+    Returns a list of {filesystem, size, used, available, use_pct, mountpoint}
+    rows for the filesystems on this host. Useful for the system-ops skill
+    ("how much storage is left?") and for capacity planning dashboards.
+
+    Implemented with `shutil.disk_usage` rather than shelling out to `df`
+    so the route is portable across Linux (GNU), macOS (BSD) and Windows
+    (which has no `df` at all). `shutil.disk_usage` is a single statvfs
+    call — no subprocess, no shell injection surface, no platform
+    compatibility matrix to maintain.
+    """
+    import platform
+    import shutil
+
+    host = platform.node()
+
+    if platform.system() == 'Windows':
+        # Walk A:..Z: and report every drive that actually exists.
+        rows = []
+        for letter in 'CDEFGHIJKLMNOPQRSTUVWXYZ':
+            drive = f"{letter}:\\"
+            try:
+                usage = shutil.disk_usage(drive)
+            except (FileNotFoundError, OSError):
+                continue
+            total = usage.total
+            used = usage.used
+            free = usage.free
+            pct = round((used / total) * 100, 1) if total else 0.0
+            rows.append({
+                'filesystem': drive,
+                'size': total,
+                'used': used,
+                'available': free,
+                'use_pct': pct,
+                'mountpoint': drive,
+            })
+        return jsonify({'success': True, 'host': host, 'rows': rows}), 200
+
+    # POSIX (Linux + macOS): one row for the mount that holds the host's
+    # code (/opt/virtualpytest on the Pi fleet, / on dev machines). The
+    # platform-specific mount points the script actually cares about are:
+    #   - the directory the vpt-host process is running from (the project
+    #     root, /opt/virtualpytest on deployed Pi hosts, the repo root
+    #     on dev machines)
+    # We report the root mount because that is the one that always exists
+    # and is the one Atlas asks about ("is the disk full?").
+    rows = []
+    try:
+        usage = shutil.disk_usage('/')
+    except OSError as exc:
+        return jsonify({
+            'success': False,
+            'host': host,
+            'error': f'shutil.disk_usage(/) failed: {exc}',
+        }), 500
+
+    total = usage.total
+    used = usage.used
+    free = usage.free
+    pct = round((used / total) * 100, 1) if total else 0.0
+    rows.append({
+        'filesystem': 'root',
+        'size': total,
+        'used': used,
+        'available': free,
+        'use_pct': pct,
+        'mountpoint': '/',
+    })
+
+    return jsonify({
+        'success': True,
+        'host': host,
+        'rows': rows,
+    }), 200
+
+
+@host_system_bp.route('/pingHost', methods=['GET'])
+@route_exception_handler()
+def ping_host():
+    """Lightweight liveness check for THIS host. Returns the wall-clock
+    round-trip time (ms) for a TCP connect to the backend port + the host
+    name and the boot time. No remote host is contacted — the route always
+    answers for the host that received the request. Used by the system-ops
+    skill to answer "is the host up?".
+
+    The route is bounded to 200 ms so a wedged socket cannot hang the
+    caller; on timeout the response is still a success=False, not a 5xx,
+    so an AI agent can read the verdict directly.
+    """
+    import platform
+    import socket
+    import time
+
+    start = time.monotonic()
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(0.2)
+    try:
+        sock.connect(('127.0.0.1', 6109))
+        ok = True
+        error = None
+    except OSError as exc:
+        ok = False
+        error = str(exc)
+    finally:
+        sock.close()
+    rtt_ms = round((time.monotonic() - start) * 1000, 2)
+
+    # Boot time (best-effort, used to surface "host uptime").
+    boot_time_iso = None
+    try:
+        import psutil  # type: ignore
+        boot_time_iso = datetime.fromtimestamp(psutil.boot_time()).isoformat() + 'Z'
+    except ImportError:
+        pass
+
+    return jsonify({
+        'success': ok,
+        'host': platform.node(),
+        'rtt_ms': rtt_ms,
+        'backend_port': 6109,
+        'boot_time': boot_time_iso,
+        'error': error,
+    }), 200

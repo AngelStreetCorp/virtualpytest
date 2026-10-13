@@ -202,7 +202,13 @@ class DeploymentScheduler:
                 'lock_owner_session_id': dep.get('_lock_owner_session_id'),
                 'lock_owner_job_id': dep.get('_lock_owner_job_id'),
             }
-            requests.post(callback_url, json=payload, headers=server_auth_headers(), timeout=10)
+            response = requests.post(callback_url, json=payload, headers=server_auth_headers(), timeout=10)
+            # Sends the credential, but used to ignore the answer: a rejection is a
+            # response rather than an exception, so a refused notification was
+            # indistinguishable from a delivered one (BUG-0199).
+            if response.status_code >= 400:
+                print(f"[@deployment_scheduler] Server rejected deployment status ({status}): "
+                      f"{response.status_code} {response.text[:200]}")
         except Exception as notify_error:
             print(f"[@deployment_scheduler] Failed to notify server deployment status ({status}): {notify_error}")
 
@@ -1455,7 +1461,7 @@ class DeploymentScheduler:
                     'deployment_execution_id': exec_id,
                     'trigger': {
                         'type': 'scheduler',
-                        'caller_user': f"deployment:campaign:{dep.get('name') or dep.get('id') or 'unknown'}",
+                        'caller_user': f"vpt_deployment:campaign:{dep.get('name') or dep.get('id') or 'unknown'}",
                         'caller_ip': None,
                     },
                 }
@@ -1515,7 +1521,7 @@ class DeploymentScheduler:
                 )
                 scheduler_trigger = {
                     'type': 'scheduler',
-                    'caller_user': f"deployment:script:{dep.get('name') or dep.get('id') or 'unknown'}",
+                    'caller_user': f"vpt_deployment:script:{dep.get('name') or dep.get('id') or 'unknown'}",
                     'caller_ip': None,
                 }
                 result = executor.execute_script(

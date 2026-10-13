@@ -10,8 +10,11 @@ CACHE STRATEGY:
 
 import networkx as nx
 from datetime import datetime, timedelta
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Tuple
+import os
 import sys
+import threading
+import time as _time
 
 # Import cache config from shared
 from shared.src.lib.config.constants import CACHE_CONFIG
@@ -57,9 +60,52 @@ def _variant_key(variant: Optional[str]) -> str:
 
 
 # root_tree_id -> userinterface_id is immutable (a tree never changes UI), so this is
-# memoized forever. The variant name->id map is fetched FRESH per variant cache-key
-# (the rare path) so a rename is reflected immediately — no stale memo to invalidate.
+# memoized forever.
 _tree_ui_memo: Dict[str, Optional[str]] = {}
+
+# The variant name->id map used to be fetched FRESH on every variant cache-key
+# construction, so a rename would be reflected immediately. That reasoning held for
+# "the rare path" it was written for, but get_cached_unified_graph is called ~15 times
+# per navigation step from 28 call sites, so a variant run paid a DB round trip per
+# graph READ — and `list_variants` also drags every variant's full node/edge override
+# JSON, which this resolver never looks at (BUG-0203).
+#
+# Now memoized for a few seconds and cleared by clear_unified_cache(), so an editor
+# save drops it in step with the graphs. Staleness is bounded and benign: a renamed or
+# new variant simply is not found in a stale map, and _resolve_variant_id_scope already
+# falls back to a name-based key for an unknown component — correct, just an extra
+# build until the entry expires. Keys are ids, so a rename never invalidates a graph.
+_VARIANT_MAP_TTL_SECONDS = float(os.getenv('VPT_VARIANT_MAP_TTL_SECONDS', '10') or '10')
+_variant_map_memo: Dict[str, Tuple[float, Dict[str, str]]] = {}
+_variant_map_lock = threading.Lock()
+
+
+def _variant_name_to_id(team_id: str, ui_id: str) -> Dict[str, str]:
+    """{name: id} for a userinterface, memoized for _VARIANT_MAP_TTL_SECONDS."""
+    memo_key = f"{team_id}_{ui_id}"
+    now = _time.monotonic()
+    with _variant_map_lock:
+        cached = _variant_map_memo.get(memo_key)
+        if cached and (now - cached[0]) < _VARIANT_MAP_TTL_SECONDS:
+            return cached[1]
+
+    # Fetched outside the lock: two concurrent misses just do the same read twice,
+    # which is cheaper than serialising every caller behind a DB round trip.
+    from shared.src.lib.database.userinterface_db import variant_name_id_map
+    mapping = variant_name_id_map(team_id, ui_id)
+
+    # An empty result is not cached: it is indistinguishable from a failed read, and
+    # caching it would key every run by name for the TTL.
+    if mapping:
+        with _variant_map_lock:
+            _variant_map_memo[memo_key] = (now, mapping)
+    return mapping
+
+
+def clear_variant_map_memo() -> None:
+    """Drop the memoized variant name->id maps (variant created/renamed/deleted)."""
+    with _variant_map_lock:
+        _variant_map_memo.clear()
 
 
 def _resolve_variant_id_scope(root_tree_id: str, team_id: str, variant: Optional[str]) -> Optional[str]:
@@ -87,8 +133,7 @@ def _resolve_variant_id_scope(root_tree_id: str, team_id: str, variant: Optional
             _tree_ui_memo[root_tree_id] = ui_id
         if not ui_id:
             return name_scope
-        from shared.src.lib.database.userinterface_db import list_variants
-        name_to_id = {v['name']: v.get('id') for v in list_variants(team_id, ui_id)}
+        name_to_id = _variant_name_to_id(team_id, ui_id)
         ids = []
         for c in components:
             vid = name_to_id.get(c)
@@ -626,7 +671,12 @@ def clear_unified_cache(
     When `variant` is None (the default), drops ALL variant entries for
     this tree — used after a base-row mutation that may invalidate every
     variant that falls through. To clear only one variant pass its name.
+
+    Also drops the memoized variant name->id maps: a variant rename or delete
+    arrives through the same invalidation, and a stale map would key runs by
+    name until it expired (BUG-0203).
     """
+    clear_variant_map_memo()
     if root_tree_id and team_id:
         # Resolve subtree → root so save-handler clears (which pass the
         # currently-edited subtree id) actually hit the cached graph.

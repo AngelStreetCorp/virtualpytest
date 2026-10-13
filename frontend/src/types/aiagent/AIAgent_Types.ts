@@ -2,6 +2,11 @@
  * AI Agent TypeScript Interfaces
  * Defines types for AI agent execution, steps, and task management
  */
+import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
+// Static import (constants module, no React hooks): PROGRESS_COLORS is consumed by
+// non-component .ts files (and command-bar / step-display renderers) where the theme
+// hook cannot run, so we read the dark-mode palette directly. Both themes use the
+// gold accent for the "current" step marker.
 
 export interface AIStep {
   step: number;
@@ -146,9 +151,9 @@ export const AI_CONSTANTS = {
     ERROR: 5000,
   },
   PROGRESS_COLORS: {
-    CURRENT: '#2196f3',
-    SUCCESS: '#4caf50',
-    FAILED: '#f44336',
-    PENDING: '#666',
+    CURRENT: AGENT_CHAT_PALETTE.accent,
+    SUCCESS: AGENT_CHAT_PALETTE.success,
+    FAILED: AGENT_CHAT_PALETTE.error,
+    PENDING: AGENT_CHAT_PALETTE.textMuted,
   }
 } as const;

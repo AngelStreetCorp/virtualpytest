@@ -34,3 +34,13 @@ describe('GrafanaRedirect page', () => {
     );
   });
 });
+
+describe('resolveGrafanaPath', () => {
+  it('resolves like the /grafana redirect and rejects non-grafana paths', async () => {
+    const { resolveGrafanaPath } = await import('../../frontend/src/utils/grafanaUrl');
+    expect(resolveGrafanaPath('/grafana/d/u?var-workspace=w', 'http://host:3000/')).toBe('http://host:3000/d/u?var-workspace=w');
+    expect(resolveGrafanaPath('/grafana/d/u', '')).toBe('/grafana/d/u');
+    expect(resolveGrafanaPath('https://evil.test/grafana/d/u', 'https://g.test/grafana')).toBeNull();
+    expect(resolveGrafanaPath('/grafana/d/u', 'javascript:alert(1)')).toBeNull();
+  });
+});

@@ -54,26 +54,28 @@ object PayloadApplier {
     private fun applyConfig(context: Context, json: JSONObject) {
         val serverUrl = json.optString("server_url")
         require(serverUrl.isNotBlank()) { "server_url is required" }
-        PhoneAgentPrefs.putAll(context, mapOf(PhoneAgentPrefs.KEY_SERVER_URL to serverUrl) + runtimeConfig(json))
+        PhoneAgentPrefs.putAll(context, mapOf(PhoneAgentPrefs.KEY_SERVER_URL to serverUrl) + runtimeConfig(context, json))
         PhoneAgentState.update(context)
     }
 
     /**
-     * Public frontend settings (Supabase URL + anon key, project name). A QR that carried them
+     * Public frontend settings (Supabase URL + anon key, project name, slave server URLs). A QR that carried them
      * was too dense for phone cameras, so the web build now publishes them as
      * `<frontend_url>/runtime-config.json` and the QR only names the origin. Older payloads
      * that still embed the fields are honoured as-is. Network I/O: callers run off the main thread.
      */
-    private fun runtimeConfig(json: JSONObject): Map<String, String?> {
+    private fun runtimeConfig(context: Context, json: JSONObject): Map<String, String?> {
         val embedded = mapOf(
             PhoneAgentPrefs.KEY_SUPABASE_URL to json.optStringOrNull("supabase_url"),
             PhoneAgentPrefs.KEY_SUPABASE_ANON_KEY to json.optStringOrNull("supabase_anon_key"),
             PhoneAgentPrefs.KEY_PROJECT_NAME to json.optStringOrNull("project_name"),
+            PhoneAgentPrefs.KEY_SLAVE_SERVER_URL to json.optStringOrNull("slave_server_url"),
         )
         if (embedded.values.any { it != null }) return embedded
         val origin = json.optStringOrNull("frontend_url") ?: json.optStringOrNull("server_url") ?: return embedded
         return try {
             val conn = URL(origin.trimEnd('/') + "/runtime-config.json").openConnection() as HttpURLConnection
+            ClientCert.applyTo(context, conn)
             conn.connectTimeout = 8_000
             conn.readTimeout = 8_000
             conn.setRequestProperty("User-Agent", "VirtualPyTest-app")
@@ -82,6 +84,7 @@ object PayloadApplier {
                 PhoneAgentPrefs.KEY_SUPABASE_URL to remote.optStringOrNull("supabase_url"),
                 PhoneAgentPrefs.KEY_SUPABASE_ANON_KEY to remote.optStringOrNull("supabase_anon_key"),
                 PhoneAgentPrefs.KEY_PROJECT_NAME to remote.optStringOrNull("project_name"),
+                PhoneAgentPrefs.KEY_SLAVE_SERVER_URL to remote.optStringOrNull("slave_server_url"),
             )
         } catch (e: Exception) {
             Log.w("PayloadApplier", "runtime-config.json not fetched from $origin: ${e.message}")
@@ -89,12 +92,28 @@ object PayloadApplier {
         }
     }
 
+    /**
+     * Re-reads `<server origin>/runtime-config.json` into the stored settings. They were only ever
+     * read when a config QR or URL was applied, so a phone set up before a value existed (the
+     * slave server list) kept the old one forever. Returns true when anything changed; an
+     * unreachable or absent file changes nothing. Network I/O: call off the main thread.
+     */
+    fun refreshRuntimeConfig(context: Context): Boolean {
+        val serverUrl = PhoneAgentPrefs.getString(context, PhoneAgentPrefs.KEY_SERVER_URL) ?: return false
+        val fetched = runtimeConfig(context, JSONObject().put("server_url", originOf(serverUrl)))
+        // A field the file leaves out keeps its stored value — never wipe e.g. the anon key.
+        val changed = fetched.filter { (key, value) -> value != null && PhoneAgentPrefs.getString(context, key) != value }
+        if (changed.isEmpty()) return false
+        PhoneAgentPrefs.putAll(context, changed)
+        return true
+    }
+
     private fun applyPair(context: Context, json: JSONObject) {
         val missing = Protocol.QR_REQUIRED_PAIR_FIELDS.filter { field -> !json.hasNonBlank(field) }
         require(missing.isEmpty()) { "QR payload missing field(s): ${missing.joinToString(", ")}" }
         PhoneAgentPrefs.putAll(
             context,
-            runtimeConfig(json) + mapOf(
+            runtimeConfig(context, json) + mapOf(
                 PhoneAgentPrefs.KEY_SERVER_URL to json.getString("server_url"),
                 PhoneAgentPrefs.KEY_HOST_NAME to json.getString("host_name"),
                 PhoneAgentPrefs.KEY_DEVICE_ID to json.getString("device_id"),

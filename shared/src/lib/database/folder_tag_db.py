@@ -7,6 +7,7 @@ User-controlled: select existing or type new folder/tag on save
 import random
 from typing import Dict, List, Optional, Any
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import chunked_in
 
 # Fixed Material Design color palette for tags
 TAG_COLORS = [
@@ -237,14 +238,15 @@ def get_executable_tags_bulk(
         return tags_by_id
 
     try:
-        result = supabase.table('executable_tags')\
-            .select('executable_id, tag_id, tags(name, color)')\
-            .eq('executable_type', executable_type)\
-            .in_('executable_id', executable_ids)\
-            .execute()
+        rows = chunked_in(
+            lambda chunk: supabase.table('executable_tags')
+            .select('executable_id, tag_id, tags(name, color)')
+            .eq('executable_type', executable_type)
+            .in_('executable_id', chunk),
+            executable_ids)
 
-        if result.data:
-            for row in result.data:
+        if rows:
+            for row in rows:
                 eid = row.get('executable_id')
                 tag_payload = row.get('tags')
                 if eid is None or not tag_payload:

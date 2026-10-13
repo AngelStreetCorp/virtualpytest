@@ -16,6 +16,8 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional
 
+from shared.src.lib.utils.report_theme import report_theme_head
+
 logger = logging.getLogger(__name__)
 
 
@@ -194,24 +196,24 @@ def build_zap_report_html(zap_event: Dict) -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title>
+{report_theme_head()}
 <style>
-  :root {{ color-scheme: dark; }}
   body {{ font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-         margin: 0; padding: 24px; background: #0f1117; color: #e6e6e6; }}
+         margin: 0; padding: 24px; background: var(--vpt-page); color: var(--vpt-text); }}
   h1 {{ font-size: 20px; margin: 0 0 4px; }}
-  .sub {{ color: #8b93a7; font-size: 13px; margin-bottom: 20px; }}
+  .sub {{ color: var(--vpt-muted); font-size: 13px; margin-bottom: 20px; }}
   .frames {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 24px; }}
-  .frame {{ background: #1a1d28; border: 1px solid #2a2e3c; border-radius: 8px; padding: 8px; }}
-  .frame-label {{ font-size: 12px; font-weight: 600; color: #a9b1c6; margin-bottom: 6px; }}
+  .frame {{ background: var(--vpt-surface); border: 1px solid var(--vpt-border); border-radius: 8px; padding: 8px; }}
+  .frame-label {{ font-size: 12px; font-weight: 600; color: var(--vpt-text-2); margin-bottom: 6px; }}
   .frame img {{ width: 100%; border-radius: 4px; display: block; }}
-  .frame-caption {{ font-size: 10px; color: #6b7280; margin-top: 6px; word-break: break-all; }}
+  .frame-caption {{ font-size: 10px; color: var(--vpt-muted); margin-top: 6px; word-break: break-all; }}
   table {{ border-collapse: collapse; width: 100%; max-width: 720px; }}
-  th, td {{ text-align: left; padding: 8px 12px; border-bottom: 1px solid #232735; font-size: 14px; }}
-  th {{ color: #8b93a7; font-weight: 500; width: 200px; }}
-  .hint {{ color: #6b7280; font-size: 12px; }}
+  th, td {{ text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--vpt-border); font-size: 14px; }}
+  th {{ color: var(--vpt-muted); font-weight: 500; width: 200px; }}
+  .hint {{ color: var(--vpt-muted); font-size: 12px; }}
   details.log {{ margin-top: 24px; }}
-  details.log summary {{ cursor: pointer; font-weight: 600; color: #a9b1c6; padding: 6px 0; }}
-  .log-pre {{ margin-top: 12px; background: #11141c; color: #c8ccd6; padding: 14px;
+  details.log summary {{ cursor: pointer; font-weight: 600; color: var(--vpt-text-2); padding: 6px 0; }}
+  .log-pre {{ margin-top: 12px; background: var(--vpt-subtle); color: var(--vpt-text); padding: 14px;
              border-radius: 6px; font-family: ui-monospace, Menlo, Consolas, monospace;
              font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
              max-height: 420px; overflow: auto; }}

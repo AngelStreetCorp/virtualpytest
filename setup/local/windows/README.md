@@ -304,6 +304,21 @@ Modify RAM disk size in the installation script:
 imdisk -a -s 1G -m R: -p "/fs:ntfs /q /y"  # 1GB instead of 512MB
 ```
 
+## Windows PC powered by a host (Wake-on-LAN)
+
+A Windows PC that is *not* a host (e.g. an always-on LLM box) can be switched on and off
+by a Linux host on the same LAN with the `wol` power controller: magic packet to wake,
+SSH `shutdown` to switch off. On the PC, in an elevated PowerShell:
+
+```powershell
+.\setup\local\windows\backend_host\prepare_wol_target.ps1 -HostPublicKey "ssh-ed25519 AAAA... vpt@host"
+```
+
+It keeps the PC awake 24/7 on AC, removes the lock screen, turns Fast Startup off, enables
+WoL on the wired NIC and installs OpenSSH Server. BIOS WoL, auto sign-in
+(`backend_host/autologin.md`) and the host `.env` lines are in
+`docs/agent/devices/WAKE_ON_LAN.md`.
+
 ## Uninstallation
 
 To completely remove VirtualPyTest:

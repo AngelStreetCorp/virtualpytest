@@ -83,7 +83,7 @@ class VirtualPyTestMCPServer:
                 if category in ['control', 'action', 'navigation', 'verification', 'testcase',
                                'script', 'ai', 'screenshot', 'transcript', 'device', 'logs',
                                'tree', 'userinterface', 'ai_userinterface', 'requirements', 'exploration',
-                               'deployment', 'campaign', 'admin']:
+                               'deployment', 'campaign', 'admin', 'system_ops']:
                     tool_instance = tool_class(self.api_client)
                 # Tools that don't need api_client
                 elif category in ['screen_analysis', 'analysis', 'docs']:
@@ -219,6 +219,32 @@ class VirtualPyTestMCPServer:
             tools.extend(category_tools)
 
         return tools
+
+    def get_tools_by_names(self, names: List[str]) -> List[Dict[str, Any]]:
+        """
+        Get a subset of MCP tool definitions, by name. Uses the in-process
+        schema cache (ToolDefinitionBuilder singleton, built once at startup),
+        so it is O(N) where N is the number of requested names and does not
+        rebuild any schema.
+
+        Useful for callers that want to ship only the tools they need (e.g.
+        a tiny device-control pass that fits in a small LLM context window).
+        Unknown names are silently skipped. Tools in HIDDEN_TOOLS are still
+        excluded — callers cannot bypass the lock-management policy this way.
+
+        Args:
+            names: List of tool names to include (e.g. ["take_control",
+                "execute_device_action", "capture_screenshot"]).
+
+        Returns:
+            List of MCP-formatted tool definitions, in the order the names
+            were given. Subset of get_available_tools().
+        """
+        builder = get_builder()
+        return [
+            t for t in builder.get_tools_by_names(list(names or []))
+            if t['name'] not in self.HIDDEN_TOOLS
+        ]
 
 
 async def main():

@@ -4,7 +4,10 @@ import React, { useRef, useEffect, useState, useCallback } from 'react';
 
 import { StreamViewerLayoutConfig } from '../../config/layoutConfig';
 import { useHostSession } from '../../hooks/useHostSession';
+import { useLatencyDebug } from '../../hooks/useLatencyDebug';
 import { isGatedHostPath } from '../../utils/buildUrlUtils';
+import { debugLog } from '../../utils/debugLog';
+import { LIVE_HLS_CONFIG } from './hlsLiveConfig';
 
 // Proxy for Hls.isSupported() usable before the dynamic hls.js import. When MSE is
 // available, hls.js is the ONLY valid engine for .m3u8: Chromium answers
@@ -26,6 +29,12 @@ interface HLSVideoPlayerProps {
   muted?: boolean; // Add muted prop
   isArchiveMode?: boolean; // Add archive mode prop
   shouldPause?: boolean; // Pause player to show last frame (during quality transition)
+  /**
+   * Force the latency-debug overlay on, in addition to the URL-based activation
+   * (`?latency_debug=1`). Hosts (rec modal, take control) pass this so they can
+   * toggle the overlay from their own UI without editing the URL.
+   */
+  latencyDebug?: boolean;
   onRestartRequest?: () => void; // Callback to expose restart functionality
   onPlayerReady?: () => void; // Callback when player loads successfully
   onCurrentSegmentChange?: (segmentUrl: string) => void; // Callback when current segment changes
@@ -57,10 +66,18 @@ export function HLSVideoPlayer({
   muted = true, // Default to muted for autoplay compliance
   isArchiveMode = false, // Default to live mode
   shouldPause = false, // Default to not paused
+  latencyDebug = false, // Force the overlay on (in addition to ?latency_debug=1)
   onRestartRequest, // New prop for external restart trigger
   onPlayerReady, // Callback when player loads successfully
   onCurrentSegmentChange, // Callback when current segment changes
 }: HLSVideoPlayerProps) {
+
+  // A Tello only streams while it flies. Landed, its capture folder holds no
+  // HLS segments at all, so the segment-404 counter below reaches its threshold
+  // on a perfectly healthy parked drone. Treating that as a stuck grabber
+  // latched the tile off forever and asked the user to restart a stream that was
+  // never running; RecHostPreview's drone wifi state is what explains it instead.
+  const isDrone = model === 'tello';
   // BUG-0107 step 2: /host/<name>/stream/... now sits behind the proxy's auth_request
   // gate. This is the one sink every live/archive stream path converges on (direct,
   // via useStream, or via EnhancedHLSPlayer's own fallback chain) — withholding the URL
@@ -128,6 +145,11 @@ export function HLSVideoPlayer({
   // (before load completes), so currentStreamUrl can't tell "loaded" from "loading".
   const loadedStreamUrlRef = useRef<string | null>(null);
 
+  // Latency debug overlay (TASK-79). The hook itself is a no-op when
+  // ?latency_debug=1 is not present in the URL, so the cost is one useSearchParams
+  // call per render. The overlay is rendered as a sibling of the <video> below.
+  const { overlay: latencyDebugOverlay } = useLatencyDebug(hlsRef, latencyDebug);
+
   // Debounce error display - only show error UI after sustained errors (10s)
   // Terminal errors (ffmpegStuck, manifest 404) show immediately
   useEffect(() => {
@@ -165,7 +187,7 @@ export function HLSVideoPlayer({
   const [supportsNativeHLS, setSupportsNativeHLS] = useState(false);
 
   useEffect(() => {
-    console.log('[@component:HLSVideoPlayer] Component mounted with props:', {
+    debugLog('[@component:HLSVideoPlayer] Component mounted with props:', {
       streamUrl,
       isStreamActive,
       isCapturing,
@@ -175,7 +197,7 @@ export function HLSVideoPlayer({
     });
 
     return () => {
-      console.log('[@component:HLSVideoPlayer] Component unmounting');
+      debugLog('[@component:HLSVideoPlayer] Component unmounting');
     };
   }, []);
 
@@ -200,7 +222,7 @@ export function HLSVideoPlayer({
   }, [streamLoaded]);
 
   const cleanupStream = useCallback(() => {
-    console.log('[@component:HLSVideoPlayer] Starting aggressive stream cleanup');
+    debugLog('[@component:HLSVideoPlayer] Starting aggressive stream cleanup');
     
     // Clean up native playback event listeners first
     if (videoRef.current && nativePlaybackHandlersRef.current) {
@@ -212,7 +234,7 @@ export function HLSVideoPlayer({
       video.removeEventListener('canplay', handlers.canplay);
       
       nativePlaybackHandlersRef.current = null;
-      console.log('[@component:HLSVideoPlayer] Native playback event listeners removed during cleanup');
+      debugLog('[@component:HLSVideoPlayer] Native playback event listeners removed during cleanup');
     }
     
     if (hlsRef.current) {
@@ -237,7 +259,7 @@ export function HLSVideoPlayer({
         hls.removeAllListeners();
         hls.destroy();
         
-        console.log('[@component:HLSVideoPlayer] HLS instance destroyed successfully');
+        debugLog('[@component:HLSVideoPlayer] HLS instance destroyed successfully');
       } catch (error) {
         console.warn('[@component:HLSVideoPlayer] Error destroying HLS instance:', error);
       }
@@ -262,7 +284,7 @@ export function HLSVideoPlayer({
       // Force reload to clear any cached data
       video.load();
       
-      console.log('[@component:HLSVideoPlayer] Video element cleaned up');
+      debugLog('[@component:HLSVideoPlayer] Video element cleaned up');
     }
 
     // Reset all state
@@ -273,7 +295,7 @@ export function HLSVideoPlayer({
     setFfmpegStuck(false);
     setCurrentStreamUrl(null);
     
-    console.log('[@component:HLSVideoPlayer] Stream cleanup completed');
+    debugLog('[@component:HLSVideoPlayer] Stream cleanup completed');
   }, []);
 
   const attemptPlay = useCallback(() => {
@@ -313,7 +335,7 @@ export function HLSVideoPlayer({
       video.removeEventListener('canplay', handlers.canplay);
       
       nativePlaybackHandlersRef.current = null;
-      console.log('[@component:HLSVideoPlayer] Native playback event listeners removed');
+      debugLog('[@component:HLSVideoPlayer] Native playback event listeners removed');
     }
   }, []);
 
@@ -329,7 +351,7 @@ export function HLSVideoPlayer({
       return false;
     }
 
-    console.log('[@component:HLSVideoPlayer] Trying native HTML5 playback');
+    debugLog('[@component:HLSVideoPlayer] Trying native HTML5 playback');
     setUseNativePlayer(true);
 
     try {
@@ -344,7 +366,7 @@ export function HLSVideoPlayer({
       const video = videoRef.current;
 
       const handleLoadedMetadata = () => {
-        console.log('[@component:HLSVideoPlayer] Native playback loaded successfully');
+        debugLog('[@component:HLSVideoPlayer] Native playback loaded successfully');
         loadedStreamUrlRef.current = streamUrl;
         setStreamLoaded(true);
         setStreamError(null); // Clear any existing errors
@@ -381,7 +403,7 @@ export function HLSVideoPlayer({
             setRetryCount((prev) => prev + 1);
           }, retryDelay);
         } else {
-          console.log('[@component:HLSVideoPlayer] Skipping retry - stream is paused (isStreamActive=false)');
+          debugLog('[@component:HLSVideoPlayer] Skipping retry - stream is paused (isStreamActive=false)');
         }
       };
 
@@ -416,7 +438,7 @@ export function HLSVideoPlayer({
   const initializeStream = useCallback(async () => {
     // Skip if stream is intentionally paused (e.g., modal closed, background player paused)
     if (!isStreamActive) {
-      console.log('[@component:HLSVideoPlayer] Skipping init - stream is paused (isStreamActive=false)');
+      debugLog('[@component:HLSVideoPlayer] Skipping init - stream is paused (isStreamActive=false)');
       return;
     }
 
@@ -431,7 +453,7 @@ export function HLSVideoPlayer({
     // the "stream activated while not loaded" effect would otherwise fire another init,
     // causing the cleanup/reinit reload loop.
     if (initInFlightRef.current) {
-      console.log('[@component:HLSVideoPlayer] Init already in flight, skipping re-entrant call');
+      debugLog('[@component:HLSVideoPlayer] Init already in flight, skipping re-entrant call');
       return;
     }
 
@@ -441,7 +463,7 @@ export function HLSVideoPlayer({
     // playback re-triggered by the activation effect) flips streamLoaded to false,
     // which re-arms the activation effect and spins an endless re-init loop.
     if (streamLoadedRef.current && loadedStreamUrlRef.current === streamUrl) {
-      console.log('[@component:HLSVideoPlayer] Already loaded this URL, skipping initialization');
+      debugLog('[@component:HLSVideoPlayer] Already loaded this URL, skipping initialization');
       return;
     }
 
@@ -452,7 +474,7 @@ export function HLSVideoPlayer({
       // has already advanced its ref and marked streamLoaded=false, so a silent
       // drop here strands the player. Dedupe so a burst schedules only one retry.
       if (!pendingInitTimer.current) {
-        console.log(
+        debugLog(
           '[@component:HLSVideoPlayer] Throttling initialization, scheduling retry',
         );
         pendingInitTimer.current = setTimeout(() => {
@@ -460,7 +482,7 @@ export function HLSVideoPlayer({
           initializeStream();
         }, 1000 - elapsed + 50);
       } else {
-        console.log(
+        debugLog(
           '[@component:HLSVideoPlayer] Throttling initialization, retry already scheduled',
         );
       }
@@ -486,7 +508,7 @@ export function HLSVideoPlayer({
 
     // Check if this is an MP4 file (recorded video)
     if (streamUrl.includes('.mp4')) {
-      console.log('[@component:HLSVideoPlayer] Detected MP4 file, using native playback');
+      debugLog('[@component:HLSVideoPlayer] Detected MP4 file, using native playback');
       const nativeSuccess = await tryNativePlayback();
       if (nativeSuccess) return;
     }
@@ -500,13 +522,13 @@ export function HLSVideoPlayer({
       // Mark init in-flight for the whole async setup window (covers the dynamic import
       // yield where re-entrant inits would otherwise sneak in). Cleared in finally.
       initInFlightRef.current = true;
-      console.log('[@component:HLSVideoPlayer] Initializing HLS stream:', streamUrl);
+      debugLog('[@component:HLSVideoPlayer] Initializing HLS stream:', streamUrl);
 
       // If HLS instance exists and URL changed, just reload source (safer than destroy/recreate)
       if (hlsRef.current && currentStreamUrl !== streamUrl) {
-        console.log('[@component:HLSVideoPlayer] Reloading source without destroying HLS instance');
-        console.log('[@component:HLSVideoPlayer] Old URL:', currentStreamUrl);
-        console.log('[@component:HLSVideoPlayer] New URL:', streamUrl);
+        debugLog('[@component:HLSVideoPlayer] Reloading source without destroying HLS instance');
+        debugLog('[@component:HLSVideoPlayer] Old URL:', currentStreamUrl);
+        debugLog('[@component:HLSVideoPlayer] New URL:', streamUrl);
         setCurrentStreamUrl(streamUrl);
         setStreamLoaded(false); // Mark as not loaded during transition
         hlsRef.current.stopLoad();
@@ -514,7 +536,7 @@ export function HLSVideoPlayer({
         hlsRef.current.loadSource(streamUrl);
         hlsRef.current.attachMedia(videoRef.current);
         // The existing MANIFEST_PARSED handler will fire and call onPlayerReady
-        console.log('[@component:HLSVideoPlayer] Source reloaded, waiting for manifest parse...');
+        debugLog('[@component:HLSVideoPlayer] Source reloaded, waiting for manifest parse...');
         return;
       }
 
@@ -529,7 +551,7 @@ export function HLSVideoPlayer({
       const HLS = HLSModule.default;
 
       if (!HLS.isSupported()) {
-        console.log('[@component:HLSVideoPlayer] HLS.js not supported, using native playback');
+        debugLog('[@component:HLSVideoPlayer] HLS.js not supported, using native playback');
         await tryNativePlayback();
         return;
       }
@@ -552,27 +574,11 @@ export function HLSVideoPlayer({
         liveBackBufferLength: 30,      // Keep back buffer
         liveDurationInfinity: false,   // Finite duration for archive
       } : {
-        // Live mode - aggressive live edge with background buffering for 150s scrubbing.
-        // The stream is plain 1s-segment HLS (server emits no LL-HLS parts), so the
-        // floor is ~1.5-2s. The key to STAYING near it is maxLiveSyncPlaybackRate:
-        // without it (default 1.0) hls.js can only correct drift by seeking once it
-        // passes liveMaxLatencyDuration, so latency oscillates up to that cap (the old
-        // ">4s"). With it, hls.js gently speeds up to glide back to the live edge.
-        enableWorker: false,
-        lowLatencyMode: true,          // ✅ Enable aggressive live edge targeting
-        liveSyncDuration: 1.5,         // Target ~1.5s behind (one+ segment of safety; 1s stalled→drifted)
-        liveMaxLatencyDuration: 4,     // Hard cap before seek-correct (was 5)
-        maxLiveSyncPlaybackRate: 1.5,  // ✅ Smoothly speed up to catch live edge (1.0 = disabled = drift)
-        maxBufferLength: 6,            // ✅ Load less ahead → start closer to live (was 10)
-        maxMaxBufferLength: 150,       // But ALLOW up to 150s total as buffer fills
-        backBufferLength: 150,         // Keep 150s for scrubbing (fills backward in background)
-        maxBufferSize: 15 * 1000 * 1000, // 15MB for full 150s buffer
-        maxBufferHole: 0.1,            // Fill gaps faster
-        fragLoadingTimeOut: 5000,      // Fail faster
-        manifestLoadingTimeOut: 3000,  // Fail faster
-        levelLoadingTimeOut: 3000,     // Fail faster
-        liveBackBufferLength: 150,     // ✅ Continue loading old segments backward (150s scrubbing)
-        liveDurationInfinity: true,    // Allow infinite live duration
+        // Live mode — knobs live in hlsLiveConfig.ts so TASK-79 can flip them
+        // in one place. The defaults match the pre-TASK-79 behaviour; the
+        // tuning pass tightens liveSyncDuration / liveMaxLatencyDuration /
+        // maxBufferLength and flips enableWorker on.
+        ...LIVE_HLS_CONFIG,
       };
 
       const hls = new HLS(
@@ -590,7 +596,7 @@ export function HLSVideoPlayer({
       hlsRef.current = hls;
 
       hls.on(HLS.Events.MANIFEST_PARSED, () => {
-        console.log('[@component:HLSVideoPlayer] HLS manifest parsed successfully');
+        debugLog('[@component:HLSVideoPlayer] HLS manifest parsed successfully');
         loadedStreamUrlRef.current = streamUrl;
         setStreamLoaded(true);
         setStreamError(null); // Clear any existing errors
@@ -607,7 +613,7 @@ export function HLSVideoPlayer({
         // Clear any existing error messages when fragments load successfully (indicates recovery)
         setStreamError((prev) => {
           if (prev) {
-            console.log('[@component:HLSVideoPlayer] Stream recovered, clearing error message');
+            debugLog('[@component:HLSVideoPlayer] Stream recovered, clearing error message');
             return null;
           }
           return prev;
@@ -646,6 +652,13 @@ export function HLSVideoPlayer({
             console.warn(`[@component:HLSVideoPlayer] Segment 404 error (${newCount}/${maxSegmentFailures}):`, data.frag?.url);
             
             if (newCount >= maxSegmentFailures) {
+              if (isDrone) {
+                // Not a fault: reset and keep looking. The moment the drone
+                // takes off and starts streaming, the segments appear and the
+                // tile lights up on its own.
+                debugLog('[@component:HLSVideoPlayer] No segments yet (drone landed or off) — continuing to retry');
+                return 0;
+              }
               console.error('[@component:HLSVideoPlayer] FFmpeg appears stuck - too many consecutive segment failures');
               setFfmpegStuck(true);
               setStreamError('FFmpeg appears stuck. Stream restart required.');
@@ -682,7 +695,7 @@ export function HLSVideoPlayer({
 
           // If stream is paused, never attempt fatal recovery (e.g. background preview while modal is open)
           if (!isStreamActive) {
-            console.log('[@component:HLSVideoPlayer] Skipping fatal recovery - stream is paused (isStreamActive=false)');
+            debugLog('[@component:HLSVideoPlayer] Skipping fatal recovery - stream is paused (isStreamActive=false)');
             return;
           }
 
@@ -736,15 +749,15 @@ export function HLSVideoPlayer({
               if (isStreamActive) {
                 tryNativePlayback();
               } else {
-                console.log('[@component:HLSVideoPlayer] Skipping native retry after fatal error - stream paused');
+                debugLog('[@component:HLSVideoPlayer] Skipping native retry after fatal error - stream paused');
               }
             }, 500);
           } else {
-            console.log('[@component:HLSVideoPlayer] Restarting HLS after fatal error');
+            debugLog('[@component:HLSVideoPlayer] Restarting HLS after fatal error');
             cleanupStream();
             setTimeout(() => {
               if (!isStreamActive) {
-                console.log('[@component:HLSVideoPlayer] Skipping HLS restart after fatal error - stream paused');
+                debugLog('[@component:HLSVideoPlayer] Skipping HLS restart after fatal error - stream paused');
                 return;
               }
               setRetryCount(0);
@@ -755,7 +768,7 @@ export function HLSVideoPlayer({
           if (data.details === 'fragParsingError' || data.details === 'fragLoadError') {
             // Only attempt recovery if not stuck and not a 404 error
             if (!ffmpegStuck && !(data.details === 'fragLoadError' && data.response?.code === 404)) {
-              console.log('[@component:HLSVideoPlayer] Fragment error, attempting HLS recovery');
+              debugLog('[@component:HLSVideoPlayer] Fragment error, attempting HLS recovery');
               try {
                 hls.startLoad();
               } catch (recoveryError) {
@@ -787,7 +800,7 @@ export function HLSVideoPlayer({
 
   // Manual restart handler - clears all errors and reinitializes stream
   const handleManualRestart = useCallback(() => {
-    console.log('[@component:HLSVideoPlayer] Manual restart triggered');
+    debugLog('[@component:HLSVideoPlayer] Manual restart triggered');
     // Reset all error states
     setStreamError(null);
     setSegmentFailureCount(0);
@@ -816,7 +829,7 @@ export function HLSVideoPlayer({
   const handleStreamError = useCallback(() => {
     // Don't retry if stream is paused
     if (!isStreamActive) {
-      console.log('[@component:HLSVideoPlayer] Skipping retry - stream is paused (isStreamActive=false)');
+      debugLog('[@component:HLSVideoPlayer] Skipping retry - stream is paused (isStreamActive=false)');
       return;
     }
 
@@ -839,14 +852,14 @@ export function HLSVideoPlayer({
       return;
     }
 
-    console.log(
+    debugLog(
       `[@component:HLSVideoPlayer] Stream error, retrying in ${retryDelay}ms (attempt ${retryCount + 1}/${maxRetries})`,
     );
 
     setTimeout(() => {
       setRetryCount((prev) => {
         const newCount = prev + 1;
-        console.log(`[@component:HLSVideoPlayer] Incrementing retry count: ${prev} -> ${newCount}`);
+        debugLog(`[@component:HLSVideoPlayer] Incrementing retry count: ${prev} -> ${newCount}`);
         return newCount;
       });
       initializeStream();
@@ -856,7 +869,7 @@ export function HLSVideoPlayer({
   useEffect(() => {
     // Don't retry if FFmpeg is stuck or stream is paused
     if (streamError && retryCount < maxRetries && !ffmpegStuck && isStreamActive) {
-      console.log(
+      debugLog(
         `[@component:HLSVideoPlayer] Stream error detected, current retry count: ${retryCount}/${maxRetries}`,
       );
       // Only auto-retry if stream is not loaded (avoid retrying transient errors on working stream)
@@ -868,7 +881,7 @@ export function HLSVideoPlayer({
         `[@component:HLSVideoPlayer] ${ffmpegStuck ? 'FFmpeg stuck' : `Max retries (${maxRetries}) reached`}, stopping retry attempts`,
       );
     } else if (streamError && !isStreamActive) {
-      console.log('[@component:HLSVideoPlayer] Stream error exists but stream is paused - not retrying');
+      debugLog('[@component:HLSVideoPlayer] Stream error exists but stream is paused - not retrying');
     }
   }, [streamError, retryCount, maxRetries, streamLoaded, ffmpegStuck, isStreamActive, handleStreamError]);
 
@@ -887,17 +900,17 @@ export function HLSVideoPlayer({
 
     // Don't initialize during quality switching - wait for polling to complete
     if (shouldPause) {
-      console.log('[@component:HLSVideoPlayer] Skipping init - quality switch in progress (shouldPause=true)');
+      debugLog('[@component:HLSVideoPlayer] Skipping init - quality switch in progress (shouldPause=true)');
       return;
     }
 
     // Only initialize if URL actually changed
     if (currentStreamUrlRef.current === streamUrl) {
-      console.log('[@component:HLSVideoPlayer] Skipping init - same URL, already initialized');
+      debugLog('[@component:HLSVideoPlayer] Skipping init - same URL, already initialized');
       return;
     }
 
-    console.log('[@component:HLSVideoPlayer] URL changed - initializing:', streamUrl);
+    debugLog('[@component:HLSVideoPlayer] URL changed - initializing:', streamUrl);
     // Reset error states but don't cleanup (preserve if possible)
     setStreamError(null);
     setRetryCount(0);
@@ -920,7 +933,7 @@ export function HLSVideoPlayer({
     if (!isStreamActive || !streamUrl || !videoRef.current) return;
     if (shouldPause || ffmpegStuck) return;
     if (streamLoaded || hlsRef.current) return;
-    console.log('[@component:HLSVideoPlayer] Stream activated while not loaded - initializing');
+    debugLog('[@component:HLSVideoPlayer] Stream activated while not loaded - initializing');
     initializeStream();
   }, [isStreamActive, streamUrl, shouldPause, ffmpegStuck, streamLoaded, initializeStream]);
 
@@ -933,29 +946,37 @@ export function HLSVideoPlayer({
     prevShouldPause.current = shouldPause;
 
     if (shouldPause) {
-      console.log('[@component:HLSVideoPlayer] Quality switch started - pausing and preventing init');
+      debugLog('[@component:HLSVideoPlayer] Quality switch started - pausing and preventing init');
+      // Stop fetching too: while ffmpeg recycles, every segment 404s and ten of
+      // them flag ffmpegStuck, which then refuses the post-switch re-init.
+      hlsRef.current?.stopLoad();
       if (streamLoaded) {
         videoRef.current.pause();
       }
     } else if (shouldPauseChanged && streamUrl && isStreamActive) {
-      // Only reinitialize when shouldPause changes from true to false (quality switch completes)
-      console.log('[@component:HLSVideoPlayer] Quality switch complete (shouldPause changed from true to false) - initializing stream');
-      setStreamLoaded(false);
-      setStreamError(null);
-      initializeStream();
+      // Quality switch complete: tear the old instance down and let the
+      // "activated while not loaded" effect re-init with a fresh closure. Calling
+      // initializeStream() here was a no-op — the URL is unchanged and
+      // streamLoadedRef was still true, so it hit "Already loaded this URL" and
+      // the overlay waited for hls.js to fail fatally (+6s retry) or forever.
+      // (With no instance and not stuck, that effect already started the init.)
+      debugLog('[@component:HLSVideoPlayer] Quality switch complete (shouldPause changed from true to false) - reloading stream');
+      if (hlsRef.current || ffmpegStuck) {
+        cleanupStream();
+      }
     }
-  }, [shouldPause, streamUrl, isStreamActive, streamLoaded, initializeStream]);
+  }, [shouldPause, streamUrl, isStreamActive, streamLoaded, ffmpegStuck, cleanupStream]);
 
   // Pause/resume - non-destructive
   useEffect(() => {
     if (!hlsRef.current || !videoRef.current || !streamLoaded) return;
 
     if (isStreamActive) {
-      console.log('[@component:HLSVideoPlayer] Resuming stream (non-destructive)');
+      debugLog('[@component:HLSVideoPlayer] Resuming stream (non-destructive)');
       hlsRef.current.startLoad();
       attemptPlay();
     } else {
-      console.log('[@component:HLSVideoPlayer] Pausing stream (non-destructive)');
+      debugLog('[@component:HLSVideoPlayer] Pausing stream (non-destructive)');
       hlsRef.current.stopLoad();
       videoRef.current.pause();
     }
@@ -966,14 +987,14 @@ export function HLSVideoPlayer({
     const ready = !!videoRef.current;
     if (ready !== isVideoReady) {
       setIsVideoReady(ready);
-      console.log('[@component:HLSVideoPlayer] Video ready state changed:', ready);
+      debugLog('[@component:HLSVideoPlayer] Video ready state changed:', ready);
     }
   }, [streamLoaded, isVideoReady]);
 
   // Dedicated cleanup effect for component unmount - always runs
   useEffect(() => {
     return () => {
-      console.log('[@component:HLSVideoPlayer] Final unmount cleanup');
+      debugLog('[@component:HLSVideoPlayer] Final unmount cleanup');
       if (pendingInitTimer.current) {
         clearTimeout(pendingInitTimer.current);
         pendingInitTimer.current = null;
@@ -989,11 +1010,11 @@ export function HLSVideoPlayer({
         return;
       }
 
-      console.log('[@component:HLSVideoPlayer] Tab became visible');
+      debugLog('[@component:HLSVideoPlayer] Tab became visible');
       if (!streamUrl || !isStreamActive) return;
 
       if (streamError || !streamLoaded || ffmpegStuck) {
-        console.log('[@component:HLSVideoPlayer] Restarting stream on visibility change');
+        debugLog('[@component:HLSVideoPlayer] Restarting stream on visibility change');
         handleManualRestart();
         return;
       }
@@ -1048,7 +1069,7 @@ export function HLSVideoPlayer({
       }
 
       if (video.paused && !video.ended) {
-        console.log('[@component:HLSVideoPlayer] Watchdog: video paused, soft-resuming');
+        debugLog('[@component:HLSVideoPlayer] Watchdog: video paused, soft-resuming');
         softResume();
         return;
       }
@@ -1061,14 +1082,14 @@ export function HLSVideoPlayer({
       const soakingFor = softRecoveryAt !== null ? Date.now() - softRecoveryAt : 0;
 
       if (stalledFor >= hardRestartMs && soakingFor >= hardRestartMs) {
-        console.log(
+        debugLog(
           `[@component:HLSVideoPlayer] Watchdog: soft resume failed for ${soakingFor}ms, hard restart`,
         );
         handleManualRestart();
         return;
       }
 
-      console.log(
+      debugLog(
         `[@component:HLSVideoPlayer] Watchdog: starved ${stalledFor}ms (readyState=${video.readyState}), soft-resuming`,
       );
       softResume();
@@ -1102,6 +1123,7 @@ export function HLSVideoPlayer({
         ...sx,
       }}
     >
+      {latencyDebugOverlay}
             <video
         ref={videoRef}
         style={{
@@ -1151,7 +1173,12 @@ export function HLSVideoPlayer({
         </Box>
       )}
 
-      {!streamLoaded && !visibleError && streamUrl && isStreamActive && (
+      {/* Suppressed for a drone: a Tello has no stream until it is paired and
+          flying, so this line is always true exactly when it is most wrong.
+          Worse, this overlay is zIndex 10 — above RecHostPreview's drone overlay
+          at zIndex 3 — so it painted straight over "Connecting…". The drone
+          overlay is the only status a drone should show. */}
+      {!isDrone && !streamLoaded && !visibleError && streamUrl && isStreamActive && (
         <Box
           sx={{
             position: 'absolute',

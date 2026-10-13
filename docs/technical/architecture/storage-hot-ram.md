@@ -22,6 +22,7 @@
 │   └── capture_*.jpg                   # Last 100 files (~50s)
 ├── thumbnails/
 │   └── capture_*_thumbnail.jpg         # Last 100 files (~20s)
+│   └── latest.jpg                      # Always-current frame, rewritten in place at 5 fps (no-store)
 └── segments/
     ├── segment_*.ts                    # Last 10 segments (~10s HLS window)
     └── output.m3u8                     # Live manifest

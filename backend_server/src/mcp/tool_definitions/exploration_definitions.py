@@ -21,7 +21,7 @@ def get_tools() -> List[Dict[str, Any]]:
     return [
     {
         "name": "auto_discover_screen",
-        "description": "Auto-discover screen elements, create nodes/edges, and validate them. MCP-formatted response with discovered nodes, edges, and validation results\n\nExample: auto_discover_screen(tree_id='abc', host_name='host1', userinterface_name='google_tv')",
+        "description": "Build a map of the device's current screen: one node per screen reachable from it, one edge each, every edge validated on the device. A rule-based mapping step, not an AI agent: on Android and web it reads the UI dump (tappable elements of the app's own window, tab bar and toolbar before list items) with no model call; only on TV/STB does a vision model read the menu from the screenshot. It accepts every proposal (no review), then taps each target and tries its way back (tap Home, BACK, BACK x2). It does not add node verifications or rename the _temp labels; the editor's Build Map does both. Use it as one tool inside an agent's plan (Atlas build-tree-*, QualiAI): the agent picks the start screen and fixes failed edges. MCP-formatted response with discovered nodes, edges, and validation results\n\nExample: auto_discover_screen(tree_id='abc', host_name='host1', userinterface_name='google_tv')",
         "inputSchema": {
             "type": "object",
             "properties": {

@@ -1,8 +1,13 @@
 import { Box, Typography, CircularProgress } from '@mui/material';
 import React from 'react';
 
+// palette: drawn on video/screenshot — this overlay sits on top of a live TV stream / screenshot
+// (z-indexed boxes in Monitoring_*.tsx). Saturated hex literals stay readable on any image; do
+// NOT swap them for theme tokens (dark/light) because the overlay surface is the video itself.
+
 import { MonitoringAnalysis, SubtitleAnalysis, LanguageMenuAnalysis } from '../../types/pages/Monitoring_Types';
-import { formatScreenVerdict } from '../../utils/screenVerdict';
+import { formatTimeWithMs } from '../../utils/dateUtils';
+import { formatScreenVerdict, formatScreenDiagnosis } from '../../utils/screenVerdict';
 import { ActionHistory } from './ActionHistory';
 
 // Language code to name mapping
@@ -58,6 +63,9 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
   const analysis = monitoringAnalysis;
   const subtitles = subtitleAnalysis;
   const languageMenu = languageMenuAnalysis;
+  // Which matcher layer answered the Screen row, and why it abstained (null on a clean
+  // match / older frame that predates the diagnosis fields).
+  const screenDiagnosis = analysis?.localize ? formatScreenDiagnosis(analysis.localize) : null;
 
   // Format timestamp for display (ISO format -> HH:MM:SS)
   const formatTimestamp = (timestamp?: string): string => {
@@ -73,7 +81,7 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
         minute: '2-digit',
         second: '2-digit'
       });
-    } catch (error) {
+    } catch {
       return 'Unknown';
     }
   };
@@ -112,7 +120,7 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
         </Box>
       )}
 
-      {/* Main analysis overlay - left aligned */}
+      {/* Main analysis overlay - top-left aligned (operator's choice). */}
       <Box
         sx={{
           position: 'absolute',
@@ -132,8 +140,10 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
         }}
       >
         {analysisTimestamp && (
-          <Typography variant="body2" sx={{ color: '#ffffff', mb: 0.5 }}>
-            {formatTimestamp(analysisTimestamp)}
+          // ms precision, same format as the key press cards, so press-to-screen
+          // latency (KPI) can be checked by eye
+          <Typography variant="body2" sx={{ color: '#ffffff', mb: 0.5, fontFamily: 'monospace' }}>
+            {formatTimeWithMs(analysisTimestamp)}
           </Typography>
         )}
 
@@ -256,7 +266,10 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
         </Box>
 
         {/* Screen (Localize) - only shown when enabled for the device. Formatted via
-            the SHARED formatScreenVerdict so it reads identically to the AVQ page. */}
+            the SHARED formatScreenVerdict so it reads identically to the AVQ page.
+            The trailing dim span is the DIAGNOSIS (which matcher layer answered, and
+            why it abstained) — an operator must be able to tell a confident match from a
+            guess. Grey, never red: an abstain is normal behaviour, not an error. */}
         {analysis?.localize && (
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
             <Typography variant="body2" sx={{ color: '#ffffff', mr: 1 }}>
@@ -268,6 +281,15 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
             >
               {formatScreenVerdict(analysis.localize).text}
             </Typography>
+            {screenDiagnosis && (
+              <Typography
+                component="span"
+                variant="body2"
+                sx={{ color: screenDiagnosis.color, ml: 1, fontWeight: 'normal' }}
+              >
+                {[screenDiagnosis.tier, screenDiagnosis.door].filter(Boolean).join(' • ')}
+              </Typography>
+            )}
           </Box>
         )}
 

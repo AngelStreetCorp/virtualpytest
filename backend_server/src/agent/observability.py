@@ -5,7 +5,6 @@ Optional LLM observability for token tracking, cost monitoring, and tracing.
 Auto-enabled when LANGFUSE_HOST is configured in .env
 """
 
-import os
 import logging
 from typing import Optional, Any, Dict
 from functools import wraps
@@ -13,77 +12,23 @@ from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
 
-# Auto-enable Langfuse if LANGFUSE_HOST is configured
-LANGFUSE_HOST = os.getenv("LANGFUSE_HOST", "")
-LANGFUSE_ENABLED = bool(LANGFUSE_HOST)
+# Enabled when LANGFUSE_HOST is set — checked at call time by shared tracing.get_client().
 
-# Log Langfuse status once at import
-if LANGFUSE_ENABLED:
-    logger.info(f"Langfuse observability enabled (host={LANGFUSE_HOST})")
-
-# Langfuse client (lazy loaded)
-_langfuse_client = None
-
-# Deployment identity stamped on every trace: branch/build from VERSION.txt
-# (written by update_core.sh) + hostname, so one Langfuse project can hold
-# traces from several servers/branches and stay filterable by tag.
-_deploy_ctx = None
+# The Langfuse client and the deployment identity (branch/build from VERSION.txt +
+# hostname, stamped on every trace) live in shared/src/lib/ai/tracing.py, so agent
+# turns and every other AI call share one client.
 
 
 def get_deployment_context() -> Dict[str, str]:
-    """Return {'branch', 'release', 'server'} for trace tagging (cached)."""
-    global _deploy_ctx
-    if _deploy_ctx is None:
-        import re
-        import socket
-        from pathlib import Path
-
-        branch, release = "unknown", "unknown"
-        try:
-            version_file = Path(__file__).resolve().parents[3] / "VERSION.txt"
-            first = version_file.read_text(encoding="utf-8").splitlines()[0].strip()
-            if first.startswith("current:"):
-                release = first[len("current:"):]
-                m = re.match(r"^(.*?)-\d{4}\.\d{2}\.\d{2}", release)
-                branch = m.group(1) if m else release
-        except Exception:
-            pass
-        _deploy_ctx = {
-            "branch": branch,
-            "release": release,
-            "server": socket.gethostname(),
-        }
-    return _deploy_ctx
+    """Return {'branch', 'release', 'server'} for trace tagging (shared with AI gateway tracing)."""
+    from shared.src.lib.ai.tracing import deployment_context
+    return deployment_context()
 
 
 def get_langfuse():
-    """Get Langfuse client (lazy initialization)"""
-    global _langfuse_client
-    
-    if not LANGFUSE_ENABLED:
-        return None
-    
-    if _langfuse_client is None:
-        try:
-            from langfuse import Langfuse
-            
-            public_key = os.getenv("LANGFUSE_PUBLIC_KEY")
-            secret_key = os.getenv("LANGFUSE_SECRET_KEY")
-            
-            _langfuse_client = Langfuse(
-                public_key=public_key,
-                secret_key=secret_key,
-                host=LANGFUSE_HOST,
-            )
-            logger.info("Langfuse client initialized")
-        except ImportError:
-            logger.warning("Langfuse not installed. Run: pip install langfuse")
-            return None
-        except Exception as e:
-            logger.error(f"Failed to initialize Langfuse: {e}")
-            return None
-    
-    return _langfuse_client
+    """The process-wide Langfuse client (shared with AI gateway tracing), or None."""
+    from shared.src.lib.ai.tracing import get_client
+    return get_client()
 
 
 class ObservabilitySpan:
@@ -192,7 +137,8 @@ def track_generation(
     session_id: Optional[str] = None,
     user_id: Optional[str] = None,
     duration_ms: Optional[int] = None,
-):
+    routing: Optional[dict] = None,
+) -> Optional[str]:
     """
     Track an LLM generation call using Langfuse v2 SDK.
     
@@ -206,7 +152,7 @@ def track_generation(
     """
     langfuse = get_langfuse()
     if not langfuse:
-        return
+        return None
     
     
     try:
@@ -225,6 +171,8 @@ def track_generation(
             "cache_read_tokens": cache_read,
             "cache_create_tokens": cache_create,
             "stop_reason": response.stop_reason,
+            # TASK-30: which usage/profile/endpoint/arm served this call.
+            **(routing or {}),
         }
         
         # Extract output text
@@ -284,9 +232,11 @@ def track_generation(
             start_time=start_time,
             end_time=end_time,
         )
+        return getattr(trace, "id", None)
         
     except Exception as e:
         logger.debug(f"Failed to track generation: {e}")
+        return None
 
 
 def track_tool_call(

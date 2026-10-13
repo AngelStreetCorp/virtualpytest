@@ -245,6 +245,14 @@ class PhoneAgentService : Service() {
             val origin = "${uri.scheme}://${uri.authority}"
             val prefixPath = uri.path?.trimEnd('/') ?: ""
             opts.path = "$prefixPath${Protocol.PROXIED_SOCKETIO_SUFFIX}"
+            // The public host sits behind Cloudflare's WAF: present the owner's client
+            // certificate when one is granted (ClientCert). The LAN path above stays plain.
+            if (ClientCert.isCertHost(applicationContext, uri.host)) {
+                ClientCert.okHttpClient(applicationContext)?.let { client ->
+                    opts.callFactory = client
+                    opts.webSocketFactory = client
+                }
+            }
             origin + Protocol.NAMESPACE
         }
 

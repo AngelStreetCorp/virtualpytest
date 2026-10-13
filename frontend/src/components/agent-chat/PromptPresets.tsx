@@ -7,7 +7,8 @@
 
 import React, { useState, useMemo } from 'react';
 import { Box, Chip, Collapse, Tooltip } from '@mui/material';
-import { AGENT_CHAT_PALETTE as PALETTE } from '../../constants/agentChatTheme';
+import { ExpandMore } from '@mui/icons-material';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export interface PromptPreset {
   name: string;
@@ -32,15 +33,14 @@ export interface PromptPresetsProps {
     campaign_id?: string;
     campaign_name?: string;
   };
-  isDarkMode?: boolean;
 }
 
 export const PromptPresets: React.FC<PromptPresetsProps> = ({
   presets,
   onSelectPreset,
   context,
-  isDarkMode = false,
 }) => {
+  const P = useAgentChatPalette();
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   // Variable substitution function
@@ -88,20 +88,20 @@ export const PromptPresets: React.FC<PromptPresetsProps> = ({
 
   // Shared chip style (matching tips styling)
   const chipStyle = {
-    bgcolor: isDarkMode ? PALETTE.surface : 'grey.100',
+    bgcolor: P.hoverBg,
     border: '1px solid',
-    borderColor: isDarkMode ? PALETTE.borderColor : 'grey.200',
+    borderColor: P.borderColor,
     borderRadius: 2,
     fontSize: '0.8rem',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
-    '&:hover': { 
-      borderColor: PALETTE.accent,
+    '&:hover': {
+      borderColor: P.accent,
     },
   };
 
   return (
-    <Box sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: isDarkMode ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}>
+    <Box sx={{ mt: 2.5, pt: 2, borderTop: '1px solid', borderColor: P.borderColor }}>
       {/* Label + Category chips - single line */}
       <Box sx={{
         display: 'flex',
@@ -115,7 +115,7 @@ export const PromptPresets: React.FC<PromptPresetsProps> = ({
           sx={{
             fontSize: '0.7rem',
             fontWeight: 600,
-            color: PALETTE.accent,
+            color: P.accentText,
             textTransform: 'uppercase',
             letterSpacing: '0.5px',
             mr: 0.5,
@@ -123,24 +123,74 @@ export const PromptPresets: React.FC<PromptPresetsProps> = ({
         >
           Presets
         </Box>
-        {categories.map((category) => (
-          <Chip
-            key={category}
-            label={category}
-            size="small"
-            onClick={() => handleCategoryClick(category)}
-            sx={{
-              ...chipStyle,
-              ...(selectedCategory === category && {
-                borderColor: PALETTE.accent,
-                bgcolor: isDarkMode ? PALETTE.inputBg : 'grey.200',
-              }),
-            }}
-          />
-        ))}
+        {categories.map((category) => {
+          const isOpen = selectedCategory === category;
+          const promptCount =
+            presets.find((p) => p.category === category)?.prompts.length || 0;
+
+          return (
+            <Box
+              key={category}
+              component="button"
+              type="button"
+              onClick={() => handleCategoryClick(category)}
+              aria-expanded={isOpen}
+              aria-label={`${category} presets, ${promptCount} prompts`}
+              sx={{
+                ...chipStyle,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 1,
+                px: 1.25,
+                py: 0.5,
+                fontFamily: 'inherit',
+                color: P.textPrimary,
+                lineHeight: 1.4,
+                ...(isOpen && {
+                  borderColor: P.accent,
+                  bgcolor: `${P.accent}1f`,
+                }),
+                '&:focus-visible': {
+                  outline: `2px solid ${P.accent}`,
+                  outlineOffset: '2px',
+                },
+              }}
+            >
+              <span>{category}</span>
+              <Box
+                component="span"
+                sx={{
+                  fontSize: '0.65rem',
+                  fontFamily: '"JetBrains Mono", ui-monospace, monospace',
+                  fontWeight: 600,
+                  color: isOpen ? P.accent : P.textSecondary,
+                  bgcolor: isOpen ? `${P.accent}29` : 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '4px',
+                  px: 0.75,
+                  py: 0.1,
+                  lineHeight: 1.4,
+                  minWidth: 18,
+                  textAlign: 'center',
+                }}
+              >
+                {promptCount}
+              </Box>
+              <ExpandMore
+                fontSize="small"
+                sx={{
+                  color: isOpen ? P.accent : P.textSecondary,
+                  transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+                  transition: 'transform 0.2s ease',
+                  ml: -0.25,
+                }}
+              />
+            </Box>
+          );
+        })}
       </Box>
 
-      {/* Preset chips - expand below when category selected */}
+      {/* Preset chips - expand below when category selected, indented under a left rail
+          so the hierarchy between category and its prompts is obvious */}
       <Collapse in={!!selectedCategory} timeout={150}>
         <Box sx={{
           display: 'flex',
@@ -148,6 +198,10 @@ export const PromptPresets: React.FC<PromptPresetsProps> = ({
           justifyContent: 'flex-start',
           flexWrap: 'wrap',
           mt: 1.5,
+          ml: 1.5,
+          pl: 2,
+          borderLeft: `2px solid ${P.borderColor}`,
+          position: 'relative',
         }}>
           {currentPresets.map((preset, index) => {
             const substitutedPrompt = substituteVariables(preset.template);

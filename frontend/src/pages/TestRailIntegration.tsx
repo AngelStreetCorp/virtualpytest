@@ -65,13 +65,17 @@ const TestRailIntegration: React.FC = () => {
       const data = await response.json() as ConnectionCheck;
       setCheck(data);
       if (!response.ok || !data.success) throw new Error(data.error || 'TestRail connection failed.');
-      setProjects(data.projects || []);
-      const selected = data.projects?.find((project) => String(project.id) === projectId);
+      const available = data.projects || [];
+      setProjects(available);
+      // Keep the configured project when it is still accessible, otherwise preselect the
+      // first available one so a fresh connection can be saved without an extra choice.
+      const selected = available.find((project) => String(project.id) === projectId) || available[0];
+      setProjectId(selected ? String(selected.id) : '');
       setNotice({
         kind: 'success',
         text: selected
           ? `Connected to ${data.base_url}. ${selected.name} is selected; save to apply the configuration.`
-          : `Connected to ${data.base_url}. Found ${data.projects?.length ?? 0} accessible project(s). Choose a project to continue.`,
+          : `Connected to ${data.base_url}. No accessible projects found for this account.`,
       });
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'TestRail connection failed.' });

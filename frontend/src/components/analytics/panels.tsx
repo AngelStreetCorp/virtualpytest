@@ -1,5 +1,6 @@
-import { Box, Card, CardContent, Typography } from '@mui/material';
+import { Box, Card, CardContent, Link, Typography } from '@mui/material';
 import React from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 
 import { useAnalyticsSection, useProjectMetrics } from '../../hooks/pages/useAnalytics';
 import {
@@ -45,6 +46,19 @@ const pct = (value: number | null | undefined) => (value == null ? '—' : `${va
 // Overview
 // ---------------------------------------------------------------------------
 
+/**
+ * One floor for every headline tile, not a per-tile number.
+ *
+ * The tiles used to carry hand-picked minWidths (110/150/120/120/110). Those summed to
+ * 610px, and with the 32px gaps that consumed the whole 738px container, so flex had no
+ * free space left to hand out and each tile was pinned to its own floor — which is what
+ * made the gaps read as 35/67/37/46px instead of one value. Worse, the floors had drifted
+ * away from the content: "Devices" reserved 150px for a 114px number and opened a 36px
+ * hole after itself. One shared floor lets `grow` do the aligning; it only has to be wide
+ * enough for the widest label ("OPEN INCIDENTS") so nothing clips or wraps.
+ */
+const KPI_TILE_MIN_WIDTH = 120;
+
 export const OverviewPanel: React.FC = () => {
   const { data, loading, refreshing, error } = useAnalyticsSection<OverviewSection>('overview');
   const mode = useMode();
@@ -60,17 +74,18 @@ export const OverviewPanel: React.FC = () => {
     <Box>
       <Card variant="outlined" sx={{ mb: 2 }}>
         <CardContent sx={{ display: 'flex', gap: 4, py: 2, pb: '16px !important', flexWrap: 'wrap' }}>
-          <StatTile label="Robots" value={t ? `${t.hosts_reporting} / ${t.hosts_total}` : '—'} sub="reporting" minWidth={110} />
+          <StatTile label="Robots" value={t ? `${t.hosts_reporting} / ${t.hosts_total}` : '—'} sub="reporting" minWidth={KPI_TILE_MIN_WIDTH} grow />
           <StatTile
             label="Devices"
             value={t ? `${t.devices_up} / ${t.devices_total}` : '—'}
             sub={t ? `up · ${t.devices_issue} with issues` : ''}
             color={t && t.devices_issue > 0 ? STATUS.warning : undefined}
-            minWidth={150}
+            minWidth={KPI_TILE_MIN_WIDTH}
+            grow
           />
-          <StatTile label="Open incidents" value={t?.incidents_open ?? '—'} sub="unresolved" color={t && t.incidents_open > 0 ? STATUS.serious : undefined} minWidth={120} />
-          <StatTile label="Active alerts" value={t?.alerts_active ?? '—'} sub="not yet resolved" color={t && t.alerts_active > 0 ? STATUS.critical : undefined} minWidth={120} />
-          <StatTile label="Pass rate" value={pct(t?.pass_rate)} sub="last 30 days" minWidth={110} />
+          <StatTile label="Open incidents" value={t?.incidents_open ?? '—'} sub="unresolved" color={t && t.incidents_open > 0 ? STATUS.serious : undefined} minWidth={KPI_TILE_MIN_WIDTH} grow />
+          <StatTile label="Active alerts" value={t?.alerts_active ?? '—'} sub="not yet resolved" color={t && t.alerts_active > 0 ? STATUS.critical : undefined} minWidth={KPI_TILE_MIN_WIDTH} grow />
+          <StatTile label="Pass rate" value={pct(t?.pass_rate)} sub="last 30 days" minWidth={KPI_TILE_MIN_WIDTH} grow />
         </CardContent>
       </Card>
 
@@ -400,6 +415,13 @@ export const ProjectPanel: React.FC = () => {
   };
 
   const releases = data?.releases || [];
+  // The axis only has room for the build number; the tooltip carries the full name
+  // the footer shows, so a bar can be matched to the build someone is running.
+  const releaseLabel = (build: string) => {
+    const r = releases.find((x) => x.build === build);
+    return r ? `${r.name}${r.unreleased ? ' (unreleased)' : ''}` : build;
+  };
+  const openBugs = data?.bugs?.open || [];
   const severityOrder = ['Critical', 'High', 'Medium', 'Low', 'Unspecified'];
   const bugsBySeverity = severityOrder
     .filter((s) => data?.bugs?.by_severity?.[s])
@@ -419,7 +441,10 @@ export const ProjectPanel: React.FC = () => {
           <CodeTreemap data={data?.loc?.by_area || []} colors={categorical(mode)} height={246} />
         </ChartCard>
 
-        <ChartCard title="Shipped per build" subtitle="features vs bug fixes" {...gate} empty={!releases.length} flex="1 1 380px" minHeight={250}>
+        <ChartCard
+          title="Shipped per build"
+          subtitle={data?.build_name ? `features vs bug fixes · running ${data.build_name}` : 'features vs bug fixes'}
+          {...gate} empty={!releases.length} flex="1 1 380px" minHeight={250}>
           <StackedBar
             data={releases}
             xKey="build"
@@ -429,11 +454,12 @@ export const ProjectPanel: React.FC = () => {
             ]}
             height={238}
             shortenDates={false}
+            tooltipLabel={releaseLabel}
           />
         </ChartCard>
       </Row>
 
-      <Row mb={0}>
+      <Row>
         <ChartCard title="Bug reports by severity" subtitle={data ? `${data.bugs.total} total` : undefined} {...gate} empty={!bugsBySeverity.length} flex="1 1 320px">
           <HBar
             data={bugsBySeverity}
@@ -444,9 +470,9 @@ export const ProjectPanel: React.FC = () => {
 
         <ChartCard title="Bugs fixed per release" {...gate} empty={!releases.length} flex="1 1 320px">
           <HBar
-            data={releases.map((r) => ({ name: `build ${r.build}`, value: r.bugs_fixed })).sort((a, b) => b.value - a.value)}
+            data={releases.map((r) => ({ name: releaseLabel(r.build), value: r.bugs_fixed })).sort((a, b) => b.value - a.value)}
             color={seriesColor(mode, 1)}
-            labelWidth={90}
+            labelWidth={210}
           />
         </ChartCard>
 
@@ -461,6 +487,32 @@ export const ProjectPanel: React.FC = () => {
         </ChartCard>
       </Row>
 
+      <Row mb={0}>
+        <ChartCard title="Open bugs" subtitle={`${openBugs.length} open or in progress`} {...gate} empty={!openBugs.length} flex="1 1 100%">
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, width: '100%' }}>
+            {openBugs.map((b) => (
+              <Box key={b.id} sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, minWidth: 0 }}>
+                <Link component={RouterLink} to={b.doc} underline="hover" sx={{ fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>
+                  {b.id}
+                </Link>
+                <Typography
+                  variant="caption"
+                  title={b.title}
+                  sx={{ flexGrow: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                >
+                  {b.title}
+                </Typography>
+                <Typography variant="caption" sx={{ flexShrink: 0, color: SEVERITY[b.severity.toLowerCase()] || 'text.secondary' }}>
+                  {b.severity}
+                </Typography>
+                <Typography variant="caption" sx={{ flexShrink: 0, width: 72, color: 'text.secondary' }}>
+                  {b.status}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </ChartCard>
+      </Row>
     </Box>
   );
 };

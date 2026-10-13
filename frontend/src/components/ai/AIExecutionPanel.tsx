@@ -7,12 +7,13 @@
  * lifecycle: Send → Run → Running → Success/Failed.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Box, Typography, TextField, Button, CircularProgress } from '@mui/material';
 
 import { Host, Device } from '../../types/common/Host_Types';
 import { UserinterfaceSelector } from '../common';
 import { useAIExecutionPanel } from '../../hooks/useAIExecutionPanel';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface AIExecutionPanelProps {
   host: Host;
@@ -25,6 +26,8 @@ interface AIExecutionPanelProps {
     resolve: (selections: Record<string, string>, saveToDb: boolean) => void,
     cancel: () => void
   ) => void;
+  // Lets the parent show the running-step overlay while a prompt run is in flight.
+  onExecutingChange?: (isExecuting: boolean) => void;
 }
 
 export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
@@ -33,6 +36,7 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
   isControlActive,
   isVisible,
   onDisambiguationDataChange,
+  onExecutingChange,
 }) => {
   const {
     prompt,
@@ -49,6 +53,12 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
     handleSend,
     handleExecute,
   } = useAIExecutionPanel({ host, device, onDisambiguationDataChange });
+
+  const P = useAgentChatPalette();
+
+  useEffect(() => {
+    onExecutingChange?.(isExecuting);
+  }, [isExecuting, onExecutingChange]);
 
   if (!isVisible) return null;
 
@@ -87,9 +97,8 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
     <Box
       sx={{
         position: 'absolute',
-        top: '50%',
+        top: 10,
         right: 10,
-        transform: 'translateY(-50%)',
         // Sit above the stream caption/transcript/restart overlays (which use hardcoded
         // ~1250–1000040 z-indexes). The disambiguation modal is portaled to <body>, so it
         // still renders above this panel regardless of this value.
@@ -98,7 +107,7 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
         width: '420px',
         backgroundColor: 'rgba(0,0,0,0.9)',
         borderRadius: 2,
-        border: '1px solid rgba(255,255,255,0.2)',
+        border: `1px solid ${P.borderColor}`,
         backdropFilter: 'blur(10px)',
       }}
     >
@@ -113,7 +122,7 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
             mb: 1.5,
           }}
         >
-          <Typography variant="subtitle1" sx={{ color: '#ffffff', fontWeight: 600, whiteSpace: 'nowrap' }}>
+          <Typography variant="subtitle1" sx={{ color: P.textPrimary, fontWeight: 600, whiteSpace: 'nowrap' }}>
             AI Prompt
           </Typography>
           <UserinterfaceSelector
@@ -145,24 +154,24 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
 
         {/* Result / progress area */}
         {showResult && (
-          <Box sx={{ mb: 1.5, p: 1.5, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 1 }}>
+          <Box sx={{ mb: 1.5, p: 1.5, backgroundColor: P.hoverBg, borderRadius: 1 }}>
             {isExecuting ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <CircularProgress size={16} />
-                <Typography variant="body2" sx={{ color: '#ddd' }}>
+                <Typography variant="body2" sx={{ color: P.textSecondary }}>
                   Executing “{actionLabel}”…
                 </Typography>
               </Box>
             ) : executionStatus === 'success' ? (
-              <Typography variant="body2" sx={{ color: '#4caf50' }}>
+              <Typography variant="body2" sx={{ color: P.success }}>
                 ✓ Done: “{actionLabel}”
               </Typography>
             ) : executionStatus === 'fail' ? (
-              <Typography variant="body2" sx={{ color: '#f44336' }}>
+              <Typography variant="body2" sx={{ color: P.error }}>
                 ✕ Failed: “{actionLabel}”
               </Typography>
             ) : (
-              <Typography variant="body2" sx={{ color: '#ddd', fontSize: '0.85rem', whiteSpace: 'pre-line' }}>
+              <Typography variant="body2" sx={{ color: P.textSecondary, fontSize: '0.85rem', whiteSpace: 'pre-line' }}>
                 {analysis}
               </Typography>
             )}

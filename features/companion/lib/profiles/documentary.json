@@ -1,0 +1,24 @@
+{
+  "id": "documentary",
+  "category": "documentary",
+  "hints": "a documentary: narration over footage, interviews, archive, nature or history",
+  "entity": [
+    "title",
+    "season",
+    "episode"
+  ],
+  "identify_interval_s": 120,
+  "track": {
+    "type": "time_window"
+  },
+  "render": "title",
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "synopsis": "what this documentary is about, two sentences",
+      "director": "director(s)",
+      "year": "year",
+      "network": "producer or broadcaster"
+    }
+  }
+}

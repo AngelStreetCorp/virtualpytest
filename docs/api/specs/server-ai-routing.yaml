@@ -1,0 +1,1217 @@
+openapi: 3.0.3
+info:
+  title: SERVER - AI Routing
+  version: 1.0.0
+  description: |
+    Which model serves which AI call (TASK-30). Every AI call names a usage key
+    (`agent.atlas`, `vision.banner`, `text.plan`...). Routes map usages to profiles
+    (model + parameters) on endpoints (provider preset + base URL + server-side secret).
+    The server default (`team_id` null) is edited by the platform super admin; a team adds
+    route overrides. Hosts call models through the gateway routes below.
+
+    Source: `backend_server/src/routes/server_ai_routing_routes.py`, agent routes in
+    `backend_server/src/routes/server_agent_routes.py`. Concepts: `docs/agent/ai/AI_ROUTING.md`.
+
+    Auth: every `/server/*` route passes the global guard (user JWT, or `X-API-Key` for hosts /
+    services; a `team_id` in the query or body must be one of the caller's teams). Settings reads
+    need `settings.models:view`; team route overrides need `settings.models:edit`; endpoints,
+    profiles, Test buttons, server-default routes and `/server/agent/api-key` need the platform
+    super admin. Gateway routes (`/complete`, `/resolve`, `POST /stats`, `/openai/...`) accept only
+    the service key (`X-API-Key` == the server's `API_KEY`); anything else gets 403.
+    API keys are write-only: responses expose `has_secret`, never the key.
+servers:
+  - url: '{server_url}'
+    description: Environment base URL
+    variables:
+      server_url:
+        default: 'http://localhost:5109'
+        description: Backend server URL
+security:
+  - BearerAuth: []
+  - ApiKeyAuth: []
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: team_id
+    value: 'team_123'
+    description: Team identifier
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+  - key: api_key
+    value: 'your_api_key_here'
+    description: X-API-Key for host / service callers
+tags:
+  - name: AI Routing
+    description: Settings → AI (endpoints, profiles, routes, stats)
+  - name: AI Gateway
+    description: Model calls for hosts and OpenAI-client libraries
+  - name: Agent
+    description: Agent model status and key
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    TeamIdQuery:
+      name: team_id
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Team whose override layer to read/edit. Absent = server default only.
+    EndpointId:
+      name: endpoint_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProfileId:
+      name: profile_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    RouteId:
+      name: route_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+    Context:
+      type: object
+      description: Call context used by scoped routes.
+      properties:
+        host_name:
+          type: string
+        device_model:
+          type: string
+        userinterface_name:
+          type: string
+    EndpointInput:
+      type: object
+      properties:
+        name:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9_-]{0,62}$'
+          example: lmstudio-pc
+        preset:
+          type: string
+          enum: [anthropic, openrouter, openai, minimax, google, minimax_vlm, openai_compatible]
+        base_url:
+          type: string
+          nullable: true
+          description: Required for `openai_compatible` (e.g. `http://10.0.0.5:1234/v1`); preset default otherwise.
+        reach:
+          type: string
+          enum: [server, host]
+          default: server
+          description: '`host` = only the hosts can reach it; hosts call it directly. Must be keyless.'
+        timeout_s:
+          type: integer
+          minimum: 5
+          maximum: 1800
+          default: 120
+        max_concurrency:
+          type: integer
+          nullable: true
+          minimum: 1
+        allowed_team_ids:
+          type: array
+          nullable: true
+          items:
+            type: string
+            format: uuid
+          description: Null = every team may route to it.
+        enabled:
+          type: boolean
+          default: true
+        api_key:
+          type: string
+          writeOnly: true
+          description: Stored in the server-side secrets file, never in the DB or a response.
+        clear_api_key:
+          type: boolean
+          writeOnly: true
+          description: PUT only - remove the stored key.
+    Endpoint:
+      allOf:
+        - $ref: '#/components/schemas/EndpointInput'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            secret_name:
+              type: string
+              nullable: true
+            has_secret:
+              type: boolean
+            needs_key:
+              type: boolean
+    ProfileInput:
+      type: object
+      properties:
+        name:
+          type: string
+          example: qwen3-vl-8b-local
+        endpoint_id:
+          type: string
+          format: uuid
+        model:
+          type: string
+          example: qwen/qwen3-vl-8b-instruct
+        temperature:
+          type: number
+          nullable: true
+          minimum: 0
+          maximum: 2
+          description: Overrides the caller's temperature when set.
+        max_tokens_cap:
+          type: integer
+          nullable: true
+        thinking:
+          type: string
+          enum: [auto, 'on', 'off']
+          default: auto
+          description: '`auto` = the usage default from usages.py.'
+        image_max_edge:
+          type: integer
+          nullable: true
+          minimum: 64
+        extra:
+          type: object
+          additionalProperties: true
+          description: Extra payload keys (top_p, reasoning_effort, response_format...), plus client flags `max_tokens_param` and `omit_temperature`.
+        fallback_profile_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Tried on error / empty answer. Chain max 3, cycles rejected.
+        capabilities:
+          type: array
+          items:
+            type: string
+            enum: [tools, vision]
+          description: Recorded by a successful Test.
+        enabled:
+          type: boolean
+          default: true
+    Profile:
+      allOf:
+        - $ref: '#/components/schemas/ProfileInput'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+    RouteInput:
+      type: object
+      properties:
+        team_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: POST only. Null = server default (super admin).
+        usage_key:
+          type: string
+          example: vision.banner
+        profile_id:
+          type: string
+          format: uuid
+        host_name:
+          type: string
+          nullable: true
+        device_model:
+          type: string
+          nullable: true
+        userinterface_name:
+          type: string
+          nullable: true
+        split_profile_id:
+          type: string
+          format: uuid
+          nullable: true
+        split_percent:
+          type: integer
+          nullable: true
+          minimum: 1
+          maximum: 99
+          description: Share of calls (by request-id hash) sent to `split_profile_id` (arm b).
+        priority:
+          type: integer
+          default: 100
+          description: Lower wins among routes matching the same number of scope columns.
+        enabled:
+          type: boolean
+          default: true
+    Route:
+      allOf:
+        - $ref: '#/components/schemas/RouteInput'
+        - type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+    RoutingSummary:
+      type: object
+      properties:
+        usage:
+          type: string
+        via:
+          type: string
+          description: Usage key whose route matched (may be an ancestor).
+        layer:
+          type: string
+          enum: [team, default]
+        split_arm:
+          type: string
+          enum: ['', a, b]
+        chain:
+          type: array
+          description: Primary profile then its fallbacks.
+          items:
+            $ref: '#/components/schemas/Hop'
+    Hop:
+      type: object
+      properties:
+        profile:
+          type: string
+        endpoint:
+          type: string
+        preset:
+          type: string
+        model:
+          type: string
+        reach:
+          type: string
+        base_url:
+          type: string
+          nullable: true
+        timeout_s:
+          type: integer
+        temperature:
+          type: number
+          nullable: true
+    CompletionResult:
+      type: object
+      properties:
+        success:
+          type: boolean
+        content:
+          type: string
+        error:
+          type: string
+        usage:
+          type: object
+          properties:
+            prompt_tokens:
+              type: integer
+            completion_tokens:
+              type: integer
+            total_tokens:
+              type: integer
+        provider_used:
+          type: string
+          description: Preset of the endpoint that answered.
+        model:
+          type: string
+          nullable: true
+        profile:
+          type: string
+          nullable: true
+        endpoint:
+          type: string
+          nullable: true
+        via:
+          type: string
+          nullable: true
+        split_arm:
+          type: string
+        fallback_used:
+          type: boolean
+        direct:
+          type: object
+          description: |
+            Present (with success=false) when the primary endpoint is `reach=host`: the host
+            must call it itself, then report `POST /server/ai/stats`; on failure it re-posts
+            with `start=1` to continue down the fallback chain.
+          properties:
+            hop:
+              $ref: '#/components/schemas/Hop'
+            max_tokens:
+              type: integer
+            temperature:
+              type: number
+              nullable: true
+            extra_body:
+              type: object
+              additionalProperties: true
+            split_arm:
+              type: string
+            via:
+              type: string
+paths:
+  /server/ai/config:
+    get:
+      summary: Settings → AI configuration
+      description: Usage catalogue (static + one key per agent skill), provider presets, endpoints (filtered by `allowed_team_ids` for non-admins, `has_secret` only), profiles, routes of the server default plus the team layer, and the effective resolution of every usage.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+      responses:
+        '200':
+          description: Configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  is_platform_admin:
+                    type: boolean
+                  usages:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        key:
+                          type: string
+                        label:
+                          type: string
+                        description:
+                          type: string
+                        parent:
+                          type: string
+                          nullable: true
+                        needs:
+                          type: array
+                          items:
+                            type: string
+                        output:
+                          type: string
+                          enum: [text, json]
+                        thinking:
+                          type: string
+                          enum: [auto, 'on', 'off']
+                  presets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        label:
+                          type: string
+                        base_url:
+                          type: string
+                          nullable: true
+                        needs_key:
+                          type: boolean
+                        base_url_required:
+                          type: boolean
+                        lists_models:
+                          type: boolean
+                  endpoints:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Endpoint'
+                  profiles:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Profile'
+                  routes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Route'
+                  effective:
+                    type: object
+                    additionalProperties:
+                      $ref: '#/components/schemas/RoutingSummary'
+        '403':
+          description: Missing `settings.models:view`
+  /server/ai/usage:
+    get:
+      summary: AI usage report (Monitoring → AI usage)
+      description: |
+        Calls, tokens, speed, errors, cost and the "who answered" chain, grouped by `group_by`. 1 h - 7 d read the
+        per-call log `ai_calls` (every group below); 30 d reads the hourly `ai_usage_stats` rollup (usage, model,
+        endpoint, team, origin, host only). A team sees its own calls plus the server-default (background) ones; a
+        platform admin may pass `scope=all`; without `settings.models:view` only the caller's own calls (7 d max).
+        Needs `monitoring.ai_queue:view`.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+        - name: hours
+          in: query
+          schema: {type: integer, enum: [1, 24, 168, 720], default: 24}
+        - name: group_by
+          in: query
+          schema: {type: string, enum: [usage, model, endpoint, team, origin, host, device, script, campaign, user, server], default: usage}
+        - name: scope
+          in: query
+          description: '`all` = every team (platform admin only)'
+          schema: {type: string, enum: [team, all]}
+        - name: filter_usage
+          in: query
+          description: Any group name can be a filter, `filter_<group>=<value>` (e.g. `filter_origin=script`)
+          schema: {type: string}
+      responses:
+        '200':
+          description: |
+            `{success, group_by, hours, scope, source: calls|rollup, groups, can_view_all, restricted_to_self,
+            totals, rows[], providers[], step_s, series_start, series_len}`. A row: key, label, calls, errors, fallbacks,
+            tokens_in/out, cache tokens, avg_ms, tokens_per_s, error_rate, fallback_rate, cost (null = no price),
+            priced_calls, cost_partial, avoided, saved_cost, parse_rate, truncated, series[], profiles{}, routing{chain[]}.
+        '400':
+          description: Bad hours / group_by, or a call-only group or filter on a 30 d period
+  /server/ai/usage/calls:
+    get:
+      summary: Newest calls behind a usage number
+      description: Up to 200 `ai_calls` rows (no prompt text) with p50 / p95 latency of up to 1000 matching calls and a Langfuse `trace_url` when Langfuse is on. 7 d max. Same filters as `/server/ai/usage`, plus `script_result_id`, `request_id`, `only_errors=1`, `limit`.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+        - name: hours
+          in: query
+          schema: {type: integer, enum: [1, 24, 168], default: 24}
+      responses:
+        '200':
+          description: '`{success, calls[], sampled, latency: {p50, p95, n}}`'
+  /server/ai/usage/export:
+    get:
+      summary: The usage table as CSV
+      description: Same query as `/server/ai/usage`; one row per group plus a TOTAL row (charge back to a team, invoice a customer).
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+      responses:
+        '200':
+          description: text/csv attachment
+  /server/ai/usage/training:
+    get:
+      summary: Training data next to the call log
+      description: TASK-27 samples per family / device model (labelled by human / run / AI, label conflicts, linked to a call), production accuracy per model next to its cost per call, and how many teams opted in. Counts only. Needs `settings.models:view`.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+      responses:
+        '200':
+          description: '`{success, totals, groups[], accuracy[], opted_in_teams, scope}`'
+  /server/ai/usage/credits:
+    get:
+      summary: Prepaid OpenRouter credit left
+      description: Platform admin only; reads OpenRouter's credits endpoint, spends nothing.
+      tags: [AI Routing]
+      responses:
+        '200':
+          description: '`{success, at, endpoints[{endpoint, has_key, total_credits, total_usage, balance}]}`'
+  /server/ai/prices:
+    get:
+      summary: Price table (USD per 1M tokens)
+      description: Needs `settings.models:view`. `ai_prices` rows used only when a provider reports no cost.
+      tags: [AI Routing]
+      responses:
+        '200':
+          description: '`{success, prices[{id, endpoint, model, price_in, price_out, price_cache_read, price_cache_write, price_web_search, valid_from, note}]}`'
+    post:
+      summary: Add a price valid from a date (platform admin)
+      description: '`model = *` is the endpoint-wide price. A price of 0 is valid. Calls already logged keep their stored cost.'
+      tags: [AI Routing]
+      responses:
+        '200':
+          description: The created price
+        '400':
+          description: Unknown endpoint, negative or non-numeric price, bad `valid_from`
+  /server/ai/prices/{price_id}:
+    delete:
+      summary: Delete a price (platform admin)
+      tags: [AI Routing]
+      parameters:
+        - name: price_id
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: Deleted
+        '404':
+          description: Price not found
+  /server/ai/usage/run:
+    get:
+      summary: AI cost of script runs
+      description: 'Requests, tokens, errors and cost of the given script runs (`script_result_ids=a,b`, max 200) for the team, from `ai_calls`. `cost` is null when no call carries a price. Needs `reports.tests:view`.'
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+        - name: script_result_ids
+          in: query
+          required: true
+          schema: {type: string}
+      responses:
+        '200':
+          description: '`{success, calls, errors, tokens_in, tokens_out, cost, priced_calls}`'
+  /server/ai/usage/alerts:
+    get:
+      summary: Failures of the last 24 h grouped by cause, and features leaning on their backup
+      description: 'One cause = provider + error type, with every feature it hit, since / last, calls skipped by a no-credit pause. Backup share above 10 % with at least 20 requests in the last hour (env AI_ALERT_ERROR_RATE, AI_ALERT_BACKUP_SHARE, AI_ALERT_MIN_REQUESTS). Needs `monitoring.ai_queue:view`.'
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+      responses:
+        '200':
+          description: '`{success, causes[{endpoint, provider, type, preset, reason, severity, errors, since, last, skipped, features[{usage, label, errors}]}], backup[{usage, label, calls, fallbacks, share}], thresholds}`'
+  /server/ai/usage/budget:
+    get:
+      summary: This month's AI spend, forecast and budget of the team
+      description: 'Priced spend (USD) since the 1st (UTC), linear month-end forecast and the budget status (`state` ok | warn | over; null when none is set).'
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+      responses:
+        '200':
+          description: '`{success, spent, forecast, budget}`'
+  /server/ai/budget:
+    put:
+      summary: Set a team's monthly AI budget (platform admin)
+      description: '`{team_id, month_limit_usd > 0, mode: warn|block, warn_at: 0-1}`. `block` makes the gateway and agent turns refuse the team''s calls once the month''s spend reaches the limit.'
+      tags: [AI Routing]
+      responses:
+        '200':
+          description: Saved
+        '400':
+          description: Invalid limit, mode or warn_at
+    delete:
+      summary: Remove a team's budget (platform admin)
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+      responses:
+        '200':
+          description: Removed
+  /server/ai/stats:
+    get:
+      summary: Per-usage AI call stats
+      description: Aggregated from the hourly `ai_usage_stats` rollup for the server default plus the team.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+        - name: hours
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 24
+            minimum: 1
+            maximum: 720
+      responses:
+        '200':
+          description: Stats per usage key
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  hours:
+                    type: integer
+                  usages:
+                    type: object
+                    additionalProperties:
+                      type: object
+                      properties:
+                        calls:
+                          type: integer
+                        errors:
+                          type: integer
+                        error_rate:
+                          type: number
+                        fallbacks:
+                          type: integer
+                        total_ms:
+                          type: integer
+                        avg_ms:
+                          type: integer
+                          description: Average latency (not p50).
+                        tokens_in:
+                          type: integer
+                        tokens_out:
+                          type: integer
+                        profiles:
+                          type: object
+                          description: Calls per profile (and split arm).
+                          additionalProperties:
+                            type: integer
+    post:
+      summary: Report a direct (reach=host) call
+      description: Called by a host after it called a `reach=host` endpoint itself. Bumps the hourly stats row.
+      tags: [AI Gateway]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                usage:
+                  type: string
+                team_id:
+                  type: string
+                  nullable: true
+                profile:
+                  type: string
+                endpoint:
+                  type: string
+                split_arm:
+                  type: string
+                ok:
+                  type: boolean
+                ms:
+                  type: integer
+                tokens_in:
+                  type: integer
+                tokens_out:
+                  type: integer
+      responses:
+        '200':
+          description: Recorded
+        '500':
+          description: Not recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /server/ai/endpoints:
+    post:
+      summary: Create an endpoint (platform super admin)
+      tags: [AI Routing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/EndpointInput'
+                - required: [name, preset]
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  endpoint:
+                    $ref: '#/components/schemas/Endpoint'
+        '400':
+          description: Validation or database error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /server/ai/endpoints/{endpoint_id}:
+    put:
+      summary: Update an endpoint (platform super admin)
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EndpointInput'
+      responses:
+        '200':
+          description: Updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  endpoint:
+                    $ref: '#/components/schemas/Endpoint'
+        '404':
+          description: Endpoint not found
+    delete:
+      summary: Delete an endpoint and its stored key (platform super admin)
+      description: Refused while profiles still use it.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      responses:
+        '200':
+          description: Deleted
+        '400':
+          description: Still referenced by a profile
+        '404':
+          description: Endpoint not found
+  /server/ai/endpoints/{endpoint_id}/test:
+    post:
+      summary: Test an endpoint (platform super admin)
+      description: Lists the endpoint's models (`GET <base_url>/models`, presets with `lists_models`) and, when `model` is given, runs a tiny completion. `api_key` tests a key before saving it.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/EndpointId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                api_key:
+                  type: string
+                  writeOnly: true
+                model:
+                  type: string
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  endpoint:
+                    type: string
+                  models:
+                    type: array
+                    items:
+                      type: string
+                  reply:
+                    type: string
+                  note:
+                    type: string
+                  error:
+                    type: string
+  /server/ai/profiles:
+    post:
+      summary: Create a profile (platform super admin)
+      tags: [AI Routing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/ProfileInput'
+                - required: [name, endpoint_id, model]
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  profile:
+                    $ref: '#/components/schemas/Profile'
+        '400':
+          description: Validation error (missing field, fallback cycle or chain too long)
+  /server/ai/profiles/{profile_id}:
+    put:
+      summary: Update a profile (platform super admin)
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProfileInput'
+      responses:
+        '200':
+          description: Updated
+        '404':
+          description: Profile not found
+    delete:
+      summary: Delete a profile (platform super admin)
+      description: Refused while routes still use it.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      responses:
+        '200':
+          description: Deleted (`success` false if nothing was deleted)
+        '400':
+          description: Still referenced by a route
+  /server/ai/profiles/{profile_id}/test:
+    post:
+      summary: Live-test a profile capability (platform super admin)
+      description: '`text` = tiny completion; `vision` = reads the number on a synthetic "CHANNEL 427" frame; `tools` = one `report_number` tool call. A passing vision/tools test records the capability on the profile.'
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/ProfileId'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                kind:
+                  type: string
+                  enum: [text, vision, tools]
+                  default: text
+      responses:
+        '200':
+          description: Test result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  kind:
+                    type: string
+                  reply:
+                    type: string
+                  error:
+                    type: string
+  /server/ai/routes:
+    post:
+      summary: Create a route
+      description: '`team_id` null = server default (platform super admin); a team id = that team''s override (`settings.models:edit`). When the profile declares capabilities, they must cover what the usage needs (tools / vision).'
+      tags: [AI Routing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - $ref: '#/components/schemas/RouteInput'
+                - required: [usage_key, profile_id]
+      responses:
+        '200':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  route:
+                    $ref: '#/components/schemas/Route'
+        '400':
+          description: Validation error (unknown usage, capability mismatch, duplicate scope)
+        '403':
+          description: Server-default change by a non super admin
+  /server/ai/routes/{route_id}:
+    put:
+      summary: Update a route
+      description: The layer comes from `?team_id=` (absent = server default). A route never changes layer. Server-default root routes (`agent`, `vision`, `text`) can only be repointed.
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/RouteId'
+        - $ref: '#/components/parameters/TeamIdQuery'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouteInput'
+      responses:
+        '200':
+          description: Updated
+        '403':
+          description: Server-default change by a non super admin
+        '404':
+          description: Route not found in that layer
+    delete:
+      summary: Delete a route
+      description: The layer comes from `?team_id=`. Server-default root routes cannot be deleted (DB trigger).
+      tags: [AI Routing]
+      parameters:
+        - $ref: '#/components/parameters/RouteId'
+        - $ref: '#/components/parameters/TeamIdQuery'
+      responses:
+        '200':
+          description: Deleted (`success` false if nothing matched)
+        '400':
+          description: Refused by the database (root route)
+        '403':
+          description: Server-default change by a non super admin
+  /server/ai/complete:
+    post:
+      summary: Run one AI call (host gateway)
+      description: Hosts post every single-shot AI call here (`shared/src/lib/ai/gateway.py`). The server resolves the usage, calls the provider with its stored key, walks the fallback chain on error or empty answer, and records stats. For a `reach=host` primary endpoint it answers `direct` instead.
+      tags: [AI Gateway]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usage, prompt]
+              properties:
+                usage:
+                  type: string
+                  example: vision.banner
+                prompt:
+                  type: string
+                image_b64:
+                  type: string
+                  nullable: true
+                  description: Hosts downscale to a 1920 px long edge before upload.
+                media_type:
+                  type: string
+                  default: image/jpeg
+                system:
+                  type: string
+                  nullable: true
+                max_tokens:
+                  type: integer
+                  default: 1000
+                temperature:
+                  type: number
+                  nullable: true
+                team_id:
+                  type: string
+                  nullable: true
+                  description: Set when a user triggered the call; absent = server default only.
+                context:
+                  $ref: '#/components/schemas/Context'
+                start:
+                  type: integer
+                  default: 0
+                  description: Index in the fallback chain to start from (1 after a failed direct call).
+                direct_error:
+                  type: string
+                  description: Error of the failed direct call, prefixed to the final error.
+      responses:
+        '200':
+          description: Completion result (failures come back with success=false)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompletionResult'
+  /server/ai/resolve:
+    post:
+      summary: Resolve a usage without calling it
+      description: Used by hosts for `gateway.is_available()` (cached 60 s on the host) and `gateway.describe()`. `available` = some hop in the chain has its credentials.
+      tags: [AI Gateway]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [usage]
+              properties:
+                usage:
+                  type: string
+                team_id:
+                  type: string
+                  nullable: true
+                context:
+                  $ref: '#/components/schemas/Context'
+      responses:
+        '200':
+          description: Resolution
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  available:
+                    type: boolean
+                  routing:
+                    $ref: '#/components/schemas/RoutingSummary'
+                  error:
+                    type: string
+  /server/ai/openai/{usage}/chat/completions:
+    post:
+      summary: OpenAI-compatible passthrough for a usage
+      description: |
+        For libraries that drive an OpenAI client themselves (browser-use on hosts:
+        `backend_host/src/lib/utils/browseruse_utils.py build_browser_llm`). Point the client's
+        `base_url` at `/server/ai/openai/<usage>` and authenticate with `X-API-Key`. The server
+        resolves the usage, replaces `model` with the routed model, merges the profile `extra`,
+        adds the real API key and forwards to `<endpoint base_url>/chat/completions`; the upstream
+        response is returned as-is. Connection errors and HTTP 5xx move to the next fallback hop.
+        Non-streaming only. Only server-reachable hops on an OpenAI-compatible client
+        (`openrouter`, `openai`, `openai_compatible`) are eligible.
+      tags: [AI Gateway]
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: usage
+          in: path
+          required: true
+          schema:
+            type: string
+          example: agent.browser
+        - name: X-VPT-Team-Id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Team whose overrides apply; absent = server default.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: OpenAI chat-completions request body (`model` is ignored and replaced; `stream` must be false).
+              additionalProperties: true
+      responses:
+        '200':
+          description: Upstream OpenAI-shaped response
+        '400':
+          description: Streaming requested
+        '404':
+          description: Unknown usage or no route
+        '502':
+          description: Every hop failed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties:
+                      message:
+                        type: string
+                      type:
+                        type: string
+                        example: gateway_error
+  /server/agent/health:
+    get:
+      summary: Model serving an agent for a team
+      description: Resolves `agent.<name>` for the team (team override, then server default). Replaces the old provider-configuration status.
+      tags: [Agent]
+      parameters:
+        - $ref: '#/components/parameters/TeamIdQuery'
+        - name: agent_id
+          in: query
+          required: false
+          schema:
+            type: string
+            default: assistant
+          description: Agent YAML id (`assistant` → agent.atlas, `monitor` → agent.nightwatch, `analyzer` → agent.sherlock, `scripter` → agent.forge).
+      responses:
+        '200':
+          description: Health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  status:
+                    type: string
+                    example: healthy
+                  usage:
+                    type: string
+                    example: agent.atlas
+                  api_key_configured:
+                    type: boolean
+                  provider:
+                    type: string
+                    nullable: true
+                    description: Endpoint preset.
+                  model:
+                    type: string
+                    nullable: true
+                  profile:
+                    type: string
+                    nullable: true
+                  endpoint:
+                    type: string
+                    nullable: true
+                  supports_prompt_caching:
+                    type: boolean
+                  error:
+                    type: string
+                    nullable: true
+                    description: Set when the usage does not resolve.
+                  manager_initialized:
+                    type: boolean
+  /server/agent/api-key:
+    post:
+      summary: Save the API key of the endpoint serving an agent (platform super admin)
+      description: Validates the key with a tiny completion on the model the agent's server-default route resolves to, then stores it as that endpoint's secret (server-side secrets file). `/server/agent/models` was removed; models are configured in Settings → AI.
+      tags: [Agent]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [api_key]
+              properties:
+                api_key:
+                  type: string
+                  writeOnly: true
+                agent_id:
+                  type: string
+                  default: assistant
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                  endpoint:
+                    type: string
+                  provider:
+                    type: string
+                  model:
+                    type: string
+        '400':
+          description: Missing key or no route for this agent
+        '401':
+          description: Key rejected by the provider
+        '403':
+          description: Not the platform super admin

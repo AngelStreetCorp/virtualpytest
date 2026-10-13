@@ -171,7 +171,8 @@ def analyse(changed: list[str], added: list[str]) -> dict:
     out['rollbacks'] = [p for p, _ in _sql if p.endswith('_rollback.sql')]
     out['new_features'] = [p.split('/')[1] for p in added if re.match(r'^features/[^/]+/manifest\.json$', p)]
     out['nginx'] = [p for p in changed if under(p, 'infra/proxy/nginx') and p.endswith('.conf')]
-    out['grafana'] = [p for p in changed if p.endswith('.json') and (
+    # template.json is the Atlas dashboard template read by the backend, never pushed to Grafana.
+    out['grafana'] = [p for p in changed if p.endswith('.json') and not p.endswith('/template.json') and (
         under(p, 'infra/monitoring/grafana/dashboards') or re.match(r'^features/[^/]+/grafana/', p))]
     # A oneshot unit's template is skipped like the unit itself: nothing about it is a restart,
     # and its next timer-driven run reads whatever is installed.

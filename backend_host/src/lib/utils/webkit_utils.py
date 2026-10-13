@@ -14,6 +14,7 @@ import platform
 from typing import Dict, Any, Tuple
 
 from shared.src.lib.utils.browser_window_utils import build_window_flags, detect_primary_display_bounds
+from backend_host.src.lib.utils.playwright_utils import stop_playwright
 
 WEBKIT_LAUNCH_READY_TIMEOUT_SECONDS = 12
 
@@ -450,6 +451,7 @@ class WebKitConnection:
         """Connect to lightweight browser via debug protocol and return playwright, browser, context, page."""
         from playwright.async_api import async_playwright
         
+        playwright = None
         try:
             print(f'[WebKitConnection] Connecting to lightweight browser at {cdp_url}')
             playwright = await async_playwright().start()
@@ -474,7 +476,10 @@ class WebKitConnection:
             
             return playwright, browser, context, page
             
-        except Exception as e:
+        except BaseException as e:
+            await stop_playwright(playwright)  # its driver would outlive the failed attach (BUG-0191)
+            if not isinstance(e, Exception):
+                raise
             print(f'[WebKitConnection] Connection failed: {e}')
             raise Exception(f"Lightweight browser connection failed: {str(e)}")
 

@@ -9,6 +9,7 @@ from shared.src.lib.database.navigation_trees_db import (
     invalidate_navigation_cache_for_tree
 )
 from shared.src.lib.utils.cloudflare_utils import upload_navigation_screenshot
+from shared.src.lib.utils import cv2_io
 
 
 def smart_backward(executor, controller, verify_func: Callable[[], bool]) -> Tuple[str, int, list]:
@@ -24,20 +25,27 @@ def smart_backward(executor, controller, verify_func: Callable[[], bool]) -> Tup
     """
     entry_edge = executor.exploration_state.get('entry_to_home_edge')
     
-    # Step 1: Entry→home main action (click Home)
+    # Step 1: Entry→home main action (click Home). Only its taps are replayed (not close_app /
+    # launch_app), so only they become the reverse; and only a tap on an element of the app's own
+    # window: on a screen without the app's Home tab, "Home" matches Android's Home button, which
+    # leaves the app (TASK-40).
     if entry_edge:
         main_actions = entry_edge.get('action_sets', [{}])[0].get('actions', [])
-        if main_actions:
-            print(f"    🔄 Step 1: Entry→home main action")
-            for action in main_actions:
-                text = action.get('params', {}).get('text', action.get('params', {}).get('element_id', ''))
-                if text:
-                    result = controller.click_element(text)
-                    if inspect.iscoroutine(result): asyncio.run(result)
+        taps = [a for a in main_actions
+                if a.get('command') == 'click_element'
+                and (a.get('params', {}).get('text') or a.get('params', {}).get('element_id'))]
+        labels = [a['params'].get('text') or a['params'].get('element_id') for a in taps]
+        if taps and not _missing_from_app_window(controller, labels):
+            print(f"    🔄 Step 1: Entry→home main action {labels}")
+            for label in labels:
+                result = controller.click_element(label)
+                if inspect.iscoroutine(result): asyncio.run(result)
             time.sleep(3)
             if verify_func(): 
-                print(f"    ✅ Step 1 worked → reverse = Entry→home main actions")
-                return 'success', 1, main_actions  # Use same actions for reverse
+                print(f"    ✅ Step 1 worked → reverse = {labels}")
+                return 'success', 1, taps
+        elif taps:
+            print(f"    ⏭️  Step 1 skipped: {labels} not in the app's window on this screen")
     
     # Step 2: BACK
     print(f"    🔄 Step 2: BACK")
@@ -77,6 +85,30 @@ def smart_backward(executor, controller, verify_func: Callable[[], bool]) -> Tup
     
     print(f"    ❌ All 4 steps failed")
     return 'failed', 0, []
+
+
+def _missing_from_app_window(controller, labels: list) -> list:
+    """The `labels` that name no element of the app's (focused) window on the current screen.
+
+    One dump for all labels. Android dumps are (success, [AndroidElement], error) and each element
+    knows its window; a web dump (dict) has no system windows to confuse with the page, so
+    nothing is reported missing.
+    """
+    result = controller.dump_elements()
+    if inspect.iscoroutine(result) or not isinstance(result, tuple):
+        if inspect.iscoroutine(result): result.close()
+        return []
+    success, elements, _ = result
+    if not success:
+        return list(labels)
+    present = set()
+    for e in elements:
+        if not getattr(e, 'in_focused_window', True):
+            continue
+        for v in (e.text, e.content_desc, (e.resource_id or '').split('/')[-1]):
+            if v:
+                present.add(v.strip().lower())
+    return [l for l in labels if l.strip().lower() not in present]
 
 
 def _format_reverse_action(step: int, actions: list) -> str:
@@ -738,8 +770,8 @@ def validate_next_item(executor) -> Dict[str, Any]:
                 try:
                     import cv2
                     import numpy as np
-                    before_img = cv2.imread(before_ok_screenshot, cv2.IMREAD_COLOR)
-                    after_img = cv2.imread(after_ok_screenshot, cv2.IMREAD_COLOR)
+                    before_img = cv2_io.imread(before_ok_screenshot, cv2.IMREAD_COLOR)
+                    after_img = cv2_io.imread(after_ok_screenshot, cv2.IMREAD_COLOR)
                     if before_img is not None and after_img is not None:
                         if before_img.shape != after_img.shape:
                             after_img = cv2.resize(after_img, (before_img.shape[1], before_img.shape[0]))
@@ -896,8 +928,8 @@ def validate_next_item(executor) -> Dict[str, Any]:
                 try:
                     import cv2
                     import numpy as np
-                    before_img = cv2.imread(before_back_screenshot, cv2.IMREAD_COLOR)
-                    after_img = cv2.imread(after_back_screenshot, cv2.IMREAD_COLOR)
+                    before_img = cv2_io.imread(before_back_screenshot, cv2.IMREAD_COLOR)
+                    after_img = cv2_io.imread(after_back_screenshot, cv2.IMREAD_COLOR)
                     if before_img is not None and after_img is not None:
                         if before_img.shape != after_img.shape:
                             after_img = cv2.resize(after_img, (before_img.shape[1], before_img.shape[0]))
@@ -920,8 +952,8 @@ def validate_next_item(executor) -> Dict[str, Any]:
                     try:
                         import cv2
                         import numpy as np
-                        before_img = cv2.imread(before_back_screenshot, cv2.IMREAD_COLOR)
-                        after_img = cv2.imread(after_second, cv2.IMREAD_COLOR)
+                        before_img = cv2_io.imread(before_back_screenshot, cv2.IMREAD_COLOR)
+                        after_img = cv2_io.imread(after_second, cv2.IMREAD_COLOR)
                         if before_img is not None and after_img is not None:
                             if before_img.shape != after_img.shape:
                                 after_img = cv2.resize(after_img, (before_img.shape[1], before_img.shape[0]))
@@ -1268,12 +1300,18 @@ def validate_next_item(executor) -> Dict[str, Any]:
                             return found
                         return False
                     else:
-                        if inspect.iscoroutinefunction(verifier.waitForElementToAppear):
-                            success, msg, _ = asyncio.run(verifier.waitForElementToAppear(search_term=home_indicator, timeout=3.0))
-                        else:
-                            success, msg, _ = verifier.waitForElementToAppear(search_term=home_indicator, timeout=3.0)
-                        print(f"    📊 Home indicator '{home_indicator}': {msg}")
-                        return success
+                        # Android: home is where every validated item shows in the app's window.
+                        # One label ('Search') also shows on a sub-screen (the search page), so a
+                        # BACK that only closed the keyboard passed for home (TASK-40).
+                        home_labels = executor.exploration_state.get('items_to_validate') or [home_indicator]
+                        for attempt in range(3):
+                            missing = _missing_from_app_window(controller, home_labels)
+                            if not missing:
+                                print(f"    📊 Home: all of {home_labels} in the app window")
+                                return True
+                            time.sleep(1)
+                        print(f"    📊 Home: {missing} not in the app window")
+                        return False
                 except: return False
             
             print(f"    🔍 Verifying return to home: {home_indicator}")

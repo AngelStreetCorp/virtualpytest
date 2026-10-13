@@ -23,18 +23,6 @@ vi.mock('../../frontend/src/hooks/pages', () => ({
         ENVIRONMENT: 'development',
         DEBUG: '1',
         PYTHONUNBUFFERED: '1',
-        AI_PROVIDER: '',
-        AI_AGENT_PROVIDER: '',
-        AI_AGENT_MODEL: '',
-        AI_VISION_PROVIDER: '',
-        AI_VISION_MODEL: '',
-        AI_TEXT_PROVIDER: '',
-        AI_TEXT_MODEL: '',
-        ANTHROPIC_API_KEY: '',
-        OPENROUTER_API_KEY: '',
-        OPENAI_API_KEY: '',
-        MINIMAX_API_KEY: '',
-        GOOGLE_API_KEY: '',
       },
       frontend: {
         VITE_SERVER_URL: '',
@@ -70,19 +58,43 @@ vi.mock('../../frontend/src/hooks/pages', () => ({
     deleteDevice: () => {},
     setError: () => {},
     setSuccess: () => {},
+    loadHostConfig: () => {},
+    saveHostConfig: () => {},
+    grabbers: { grabbers: [], bluetooth: [], infrared: [] },
+    grabbersLoading: false,
+    grabbersError: null,
+    loadGrabbers: () => {},
+    usedGrabberVideoPaths: () => new Set<string>(),
+    applyGrabberToDevice: () => {},
+    getAudioSource: () => '',
+  }),
+}));
+
+// This page gates UI on permissions via usePermissions() -> usePermissionContext(), which
+// throws outside a PermissionProvider. Mocked at the module boundary, the same way every
+// other provider in this suite is (see Dashboard.test.tsx), rather than wrapping the tree
+// in real providers that would then want a real session.
+vi.mock('../../frontend/src/contexts/auth/PermissionContext', () => ({
+  PermissionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  usePermissionContext: () => ({
+    role: 'admin',
+    permissions: ['*'],
+    hasRole: () => true,
+    hasPermission: () => true,
+    canAccess: () => true,
   }),
 }));
 
 import Settings from '../../frontend/src/pages/Settings';
 
 describe('Settings page', () => {
-  it('renders the System Settings heading', () => {
+  it('renders the Settings heading', () => {
     render(
       <BrowserRouter>
         <Settings />
       </BrowserRouter>,
     );
 
-    expect(screen.getByRole('heading', { name: 'System Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
   });
 });

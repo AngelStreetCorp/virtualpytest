@@ -1,0 +1,22 @@
+{
+ "id": "8snlgWd2rlw",
+ "title": "Claude Code drives real devices over MCP",
+ "description": "Connect Claude Code (or any MCP client) to VirtualPyTest's MCP server and your AI works on real devices. On the left is the live screen of a device; on the right, Claude Code in a terminal. Ask in plain words: which devices can you use, open YouTube's search results, go back home, what's on the screen, verify we're on home. Every tool call happens live on the device: it navigates through the interface's map, takes a screenshot and describes it, and runs the node's check.\n\nOpen source & free.\n\nChapters\n0:00 Intro\n0:04 Which devices can you use?\n0:15 Open a page: navigate_to_node\n0:29 Back home\n0:40 What's on screen: screenshot and description\n0:50 Verify: verify_node, passed",
+ "tags": [
+  "virtualpytest",
+  "mcp",
+  "model context protocol",
+  "claude code",
+  "ai agent",
+  "mcp server",
+  "test automation",
+  "real device testing",
+  "ai testing",
+  "browser automation",
+  "llm tools",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

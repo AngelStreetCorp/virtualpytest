@@ -1,0 +1,38 @@
+{
+  "id": "sport/rugby",
+  "category": "sport",
+  "subcategory": "rugby",
+  "hints": "rugby union/league: oval ball, scrums, line-outs, posts shaped like H; score bug with two team codes, score and clock",
+  "entity": [
+    "home_team",
+    "away_team",
+    "competition"
+  ],
+  "identify_interval_s": 60,
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "home_team_name": "full name of the home team (the first team shown)",
+      "away_team_name": "full name of the away team",
+      "competition": "competition and round",
+      "venue": "stadium and city",
+      "kickoff": "kickoff time with timezone",
+      "home_lineup": "list of the home starting XV (or XIII) player names",
+      "away_lineup": "list of the away starting XV (or XIII) player names",
+      "referee": "match referee",
+      "standings": "the current table of this competition (for a league phase or group: that table), as a list of {rank, team, played, won, drawn, lost, points_for, points_against, points}: the top 8 rows plus the rows of both teams of this match"
+    }
+  },
+  "track": {
+    "type": "scoreboard",
+    "interval_s": 10,
+    "clock": "up",
+    "steps": {
+      "5": "try",
+      "2": "conversion",
+      "3": "penalty",
+      "7": "penalty_try"
+    }
+  },
+  "render": "match"
+}

@@ -362,7 +362,7 @@ const metricsDisplay = {
 ## 📚 Related Documentation
 
 - Database Schema
-- [Validation Colors Configuration](../../frontend/src/config/validationColors.ts)
+- [Validation Colors Configuration](../../../frontend/src/config/validationColors.ts)
 - Navigation Context Architecture
 - Grafana Integration
 

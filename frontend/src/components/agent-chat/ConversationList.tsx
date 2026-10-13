@@ -24,9 +24,8 @@ import {
   ExpandMore as ExpandIcon,
   Refresh as ReloadIcon,
 } from '@mui/icons-material';
-import { useTheme } from '@mui/material/styles';
 import { APP_CONFIG } from '../../config/constants';
-import { AGENT_CHAT_LAYOUT } from '../../constants/agentChatTheme';
+import { AGENT_CHAT_LAYOUT, useAgentChatPalette } from '../../constants/agentChatTheme';
 import { BackgroundTask, BackgroundAgentInfo } from '../../hooks/aiagent/useAgentChat';
 
 const { sidebarWidth: SIDEBAR_WIDTH, maxRecentBackgroundTasks: MAX_RECENT_TASKS } = AGENT_CHAT_LAYOUT;
@@ -65,7 +64,7 @@ const renderBackgroundAgentSection = (
   activeConversationId: string | null,
   sidebarTab: 'system' | 'chats',
   clearBackgroundHistory: (agentId: string) => void,
-  theme: any
+  P: ReturnType<typeof useAgentChatPalette>
 ) => {
   const agentTasks = backgroundTasks[agent.id] || { inProgress: [], recent: [] };
 
@@ -107,11 +106,11 @@ const renderBackgroundAgentSection = (
           onClick={() => setBackgroundExpanded(prev => ({ ...prev, [agent.id]: !isExpanded }))}
           sx={{
             fontSize: 16,
-            color: theme.palette.text.secondary,
+            color: P.textSecondary,
             transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
             transition: 'transform 0.2s',
             cursor: 'pointer',
-            '&:hover': { color: 'text.primary' },
+            '&:hover': { color: P.textPrimary },
           }}
         />
 
@@ -123,7 +122,7 @@ const renderBackgroundAgentSection = (
             fontSize: '0.85rem',
             fontWeight: 500,
             cursor: 'pointer',
-            '&:hover': { color: 'text.primary' },
+            '&:hover': { color: P.textPrimary },
           }}
         >
           # {agent.nickname}
@@ -137,13 +136,13 @@ const renderBackgroundAgentSection = (
               height: 18,
               minWidth: 18,
               fontSize: '0.7rem',
-              bgcolor: agent.color || theme.palette.accent,
-              color: '#fff',
+              bgcolor: agent.color || P.accent,
+              color: 'primary.contrastText',
               '& .MuiChip-label': { px: 0.75 },
             }}
           />
         ) : (
-          <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.75rem' }}>
+          <Typography variant="caption" sx={{ color: P.textMuted, fontSize: '0.75rem' }}>
             (0)
           </Typography>
         )}
@@ -160,7 +159,7 @@ const renderBackgroundAgentSection = (
               sx={{
                 p: 0.25,
                 opacity: 0.4,
-                '&:hover': { opacity: 1, color: 'error.main' },
+                '&:hover': { opacity: 1, color: P.error },
               }}
             >
               <ClearIcon sx={{ fontSize: 14 }} />
@@ -193,10 +192,10 @@ const renderBackgroundAgentSection = (
                     borderRadius: 1.5,
                     cursor: 'pointer',
                     bgcolor: task.conversationId === activeConversationId && sidebarTab === 'system'
-                      ? (theme.palette.mode === 'dark' ? '#1a1a1a' : 'grey.200')
+                      ? P.hoverBg
                       : 'transparent',
                     '&:hover': {
-                      bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : 'grey.100',
+                      bgcolor: P.hoverBg,
                     },
                     transition: 'background-color 0.15s',
                   }}
@@ -207,7 +206,7 @@ const renderBackgroundAgentSection = (
                       height: 14,
                       mt: 0.3,
                       borderRadius: '50%',
-                      bgcolor: agent.color || theme.palette.accent,
+                      bgcolor: agent.color || P.accent,
                       flexShrink: 0,
                       animation: 'pulse 2s ease-in-out infinite',
                       '@keyframes pulse': {
@@ -225,7 +224,7 @@ const renderBackgroundAgentSection = (
                       flexShrink: 0,
                       fontWeight: 700,
                       lineHeight: 1,
-                      color: icon === '✗' ? '#ef4444' : '#22c55e'
+                      color: icon === '✗' ? P.error : P.success
                     }}>
                       {icon}
                     </Box>
@@ -239,7 +238,7 @@ const renderBackgroundAgentSection = (
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
-                        color: task.conversationId === activeConversationId ? 'text.primary' : 'text.secondary',
+                        color: task.conversationId === activeConversationId ? P.textPrimary : P.textSecondary,
                         fontSize: '0.85rem',
                       }}
                     >
@@ -250,7 +249,7 @@ const renderBackgroundAgentSection = (
                       variant="caption"
                       sx={{
                         display: 'block',
-                        color: theme.palette.text.secondary,
+                        color: P.textMuted,
                         fontSize: '0.65rem',
                         opacity: 0.7,
                         mt: -0.25,
@@ -291,7 +290,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
   reloadSkills,
   width,
 }) => {
-  const theme = useTheme();
+  const P = useAgentChatPalette();
   const effectiveWidth = width ?? SIDEBAR_WIDTH;
 
   // Count total tasks for System tab badge
@@ -336,9 +335,9 @@ export const ConversationList: React.FC<ConversationListProps> = ({
         width: showHistory ? effectiveWidth : 0,
         minWidth: showHistory ? effectiveWidth : 0,
         height: '100%',
-        bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : 'grey.50',
+        bgcolor: P.sidebarBg,
         borderRight: showHistory ? '1px solid' : 'none',
-        borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.200',
+        borderColor: P.borderColor,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -360,17 +359,17 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                 sx={{
                   flex: 1,
                   justifyContent: 'flex-start',
-                  color: 'text.primary',
-                  bgcolor: theme.palette.mode === 'dark' ? '#2a2a2a' : 'grey.100',
+                  color: P.textPrimary,
+                  bgcolor: P.background,
                   border: '1px solid',
-                  borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.300',
+                  borderColor: P.borderColor,
                   borderRadius: 2,
                   textTransform: 'none',
                   fontWeight: 500,
                   py: 1,
                   '&:hover': {
-                    bgcolor: theme.palette.mode === 'dark' ? '#333' : 'grey.200',
-                    borderColor: theme.palette.primary.main,
+                    bgcolor: P.hoverBg,
+                    borderColor: P.accent,
                   },
                 }}
               >
@@ -390,16 +389,16 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                       }
                     }}
                     sx={{
-                      color: theme.palette.primary.main,
-                      bgcolor: theme.palette.mode === 'dark' ? '#2a2a2a' : 'grey.100',
+                      color: P.accentText,
+                      bgcolor: P.background,
                       border: '1px solid',
-                      borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.300',
+                      borderColor: P.borderColor,
                       borderRadius: 2,
                       width: 48,
                       height: 48,
                       '&:hover': {
-                        bgcolor: theme.palette.mode === 'dark' ? '#333' : 'grey.200',
-                        borderColor: theme.palette.primary.main,
+                        bgcolor: P.hoverBg,
+                        borderColor: P.accent,
                       },
                     }}
                   >
@@ -420,7 +419,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                 px: 1,
                 mb: 0.5,
                 '& .MuiTabs-indicator': {
-                  backgroundColor: theme.palette.primary.main,
+                  backgroundColor: P.accent,
                   height: 2,
                 },
               }}
@@ -439,8 +438,8 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                           height: 16,
                           minWidth: 16,
                           fontSize: '0.65rem',
-                          bgcolor: sidebarTab === 'chats' ? theme.palette.primary.main : (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'grey.300'),
-                          color: sidebarTab === 'chats' ? '#fff' : 'text.secondary',
+                          bgcolor: sidebarTab === 'chats' ? P.accent : P.hoverBg,
+                          color: sidebarTab === 'chats' ? 'primary.contrastText' : P.textSecondary,
                           '& .MuiChip-label': { px: 0.5 },
                         }}
                       />
@@ -454,7 +453,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                   textTransform: 'none',
                   fontSize: '0.8rem',
                   fontWeight: sidebarTab === 'chats' ? 600 : 400,
-                  color: sidebarTab === 'chats' ? 'text.primary' : 'text.secondary',
+                  color: sidebarTab === 'chats' ? P.textPrimary : P.textSecondary,
                   minWidth: 0,
                   flex: 1,
                 }}
@@ -473,8 +472,8 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                           height: 16,
                           minWidth: 16,
                           fontSize: '0.65rem',
-                          bgcolor: sidebarTab === 'system' ? theme.palette.primary.main : (theme.palette.mode === 'dark' ? 'rgba(255,255,255,0.1)' : 'grey.300'),
-                          color: sidebarTab === 'system' ? '#fff' : 'text.secondary',
+                          bgcolor: sidebarTab === 'system' ? P.accent : P.hoverBg,
+                          color: sidebarTab === 'system' ? 'primary.contrastText' : P.textSecondary,
                           '& .MuiChip-label': { px: 0.5 },
                         }}
                       />
@@ -488,7 +487,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                   textTransform: 'none',
                   fontSize: '0.8rem',
                   fontWeight: sidebarTab === 'system' ? 600 : 400,
-                  color: sidebarTab === 'system' ? 'text.primary' : 'text.secondary',
+                  color: sidebarTab === 'system' ? P.textPrimary : P.textSecondary,
                   minWidth: 0,
                   flex: 1,
                 }}
@@ -505,11 +504,11 @@ export const ConversationList: React.FC<ConversationListProps> = ({
               px: 1,
               pb: 2,
               scrollbarWidth: 'thin',
-              scrollbarColor: theme.palette.mode === 'dark' ? '#333 transparent' : '#c1c1c1 transparent',
+              scrollbarColor: `${P.borderColor} transparent`,
               '&::-webkit-scrollbar': { width: 4 },
               '&::-webkit-scrollbar-track': { background: 'transparent' },
               '&::-webkit-scrollbar-thumb': {
-                background: theme.palette.mode === 'dark' ? '#333' : '#c1c1c1',
+                background: P.borderColor,
                 borderRadius: 2,
               },
             }}
@@ -526,7 +525,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                   activeConversationId,
                   sidebarTab,
                   clearBackgroundHistory,
-                  theme
+                  P
                 ))}
               </Box>
             )}
@@ -543,7 +542,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                         px: 1,
                         pt: 0.5,
                         pb: 0,
-                        color: theme.palette.text.secondary,
+                        color: P.textMuted,
                         fontWeight: 600,
                         fontSize: '0.7rem',
                         textTransform: 'uppercase',
@@ -568,15 +567,15 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                           borderRadius: 1.5,
                           cursor: 'pointer',
                           bgcolor: conv.id === activeConversationId && sidebarTab === 'chats'
-                            ? (theme.palette.mode === 'dark' ? '#1a1a1a' : 'grey.200')
+                            ? P.hoverBg
                             : 'transparent',
                           '&:hover': {
-                            bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : 'grey.100',
+                            bgcolor: P.hoverBg,
                           },
                           transition: 'background-color 0.15s',
                         }}
                       >
-                        <ChatIcon sx={{ fontSize: 14, color: theme.palette.text.secondary, flexShrink: 0, mt: 0.3 }} />
+                        <ChatIcon sx={{ fontSize: 14, color: P.textSecondary, flexShrink: 0, mt: 0.3 }} />
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Typography
                             variant="body2"
@@ -584,7 +583,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
-                              color: conv.id === activeConversationId ? 'text.primary' : 'text.secondary',
+                              color: conv.id === activeConversationId ? P.textPrimary : P.textSecondary,
                               fontSize: '0.85rem',
                             }}
                           >
@@ -594,7 +593,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                             variant="caption"
                             sx={{
                               display: 'block',
-                              color: theme.palette.text.secondary,
+                              color: P.textMuted,
                               fontSize: '0.65rem',
                               opacity: 0.7,
                               mt: -0.25,
@@ -618,7 +617,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                             sx={{
                               p: 0.25,
                               opacity: 0.5,
-                              '&:hover': { opacity: 1, color: 'error.main' },
+                              '&:hover': { opacity: 1, color: P.error },
                             }}
                           >
                             <ClearIcon sx={{ fontSize: 14 }} />
@@ -635,7 +634,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                     sx={{
                       display: 'block',
                       textAlign: 'center',
-                      color: theme.palette.text.secondary,
+                      color: P.textMuted,
                       py: 4,
                     }}
                   >

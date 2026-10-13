@@ -30,7 +30,8 @@ const RecordingTimer: React.FC<RecordingTimerProps> = ({ isCapturing }) => {
     <Typography
       variant="caption"
       sx={{
-        color: 'white',
+        // palette: drawn on video/screenshot — must stay readable on any frame
+        color: '#fff',
         fontSize: '0.7rem',
         fontWeight: 'bold',
       }}
@@ -53,6 +54,7 @@ export const RecordingOverlay: React.FC<{ isCapturing: boolean }> = ({ isCapturi
         display: 'flex',
         alignItems: 'center',
         gap: 0.5,
+        // palette: drawn on video/screenshot — overlay uses dark scrim over imagery
         backgroundColor: 'rgba(0,0,0,0.7)',
         borderRadius: 1,
         padding: '4px 8px',
@@ -64,6 +66,7 @@ export const RecordingOverlay: React.FC<{ isCapturing: boolean }> = ({ isCapturi
           width: 8,
           height: 8,
           borderRadius: '50%',
+          // palette: drawn on video/screenshot — record dot stays saturated red
           backgroundColor: '#f44336',
           animation: 'recordBlink 1s infinite',
           '@keyframes recordBlink': {
@@ -95,10 +98,12 @@ export const LoadingOverlay: React.FC<{ isScreenshotLoading: boolean }> = ({
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
+        // palette: drawn on video/screenshot — dark scrim over imagery
         backgroundColor: 'rgba(0, 0, 0, 0.8)',
         zIndex: 20,
       }}
     >
+      {/* palette: drawn on video/screenshot — spinner/text on dark scrim */}
       <CircularProgress size={40} sx={{ color: '#ffffff', mb: 2 }} />
       <Typography variant="body2" sx={{ color: '#ffffff' }}>
         Taking screenshot...
@@ -118,8 +123,10 @@ export const ModeIndicatorDot: React.FC<{ viewMode: string }> = ({ viewMode }) =
       height: 8,
       borderRadius: '50%',
       backgroundColor:
+        // palette: drawn on video/screenshot — capture-mode dot stays saturated red
         viewMode === 'screenshot' || viewMode === 'capture' ? '#ff4444' : 'transparent',
       opacity: viewMode === 'screenshot' || viewMode === 'capture' ? 1 : 0,
+      // palette: drawn on video/screenshot — drop shadow over imagery
       boxShadow: '0 0 4px rgba(0,0,0,0.5)',
       zIndex: 2,
     }}
@@ -133,6 +140,7 @@ export const StatusIndicator: React.FC<{ streamStatus: StreamStatus }> = ({ stre
       display: 'flex',
       alignItems: 'center',
       gap: 0.5,
+      // palette: drawn on video/screenshot — dark scrim over imagery
       backgroundColor: 'rgba(0,0,0,0.5)',
       borderRadius: 1,
       padding: '2px 8px',
@@ -146,6 +154,7 @@ export const StatusIndicator: React.FC<{ streamStatus: StreamStatus }> = ({ stre
         height: 8,
         borderRadius: '50%',
         backgroundColor:
+          // palette: drawn on video/screenshot — status dots stay saturated on imagery
           streamStatus === 'running'
             ? '#4caf50'
             : streamStatus === 'stopped'
@@ -153,9 +162,10 @@ export const StatusIndicator: React.FC<{ streamStatus: StreamStatus }> = ({ stre
               : '#9e9e9e',
       }}
     />
+    {/* palette: drawn on video/screenshot — text on dark scrim */}
     <Typography
       variant="caption"
-      sx={{ color: 'white', fontSize: '0.7rem', width: '40px', textAlign: 'center' }}
+      sx={{ color: '#fff', fontSize: '0.7rem', width: '40px', textAlign: 'center' }}
     >
       {streamStatus === 'running' ? 'Live' : 'Stopped'}
     </Typography>

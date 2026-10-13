@@ -87,9 +87,16 @@ def test_mint_requires_a_host_name(post, api_headers: dict):
     assert response.status_code == 400
 
 
-def test_mint_rejects_an_unknown_host(post, api_headers: dict):
-    response = post(MINT_PATH, json={"host_name": "vpt-not-a-registered-host"}, headers=api_headers)
-    assert response.status_code == 404
+def test_mint_rejects_a_malformed_host_name(post, api_headers: dict):
+    response = post(MINT_PATH, json={"host_name": "../vpt-pi1"}, headers=api_headers)
+    assert response.status_code == 400
+
+
+def test_mint_accepts_a_host_registered_to_another_server(post, api_headers: dict):
+    # The main proxy gates /host/vpt-pi*/stream/ for Pis that register with rpitest's own
+    # server, never this one; refusing to mint for them left those paths 401 for everyone.
+    response = post(MINT_PATH, json={"host_name": "vpt-not-registered-here"}, headers=api_headers)
+    assert response.status_code == 200
 
 
 def test_minted_cookie_opens_its_own_host_and_no_other(

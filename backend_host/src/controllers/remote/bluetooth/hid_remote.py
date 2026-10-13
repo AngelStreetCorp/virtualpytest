@@ -75,9 +75,14 @@ from gi.repository import GLib
 # deep-idle STB. Observed 2026-06-25 on host3: the STB's Connected=True
 # landed the SAME second the 8s wait expired, so the wake reported failure on
 # a connection that actually succeeded and the triggering key was dropped.
-# 15s comfortably covers the measured reconnect latency; the boundary re-check
-# in wake_on_press() below catches anything that still lands right on the edge.
-WAKE_TIMEOUT_S = 15
+# Raised 15 -> 30s on 2026-10-08 after vpt-mf1 timed out at 15s while the
+# STB actually reconnected at T+16s (logs: wake_on_press: "STB did not
+# reconnect within timeout" then Connected=True one second later). 30s
+# gives ~2x headroom over the worst observed reconnect while keeping the
+# wake window short enough that a genuinely-dead keypress doesn't stall
+# that long. The boundary re-check in wake_on_press() below catches anything
+# that still lands right on the edge.
+WAKE_TIMEOUT_S = 30
 _peer_connected_event = threading.Event()
 _wake_lock = threading.Lock()
 _WAKE_CTX = {}
@@ -154,12 +159,37 @@ HID_KEY_UUIDS = {
     '00002a4d-0000-1000-8000-00805f9b34fb',  # HID Input Report
 }
 
+# Last peer MAC that went Connected=True on this adapter. When the adapter
+# holds two bonds that both carry the HID CCC (an STB re-paired under a new
+# identity without the old bond being removed), it is the one the box is
+# actually using, so wake_on_press aims its directed advert at it first.
+# Persisted in STATUS_PATH so a daemon restart keeps it.
+_last_connected_mac = None
+
+# True while wake_on_press is running its directed adverts. Published in
+# STATUS_PATH so the controller keeps waiting while a multi-bond wake is
+# still trying its second target, instead of reporting failure early.
+_waking = False
+
+
+def _read_status_file():
+    """The last STATUS_PATH this adapter wrote, or {} (missing/corrupt)."""
+    try:
+        with open(STATUS_PATH) as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
 def _write_status():
     """Atomically write the current subscription state to STATUS_PATH."""
     with _status_lock:
         data = {
             'subscribed_uuids': sorted(_subscribed_uuids),
             'hid_ready': bool(_subscribed_uuids & HID_KEY_UUIDS),
+            'last_connected_mac': _last_connected_mac,
+            'waking': _waking,
             'ts': time.time(),
         }
     tmp = STATUS_PATH + '.tmp'
@@ -186,6 +216,25 @@ def _clear_subscriptions():
     """Reset subscription tracking (e.g. on peer disconnect)."""
     with _status_lock:
         _subscribed_uuids.clear()
+    _write_status()
+
+
+def _record_connected_peer(mac):
+    """Remember `mac` as the bond the STB last connected with (see
+    _last_connected_mac) and publish it in STATUS_PATH."""
+    global _last_connected_mac
+    mac = str(mac).upper()
+    with _status_lock:
+        changed = mac != _last_connected_mac
+        _last_connected_mac = mac
+    if changed:
+        _write_status()
+
+
+def _set_waking(flag):
+    global _waking
+    with _status_lock:
+        _waking = bool(flag)
     _write_status()
 
 
@@ -420,8 +469,11 @@ def install_device_watcher(bus):
             # list edit is allowed; the next identity advert will be locked.
             if os.environ.get('HID_REMOTE_SKIP_ADV') == '1':
                 _program_accept_list(_ADAPTER, bonded)
-        # Signal waiters (wake_on_press) when a peer comes up.
+        # Signal waiters (wake_on_press) when a peer comes up, and remember
+        # which bond it was: the wake target of choice when several bonds
+        # look equally HID-ready.
         if interesting.get('Connected') is True:
+            _record_connected_peer(peer)
             _peer_connected_event.set()
         # Clear subscription tracking on disconnect — the STB's CCCDs are
         # gone from our perspective. If it reconnects via bond, we need to
@@ -449,6 +501,8 @@ def install_device_watcher(bus):
             if _ADAPTER_PATH and not path.startswith(_ADAPTER_PATH + '/'):
                 continue
             peer = _peer_address_from_path(path)
+            if bool(dev.get('Connected', False)) and bool(dev.get('Bonded', False)):
+                _record_connected_peer(peer)
             print(f'[peer {peer}] initial '
                   f'Connected={bool(dev.get("Connected", False))} '
                   f'Paired={bool(dev.get("Paired", False))} '
@@ -606,6 +660,104 @@ def _priv(cmd):
 
 
 _LAST_MULTI_BOND_KEY = None   # last bond set we warned about (log once per change)
+_LAST_RANK_LOG = None         # last disconnected wake order we logged (log once per change)
+
+
+def _rank_bonds(candidates, hid_ready, last_connected_mac=None, bond_mtimes=None):
+    """Order bonded peers by how likely each is to be the live STB. Pure.
+
+    candidates:         [(mac, connected)] in D-Bus enumeration order.
+    hid_ready:          set of MACs whose on-disk bond has the HID CCC.
+    last_connected_mac: the MAC that last went Connected=True, or None.
+    bond_mtimes:        {mac: mtime of /var/lib/bluetooth/<adapter>/<mac>/attributes}.
+
+    Ranking: connected first (§6.7.20); then HID-ready over battery-only
+    (§6.7.29); then the last-connected MAC; then the most recently written
+    bond; then enumeration order.
+    """
+    bond_mtimes = bond_mtimes or {}
+    last = (last_connected_mac or '').upper()
+    ready = {m.upper() for m in hid_ready}
+
+    def key(item):
+        index, (mac, connected) = item
+        upper = mac.upper()
+        return (not connected,
+                upper not in ready,
+                upper != last,
+                -bond_mtimes.get(mac, float('-inf')),
+                index)
+
+    return [mac for _, (mac, _) in sorted(enumerate(candidates), key=key)]
+
+
+def _wake_targets(ranked, hid_ready):
+    """Directed-advert targets in order: the best-ranked bond, then every other
+    HID-ready bond (only those can carry keys, so only those are worth a
+    WAKE_TIMEOUT_S each). Pure."""
+    if not ranked:
+        return []
+    ready = {m.upper() for m in hid_ready}
+    return [ranked[0]] + [m for m in ranked[1:] if m.upper() in ready]
+
+
+def _bond_mtime(adapter_mac, peer_mac):
+    try:
+        return os.path.getmtime(f'/var/lib/bluetooth/{adapter_mac}/{peer_mac}/attributes')
+    except OSError:
+        return None
+
+
+def _ranked_bonds(bus):
+    """([mac] best first, hid_ready set) for the bonds under this adapter.
+    ([], set()) when there is no bond or D-Bus fails."""
+    try:
+        om = dbus.Interface(bus.get_object(BLUEZ, '/'), DBUS_OM_IFACE)
+        candidates = []  # (mac, connected)
+        for path, ifaces in om.GetManagedObjects().items():
+            if _ADAPTER_PATH and not path.startswith(_ADAPTER_PATH + '/'):
+                continue
+            dev = ifaces.get('org.bluez.Device1')
+            if not dev or not dev.get('Bonded', False):
+                continue
+            addr = dev.get('Address')
+            if addr:
+                candidates.append((str(addr), bool(dev.get('Connected', False))))
+        global _LAST_MULTI_BOND_KEY
+        bond_key = tuple(sorted(c[0] for c in candidates)) if len(candidates) > 1 else None
+        if bond_key != _LAST_MULTI_BOND_KEY:
+            # Log once when the bond set changes, not on every keypress —
+            # the per-press repeat flooded the journal (see _priv()).
+            _LAST_MULTI_BOND_KEY = bond_key
+            if bond_key:
+                print(f'_bonded_peer_mac: {len(candidates)} bonds on {_ADAPTER_PATH} '
+                      f'{[c[0] for c in candidates]} — preferring Connected; '
+                      f'remove stale bonds (§6.7.20) [logged once per change]')
+        if not candidates:
+            return [], set()
+        hid_ready, mtimes = set(), {}
+        if len(candidates) > 1 and not any(conn for _, conn in candidates):
+            adapter_mac = _adapter_address(bus)
+            if adapter_mac:
+                for mac, _ in candidates:
+                    if _bond_has_hid_ccc(adapter_mac, mac):
+                        hid_ready.add(mac)
+                    mtime = _bond_mtime(adapter_mac, mac)
+                    if mtime is not None:
+                        mtimes[mac] = mtime
+        ranked = _rank_bonds(candidates, hid_ready, _last_connected_mac, mtimes)
+        global _LAST_RANK_LOG
+        rank_log = (tuple(ranked), tuple(sorted(hid_ready))) if bond_key else None
+        if rank_log != _LAST_RANK_LOG:
+            _LAST_RANK_LOG = rank_log
+            if rank_log and not any(conn for _, conn in candidates):
+                print(f'_bonded_peer_mac: none connected, wake order {ranked} '
+                      f'(hid_ready={sorted(hid_ready)}, last_connected={_last_connected_mac}) '
+                      f'[logged once per change]')
+        return ranked, hid_ready
+    except Exception as e:
+        print(f'_bonded_peer_mac failed: {e}')
+        return [], set()
 
 
 def _bonded_peer_mac(bus):
@@ -639,53 +791,16 @@ def _bonded_peer_mac(bus):
     targeted the stale bond for an hour). Now: among disconnected bonds,
     prefer one whose on-disk [Cccs] shows the HID Input Report subscribed
     — only that bond can carry keys, so it is the only one worth waking.
+
+    Last-connected tiebreak (2026-10): when TWO bonds both carry the HID
+    CCC, the lex-first one was still returned, and on vpt-pi1 that was a
+    stale identity — the directed advert never woke the box. Ties among
+    equally HID-ready bonds now go to the MAC that last went Connected=True
+    (_last_connected_mac), then to the bond whose attributes file was
+    written most recently, then to D-Bus order. See _rank_bonds.
     """
-    try:
-        om = dbus.Interface(bus.get_object(BLUEZ, '/'), DBUS_OM_IFACE)
-        candidates = []  # (mac, connected)
-        for path, ifaces in om.GetManagedObjects().items():
-            if _ADAPTER_PATH and not path.startswith(_ADAPTER_PATH + '/'):
-                continue
-            dev = ifaces.get('org.bluez.Device1')
-            if not dev or not dev.get('Bonded', False):
-                continue
-            addr = dev.get('Address')
-            if addr:
-                candidates.append((str(addr), bool(dev.get('Connected', False))))
-        global _LAST_MULTI_BOND_KEY
-        bond_key = tuple(sorted(c[0] for c in candidates)) if len(candidates) > 1 else None
-        if bond_key != _LAST_MULTI_BOND_KEY:
-            # Log once when the bond set changes, not on every keypress —
-            # the per-press repeat flooded the journal (see _priv()).
-            _LAST_MULTI_BOND_KEY = bond_key
-            if bond_key:
-                print(f'_bonded_peer_mac: {len(candidates)} bonds on {_ADAPTER_PATH} '
-                      f'{[c[0] for c in candidates]} — preferring Connected; '
-                      f'remove stale bonds (§6.7.20) [logged once per change]')
-        if candidates:
-            # 1. A live connection always wins (§6.7.20).
-            for mac, conn in candidates:
-                if conn:
-                    return mac
-            # 2. §6.7.29: none connected — prefer a bond whose on-disk
-            #    [Cccs] has the HID Input Report subscribed over a
-            #    battery-only / stale duplicate.
-            if len(candidates) > 1:
-                adapter_mac = _adapter_address(bus)
-                if adapter_mac:
-                    hid_ready = [mac for mac, _ in candidates
-                                 if _bond_has_hid_ccc(adapter_mac, mac)]
-                    if hid_ready:
-                        if len(hid_ready) < len(candidates):
-                            skipped = [m for m, _ in candidates
-                                       if m not in hid_ready]
-                            print(f'_bonded_peer_mac: preferring HID-subscribed '
-                                  f'{hid_ready[0]} over non-HID {skipped} (§6.7.29)')
-                        return hid_ready[0]
-            return candidates[0][0]
-    except Exception as e:
-        print(f'_bonded_peer_mac failed: {e}')
-    return None
+    ranked, _ = _ranked_bonds(bus)
+    return ranked[0] if ranked else None
 
 
 def _hci_cmd(args, adapter='hci0'):
@@ -783,12 +898,57 @@ def _clear_ghost_connection(adapter='hci0'):
         print(f'  ! hciconfig {adapter} reset failed: {e}')
 
 
+def _directed_adv_until_connected(peer_mac, adapter):
+    """Run ADV_DIRECT_IND at `peer_mac` for up to WAKE_TIMEOUT_S; True if a
+    peer connected. The caller has already freed the advertising hardware
+    (BlueZ's undirected advert unregistered) and restores it afterwards."""
+    peer_le = peer_mac.split(':')
+    if len(peer_le) != 6:
+        print(f'  ! malformed peer mac: {peer_mac}')
+        return False
+
+    # Raw HCI: disable any current adv to free the parameters.
+    _hci_cmd(['0x08', '0x000a', '00'], adapter=adapter)
+
+    # Raw HCI: LE Set Advertising Parameters (OGF 0x08, OCF 0x0006)
+    #   Interval min/max:     0x00a0 / 0x00a0  = 100 ms
+    #   Advertising type:     0x04  (ADV_DIRECT_IND, low duty cycle)
+    #   Own address type:     0x00  (public)
+    #   Peer address type:    0x00  (public; STB uses public MAC)
+    #   Peer address:         STB MAC in little-endian (last byte first)
+    #   Channel map:          0x07  (all 3 advertising channels)
+    #   Filter policy:        0x00  (accept Scan/Connect from any)
+    peer_le.reverse()
+    peer_le = [b.lower() for b in peer_le]
+    params = ['a0', '00', 'a0', '00', '04', '00', '00'] + peer_le + ['07', '00']
+    ok, _ = _hci_cmd(['0x08', '0x0006'] + params, adapter=adapter)
+    if not ok:
+        print('  ! LE Set Advertising Parameters failed')
+
+    # Raw HCI: LE Set Advertise Enable = 1
+    ok, _ = _hci_cmd(['0x08', '0x000a', '01'], adapter=adapter)
+    if not ok:
+        print('  ! LE Set Advertise Enable failed')
+
+    # Wait for the device watcher to signal Connected=True.
+    print(f'wake_on_press: directed adv -> {peer_mac} running, waiting up to {WAKE_TIMEOUT_S}s')
+    got_connection = _peer_connected_event.wait(timeout=WAKE_TIMEOUT_S)
+
+    # Always disable the raw adv before the next target / re-registering BlueZ's.
+    _hci_cmd(['0x08', '0x000a', '00'], adapter=adapter)
+    return got_connection
+
+
 def wake_on_press():
     """Emit ADV_DIRECT_IND targeted at the bonded STB and block until it
     connects or WAKE_TIMEOUT_S expires. Returns True if a peer becomes
     connected, False otherwise. Idempotent: if a peer is already connected,
     returns True immediately without touching advertising. Serialized via
-    _wake_lock so two overlapping keypresses don't fight over the HCI."""
+    _wake_lock so two overlapping keypresses don't fight over the HCI.
+
+    With several HID-ready bonds (an STB re-paired under a new identity),
+    the best-ranked one is tried first (_rank_bonds) and, if it does not
+    connect within WAKE_TIMEOUT_S, each remaining HID-ready bond in turn."""
     bus = _WAKE_CTX.get('bus')
     adv_mgr = _WAKE_CTX.get('adv_mgr')
     adv_path = _WAKE_CTX.get('adv_path')
@@ -798,7 +958,8 @@ def wake_on_press():
         return False
 
     with _wake_lock:
-        peer_mac = _bonded_peer_mac(bus)
+        ranked, hid_ready = _ranked_bonds(bus)
+        peer_mac = ranked[0] if ranked else None
 
         if count_connected_peers(bus) > 0:
             # D-Bus claims connected — but bluetoothd's Connected flag can
@@ -810,87 +971,70 @@ def wake_on_press():
                 print(f'wake_on_press: ghost connection for {peer_mac}, clearing')
                 _clear_ghost_connection(adapter)
                 time.sleep(0.5)  # let bluetoothd see Connected=False
+                # The ranking was computed while the ghost looked connected.
+                ranked, hid_ready = _ranked_bonds(bus)
             else:
                 return True  # genuinely connected, no wake needed
 
-        if not peer_mac:
+        targets = _wake_targets(ranked, hid_ready)
+        if not targets:
             print('wake_on_press: no bonded peer, skipping directed adv')
             return False
 
-        print(f'wake_on_press: no peer connected, starting ADV_DIRECT_IND -> {peer_mac}')
+        print(f'wake_on_press: no peer connected, starting ADV_DIRECT_IND -> {targets}')
         _peer_connected_event.clear()
+        _set_waking(True)
+        try:
+            # Unregister BlueZ's undirected advertisement so the advertising
+            # hardware is free for our raw HCI sequence. Failures are
+            # non-fatal — we attempt the HCI path regardless and rely on
+            # the re-register at the end.
+            if os.environ.get('HID_REMOTE_SKIP_ADV') != '1':
+                try:
+                    adv_mgr.UnregisterAdvertisement(dbus.ObjectPath(adv_path))
+                except Exception as e:
+                    print(f'  ! UnregisterAdvertisement failed: {e}')
+            time.sleep(0.15)
 
-        # 1. Unregister BlueZ's undirected advertisement so the advertising
-        #    hardware is free for our raw HCI sequence. Failures are
-        #    non-fatal — we attempt the HCI path regardless and rely on
-        #    the re-register at the end.
-        if os.environ.get('HID_REMOTE_SKIP_ADV') != '1':
-            try:
-                adv_mgr.UnregisterAdvertisement(dbus.ObjectPath(adv_path))
-            except Exception as e:
-                print(f'  ! UnregisterAdvertisement failed: {e}')
-        time.sleep(0.15)
+            got_connection = False
+            for i, target in enumerate(targets):
+                got_connection = _directed_adv_until_connected(target, adapter)
+                # Boundary re-check: the STB's reconnect can complete in the
+                # brief window between the wait() timing out and the adv
+                # disable. Observed 2026-06-25 on host3 where `Connected=True`
+                # was logged the SAME second as the timeout, so the wake
+                # declared failure on a link that was actually up and the key
+                # was dropped.
+                if not got_connection:
+                    got_connection = (_peer_connected_event.is_set()
+                                      or count_connected_peers(bus) > 0)
+                    if got_connection:
+                        print('wake_on_press: STB reconnected just after timeout '
+                              '(boundary race)')
+                if got_connection:
+                    break
+                if i + 1 < len(targets):
+                    print(f'wake_on_press: {target} did not reconnect, '
+                          f'trying next HID-ready bond {targets[i + 1]}')
 
-        # 2. Raw HCI: disable any current adv to free the parameters.
-        _hci_cmd(['0x08', '0x000a', '00'], adapter=adapter)
+            # Re-enable undirected advertising for the next idle cycle —
+            # locked to the bonded STB (§6.7.31), never the open ADV_IND.
+            if os.environ.get('HID_REMOTE_SKIP_ADV') == '1':
+                _enable_identity_adv(bus, adapter)
+            else:
+                try:
+                    adv_mgr.RegisterAdvertisement(
+                        dbus.ObjectPath(adv_path), {},
+                        reply_handler=lambda: None,
+                        error_handler=lambda e: print(f'  ! re-register undirected adv failed: {e}'))
+                except Exception as e:
+                    print(f'  ! RegisterAdvertisement re-call failed: {e}')
 
-        # 3. Raw HCI: LE Set Advertising Parameters (OGF 0x08, OCF 0x0006)
-        #    Interval min/max:     0x00a0 / 0x00a0  = 100 ms
-        #    Advertising type:     0x04  (ADV_DIRECT_IND, low duty cycle)
-        #    Own address type:     0x00  (public)
-        #    Peer address type:    0x00  (public; STB uses public MAC)
-        #    Peer address:         STB MAC in little-endian (last byte first)
-        #    Channel map:          0x07  (all 3 advertising channels)
-        #    Filter policy:        0x00  (accept Scan/Connect from any)
-        peer_le = peer_mac.split(':')
-        if len(peer_le) != 6:
-            print(f'  ! malformed peer mac: {peer_mac}')
-            return False
-        peer_le.reverse()
-        peer_le = [b.lower() for b in peer_le]
-        params = ['a0', '00', 'a0', '00', '04', '00', '00'] + peer_le + ['07', '00']
-        ok, _ = _hci_cmd(['0x08', '0x0006'] + params, adapter=adapter)
-        if not ok:
-            print('  ! LE Set Advertising Parameters failed')
-
-        # 4. Raw HCI: LE Set Advertise Enable = 1
-        ok, _ = _hci_cmd(['0x08', '0x000a', '01'], adapter=adapter)
-        if not ok:
-            print('  ! LE Set Advertise Enable failed')
-
-        # 5. Wait for the device watcher to signal Connected=True.
-        print(f'wake_on_press: directed adv running, waiting up to {WAKE_TIMEOUT_S}s')
-        got_connection = _peer_connected_event.wait(timeout=WAKE_TIMEOUT_S)
-
-        # 6. Always disable the raw adv before re-registering BlueZ's.
-        _hci_cmd(['0x08', '0x000a', '00'], adapter=adapter)
-
-        # 7. Re-enable undirected advertising for the next idle cycle —
-        #    locked to the bonded STB (§6.7.31), never the open ADV_IND.
-        if os.environ.get('HID_REMOTE_SKIP_ADV') == '1':
-            _enable_identity_adv(bus, adapter)
-        else:
-            try:
-                adv_mgr.RegisterAdvertisement(
-                    dbus.ObjectPath(adv_path), {},
-                    reply_handler=lambda: None,
-                    error_handler=lambda e: print(f'  ! re-register undirected adv failed: {e}'))
-            except Exception as e:
-                print(f'  ! RegisterAdvertisement re-call failed: {e}')
-
-        # Boundary re-check: the STB's reconnect can complete in the brief
-        # window between the wait() timing out and here (steps 6-7 above run
-        # ~0.5s of HCI commands). Observed 2026-06-25 on host3 where
-        # `Connected=True` was logged the SAME second as the timeout, so the
-        # wake declared failure on a link that was actually up and the key
-        # was dropped. Re-poll the connected-event AND the live peer count
-        # before giving up — either being true means the wake succeeded.
-        if not got_connection:
-            got_connection = (_peer_connected_event.is_set()
-                              or count_connected_peers(bus) > 0)
-            if got_connection:
-                print('wake_on_press: STB reconnected just after timeout '
-                      '(boundary race)')
+            if not got_connection:
+                got_connection = (_peer_connected_event.is_set()
+                                  or count_connected_peers(bus) > 0)
+        finally:
+            _set_waking(False)
 
         if got_connection:
             print('wake_on_press: STB reconnected')
@@ -1598,16 +1742,18 @@ def find_adapter(bus):
     # pick the adapter that has BOTH GattManager1 AND LEAdvertisingManager1
     # (i.e. a usable BLE peripheral controller), and prefer the one whose
     # path ends with the requested hciN.
+    #
+    # NO fallback to another adapter (BUG-0483): when our hciN is missing from
+    # bluetoothd (wedged dongle, or two adapters on the same address), binding
+    # to a sibling put two daemons + two GATT apps on that sibling's STB and
+    # broke it. Return None — main() exits and systemd retries until ours is back.
     preferred = os.environ.get('HID_REMOTE_ADAPTER', 'hci0')
     om = dbus.Interface(bus.get_object(BLUEZ, '/'), DBUS_OM_IFACE)
-    fallback = None
     for path, ifaces in om.GetManagedObjects().items():
-        if GATT_MANAGER_IFACE in ifaces and LE_ADV_MANAGER_IFACE in ifaces:
-            if path.endswith('/' + preferred):
-                return path
-            if fallback is None:
-                fallback = path
-    return fallback
+        if (path.endswith('/' + preferred)
+                and GATT_MANAGER_IFACE in ifaces and LE_ADV_MANAGER_IFACE in ifaces):
+            return path
+    return None
 
 
 # ---------- FIFO key input ---------------------------------------------------
@@ -1888,15 +2034,23 @@ def main():
 
     adapter_path = find_adapter(bus)
     if not adapter_path:
-        sys.stderr.write('No BlueZ adapter with GattManager1+LEAdvertisingManager1\n')
+        sys.stderr.write(f"BlueZ adapter {os.environ.get('HID_REMOTE_ADAPTER', 'hci0')} "
+                         'not present (or lacks GattManager1+LEAdvertisingManager1); '
+                         'not binding to any other adapter\n')
+        # Sleep before exiting so Restart=always (RestartSec=2) does not spin
+        # every 2s for the hours a wedged dongle can stay absent.
+        time.sleep(30)
         sys.exit(1)
     print(f'Using adapter: {adapter_path}')
 
     # Publish adapter_path for the GetManagedObjects-walking helpers.
     # MUST happen BEFORE install_device_watcher() so the initial-state
     # scan inside that function can filter to this adapter.
-    global _ADAPTER_PATH
+    global _ADAPTER_PATH, _last_connected_mac
     _ADAPTER_PATH = adapter_path
+    # Survive a daemon restart: the previous instance recorded which bond
+    # the STB last connected with.
+    _last_connected_mac = _read_status_file().get('last_connected_mac') or None
 
     install_device_watcher(bus)
 

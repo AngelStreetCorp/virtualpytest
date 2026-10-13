@@ -10,6 +10,8 @@ It should NOT be imported by backend_server (would cause circular dependencies).
 from __future__ import annotations  # Enable PEP 563 - postponed evaluation of annotations
 from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
+from shared.src.lib.config.remote_profiles import device_key_capabilities, remote_conf, remote_profile
+
 # Lazy import to avoid circular dependency when backend_server imports shared
 if TYPE_CHECKING:
     from backend_host.src.controllers.base_controller import BaseController
@@ -76,7 +78,8 @@ class Device:
             'remote': [],
             'verification': [],
             'power': [],
-            'network': []
+            'network': [],
+            'switch': []
         }
         
         # Capabilities derived from controllers
@@ -294,6 +297,7 @@ class Device:
             'desktop': None,
             'web': None,
             'power': None,
+            'switch': None,
             'ai': None,
             'verification': []
         }
@@ -317,6 +321,8 @@ class Device:
         # CloudAppium branch below; stays None for every local device.
         farm_provider = None
 
+        # TASK-76: implementation + key map per remote controller, for same-remote grouping.
+        remote_profiles: List[str] = []
         if self._controllers.get('remote'):
             # Handle multiple remote controllers
             remote_controllers = self._controllers['remote']
@@ -350,6 +356,12 @@ class Device:
                     # frontend (same STB panel, same press_key flow); only the
                     # backend transport differs.
                     remote_implementations.append('ir_remote')
+                elif 'irtoyremote' in controller_name:
+                    # USB IR Toy driven over CDC serial (non-Pi hosts). Same as the
+                    # two branches above: the frontend only ever sees 'ir_remote'.
+                    # Must be checked before 'irremote', which does not match, and
+                    # spelled exactly so a new class can never fall through below.
+                    remote_implementations.append('ir_remote')
                 elif 'irremote' in controller_name or 'infrared' in controller_name:
                     remote_implementations.append('ir_remote')
                 elif 'bluetoothremote' in controller_name:
@@ -366,6 +378,9 @@ class Device:
                     # branch above — don't rely on this fallback.
                     if theoretical_capabilities['remote']:
                         remote_implementations.append(theoretical_capabilities['remote'])
+                if len(remote_implementations) > len(remote_profiles):
+                    remote_profiles.append(
+                        remote_profile(remote_implementations[-1], remote_conf(remote_controller)))
             
             # Set remote capability based on number of implementations
             if len(remote_implementations) == 1:
@@ -383,8 +398,13 @@ class Device:
                 actual_capabilities['power'] = 'tapo'
             elif 'apipower' in controller_name:
                 actual_capabilities['power'] = 'api_power'
+            elif 'wolpower' in controller_name:
+                actual_capabilities['power'] = 'wol'
             else:
                 actual_capabilities['power'] = theoretical_capabilities['power']  # Fallback
+
+        if self._controllers.get('switch'):
+            actual_capabilities['switch'] = theoretical_capabilities.get('switch')
         
         # For other controller types, use theoretical capabilities as they're less critical
         actual_capabilities['desktop'] = theoretical_capabilities['desktop']
@@ -404,6 +424,12 @@ class Device:
             'device_ip': self.device_ip,
             'device_port': self.device_port,
             'ir_type': self.ir_type,  # IR remote type for frontend
+            # TASK-76: e.g. ['adb_tv', 'ir:fire_tv'] — devices group only on a shared profile.
+            'remote_profiles': remote_profiles,
+            # TASK-80: per-profile key capability map (POWER, VOLUME_UP, ...) — the
+            # frontend's multi-profile group tile uses this to compute the
+            # intersection of every member's keymap and decide which keys to grey.
+            'key_capabilities': device_key_capabilities({'device_model': self.device_model, 'remote_profiles': remote_profiles}),
             'device_capabilities': actual_capabilities,  # Use actual capabilities instead of theoretical
             'device_verification_types': device_verification_types,  # Simplified naming (removed 'available_' prefix)
             'device_action_types': device_action_types  # Simplified naming (removed 'available_' prefix)
@@ -428,4 +454,4 @@ class Device:
         if farm_provider:
             device_dict['device_farm_provider'] = farm_provider
 
-        return device_dict 
+        return device_dict

@@ -13,21 +13,109 @@ Anthropic shape internally:
 from __future__ import annotations
 
 import json
+import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 import requests
 
 import anthropic
 
-from .config import (
-    LOCAL_AI_PLACEHOLDER_KEY,
-    LOCAL_PROVIDER,
-    get_local_ai_base_url,
-    get_local_ai_timeout,
-    normalize_provider,
-)
+from .config import KEYLESS_PLACEHOLDER, get_preset
+
+# Connecting must fail fast even when generation is allowed to take minutes: a local
+# model on a PC that is switched off would otherwise hold every call for the whole
+# endpoint timeout before the fallback profile gets a chance.
+CONNECT_TIMEOUT_S = 5
+
+
+def http_timeout(timeout: int) -> tuple[float, float]:
+    """(connect, read) timeout for requests: short connect, endpoint-sized read."""
+    return (min(CONNECT_TIMEOUT_S, timeout), timeout)
+
+
+class ModelRefusal(Exception):
+    """The model declined the request (``stop_reason == "refusal"``, HTTP 200): try the next hop."""
+
+    def __init__(self, response: Any):
+        details = getattr(response, "stop_details", None)
+        self.category = getattr(details, "category", None) if details is not None else None
+        self.response = response
+        super().__init__(f"model refused (category: {self.category or 'unknown'})")
+
+
+def raise_on_refusal(response: Any) -> Any:
+    """Return ``response``, or raise ModelRefusal when the model declined it."""
+    if getattr(response, "stop_reason", None) == "refusal":
+        raise ModelRefusal(response)
+    return response
+
+
+def is_connection_error(exc: BaseException) -> bool:
+    """True when the endpoint could not be reached at all (down, refused, DNS, connect timeout).
+
+    A read timeout or an HTTP error is NOT one: the server answered or accepted the call.
+    """
+    if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.ConnectTimeout)):
+        return not isinstance(exc, requests.exceptions.ReadTimeout)
+    if isinstance(exc, anthropic.APIConnectionError):
+        return not isinstance(exc, anthropic.APITimeoutError) or "connect" in str(exc).lower()
+    try:
+        import httpx
+        return isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
+    except ImportError:  # pragma: no cover
+        return False
+
+
+ERROR_TYPES = ("timeout", "rate_limit", "no_credit", "auth", "bad_request", "server", "connection",
+               "empty_answer", "busy", "parse", "refusal", "other")
+
+
+def classify_error(exc: BaseException) -> str:
+    """Map a provider exception onto the fixed ``ai_calls.error_type`` list."""
+    if isinstance(exc, ModelRefusal):
+        return "refusal"
+    if is_connection_error(exc):
+        return "connection"
+    status = getattr(getattr(exc, "response", None), "status_code", None) or getattr(exc, "status_code", None)
+    if isinstance(status, int):
+        if status == 429:
+            return "rate_limit"
+        if status == 402:
+            return "no_credit"
+        if status in (401, 403):
+            return "auth"
+        if status >= 500:
+            return "server"
+        if status >= 400:
+            return "bad_request"
+    name = type(exc).__name__.lower()
+    if "timeout" in name:
+        return "timeout"
+    if "jsondecode" in name:
+        return "server"  # the provider answered with something that is not JSON
+    if isinstance(exc, ValueError):
+        # Raised by our own clients before a request leaves: a missing image on MiniMax VLM, tools on a
+        # chat-less endpoint, a missing key or base URL. The request was wrong, not the provider.
+        return "bad_request"
+    return "other"
+
+
+_THINK_RE = re.compile(r"<think>[\s\S]*?</think>\s*")
+
+
+def strip_reasoning(text: Optional[str]) -> str:
+    """Drop ``<think>…</think>`` blocks some models inline in their answer.
+
+    An unterminated ``<think>`` (the budget ran out mid-thought) leaves no answer.
+    """
+    if not text:
+        return ""
+    stripped = _THINK_RE.sub("", text)
+    if "<think>" in stripped:
+        stripped = stripped.split("<think>", 1)[0]
+    return stripped.strip()
 
 
 @dataclass
@@ -63,6 +151,26 @@ class ProviderUsage:
     output_tokens: int = 0
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
+    reasoning_tokens: int = 0
+    web_searches: int = 0
+    # Cost the provider itself reported for this call (OpenRouter ``usage.cost``), in USD.
+    cost: Optional[float] = None
+
+
+def _openai_usage(usage: dict) -> ProviderUsage:
+    """OpenAI-shaped ``usage`` object -> ProviderUsage (cache, reasoning, search and cost fields)."""
+    prompt_details = usage.get("prompt_tokens_details") or {}
+    completion_details = usage.get("completion_tokens_details") or {}
+    cost = usage.get("cost")
+    return ProviderUsage(
+        input_tokens=usage.get("prompt_tokens", 0),
+        output_tokens=usage.get("completion_tokens", 0),
+        cache_read_input_tokens=int(prompt_details.get("cached_tokens") or 0),
+        cache_creation_input_tokens=int(prompt_details.get("cache_write_tokens") or 0),
+        reasoning_tokens=int(completion_details.get("reasoning_tokens") or 0),
+        web_searches=int((usage.get("server_tool_use") or {}).get("web_search_requests") or 0),
+        cost=float(cost) if isinstance(cost, (int, float)) else None,
+    )
 
 
 @dataclass
@@ -71,6 +179,8 @@ class ProviderResponse:
     usage: ProviderUsage
     stop_reason: str = "end_turn"
     model: str = ""
+    # Web pages the answer was grounded on (web-search calls): [{"url", "title"}].
+    sources: list[dict[str, str]] = field(default_factory=list)
 
     def text(self) -> str:
         """Concatenate all text blocks (convenience for non-agent callers)."""
@@ -81,7 +191,7 @@ class BaseProviderClient:
     """Base compatibility client with Anthropic-like `.messages.create(...)`."""
 
     def __init__(self, provider: str, api_key: str):
-        self.provider = normalize_provider(provider)
+        self.provider = provider
         self.api_key = api_key
         self.messages = self
 
@@ -96,14 +206,22 @@ class BaseProviderClient:
         tool_choice: Optional[dict[str, Any]] = None,
         temperature: Optional[float] = None,
         extra_headers: Optional[dict[str, str]] = None,
+        extra_body: Optional[dict[str, Any]] = None,
     ) -> ProviderResponse:
         raise NotImplementedError
 
 
 class AnthropicProviderClient(BaseProviderClient):
-    def __init__(self, api_key: str, base_url: Optional[str] = None, provider: str = "anthropic"):
+    def __init__(self, api_key: str, base_url: Optional[str] = None, provider: str = "anthropic",
+                 timeout: int = 120):
         super().__init__(provider, api_key)
-        client_kwargs: dict[str, Any] = {"api_key": api_key}
+        client_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            # anthropic.Timeout follows whichever HTTP lib the installed SDK uses (httpx or httpx2).
+            "timeout": anthropic.Timeout(timeout, connect=min(CONNECT_TIMEOUT_S, timeout)),
+            # Fallback profiles handle an unreachable endpoint; SDK retries would only delay them.
+            "max_retries": 0,
+        }
         if base_url:
             client_kwargs["base_url"] = base_url
         self._client = anthropic.Anthropic(**client_kwargs)
@@ -114,12 +232,16 @@ class AnthropicProviderClient(BaseProviderClient):
         if not kwargs.get("tools"):
             kwargs.pop("tools", None)
             kwargs.pop("tool_choice", None)
+        elif kwargs.get("tool_choice") is None:
+            kwargs.pop("tool_choice", None)
         if not kwargs.get("system"):
             kwargs.pop("system", None)
         if kwargs.get("extra_headers") is None:
             kwargs.pop("extra_headers", None)
         if kwargs.get("temperature") is None:
             kwargs.pop("temperature", None)
+        if not kwargs.get("extra_body"):
+            kwargs.pop("extra_body", None)
         return self._client.messages.create(**kwargs)
 
 
@@ -150,18 +272,27 @@ class OpenAICompatibleProviderClient(BaseProviderClient):
         tool_choice: Optional[dict[str, Any]] = None,
         temperature: Optional[float] = None,
         extra_headers: Optional[dict[str, str]] = None,
+        extra_body: Optional[dict[str, Any]] = None,
     ) -> ProviderResponse:
+        extra = dict(extra_body or {})
+        # Profile flags for reasoning models (e.g. GPT-5): they reject max_tokens and a
+        # non-default temperature.
+        token_param = extra.pop("max_tokens_param", None) or "max_tokens"
+        omit_temperature = bool(extra.pop("omit_temperature", False))
         payload: dict[str, Any] = {
             "model": model,
             "messages": self._convert_messages(system, messages),
-            "max_tokens": max_tokens,
+            token_param: max_tokens,
         }
         if tools:
             payload["tools"] = self._convert_tools(tools)
             payload["tool_choice"] = "auto"
             payload["parallel_tool_calls"] = False
-        if temperature is not None:
+        if temperature is not None and not omit_temperature:
             payload["temperature"] = temperature
+        if self.provider == "openrouter":
+            payload["usage"] = {"include": True}  # makes OpenRouter return the billed cost
+        payload.update(extra)
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -174,22 +305,36 @@ class OpenAICompatibleProviderClient(BaseProviderClient):
             f"{self.base_url}/chat/completions",
             headers=headers,
             json=payload,
-            timeout=self.timeout,
+            timeout=http_timeout(self.timeout),
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            # raise_for_status() alone drops the body, which is the only place the
+            # provider says WHY (a bare "400 Bad Request" hid BUG-0177).
+            raise requests.HTTPError(
+                f"{response.status_code} from {self.provider}: {response.text[:500]}",
+                response=response,
+            )
         data = response.json()
         choice = (data.get("choices") or [{}])[0]
         message = choice.get("message") or {}
         blocks: list[ProviderBlock] = []
 
+        # Reasoning is never part of the answer: `reasoning_content` is ignored and
+        # inline <think> blocks are stripped.
         text_content = message.get("content")
-        if isinstance(text_content, str) and text_content.strip():
-            blocks.append(ProviderBlock(type="text", text=text_content))
+        if isinstance(text_content, str) and strip_reasoning(text_content):
+            blocks.append(ProviderBlock(type="text", text=strip_reasoning(text_content)))
         elif isinstance(text_content, list):
             for part in text_content:
-                text = part.get("text") if isinstance(part, dict) else None
+                text = strip_reasoning(part.get("text")) if isinstance(part, dict) else None
                 if text:
                     blocks.append(ProviderBlock(type="text", text=text))
+
+        sources = [
+            {"url": (a.get("url_citation") or {}).get("url", ""), "title": (a.get("url_citation") or {}).get("title", "")}
+            for a in message.get("annotations") or []
+            if isinstance(a, dict) and a.get("type") == "url_citation"
+        ]
 
         for tool_call in message.get("tool_calls") or []:
             function = tool_call.get("function") or {}
@@ -212,12 +357,10 @@ class OpenAICompatibleProviderClient(BaseProviderClient):
         stop_reason = "tool_use" if finish_reason == "tool_calls" else finish_reason
         return ProviderResponse(
             content=blocks,
-            usage=ProviderUsage(
-                input_tokens=usage.get("prompt_tokens", 0),
-                output_tokens=usage.get("completion_tokens", 0),
-            ),
+            usage=_openai_usage(usage),
             stop_reason=stop_reason,
             model=data.get("model") or model,
+            sources=sources,
         )
 
     def _convert_tools(self, tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -315,8 +458,11 @@ class OpenAICompatibleProviderClient(BaseProviderClient):
 class GoogleProviderClient(BaseProviderClient):
     """Gemini native generateContent adapter with function calling + multimodal."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, base_url: str = "https://generativelanguage.googleapis.com/v1beta",
+                 timeout: int = 60):
         super().__init__("google", api_key)
+        self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
 
     def create(
         self,
@@ -329,7 +475,9 @@ class GoogleProviderClient(BaseProviderClient):
         tool_choice: Optional[dict[str, Any]] = None,
         temperature: Optional[float] = None,
         extra_headers: Optional[dict[str, str]] = None,
+        extra_body: Optional[dict[str, Any]] = None,
     ) -> ProviderResponse:
+        extra = dict(extra_body or {})
         tool_name_map = self._build_tool_name_map(messages)
         payload: dict[str, Any] = {
             "contents": self._convert_messages(messages, tool_name_map),
@@ -355,13 +503,15 @@ class GoogleProviderClient(BaseProviderClient):
                 ]
             }]
             payload["toolConfig"] = {"functionCallingConfig": {"mode": "AUTO"}}
+        elif extra.get("google_search"):
+            payload["tools"] = [{"google_search": {}}]
 
         response = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            f"{self.base_url}/models/{model}:generateContent",
             params={"key": self.api_key},
             headers={"Content-Type": "application/json"},
             json=payload,
-            timeout=60,
+            timeout=http_timeout(self.timeout),
         )
         response.raise_for_status()
         data = response.json()
@@ -383,6 +533,13 @@ class GoogleProviderClient(BaseProviderClient):
                     )
                 )
 
+        grounding = candidate.get("groundingMetadata") or {}
+        sources = [
+            {"url": (chunk.get("web") or {}).get("uri", ""), "title": (chunk.get("web") or {}).get("title", "")}
+            for chunk in grounding.get("groundingChunks") or []
+            if chunk.get("web")
+        ]
+
         usage = data.get("usageMetadata") or {}
         finish_reason = candidate.get("finishReason") or "STOP"
         stop_reason = "tool_use" if finish_reason == "FUNCTION_CALL" else finish_reason.lower()
@@ -394,6 +551,7 @@ class GoogleProviderClient(BaseProviderClient):
             ),
             stop_reason=stop_reason,
             model=model,
+            sources=sources,
         )
 
     def _extract_system_text(self, system: list[dict[str, Any]]) -> str:
@@ -466,122 +624,258 @@ class GoogleProviderClient(BaseProviderClient):
         return converted
 
 
-def create_provider_client(provider: str, api_key: str) -> BaseProviderClient:
-    """Factory for provider compatibility clients."""
-    normalized = normalize_provider(provider)
-    if normalized == "anthropic":
-        return AnthropicProviderClient(api_key)
-    if normalized == "openrouter":
-        return OpenAICompatibleProviderClient(
-            provider=normalized,
-            api_key=api_key,
-            base_url="https://openrouter.ai/api/v1",
-            extra_headers={
-                "HTTP-Referer": "https://virtualpytest.angelstreet.io",
-                "X-Title": "VirtualPyTest",
-            },
+class MiniMaxVLMClient(BaseProviderClient):
+    """MiniMax coding-plan VLM: one prompt + one image in, a text description out.
+
+    Not a chat API — no tools, no history. The last user message's text and first
+    image are sent; a system prompt is prepended to the text.
+    """
+
+    def __init__(self, api_key: str, base_url: str, timeout: int = 60):
+        super().__init__("minimax_vlm", api_key)
+        self.base_url = base_url
+        self.timeout = timeout
+
+    def create(
+        self,
+        *,
+        model: str,
+        max_tokens: int,
+        system: list[dict[str, Any]],
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]],
+        tool_choice: Optional[dict[str, Any]] = None,
+        temperature: Optional[float] = None,
+        extra_headers: Optional[dict[str, str]] = None,
+        extra_body: Optional[dict[str, Any]] = None,
+    ) -> ProviderResponse:
+        if tools:
+            raise ValueError("The MiniMax VLM endpoint does not support tool calling")
+        content = messages[-1].get("content") if messages else ""
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
+        texts = [b.get("text", "") for b in (_block_as_dict(x) for x in blocks) if b.get("type") == "text"]
+        images = [b.get("source") or {} for b in (_block_as_dict(x) for x in blocks) if b.get("type") == "image"]
+        if not images:
+            raise ValueError("The MiniMax VLM endpoint needs an image")
+        system_text = "\n".join(b.get("text", "") for b in system if b.get("type") == "text")
+        prompt = "\n\n".join(t for t in [system_text, *texts] if t)
+        source = images[0]
+        response = requests.post(
+            self.base_url,
+            json={"prompt": prompt,
+                  "image_url": f"data:{source.get('media_type', 'image/jpeg')};base64,{source.get('data', '')}"},
+            headers={"content-type": "application/json", "authorization": f"Bearer {self.api_key}"},
+            timeout=http_timeout(self.timeout),
         )
-    if normalized == "openai":
-        return OpenAICompatibleProviderClient(
-            provider=normalized,
-            api_key=api_key,
-            base_url="https://api.openai.com/v1",
+        if response.status_code >= 400:
+            raise requests.HTTPError(f"{response.status_code} from minimax_vlm: {response.text[:500]}",
+                                     response=response)
+        text = (response.json() or {}).get("content")
+        return ProviderResponse(
+            content=[ProviderBlock(type="text", text=strip_reasoning(text))] if isinstance(text, str) and text.strip() else [],
+            usage=ProviderUsage(),
+            model=model,
         )
-    if normalized == "minimax":
-        return AnthropicProviderClient(
-            api_key=api_key,
-            base_url="https://api.minimax.io/anthropic",
-            provider=normalized,
-        )
-    if normalized == "google":
-        return GoogleProviderClient(api_key)
-    if normalized == LOCAL_PROVIDER:
-        base_url = get_local_ai_base_url()
-        if not base_url:
-            raise ValueError(
-                "LOCAL_AI_BASE_URL not set — point it at an OpenAI-compatible server, "
-                "e.g. http://10.10.10.10:8000/v1 (Ollama: http://<host>:11434/v1)"
-            )
-        return OpenAICompatibleProviderClient(
-            provider=normalized,
-            api_key=api_key or LOCAL_AI_PLACEHOLDER_KEY,
-            base_url=base_url,
-            timeout=get_local_ai_timeout(),
-        )
-    raise ValueError(f"Unsupported AI provider: {provider}")
 
 
-def validate_provider_credentials(provider: str, api_key: str, model: str) -> None:
-    """Run a tiny completion to validate provider credentials and model reachability."""
-    client = create_provider_client(provider, api_key)
-    client.messages.create(
-        model=model,
-        max_tokens=16,
-        system=[{"type": "text", "text": "You are a connectivity check."}],
-        messages=[{"role": "user", "content": "Reply with OK"}],
-        tools=[],
-        tool_choice=None,
-        temperature=None,
-        extra_headers=None,
+def create_client(preset: str, api_key: Optional[str], base_url: Optional[str] = None,
+                  timeout: int = 120) -> BaseProviderClient:
+    """Build the compatibility client for one endpoint (see ``config.PRESETS``)."""
+    spec = get_preset(preset)
+    url = (base_url or "").strip() or spec.base_url
+    if spec.needs_key and not api_key:
+        raise ValueError(f"No API key configured for this {spec.label} endpoint")
+    key = api_key or KEYLESS_PLACEHOLDER
+    if spec.client == "anthropic":
+        return AnthropicProviderClient(api_key=key, base_url=url, provider=spec.name, timeout=timeout)
+    if spec.client == "google":
+        return GoogleProviderClient(key, base_url=url, timeout=timeout)
+    if spec.client == "minimax_vlm":
+        return MiniMaxVLMClient(key, url, timeout=timeout)
+    if not url:
+        raise ValueError(f"A base URL is required for a {spec.label} endpoint")
+    return OpenAICompatibleProviderClient(
+        provider=spec.name,
+        api_key=key,
+        base_url=url,
+        extra_headers=dict(spec.extra_headers),
+        timeout=timeout,
     )
 
 
-# =============================================================================
-# High-level convenience helpers (used by the verification text/vision path)
-# =============================================================================
+def normalize_stop_reason(resp: Any) -> Optional[str]:
+    """The response's stop reason in Anthropic terms (OpenAI ``length`` -> ``max_tokens``, ``stop`` -> ``end_turn``)."""
+    reason = getattr(resp, "stop_reason", None)
+    if not isinstance(reason, str):
+        return None
+    return {"length": "max_tokens", "stop": "end_turn", "MAX_TOKENS": "max_tokens"}.get(reason, reason)
 
-def complete_text(
-    *,
-    provider: str,
-    api_key: str,
-    model: str,
-    prompt: str,
-    system: Optional[str] = None,
-    max_tokens: int = 1000,
-    temperature: float = 0.0,
-) -> ProviderResponse:
-    """Single-shot text completion. Returns a ProviderResponse (use .text())."""
-    client = create_provider_client(provider, api_key)
-    return client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        system=[{"type": "text", "text": system}] if system else [],
-        messages=[{"role": "user", "content": prompt}],
-        tools=[],
-        tool_choice=None,
-        temperature=temperature,
-        extra_headers=None,
+
+def response_text(resp: Any) -> str:
+    """Answer text from either response shape, reasoning removed.
+
+    OpenAICompatible/Google clients return a ProviderResponse (``.text()``); the
+    Anthropic client passes the SDK Message through (``.content`` blocks, thinking
+    blocks excluded).
+    """
+    textf = getattr(resp, "text", None)
+    if callable(textf):
+        return strip_reasoning(textf())
+    blocks = list(getattr(resp, "content", None) or [])
+    # A web-search answer interleaves narration ("Let me search...") with the searches;
+    # the answer is the text after the last search result.
+    last_search = max((i for i, blk in enumerate(blocks) if getattr(blk, "type", None) == "web_search_tool_result"),
+                      default=-1)
+    return strip_reasoning("".join(
+        getattr(b, "text", "") or ""
+        for b in blocks[last_search + 1:]
+        if getattr(b, "type", None) == "text"
+    ))
+
+
+def response_sources(resp: Any) -> list[dict[str, str]]:
+    """Web pages a web-search answer was grounded on, deduplicated by URL.
+
+    ProviderResponse carries them in ``.sources``; an Anthropic SDK Message has them in
+    ``web_search_tool_result`` blocks and in the text blocks' citations.
+    """
+    found: list[dict[str, str]] = list(getattr(resp, "sources", None) or [])
+    if not isinstance(resp, ProviderResponse):
+        for block in getattr(resp, "content", None) or []:
+            kind = getattr(block, "type", None)
+            if kind == "web_search_tool_result":
+                results = getattr(block, "content", None)
+                for item in results if isinstance(results, list) else []:
+                    if getattr(item, "url", None):
+                        found.append({"url": item.url, "title": getattr(item, "title", "") or ""})
+            elif kind == "text":
+                for cite in getattr(block, "citations", None) or []:
+                    if getattr(cite, "url", None):
+                        found.append({"url": cite.url, "title": getattr(cite, "title", "") or ""})
+    seen: set[str] = set()
+    unique = []
+    for source in found:
+        if source.get("url") and source["url"] not in seen:
+            seen.add(source["url"])
+            unique.append(source)
+    return unique
+
+
+# Searches one web-grounded completion may run (Anthropic max_uses / OpenRouter max_results).
+WEB_SEARCH_MAX = 3
+
+
+def web_search_request(mechanism: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """(tools, extra_body) that make one completion search the web, per ``ProviderPreset.web_search``."""
+    if mechanism == "anthropic_tool":
+        return [{"type": "web_search_20250305", "name": "web_search", "max_uses": WEB_SEARCH_MAX}], {}
+    if mechanism == "openrouter_plugin":
+        return [], {"plugins": [{"id": "web", "max_results": WEB_SEARCH_MAX}]}
+    if mechanism == "google_grounding":
+        return [], {"google_search": True}
+    raise ValueError(f"Unknown web search mechanism '{mechanism}'")
+
+
+def response_tokens(resp: Any) -> tuple[int, int]:
+    usage = getattr(resp, "usage", None)
+    return (int(getattr(usage, "input_tokens", 0) or 0), int(getattr(usage, "output_tokens", 0) or 0))
+
+
+@dataclass
+class CallUsage:
+    """Everything a response says about what the call consumed (and, if given, cost)."""
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cache_read: int = 0
+    cache_write: int = 0
+    reasoning: int = 0
+    web_searches: int = 0
+    cost: Optional[float] = None  # provider-reported, USD
+
+
+def _num(obj: Any, name: str) -> int:
+    value = getattr(obj, name, 0)
+    return int(value) if isinstance(value, (int, float)) else 0
+
+
+def openai_call_usage(usage: dict) -> CallUsage:
+    """CallUsage from a raw OpenAI-shaped ``usage`` dict (passthrough and host-side callers)."""
+    u = _openai_usage(usage or {})
+    return CallUsage(tokens_in=u.input_tokens, tokens_out=u.output_tokens, cache_read=u.cache_read_input_tokens,
+                     cache_write=u.cache_creation_input_tokens, reasoning=u.reasoning_tokens,
+                     web_searches=u.web_searches, cost=u.cost)
+
+
+def response_usage(resp: Any) -> CallUsage:
+    """Full usage of a response: tokens plus cache-read / cache-write / reasoning / web searches / cost.
+
+    Works on ProviderResponse and on the Anthropic SDK message (``cache_*_input_tokens``,
+    ``server_tool_use.web_search_requests``). ``response_tokens`` keeps returning (in, out) only.
+    """
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return CallUsage()
+    server_tool = getattr(usage, "server_tool_use", None)
+    cost = getattr(usage, "cost", None)
+    return CallUsage(
+        tokens_in=_num(usage, "input_tokens"),
+        tokens_out=_num(usage, "output_tokens"),
+        cache_read=_num(usage, "cache_read_input_tokens"),
+        cache_write=_num(usage, "cache_creation_input_tokens"),
+        reasoning=_num(usage, "reasoning_tokens"),
+        web_searches=_num(usage, "web_searches") or _num(server_tool, "web_search_requests"),
+        cost=float(cost) if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None,
     )
 
 
-def complete_vision(
+def single_completion(
+    client: BaseProviderClient,
     *,
-    provider: str,
-    api_key: str,
     model: str,
     prompt: str,
-    image_b64: str,
+    image_b64: Optional[str] = None,
     media_type: str = "image/jpeg",
     system: Optional[str] = None,
     max_tokens: int = 1000,
-    temperature: float = 0.0,
-) -> ProviderResponse:
-    """Single-shot vision completion with one base64 image. Returns a ProviderResponse."""
-    client = create_provider_client(provider, api_key)
-    messages = [{
-        "role": "user",
-        "content": [
+    temperature: Optional[float] = 0.0,
+    extra_body: Optional[dict[str, Any]] = None,
+    web_search: Optional[str] = None,
+) -> Any:
+    """One text (or text + one image) completion, no tools.
+
+    ``web_search`` (a ``ProviderPreset.web_search`` mechanism) lets the provider search the
+    web before answering; the pages used come back via ``response_sources``.
+    """
+    if image_b64 is not None:
+        content: Any = [
             {"type": "text", "text": prompt},
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
-        ],
-    }]
+        ]
+    else:
+        content = prompt
+    tools: list[dict[str, Any]] = []
+    if web_search:
+        tools, web_extra = web_search_request(web_search)
+        extra_body = {**(extra_body or {}), **web_extra}
     return client.messages.create(
         model=model,
         max_tokens=max_tokens,
         system=[{"type": "text", "text": system}] if system else [],
-        messages=messages,
-        tools=[],
+        messages=[{"role": "user", "content": content}],
+        tools=tools,
         tool_choice=None,
         temperature=temperature,
         extra_headers=None,
+        extra_body=extra_body,
     )
+
+
+def connectivity_response(client: BaseProviderClient, model: str) -> Any:
+    """Tiny completion proving the endpoint, key and model work. Returns the raw response."""
+    return single_completion(client, model=model, prompt="Reply with OK", system="You are a connectivity check.",
+                             max_tokens=16, temperature=None)
+
+
+def check_connectivity(client: BaseProviderClient, model: str) -> str:
+    """Tiny completion proving the endpoint, key and model work. Returns the reply."""
+    return response_text(connectivity_response(client, model))

@@ -1,24 +1,24 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Box,
   Typography,
   Snackbar,
   Alert,
-  Paper,
   Button,
   Chip,
-  List,
-  ListItemButton,
-  ListItemText,
   IconButton,
+  InputBase,
+  Tooltip,
   Divider,
   CircularProgress,
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
-import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
-import DeleteIcon from '@mui/icons-material/Delete';
-import StarIcon from '@mui/icons-material/Star';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import StarBorderIcon from '@mui/icons-material/StarBorder';
+import SearchIcon from '@mui/icons-material/Search';
 import { RecHostPreview } from '../../../frontend/src/components/rec/RecHostPreview';
+import { ScriptRunningOverlay } from '../../../frontend/src/components/rec/ScriptRunningOverlay';
 import { UserinterfaceSelector } from '../../../frontend/src/components/common/UserinterfaceSelector';
 import { NavigationEditorDeviceControls } from '../../../frontend/src/components/navigation/Navigation_NavigationEditor_DeviceControls';
 import { TestPromptForm } from './components/TestPromptForm';
@@ -26,7 +26,7 @@ import { TestPromptResults } from './components/TestPromptResults';
 import { NavigationConfigProvider } from '../../../frontend/src/contexts/navigation/NavigationConfigContext';
 import { NavigationEditorProvider } from '../../../frontend/src/contexts/navigation/NavigationEditorProvider';
 import { useTestPromptPage } from './hooks/useTestPromptPage';
-import { AGENT_CHAT_PALETTE as P } from '../../../frontend/src/constants/agentChatTheme';
+import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
 
 const interfaceDropdownStyles = {
   select: {
@@ -39,8 +39,32 @@ const interfaceDropdownStyles = {
   },
 };
 
+/** "4m", "2h", "3d" — age of a prompt's last edit for the sidebar. */
+const formatAgo = (iso: string) => {
+  const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return 'now';
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+};
+
 const TestPromptContent: React.FC = () => {
   const hookData = useTestPromptPage();
+  const P = useAgentChatPalette();
+  const [search, setSearch] = useState('');
+
+  // Sidebar: prompts grouped by interface, filtered by the search box.
+  const groups = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const byUi = new Map<string, typeof hookData.savedPrompts>();
+    hookData.savedPrompts
+      .filter(p => !q || p.name.toLowerCase().includes(q) || (p.userinterface_name || '').toLowerCase().includes(q))
+      .forEach(p => {
+        const ui = p.userinterface_name || 'No interface';
+        byUi.set(ui, [...(byUi.get(ui) || []), p]);
+      });
+    return [...byUi.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [hookData.savedPrompts, search]);
 
   return (
     <Box sx={{ display: 'flex', height: '100%', bgcolor: P.background, color: P.textPrimary }}>
@@ -55,54 +79,89 @@ const TestPromptContent: React.FC = () => {
           bgcolor: P.sidebarBg,
         }}
       >
-        <Box sx={{ px: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: `1px solid ${P.borderColor}`, height: '46px', flexShrink: 0 }}>
-          <Typography variant="subtitle2" fontWeight={700} sx={{ color: P.textPrimary }}>Test Prompt</Typography>
-          <IconButton size="small" onClick={hookData.resetForm} title="New prompt" sx={{ color: P.accent }}>
-            <AddCircleOutlineIcon />
-          </IconButton>
+        <Box sx={{ px: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '46px', flexShrink: 0 }}>
+          <Typography variant="subtitle2" fontWeight={600} sx={{ color: P.textPrimary }}>Test prompts</Typography>
+          <Tooltip title="New prompt">
+            <IconButton size="small" onClick={hookData.resetForm} sx={{ color: P.accentText, border: `1px solid ${P.borderColor}`, borderRadius: 1.5, p: 0.5 }}>
+              <AddIcon sx={{ fontSize: 18 }} />
+            </IconButton>
+          </Tooltip>
+        </Box>
+
+        <Box sx={{ px: 1.5, pb: 1 }}>
+          <InputBase
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search prompts"
+            startAdornment={<SearchIcon sx={{ fontSize: 16, color: P.textMuted, mr: 0.75 }} />}
+            sx={{
+              width: '100%', height: 30, px: 1, fontSize: '0.8rem', color: P.textPrimary,
+              bgcolor: P.inputBg, border: `1px solid ${P.borderColor}`, borderRadius: 1.5,
+              '&.Mui-focused': { borderColor: P.accent },
+            }}
+          />
         </Box>
 
         {hookData.isLoadingPrompts ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-            <CircularProgress size={24} />
+            <CircularProgress size={24} sx={{ color: P.accent }} />
           </Box>
         ) : hookData.savedPrompts.length === 0 ? (
           <Typography variant="body2" sx={{ color: P.textMuted, p: 2, textAlign: 'center' }}>
             No saved prompts yet
           </Typography>
+        ) : groups.length === 0 ? (
+          <Typography variant="body2" sx={{ color: P.textMuted, p: 2, textAlign: 'center' }}>
+            No prompt matches
+          </Typography>
         ) : (
-          <List dense sx={{ flex: 1, overflow: 'auto', py: 0 }}>
-            {hookData.savedPrompts.map(p => (
-              <ListItemButton
-                key={p.id}
-                selected={hookData.currentPromptId === p.id}
-                onClick={() => hookData.handleLoad(p.id)}
-                sx={{ py: 0.5, px: 1.5, gap: 0.5, minHeight: 36, '&:hover': { bgcolor: P.hoverBg }, '&.Mui-selected': { bgcolor: P.surface, '&:hover': { bgcolor: P.surface } } }}
-              >
-                <ListItemText
-                  primary={<Typography variant="body2" noWrap sx={{ fontSize: '0.82rem', lineHeight: 1.3, color: P.textPrimary }}>{p.name}</Typography>}
-                  secondary={p.userinterface_name}
-                  secondaryTypographyProps={{ variant: 'caption', noWrap: true, sx: { fontSize: '0.68rem', lineHeight: 1.2, color: P.textMuted } }}
-                  sx={{ minWidth: 0, my: 0 }}
-                />
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                  <Chip
-                    size="small"
-                    label={`v${p.version}`}
-                    variant="outlined"
-                    sx={{ height: 18, fontSize: '0.65rem', borderColor: p.mode === 'prod' ? P.gold : P.borderColor, color: p.mode === 'prod' ? P.gold : P.textSecondary }}
-                  />
-                  <IconButton
-                    size="small"
-                    onClick={e => { e.stopPropagation(); hookData.handleDelete(p.id); }}
-                    sx={{ p: 0.25, color: P.textMuted, '&:hover': { color: P.error } }}
-                  >
-                    <DeleteIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Box>
-              </ListItemButton>
+          <Box sx={{ flex: 1, overflow: 'auto', px: 1, pb: 1 }}>
+            {groups.map(([ui, prompts]) => (
+              <Box key={ui}>
+                <Typography variant="caption" noWrap sx={{ display: 'block', px: 1, pt: 1.25, pb: 0.5, fontSize: '0.68rem', color: P.textMuted }}>
+                  {ui} · {prompts.length}
+                </Typography>
+                {prompts.map(p => {
+                  const selected = hookData.currentPromptId === p.id;
+                  return (
+                    <Box
+                      key={p.id}
+                      onClick={() => hookData.handleLoad(p.id)}
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.75, mb: 0.25,
+                        borderRadius: 1.5, cursor: 'pointer',
+                        bgcolor: selected ? `${P.accent}26` : 'transparent',
+                        '&:hover': { bgcolor: selected ? `${P.accent}26` : P.hoverBg },
+                        '&:hover .tp-delete': { opacity: 1 },
+                      }}
+                    >
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography noWrap sx={{ fontSize: '0.82rem', lineHeight: 1.35, fontWeight: selected ? 600 : 400, color: selected ? P.accentText : P.textPrimary }}>
+                          {p.name}
+                        </Typography>
+                        <Typography noWrap sx={{ fontSize: '0.68rem', lineHeight: 1.3, color: P.textMuted }}>
+                          <Box component="span" sx={{ color: p.mode === 'prod' ? P.gold : P.textMuted, fontWeight: p.mode === 'prod' ? 600 : 400 }}>
+                            v{p.version} · {p.mode}
+                          </Box>
+                          {p.updated_at ? ` · ${formatAgo(p.updated_at)}` : ''}
+                        </Typography>
+                      </Box>
+                      <Tooltip title="Delete prompt">
+                        <IconButton
+                          className="tp-delete"
+                          size="small"
+                          onClick={e => { e.stopPropagation(); hookData.handleDelete(p.id); }}
+                          sx={{ p: 0.25, opacity: selected ? 1 : 0, transition: 'opacity 0.15s', color: P.textMuted, '&:hover': { color: P.error } }}
+                        >
+                          <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  );
+                })}
+              </Box>
             ))}
-          </List>
+          </Box>
         )}
       </Box>
 
@@ -125,19 +184,16 @@ const TestPromptContent: React.FC = () => {
           {/* Version indicators */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: '0 0 auto' }}>
             {hookData.currentPromptId && (
-              <>
-                <Chip
-                  size="small"
-                  label={`v${hookData.currentVersion}`}
-                  variant="outlined"
-                  sx={{ height: 20, fontSize: '0.7rem', borderColor: P.borderColor, color: P.textSecondary }}
-                />
-                <Chip
-                  size="small"
-                  label={hookData.currentMode}
-                  sx={{ height: 20, fontSize: '0.7rem', bgcolor: hookData.currentMode === 'prod' ? P.gold : P.surface, color: hookData.currentMode === 'prod' ? '#000' : P.textSecondary, borderColor: P.borderColor }}
-                />
-              </>
+              <Chip
+                size="small"
+                label={`v${hookData.currentVersion} · ${hookData.currentMode}`}
+                sx={{
+                  height: 22, fontSize: '0.7rem', fontWeight: 600,
+                  bgcolor: hookData.currentMode === 'prod' ? `${P.gold}22` : P.hoverBg,
+                  color: hookData.currentMode === 'prod' ? P.gold : P.textSecondary,
+                  border: `1px solid ${hookData.currentMode === 'prod' ? P.gold : P.borderColor}`,
+                }}
+              />
             )}
           </Box>
 
@@ -198,10 +254,10 @@ const TestPromptContent: React.FC = () => {
             {hookData.currentPromptId && hookData.currentMode === 'dev' && (
               <Button
                 size="small"
-                variant="outlined"
-                startIcon={<StarIcon />}
+                startIcon={<StarBorderIcon />}
                 onClick={hookData.handlePromote}
-                sx={{ fontSize: 11, py: 0.5, px: 1.5, borderColor: P.gold, color: P.gold, '&:hover': { bgcolor: `${P.gold}22` } }}
+                title="Promote this version to prod"
+                sx={{ fontSize: 11, py: 0.5, px: 1.25, color: P.gold, '&:hover': { bgcolor: `${P.gold}1a` } }}
               >
                 Promote
               </Button>
@@ -222,7 +278,7 @@ const TestPromptContent: React.FC = () => {
 
           {/* Form */}
           {hookData.isControlActive && (
-            <Paper variant="outlined" sx={{ m: 2, mb: 0, bgcolor: P.surface, borderColor: P.borderColor }}>
+            <Box sx={{ m: 2, mb: 0, bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderRadius: 3 }}>
               <TestPromptForm
                 formState={hookData.formState}
                 updateFormField={hookData.updateFormField}
@@ -230,17 +286,27 @@ const TestPromptContent: React.FC = () => {
                 isControlActive={hookData.isControlActive}
                 isFormValid={hookData.isFormValid}
                 isExecuting={hookData.isExecuting}
+                runMode={hookData.runMode}
+                onRunModeChange={hookData.setRunMode}
+                linkedTestcase={hookData.linkedTestcase}
                 onRun={hookData.handleRunTestPrompt}
+                onUnlinkTestcase={hookData.handleUnlinkTestcase}
               />
-            </Paper>
+            </Box>
           )}
 
           {/* Results */}
           {hookData.executions.length > 0 && (
-            <Box sx={{ m: 2 }}>
+            <Box sx={{ m: 2, mt: 3 }}>
               <TestPromptResults
                 executions={hookData.executions}
                 onSubmitFeedback={hookData.handleSubmitFeedback}
+                onSaveAsTestcase={hookData.handleSaveAsTestcase}
+                explorePreview={hookData.explorePreview}
+                buildingFromExploreId={hookData.buildingFromExploreId}
+                onProposeFromExplore={hookData.handleProposeFromExplore}
+                onApplyExplorePreview={hookData.handleApplyExplorePreview}
+                onCancelExplorePreview={hookData.handleCancelExplorePreview}
                 liveEventsByExecutionId={hookData.liveEventsByExecutionId}
               />
             </Box>
@@ -248,13 +314,15 @@ const TestPromptContent: React.FC = () => {
         </Box>
       </Box>
 
-      {/* Device stream preview — very bottom-left of window */}
+      {/* Device stream preview — very bottom-left of window. During a run (either mode) it
+          grows and carries the step overlay read from the device's running.log. */}
       {hookData.isControlActive && hookData.selectedHost && (
         <Box sx={{
           position: 'fixed',
           bottom: 4,
           left: 4,
-          width: 240,
+          width: hookData.runningLogData ? 560 : 240,
+          transition: 'width 0.2s',
           zIndex: 1300,
           borderRadius: 1,
           overflow: 'hidden',
@@ -266,6 +334,9 @@ const TestPromptContent: React.FC = () => {
             device={hookData.selectedHost.devices?.find((d: any) => d.device_id === hookData.selectedDeviceId)}
             hideHeader
           />
+          {hookData.runningLogData && (
+            <ScriptRunningOverlay logData={hookData.runningLogData} scriptNameRightOffset={8} />
+          )}
         </Box>
       )}
 

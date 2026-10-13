@@ -29,6 +29,11 @@ def _generate_fingerprint(prompt: str, context: Dict) -> str:
     
     # Create context signature
     context_signature = {
+        # Bumped when what generation produces changes, so graphs cached before are
+        # never served again (2 = action/verification container blocks with params;
+        # 3 = nodes named in the interface notes are offered to the AI;
+        # 4 = a step the parser cannot read fails generation, repeats are written out).
+        'graph_format': 4,
         'device_model': context.get('device_model'),
         'userinterface_name': context.get('userinterface_name'),
         'available_nodes': sorted(context.get('available_nodes', []))

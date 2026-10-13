@@ -12,18 +12,20 @@ import {
   Box,
   Chip,
   CircularProgress,
-  Divider,
   Drawer,
   IconButton,
   InputAdornment,
   LinearProgress,
-  Paper,
+  MenuItem,
+  Select,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableRow,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -37,6 +39,14 @@ import {
 import { useRequirements, Requirement, RequirementCoverage } from '../hooks/pages/useRequirements';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+
+type Palette = ReturnType<typeof useAgentChatPalette>;
+type CoverageFilter = 'all' | 'gaps' | 'covered';
+type CoverageSort = 'coverage' | 'name';
+
+/** Threshold colour from the app palette: ≥80% green, ≥50% amber, else red. */
+const pctColor = (pct: number, P: Palette) => (pct >= 80 ? P.success : pct >= 50 ? P.warning : P.error);
 
 interface ReqCoverageData {
   pass_rate: number;
@@ -53,33 +63,24 @@ const getPassRateColor = (passRate: number, testcaseCount: number): string => {
   return 'error.main';
 };
 
-const getRowBorderColor = (passRate: number, testcaseCount: number): string => {
-  if (testcaseCount === 0) return '#666';
-  if (passRate >= 0.8) return '#4caf50';
-  if (passRate >= 0.5) return '#ff9800';
-  return '#f44336';
-};
-
-const getLinearProgressColor = (pct: number): 'success' | 'warning' | 'error' => {
-  if (pct >= 80) return 'success';
-  if (pct >= 50) return 'warning';
-  return 'error';
-};
-
-const getProgressTextColor = (pct: number): string => {
-  if (pct >= 80) return 'success.main';
-  if (pct >= 50) return 'warning.main';
-  return 'error.main';
-};
-
-const getPriorityColor = (p: string): 'error' | 'warning' | 'info' | 'default' => {
-  if (p === 'P1') return 'error';
-  if (p === 'P2') return 'warning';
-  if (p === 'P3') return 'info';
-  return 'default';
+const getRowBorderColor = (passRate: number, testcaseCount: number, palette: ReturnType<typeof useAgentChatPalette>): string => {
+  if (testcaseCount === 0) return palette.textMuted;
+  if (passRate >= 0.8) return palette.success;
+  if (passRate >= 0.5) return palette.warning;
+  return palette.error;
 };
 
 const fmt = (rate: number) => `${Math.round(rate * 100)}%`;
+
+/** P1 red / P2 amber / P3 muted — outlined tag, readable in both themes. */
+const PriorityTag: React.FC<{ priority: string; P: Palette }> = ({ priority, P }) => {
+  const c = priority === 'P1' ? P.error : priority === 'P2' ? P.warning : P.textSecondary;
+  return (
+    <Box component="span" sx={{ display: 'inline-block', fontSize: '0.68rem', fontWeight: 600, lineHeight: 1.6, px: 0.75, borderRadius: 1, color: c, border: `1px solid ${c}66` }}>
+      {priority}
+    </Box>
+  );
+};
 
 const timeAgo = (ts: string) => {
   const ms = Date.now() - new Date(ts).getTime();
@@ -101,6 +102,9 @@ const Coverage: React.FC = () => {
   } = useRequirements();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [filter, setFilter] = useState<CoverageFilter>('all');
+  const [sortBy, setSortBy] = useState<CoverageSort>('coverage');
+  const P = useAgentChatPalette();
 
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [categoryData, setCategoryData] = useState<Record<string, Record<string, ReqCoverageData>>>({});
@@ -138,7 +142,8 @@ const Coverage: React.FC = () => {
     if (!expandedCategories.has(category)) await loadCategoryData(category);
     setExpandedCategories(prev => {
       const n = new Set(prev);
-      n.has(category) ? n.delete(category) : n.add(category);
+      if (n.has(category)) n.delete(category);
+      else n.add(category);
       return n;
     });
   }, [expandedCategories, loadCategoryData]);
@@ -179,12 +184,25 @@ const Coverage: React.FC = () => {
         const q = searchQuery.toLowerCase();
         if (!req.requirement_code.toLowerCase().includes(q) && !req.requirement_name.toLowerCase().includes(q)) continue;
       }
+      const linked = (coverageCounts[req.requirement_id]?.total_count ?? 0) > 0;
+      if (filter === 'gaps' && linked) continue;
+      if (filter === 'covered' && !linked) continue;
       const cat = req.category || 'uncategorized';
       if (!grouped[cat]) grouped[cat] = [];
       grouped[cat].push(req);
     }
     return grouped;
-  }, [requirements, searchQuery]);
+  }, [requirements, searchQuery, filter, coverageCounts]);
+
+  // Every requirement per category, unfiltered — category stats never depend on the search/filter.
+  const allByCategory = useMemo(() => {
+    const grouped: Record<string, Requirement[]> = {};
+    for (const req of requirements) {
+      const cat = req.category || 'uncategorized';
+      (grouped[cat] ||= []).push(req);
+    }
+    return grouped;
+  }, [requirements]);
 
   const stats = useMemo(() => {
     const total = requirements.length;
@@ -212,93 +230,191 @@ const Coverage: React.FC = () => {
     return { covered, pct, totalTests, avgPr };
   }, [coverageCounts, categoryData]);
 
+  const sortedCategories = useMemo(() => {
+    const entries = Object.entries(reqsByCategory);
+    if (sortBy === 'name') return entries.sort(([a], [b]) => a.localeCompare(b));
+    return entries.sort(([a], [b]) => getCatStats(a, allByCategory[a] || []).pct - getCatStats(b, allByCategory[b] || []).pct || a.localeCompare(b));
+  }, [reqsByCategory, sortBy, getCatStats, allByCategory]);
+
   const getSortedFilteredReqs = useCallback((reqs: Requirement[]): Requirement[] => {
     return [...reqs].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9));
   }, []);
 
   return (
     <Box>
-      {/* ZONE 1 — Sticky health strip */}
-      <Box sx={{ position: 'sticky', top: 0, zIndex: 100, bgcolor: 'background.paper', borderBottom: 1, borderColor: 'divider', mb: 1.5, pb: 1, pt: 0.5 }}>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
-          <Box><Typography variant="caption" color="text.secondary">Requirements</Typography><Typography variant="h6" lineHeight={1.2}>{stats.total}</Typography></Box>
-          <Divider orientation="vertical" flexItem />
-          <Box><Typography variant="caption" color="text.secondary">Covered</Typography><Typography variant="h6" lineHeight={1.2} color="success.main">{stats.covered}</Typography></Box>
-          <Divider orientation="vertical" flexItem />
-          <Box><Typography variant="caption" color="text.secondary">Tests linked</Typography><Typography variant="h6" lineHeight={1.2}>{stats.totalTests}</Typography></Box>
-          <Divider orientation="vertical" flexItem />
-          <Box>
-            <Typography variant="caption" color="text.secondary">Gaps (0 tests)</Typography>
-            <Typography variant="h6" lineHeight={1.2} color={stats.gaps > 0 ? 'error.main' : 'text.primary'}>{stats.gaps}</Typography>
-          </Box>
-          {stats.avgPassRate !== null && (
-            <>
-              <Divider orientation="vertical" flexItem />
-              <Box>
-                <Typography variant="caption" color="text.secondary">Avg Pass Rate</Typography>
-                <Typography variant="h6" lineHeight={1.2} color={getPassRateColor(stats.avgPassRate, 1)}>{fmt(stats.avgPassRate)}</Typography>
-              </Box>
-            </>
-          )}
+      {/* ZONE 1 — Sticky health strip: KPI cards, overall bar, toolbar */}
+      <Box sx={{ position: 'sticky', top: 0, zIndex: 100, bgcolor: 'background.default', mb: 1.5, pb: 1.5, pt: 0.5 }}>
+        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 1, mb: 1.25 }}>
+          {[
+            { label: 'Requirements', value: String(stats.total) },
+            {
+              label: 'Covered',
+              value: String(stats.covered),
+              extra: stats.total ? `${Math.round((stats.covered / stats.total) * 100)}%` : undefined,
+              color: P.success,
+            },
+            { label: 'Tests linked', value: String(stats.totalTests) },
+            {
+              label: 'Gaps · no test',
+              value: String(stats.gaps),
+              color: stats.gaps > 0 ? P.error : undefined,
+              onClick: stats.gaps > 0 ? () => setFilter(filter === 'gaps' ? 'all' : 'gaps') : undefined,
+              active: filter === 'gaps',
+            },
+            ...(stats.avgPassRate !== null
+              ? [{ label: 'Avg pass rate', value: fmt(stats.avgPassRate), color: pctColor(stats.avgPassRate * 100, P) }]
+              : []),
+          ].map((k: any) => (
+            <Box
+              key={k.label}
+              onClick={k.onClick}
+              title={k.onClick ? (k.active ? 'Show all requirements' : 'Show only requirements without a test') : undefined}
+              sx={{
+                px: 1.5, py: 1, borderRadius: 2, bgcolor: P.surface,
+                border: `1px solid ${k.active ? k.color : P.borderColor}`,
+                cursor: k.onClick ? 'pointer' : 'default',
+                transition: 'border-color 0.15s',
+                '&:hover': k.onClick ? { borderColor: k.color } : undefined,
+              }}
+            >
+              <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>{k.label}</Typography>
+              <Typography sx={{ fontSize: '1.35rem', fontWeight: 600, lineHeight: 1.25, color: k.color || P.textPrimary }}>
+                {k.value}
+                {k.extra && <Box component="span" sx={{ fontSize: '0.75rem', fontWeight: 400, color: P.textMuted, ml: 0.75 }}>{k.extra}</Box>}
+              </Typography>
+            </Box>
+          ))}
         </Box>
-        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+
+        {stats.total > 0 && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.25 }}>
+            <Typography sx={{ fontSize: '0.75rem', color: P.textSecondary }}>Overall</Typography>
+            <LinearProgress
+              variant="determinate"
+              value={(stats.covered / stats.total) * 100}
+              sx={{ flex: 1, height: 6, borderRadius: 3, bgcolor: P.hoverBg, '& .MuiLinearProgress-bar': { bgcolor: P.accent, borderRadius: 3 } }}
+            />
+            <Typography sx={{ fontSize: '0.75rem', color: P.textSecondary, fontVariantNumeric: 'tabular-nums' }}>
+              {stats.covered} / {stats.total}
+            </Typography>
+          </Box>
+        )}
+
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
             size="small"
-            placeholder="Search requirements..."
+            placeholder="Search requirements"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            sx={{ minWidth: 220 }}
+            sx={{ minWidth: 240, '& .MuiInputBase-root': { height: 32, fontSize: '0.85rem', borderRadius: 1.5 } }}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
           />
+          <ToggleButtonGroup
+            size="small"
+            exclusive
+            value={filter}
+            onChange={(_, v) => v && setFilter(v)}
+            sx={{
+              bgcolor: P.hoverBg, p: 0.375, borderRadius: 2, gap: 0.375,
+              '& .MuiToggleButton-root': {
+                border: '1px solid transparent !important', borderRadius: '6px !important',
+                textTransform: 'none', fontSize: 12, fontWeight: 500, color: P.textSecondary, py: 0.25, px: 1.5,
+              },
+              '& .MuiToggleButton-root.Mui-selected': {
+                bgcolor: P.surface, color: P.accentText, fontWeight: 600,
+                borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
+              },
+            }}
+          >
+            <ToggleButton value="all">All</ToggleButton>
+            <ToggleButton value="gaps">Gaps</ToggleButton>
+            <ToggleButton value="covered">Covered</ToggleButton>
+          </ToggleButtonGroup>
+          <Box sx={{ flex: 1 }} />
+          <Typography sx={{ fontSize: '0.75rem', color: P.textMuted }}>Sort</Typography>
+          <Select
+            size="small"
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value as CoverageSort)}
+            sx={{ height: 32, fontSize: '0.8rem', borderRadius: 1.5 }}
+          >
+            <MenuItem value="coverage">Lowest coverage first</MenuItem>
+            <MenuItem value="name">Name</MenuItem>
+          </Select>
         </Box>
       </Box>
 
-      {isLoading && <Box display="flex" justifyContent="center" p={4}><CircularProgress /></Box>}
+      {isLoading && <Box display="flex" justifyContent="center" p={4}><CircularProgress sx={{ color: P.accent }} /></Box>}
 
-      {/* ZONE 2 — Coverage matrix */}
+      {/* ZONE 2 — Coverage matrix: one list, a row per category */}
       {!isLoading && (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-          {Object.entries(reqsByCategory).map(([category, reqs]) => {
-            const { covered, pct, totalTests, avgPr } = getCatStats(category, reqs);
+        <Box sx={{ border: `1px solid ${P.borderColor}`, borderRadius: 2, overflow: 'hidden', bgcolor: P.surface }}>
+          {sortedCategories.map(([category, reqs], catIndex) => {
+            const catReqs = allByCategory[category] || reqs;
+            const { covered, pct, totalTests, avgPr } = getCatStats(category, catReqs);
             const isExpanded = expandedCategories.has(category);
             const isCatLoading = loadingCategories.has(category);
             const visible = getSortedFilteredReqs(reqs);
+            const gaps = catReqs.length - covered;
+            const color = pctColor(pct, P);
 
             return (
-              <Paper key={category} variant="outlined" sx={{ overflow: 'hidden' }}>
+              <Box key={category} sx={{ borderTop: catIndex === 0 ? 'none' : `1px solid ${P.borderColor}` }}>
                 {/* Category header */}
                 <Box
-                  sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 1.5, py: 1, cursor: 'pointer', '&:hover': { bgcolor: 'transparent' } }}
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: '20px 150px minmax(80px, 1fr) 44px 64px 72px 80px 72px',
+                    alignItems: 'center', columnGap: 1.5, px: 1.5, py: 1.1, cursor: 'pointer',
+                    bgcolor: isExpanded ? P.hoverBg : 'transparent',
+                    '&:hover': { bgcolor: P.hoverBg },
+                  }}
                   onClick={() => toggleCategory(category)}
                 >
-                  <IconButton size="small" sx={{ p: 0, pointerEvents: 'none' }}>
-                    {isExpanded ? <ExpandMoreIcon fontSize="small" /> : <ChevronRightIcon fontSize="small" />}
-                  </IconButton>
-                  <Typography variant="subtitle2" sx={{ textTransform: 'capitalize', minWidth: 110 }}>{category}</Typography>
-                  <Box sx={{ flex: 1, maxWidth: 260 }}>
-                    <LinearProgress variant="determinate" value={pct} color={getLinearProgressColor(pct)} sx={{ height: 6, borderRadius: 3 }} />
-                  </Box>
-                  <Typography variant="caption" color={getProgressTextColor(pct)} sx={{ minWidth: 32 }}>
+                  {isCatLoading
+                    ? <CircularProgress size={14} sx={{ color: P.accent }} />
+                    : isExpanded ? <ExpandMoreIcon fontSize="small" sx={{ color: P.textMuted }} /> : <ChevronRightIcon fontSize="small" sx={{ color: P.textMuted }} />}
+                  <Typography noWrap sx={{ fontSize: '0.88rem', fontWeight: 600, textTransform: 'capitalize' }}>{category}</Typography>
+                  <LinearProgress
+                    variant="determinate"
+                    value={pct}
+                    sx={{ height: 6, borderRadius: 3, bgcolor: P.hoverBg, '& .MuiLinearProgress-bar': { bgcolor: color, borderRadius: 3 } }}
+                  />
+                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {Math.round(pct)}%
                   </Typography>
-                  <Chip label={`${covered}/${reqs.length} reqs`} size="small" />
-                  <Chip label={`${totalTests} tests`} size="small" color="primary" variant="outlined" />
-                  {avgPr !== null && (
-                    <Chip label={`${fmt(avgPr)} pass`} size="small" color={avgPr >= 0.8 ? 'success' : avgPr >= 0.5 ? 'warning' : 'error'} />
-                  )}
-                  {isCatLoading && <CircularProgress size={14} />}
+                  <Typography sx={{ fontSize: '0.78rem', color: P.textSecondary, fontVariantNumeric: 'tabular-nums' }} title="Requirements with at least one linked test">
+                    {covered}/{catReqs.length}
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.78rem', color: P.textSecondary }}>
+                    {totalTests} test{totalTests === 1 ? '' : 's'}
+                  </Typography>
+                  <Box>
+                    {gaps > 0 && (
+                      <Box component="span" sx={{ fontSize: '0.7rem', fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: P.error, bgcolor: `${P.error}1a` }}>
+                        {gaps} gap{gaps === 1 ? '' : 's'}
+                      </Box>
+                    )}
+                  </Box>
+                  <Box>
+                    {avgPr !== null && (
+                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: pctColor(avgPr * 100, P) }} title="Average pass rate of the linked tests">
+                        {fmt(avgPr)} pass
+                      </Typography>
+                    )}
+                  </Box>
                 </Box>
 
                 {/* Expanded table */}
                 {isExpanded && (
-                  <Box sx={{ borderTop: 1, borderColor: 'divider' }}>
+                  <Box sx={{ borderTop: `1px solid ${P.borderColor}` }}>
                     {isCatLoading ? (
                       <Box display="flex" justifyContent="center" p={2}><CircularProgress size={20} /></Box>
                     ) : (
-                      <Table size="small" sx={{ width: '100%', tableLayout: 'fixed' }}>
+                      <Table size="small" sx={{ width: '100%', tableLayout: 'fixed', '& td, & th': { borderColor: P.borderColor }, '& th': { fontSize: '0.7rem', color: P.textMuted, py: 0.75, bgcolor: P.hoverBg, backgroundColor: `${P.hoverBg} !important` } }}>
                         <TableHead>
                           <TableRow>
-                            <TableCell>Requirement</TableCell>
+                            <TableCell sx={{ pl: 5.5 }}>Requirement</TableCell>
                             <TableCell sx={{ width: 50 }}>Pri</TableCell>
                             <TableCell sx={{ width: 55 }}>Tests</TableCell>
                             <TableCell sx={{ width: 70 }}>Pass</TableCell>
@@ -316,13 +432,14 @@ const Coverage: React.FC = () => {
                                 onClick={() => openDrawer(req)}
                                 sx={{
                                   cursor: 'pointer',
-                                  opacity: tc === 0 ? 0.55 : 1,
-                                  '&:hover': { backgroundColor: 'transparent' },
-                                  '& > td:first-of-type': { borderLeft: `3px solid ${getRowBorderColor(pr, tc)}` },
+                                  '&:hover': { backgroundColor: P.hoverBg },
                                 }}
                               >
-                                <TableCell sx={{ overflow: 'hidden' }}>
-                                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75 }}>
+                                <TableCell sx={{ overflow: 'hidden', pl: 2.5 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Tooltip title={tc === 0 ? 'No linked test' : data ? `Pass rate ${fmt(pr)}` : 'Linked'}>
+                                      <Box sx={{ width: 7, height: 7, borderRadius: '50%', flexShrink: 0, bgcolor: tc === 0 ? P.textMuted : data ? pctColor(pr * 100, P) : P.accent }} />
+                                    </Tooltip>
                                     <Typography variant="caption" fontWeight="bold" sx={{ fontFamily: 'monospace', flexShrink: 0 }}>
                                       {req.requirement_code}
                                     </Typography>
@@ -332,7 +449,7 @@ const Coverage: React.FC = () => {
                                   </Box>
                                 </TableCell>
                                 <TableCell>
-                                  <Chip label={req.priority} size="small" color={getPriorityColor(req.priority)} sx={{ height: 18, fontSize: '0.65rem' }} />
+                                  <PriorityTag priority={req.priority} P={P} />
                                 </TableCell>
                                 <TableCell>
                                   <Typography variant="caption" color={tc === 0 ? 'text.disabled' : 'text.primary'}>{tc === 0 ? '—' : tc}</Typography>
@@ -341,7 +458,7 @@ const Coverage: React.FC = () => {
                                   {tc === 0 ? (
                                     <Typography variant="caption" color="text.disabled">—</Typography>
                                   ) : data ? (
-                                    <Typography variant="caption" color={getPassRateColor(pr, tc)}>{fmt(pr)}</Typography>
+                                    <Typography variant="caption" sx={{ fontWeight: 600, color: pctColor(pr * 100, P) }}>{fmt(pr)}</Typography>
                                   ) : (
                                     <CircularProgress size={10} />
                                   )}
@@ -371,11 +488,13 @@ const Coverage: React.FC = () => {
                     )}
                   </Box>
                 )}
-              </Paper>
+              </Box>
             );
           })}
-          {Object.keys(reqsByCategory).length === 0 && (
-            <Alert severity="info">No requirements found. Adjust your search or filters.</Alert>
+          {sortedCategories.length === 0 && (
+            <Typography sx={{ p: 3, textAlign: 'center', fontSize: '0.85rem', color: P.textMuted }}>
+              No requirements match. Change the search or the filter.
+            </Typography>
           )}
         </Box>
       )}
@@ -388,7 +507,7 @@ const Coverage: React.FC = () => {
             <Box>
               <Typography variant="subtitle1" fontWeight="bold">{selectedReq?.requirement_code}</Typography>
               <Typography variant="body2" color="text.secondary">{selectedReq?.requirement_name}</Typography>
-              {selectedReq && <Chip label={selectedReq.priority} size="small" color={getPriorityColor(selectedReq.priority)} sx={{ mt: 0.5 }} />}
+              {selectedReq && <Box sx={{ mt: 0.75 }}><PriorityTag priority={selectedReq.priority} P={P} /></Box>}
             </Box>
             <IconButton size="small" onClick={() => setDrawerOpen(false)}><CloseIcon fontSize="small" /></IconButton>
           </Box>
@@ -402,7 +521,7 @@ const Coverage: React.FC = () => {
             {!drawerLoading && drawerCoverage && selectedReq && (
               <Box>
                 {/* Summary */}
-                <Box sx={{ display: 'flex', gap: 2, mb: 2, p: 1.5, bgcolor: 'action.hover', borderRadius: 1 }}>
+                <Box sx={{ display: 'flex', gap: 3, mb: 2, p: 1.5, bgcolor: P.hoverBg, borderRadius: 2 }}>
                   <Box><Typography variant="caption" color="text.secondary">Test Cases</Typography><Typography variant="h6" lineHeight={1.2}>{drawerCoverage.coverage_summary.total_testcases}</Typography></Box>
                   <Box><Typography variant="caption" color="text.secondary">Executions</Typography><Typography variant="h6" lineHeight={1.2}>{drawerCoverage.coverage_summary.execution_count}</Typography></Box>
                   <Box>
@@ -445,7 +564,7 @@ const Coverage: React.FC = () => {
                       {testcases.map(tc => (
                         <Box
                           key={tc.testcase_id}
-                          sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, p: 0.75, border: 1, borderColor: 'divider', borderRadius: 1, borderLeft: `3px solid ${getRowBorderColor(tc.pass_rate, tc.execution_count)}` }}
+                          sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, p: 0.75, border: 1, borderColor: 'divider', borderRadius: 1, borderLeft: `3px solid ${getRowBorderColor(tc.pass_rate, tc.execution_count, P)}` }}
                         >
                           <Box flex={1}>
                             <Typography variant="caption" fontWeight="medium" display="block">{tc.testcase_name}</Typography>

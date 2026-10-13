@@ -1,0 +1,46 @@
+{
+  "Play {file} from 0 with the {lang} subtitle track": {
+    "fr": "Lire {file} depuis 0 avec la piste de sous-titres {lang}",
+    "de": "{file} ab 0 mit der Untertitelspur {lang} abspielen"
+  },
+  "Captured {saved} of {total} sample frames": {
+    "fr": "{saved} images capturées sur {total}",
+    "de": "{saved} von {total} Bildern erfasst"
+  },
+  "Subtitle check: {samples} samples, {issues} with an issue, mean CER {cer}%": {
+    "fr": "Vérification des sous-titres : {samples} échantillons, {issues} avec un problème, CER moyen {cer}%",
+    "de": "Untertitelprüfung: {samples} Stichproben, {issues} mit einem Problem, mittlerer CER {cer}%"
+  },
+  "{name} is not a video-file device (needs a local_video device)": {
+    "fr": "{name} n'est pas un appareil à fichier vidéo (il faut un appareil local_video)",
+    "de": "{name} ist kein Video-Datei-Gerät (benötigt ein local_video-Gerät)"
+  },
+  "video not found on this host: {path}": {
+    "fr": "vidéo introuvable sur cet hôte : {path}",
+    "de": "Video auf diesem Host nicht gefunden: {path}"
+  },
+  "{video} has no {lang} subtitle track (has {tracks})": {
+    "fr": "{video} n'a pas de piste de sous-titres {lang} (a {tracks})",
+    "de": "{video} hat keine {lang} Untertitelspur (hat {tracks})"
+  },
+  "time alignment suspect: most in-cue samples do not match their cue": {
+    "fr": "alignement temporel suspect : la plupart des échantillons pris pendant un sous-titre ne correspondent pas à celui-ci",
+    "de": "Zeitliche Ausrichtung verdächtig: Die meisten In-Cue-Stichproben stimmen nicht mit ihrem Cue überein"
+  },
+  "{n_issues} subtitle issues (max {max})": {
+    "fr": "{n_issues} problèmes de sous-titres (max {max})",
+    "de": "{n_issues} Untertitelprobleme (max. {max})"
+  },
+  "Track {lang} · {judged} of {samples} samples analysed · issues: {issues}": {
+    "fr": "Piste {lang} · {judged} sur {samples} échantillons analysés · problèmes : {issues}",
+    "de": "Spur {lang} · {judged} von {samples} Stichproben analysiert · Probleme: {issues}"
+  },
+  "Track {lang} · {judged} of {samples} samples analysed · issues: none": {
+    "fr": "Piste {lang} · {judged} sur {samples} échantillons analysés · problèmes : aucun",
+    "de": "Spur {lang} · {judged} von {samples} Stichproben analysiert · Probleme: keine"
+  },
+  "Error: {error}": {
+    "fr": "Erreur : {error}",
+    "de": "Fehler: {error}"
+  }
+}

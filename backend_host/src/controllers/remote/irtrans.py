@@ -13,9 +13,14 @@ From the frontend's point of view this is identical to the lirc IR remote: the d
 keeps `ir_type=stb` so the STB panel renders, and the frontend sends
 `remote_type:'ir_remote'` + `press_key`. The only difference is the transport here.
 
-Because the IRTrans command names do not match the STB key names
-(B1, OK_BUTTON, UP_ARROW, NEXT_CHANNEL, PAUSE_PLAY, ...), a key→command map is loaded
-from `irtrans_conf/<ir_type>.json` (mirrors how lirc loads `ir_conf/<ir_type>.json`).
+Two keymap modes, chosen by whether `ir_remote` is set:
+
+- **named** (`ir_remote` set): the box holds a learned remote whose command names do not
+  match the STB key names (B1, OK_BUTTON, UP_ARROW, NEXT_CHANNEL, PAUSE_PLAY, ...), so a
+  key→command map is loaded from `irtrans_conf/<ir_type>.json` and sent with `snd`.
+- **raw** (no `ir_remote`): the box has nothing learned. The same raw codes the lirc
+  transport sends are loaded from `ir_conf/<ir_type>.json` (apple_tv, samsung, ...),
+  converted to a Pronto/CCF code and sent with `sndccf`.
 
 See docs/agent/devices/INFRARED.md § IRTrans (networked) transport.
 """
@@ -38,8 +43,10 @@ class IRTransRemoteController(RemoteControllerInterface):
 
         Args:
             ir_ip: IP address of the IRTrans box (e.g. '192.168.1.60')
-            ir_remote: Remote name registered in the IRTrans box (e.g. 'STB_remote')
-            ir_type: Keymap profile name → irtrans_conf/<ir_type>.json (e.g. 'stb')
+            ir_remote: Remote name registered in the IRTrans box (e.g. 'STB_remote');
+                None sends the raw ir_conf codes instead
+            ir_type: Keymap profile name → irtrans_conf/<ir_type>.json when ir_remote is
+                set, ir_conf/<ir_type>.json otherwise (e.g. 'stb', 'apple_tv', 'samsung')
             ir_port: UDP/TCP port of the IRTrans box (default 21000)
             ir_led: IR-output LED/port 1-16 (this STB's "port"); None sends on all LEDs
         """
@@ -54,15 +61,15 @@ class IRTransRemoteController(RemoteControllerInterface):
         # Validate required parameters
         if not self.ir_ip:
             raise ValueError("ir_ip is required for IRTransRemoteController")
-        if not self.ir_remote:
-            raise ValueError("ir_remote is required for IRTransRemoteController")
         if not self.ir_type:
             raise ValueError("ir_type is required for IRTransRemoteController")
         if self.ir_led is not None and not 1 <= self.ir_led <= 16:
             raise ValueError("ir_led must be between 1 and 16")
 
-        # Keymap (STB key → IRTrans command) paths
-        self.ir_config_path = os.path.join(os.path.dirname(__file__), 'irtrans_conf')
+        # Keymap paths: STB key → IRTrans command name (named) or → raw lirc code (raw)
+        self.raw_mode = not self.ir_remote
+        self.ir_config_path = os.path.join(os.path.dirname(__file__),
+                                           'ir_conf' if self.raw_mode else 'irtrans_conf')
         self.ir_config_file = f"{self.ir_type}.json"
 
         self.keymap: Dict[str, str] = {}
@@ -76,8 +83,9 @@ class IRTransRemoteController(RemoteControllerInterface):
         self._health_cache_ts: float = 0
 
         led_str = f", led {self.ir_led}" if self.ir_led else ""
+        remote_str = "raw ir_conf codes" if self.raw_mode else f"remote '{self.ir_remote}'"
         print(f"[@controller:IRTransRemote] Initialized for {self.ir_ip}:{self.ir_port} "
-              f"remote '{self.ir_remote}'{led_str} (type: {self.ir_type})")
+              f"{remote_str}{led_str} (type: {self.ir_type})")
 
         self.connect()
 
@@ -125,10 +133,13 @@ class IRTransRemoteController(RemoteControllerInterface):
             self._record_send(False, f"Key {key_upper} not mapped in {self.ir_config_file}")
             return False
 
-        if self.ir_led is not None:
-            payload = f"snd {self.ir_remote},{command},l{self.ir_led}\r"
+        if self.raw_mode:
+            payload = f"sndccf {self._raw_to_ccf(command)}"
         else:
-            payload = f"snd {self.ir_remote},{command}\r"
+            payload = f"snd {self.ir_remote},{command}"
+        if self.ir_led is not None:
+            payload += f",l{self.ir_led}"
+        payload += "\r"
 
         print(f"Remote[{self.device_type.upper()}]: Sending {key_upper} -> {payload!r} "
               f"to {self.ir_ip}:{self.ir_port}")
@@ -142,6 +153,21 @@ class IRTransRemoteController(RemoteControllerInterface):
             print(f"Remote[{self.device_type.upper()}]: Failed to send IRTrans command: {e}")
             self._record_send(False, str(e))
             return False
+
+    @staticmethod
+    def _raw_to_ccf(raw_code: str, carrier_hz: int = 38000) -> str:
+        """Convert a lirc raw code ('+4431 -4368 ...', microseconds) to Pronto/CCF hex.
+
+        38 kHz is ir-ctl's default carrier, i.e. what the lirc transport transmits.
+        """
+        durations = [abs(int(v)) for v in raw_code.split()]
+        if len(durations) % 2:
+            durations.append(10000)  # CCF is burst pairs: close a trailing pulse with a gap
+        freq_word = round(1_000_000 / (carrier_hz * 0.241246))
+        period_us = freq_word * 0.241246
+        words = [0, freq_word, len(durations) // 2, 0]
+        words += [max(1, round(d / period_us)) for d in durations]
+        return ' '.join(f'{w:04X}' for w in words)
 
     def execute_command(self, command: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -210,7 +236,8 @@ class IRTransRemoteController(RemoteControllerInterface):
         elif self._last_send_ok is False:
             detail = f'Last IR key press failed: {self._last_send_error}'
         else:
-            detail = f'IRTrans ready ({self.ir_ip}:{self.ir_port}, {self.ir_remote}, led {self.ir_led})'
+            remote_str = self.ir_remote or f'raw {self.ir_type}'
+            detail = f'IRTrans ready ({self.ir_ip}:{self.ir_port}, {remote_str}, led {self.ir_led})'
 
         status = {
             'ir_ip': self.ir_ip,

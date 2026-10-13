@@ -12,6 +12,10 @@ import type { RerunPayload } from '../../types/common/Rerun_Types';
 export interface ScriptResult {
   id: string;
   team_id: string;
+  /** Run governance (TASK-42): assignment ids and the result's labels, from getAllScriptResults. */
+  milestone_id?: string | null;
+  run_group_id?: string | null;
+  labels?: Array<{ id: string; name: string; color: string | null }>;
   script_name: string;
   script_type: string;
   userinterface_name: string | null;
@@ -50,6 +54,10 @@ export interface ScriptResultFilters {
   // row limit so a busy workspace can't starve another workspace's rows out of
   // the latest-N window.
   host_filter?: string[];
+  // Run-management governance filters (TASK-42), applied server-side before the limit.
+  milestone_id?: string;
+  run_group_id?: string;
+  label_id?: string;
 }
 
 export const useScriptResults = () => {
@@ -69,6 +77,9 @@ export const useScriptResults = () => {
         if (filters?.host_name) params.set('host_name', filters.host_name);
         if (filters?.limit) params.set('limit', String(filters.limit));
         if (filters?.host_filter?.length) params.set('host_filter', JSON.stringify(filters.host_filter));
+        if (filters?.milestone_id) params.set('milestone_id', filters.milestone_id);
+        if (filters?.run_group_id) params.set('run_group_id', filters.run_group_id);
+        if (filters?.label_id) params.set('label_id', filters.label_id);
         const qs = params.toString();
         const url = buildServerUrl('/server/script-results/getAllScriptResults') + (qs ? `&${qs}` : '');
 
@@ -96,7 +107,12 @@ export const useScriptResults = () => {
             // Check if it's JSON
             if (response.headers.get('content-type')?.includes('application/json')) {
               const jsonError = JSON.parse(errorData);
-              errorMessage = jsonError.error || errorMessage;
+              const serverError = String(jsonError.error || '');
+              // A database error can wrap a whole proxy HTML page (BUG-0416):
+              // show a short message, keep the full text in the console log above.
+              errorMessage = /<html|<!doctype/i.test(serverError)
+                ? `Failed to fetch script results: the server could not reach the database (${response.status}).`
+                : serverError.slice(0, 300) || errorMessage;
             } else {
               // It's HTML or other content, likely a proxy/server issue
               if (errorData.includes('<!doctype') || errorData.includes('<html')) {

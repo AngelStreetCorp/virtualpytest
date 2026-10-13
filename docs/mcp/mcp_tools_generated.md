@@ -2,7 +2,7 @@
 
 This file is auto-generated. Do not edit manually.
 
-- Total tools: **75**
+- Total tools: **77**
 - Categories: **19**
 - Source: `backend_server/src/mcp/tool_definitions/*_definitions.py`
 
@@ -91,15 +91,17 @@ This file is auto-generated. Do not edit manually.
 
 - `capture_screenshot`
 
-## Script (2)
+## Script (3)
 
 - `execute_script`
+- `get_script_execution_status`
 - `list_scripts`
 
-## Testcase (6)
+## Testcase (7)
 
 - `execute_testcase`
 - `execute_testcase_by_id`
+- `get_testcase_execution_status`
 - `list_testcases`
 - `load_testcase`
 - `rename_testcase`

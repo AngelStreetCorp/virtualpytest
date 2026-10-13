@@ -189,22 +189,6 @@ export const firetvRemoteConfig = {
       shape: 'circle' as const,
       comment: 'MUTE',
     },
-    channel_up: {
-      key: 'CHANNEL_UP',
-      label: 'CH+',
-      position: { x: 366, y: 1012 },
-      size: { width: 24, height: 24 },
-      shape: 'circle' as const,
-      comment: 'CHANNEL_UP',
-    },
-    channel_down: {
-      key: 'CHANNEL_DOWN',
-      label: 'CH-',
-      position: { x: 112, y: 1012 },
-      size: { width: 24, height: 24 },
-      shape: 'circle' as const,
-      comment: 'CHANNEL_DOWN',
-    },
   },
   button_layout_recmodal: {
     power: {
@@ -326,22 +310,6 @@ export const firetvRemoteConfig = {
       size: { width: 26, height: 26 },
       shape: 'circle' as const,
       comment: 'MUTE',
-    },
-    channel_up: {
-      key: 'CHANNEL_UP',
-      label: 'CH+',
-      position: { x: 408, y: 1140 },
-      size: { width: 26, height: 26 },
-      shape: 'circle' as const,
-      comment: 'CHANNEL_UP',
-    },
-    channel_down: {
-      key: 'CHANNEL_DOWN',
-      label: 'CH-',
-      position: { x: 122, y: 1140 },
-      size: { width: 26, height: 26 },
-      shape: 'circle' as const,
-      comment: 'CHANNEL_DOWN',
     },
   },
 };

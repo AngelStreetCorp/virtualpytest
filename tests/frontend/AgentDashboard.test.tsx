@@ -19,12 +19,18 @@ vi.mock('socket.io-client', () => ({
   }),
 }));
 
-import { AgentDashboard } from '../../frontend/src/pages/AgentDashboard';
+// The page reads the signed-in user's role through useProfile() -> useAuthContext(), which throws
+// outside an AuthProvider; mock the hook rather than put a Supabase session behind a render test.
+vi.mock('../../frontend/src/hooks/auth/useProfile', () => ({
+  useProfile: () => ({ isAdmin: false }),
+}));
+
+import AgentDashboard from '../../frontend/src/pages/AgentDashboard';
 
 describe('AgentDashboard page', () => {
-  it('renders the Agent Management heading', async () => {
+  it('renders the Agents heading', async () => {
     render(<AgentDashboard />);
 
-    expect(await screen.findByRole('heading', { name: 'Agent Management' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'Agents' })).toBeInTheDocument();
   });
 });

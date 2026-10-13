@@ -6,6 +6,7 @@ Integrates with existing executors and ScriptExecutionContext.
 Supports async execution with real-time progress tracking.
 """
 
+import os
 import re
 import time
 import threading
@@ -18,8 +19,36 @@ from shared.src.lib.executors.script_executor import ScriptExecutionContext
 from shared.src.lib.utils.script_identity_utils import resolve_script_identity
 from shared.src.lib.database.testcase_db import get_testcase_by_name, get_testcase
 from shared.src.lib.database.script_results_db import record_script_execution_start
+from shared.src.lib.utils.phase_timing import (
+    PhaseLinePassthrough,
+    log_duration as _log_duration,
+    log_phase as _log_phase,
+    t0 as _phase_t0,
+)
 from backend_host.src.lib.utils.execution_event_utils import emit_execution_event
 from .testcase_validator import TestCaseValidator
+
+
+def background_report_mode() -> str:
+    """Which async testcase runs report 'completed' before their report tail has run.
+
+    VPT_TESTCASE_BACKGROUND_REPORT, read at every run (a host restart applies a change):
+      pass (default; also on/true/1/yes) -- passing runs only. A failed run keeps the old
+          order, so its HTML report and logs are in script_results when the caller reads the
+          verdict (QualiAi reads a FAILED row's report for the detailed error at once).
+      all -- failed runs too.
+      off (also 0/false/no) -- every run waits for its report, as before.
+    The tail is video, mosaic, screenshot/log/DOM/video/HTML uploads and the final DB write:
+    7-11 s on host-clone-3, ~25 s on host-clone-2 (2026-09-29), that the MCP caller waited out.
+    """
+    raw = (os.getenv('VPT_TESTCASE_BACKGROUND_REPORT') or 'pass').strip().lower()
+    if raw in ('off', '0', 'false', 'no', 'none'):
+        return 'off'
+    if raw == 'all':
+        return 'all'
+    if raw not in ('pass', 'on', '1', 'true', 'yes'):
+        print(f"[@testcase_executor] VPT_TESTCASE_BACKGROUND_REPORT={raw!r} not understood; using 'pass'")
+    return 'pass'
 
 
 class TestCaseExecutor:
@@ -37,6 +66,49 @@ class TestCaseExecutor:
         # Async execution tracking
         self._executions: Dict[str, Dict[str, Any]] = {}  # execution_id -> execution state
         self._lock = threading.Lock()
+        # One background report tail at a time per device: a tail writes the device's fixed
+        # test_video.mp4, and a slow one must not overlap the next run's.
+        self._report_tail_locks: Dict[str, threading.Lock] = {}
+
+    def _start_report_tail(self, execution_id: str, device_id: str, report_tail) -> threading.Thread:
+        """Run a finished testcase's report tail (see background_report_mode) in the background."""
+        with self._lock:
+            tail_lock = self._report_tail_locks.setdefault(device_id, threading.Lock())
+            if execution_id in self._executions:
+                self._executions[execution_id]['report_pending'] = True
+        thread = threading.Thread(target=self._run_report_tail, args=(execution_id, tail_lock, report_tail),
+                                  name=f"report-tail-{execution_id[:8]}", daemon=True)
+        thread.start()
+        return thread
+
+    def _run_report_tail(self, execution_id: str, tail_lock: threading.Lock, report_tail) -> None:
+        from shared.src.lib.utils.detached_output import detached_output
+        # Detached: this thread's prints go to the journal, never into the capture of the run
+        # that is on the device by now.
+        with detached_output():
+            _t_queued = _phase_t0()
+            finalization: Dict[str, Any] = {}
+            with tail_lock:
+                _log_phase('tc.report_tail_queue_wait', _t_queued, f"execution_id={execution_id}")
+                _t = _phase_t0()
+                try:
+                    finalization = report_tail() or {}
+                except Exception as tail_error:
+                    print(f"[@testcase_executor:{execution_id}] Background report failed: {tail_error}")
+                    import traceback
+                    traceback.print_exc()
+                _log_phase('tc.report_tail', _t,
+                           f"execution_id={execution_id} ok={bool(finalization.get('success'))} "
+                           f"report_path={finalization.get('report_path') or 'none'}")
+            with self._lock:
+                execution = self._executions.get(execution_id)
+                if execution is not None:
+                    execution['report_pending'] = False
+                    result = execution.get('result')
+                    if isinstance(result, dict):
+                        result['report_url'] = finalization.get('report_url', '') or result.get('report_url', '')
+                        result['logs_url'] = finalization.get('logs_url', '') or result.get('logs_url', '')
+            print(f"[@testcase_executor:{execution_id}] Report URL: {finalization.get('report_url', '')}")
 
     def _create_start_metadata(
         self,
@@ -111,12 +183,28 @@ class TestCaseExecutor:
             parts = [f"type={trigger.get('type') or 'host'}"]
             if trigger.get('caller_user'):
                 parts.append(f"user={trigger['caller_user']}")
-            if trigger.get('caller_ip'):
-                parts.append(f"ip={trigger['caller_ip']}")
             print(f"[@testcase_executor] TRIGGER: {' | '.join(parts)}")
             print(f"[@testcase_executor] TESTCASE: {testcase_name}")
         except Exception as banner_error:
             print(f"[@testcase_executor] Banner unavailable ({banner_error})")
+
+    def _reset_dom_captures(self, label: str) -> None:
+        """Start this run with an empty DOM-capture session.
+
+        The dom_capture session is process-global and was written for one script
+        per process. Testcases run inside the long-lived vpt-host process, so the
+        session kept every capture since the service started and each report
+        uploaded all of them: 725 files, five minutes per run on host-clone-2 on
+        2026-09-28. Never raises — a capture bookkeeping failure must not fail a run.
+        """
+        try:
+            from shared.src.lib.utils.dom_capture import reset_dom_captures, get_dom_captures
+            carried = len(get_dom_captures())
+            reset_dom_captures()
+            if carried:
+                print(f"[@testcase_executor] {label}: dropped {carried} DOM capture(s) carried over from earlier runs")
+        except Exception as reset_error:
+            print(f"[@testcase_executor] {label}: DOM capture reset skipped ({reset_error})")
 
     def _set_running_log_path(self, context: ScriptExecutionContext, device_id: str):
         """Enable running log output for testcase executions when capture storage is configured."""
@@ -127,6 +215,30 @@ class TestCaseExecutor:
             print(f"📝 [@testcase_executor] Running log enabled: {context.running_log_path}")
         except ValueError as e:
             print(f"⚠️ [@testcase_executor] Could not set running log: {e}")
+
+    @staticmethod
+    def _starts_from_entry(device) -> bool:
+        """Whether the testcase's first navigation must take the tree's entry edge (BUG-0190).
+
+        True for a device with a web controller. VPT closes the browser at the end of every
+        run (ScriptExecutor._close_web_browser_if_needed), so a web testcase is meant to
+        start on a fresh browser; one that is open at testcase start was left by something
+        else — an ad-hoc REST/MCP command, a person at the controls — on any page, with any
+        storage. Probing that page ("already at target?") would trust it; the entry edge
+        resets it. On a browser VPT closed itself the probe could only fail, so this is
+        never slower.
+
+        False when VPT_KEEP_BROWSER_OPEN=true: the browser is then deliberately carried
+        between runs, so a run may pick up where the last one stopped. False for devices
+        without a web controller (Android, TV, STB): their app is not reset between runs
+        and the position probe is a deliberate time saver there.
+        """
+        if os.getenv('VPT_KEEP_BROWSER_OPEN', '').strip().lower() in ('1', 'true', 'yes'):
+            return False
+        try:
+            return bool(device.get_controllers('web'))
+        except Exception:
+            return False
 
     def _capture_step_screenshot(
         self,
@@ -221,6 +333,17 @@ class TestCaseExecutor:
                     vr['error'] = block_result.get('error')
             results.append(vr)
         return defs, results
+
+    @staticmethod
+    def _block_phase_detail(node: Dict[str, Any], step_number: int) -> str:
+        """'step=N type=T target=L' for the block's ⏱ timing lines."""
+        try:
+            data = node.get('data') or {}
+            target = (data.get('target_node_label') or data.get('target_node') or data.get('target_node_id')
+                      or data.get('label') or data.get('command') or node.get('id'))
+            return f"step={step_number} type={node.get('type')} target={target}"
+        except Exception:
+            return f"step={step_number}"
 
     def _resolve_step_nodes(self, node_type: str, data: Dict[str, Any]) -> (str, str):
         """Resolve from/to node labels for report rendering."""
@@ -342,6 +465,7 @@ class TestCaseExecutor:
         
         try:
             # Validate graph structure
+            self._reset_dom_captures("run")
             print(f"[@testcase_executor] Validating graph...")
             is_valid, errors, warnings = self.validator.validate_graph(
                 graph,
@@ -421,6 +545,8 @@ class TestCaseExecutor:
             nav_context['script_context'] = 'testcase'
             nav_context['current_node_id'] = None
             nav_context['current_node_label'] = None
+            # First navigation takes the entry edge on a web device (BUG-0190).
+            context.start_from_entry_pending = self._starts_from_entry(device)
 
             from shared.src.lib.utils.device_utils import capture_screenshot
             print(f"📸 [@testcase_executor] Capturing initial state screenshot...")
@@ -594,6 +720,7 @@ class TestCaseExecutor:
                         print(f"[@testcase_executor] Skipping parameter '{name}' — not a declared input")
             
             # Validate graph structure
+            self._reset_dom_captures("run")
             print(f"[@testcase_executor] Validating graph...")
             is_valid, errors, warnings = self.validator.validate_graph(
                 graph,
@@ -668,6 +795,8 @@ class TestCaseExecutor:
             nav_context['script_id'] = script_result_id
             nav_context['script_name'] = testcase_name
             nav_context['script_context'] = 'testcase'
+            # First navigation takes the entry edge on a web device (BUG-0190).
+            context.start_from_entry_pending = self._starts_from_entry(device)
 
             from shared.src.lib.utils.device_utils import capture_screenshot
             print(f"📸 [@testcase_executor] Capturing initial state screenshot...")
@@ -861,17 +990,25 @@ class TestCaseExecutor:
     ):
         """Background worker for async execution"""
         start_time = time.time()
+        _t_worker = _phase_t0()
+        # Phases before the stdout capture starts are measured here and printed once it runs.
+        pre_capture_ms: List[tuple] = []
         context = None
-        
+
         try:
             # Validate graph
+            _t = _phase_t0()
+            self._reset_dom_captures(execution_id)
+            pre_capture_ms.append(('tc.reset_dom_captures', (_phase_t0() - _t) * 1000))
             print(f"[@testcase_executor:{execution_id}] Validating graph...")
+            _t = _phase_t0()
             is_valid, errors, warnings = self.validator.validate_graph(
                 graph,
                 userinterface_name=userinterface_name,
                 team_id=team_id
             )
-            
+            pre_capture_ms.append(('tc.validate_graph', (_phase_t0() - _t) * 1000))
+
             if not is_valid:
                 error_msg = '; '.join(errors)
                 print(f"[@testcase_executor:{execution_id}] Validation failed: {error_msg}")
@@ -898,6 +1035,7 @@ class TestCaseExecutor:
                 return
             
             # Record execution start
+            _t = _phase_t0()
             start_metadata = self._create_start_metadata(
                 device_id=device_id,
                 device_model=device_model,
@@ -907,8 +1045,10 @@ class TestCaseExecutor:
                 testcase_name=testcase_name,
                 team_id=team_id,
             )
+            pre_capture_ms.append(('tc.start_metadata', (_phase_t0() - _t) * 1000))
             # Ad-hoc single-step runs (generate_report=False) skip the DB lifecycle
             # entirely — no start row to record, so finalize has nothing to update.
+            _t = _phase_t0()
             if generate_report:
                 script_result_id = record_script_execution_start(
                     team_id=team_id,
@@ -921,10 +1061,13 @@ class TestCaseExecutor:
                 )
             else:
                 script_result_id = None
+            # script_results.started_at is stamped inside this insert.
+            pre_capture_ms.append(('tc.db_record_start', (_phase_t0() - _t) * 1000))
 
             print(f"[@testcase_executor:{execution_id}] Script result ID: {script_result_id}")
-            
+
             # Create execution context
+            _t = _phase_t0()
             context = ScriptExecutionContext(testcase_name)  # 🆕 FIXED: Use provided testcase_name
             context.script_result_id = script_result_id
             context.team_id = team_id
@@ -934,23 +1077,28 @@ class TestCaseExecutor:
             # forwarded identity — resolve it here or the TCnnn prefix is missing
             # from every testcase report.
             context.script_identity = resolve_script_identity(testcase_name, team_id=team_id)
-            
+            pre_capture_ms.append(('tc.create_context', (_phase_t0() - _t) * 1000))
+
             # Start stdout capture for logs (CRITICAL for log upload)
             context.start_stdout_capture()
             print(f"[@testcase_executor:{execution_id}] Started stdout capture for logs")
             self._print_execution_banner(context, testcase_name)
-            
+            for _phase_name, _phase_ms in pre_capture_ms:
+                _log_duration(_phase_name, _phase_ms, '(before the log capture started)')
+
             # Get device
+            _t = _phase_t0()
             from backend_host.src.controllers.controller_manager import get_host
             host = get_host(device_ids=[device_id])
             device = next((d for d in host.get_devices() if d.device_id == device_id), None)
-            
+
             if not device:
                 raise ValueError(f"Device not found: {device_id}")
-            
+
             context.selected_device = device
             context.host = host
             self._set_running_log_path(context, device_id)
+            _log_phase('tc.device_lookup', _t)
             
             # 🆕 Store context reference in execution dict for live tracking
             with self._lock:
@@ -964,23 +1112,31 @@ class TestCaseExecutor:
             nav_context['script_context'] = 'testcase'
             nav_context['current_node_id'] = None
             nav_context['current_node_label'] = None
+            # First navigation takes the entry edge on a web device (BUG-0190).
+            context.start_from_entry_pending = self._starts_from_entry(device)
 
             from shared.src.lib.utils.device_utils import capture_screenshot
             print(f"📸 [@testcase_executor:{execution_id}] Capturing initial state screenshot...")
+            _t = _phase_t0()
             capture_screenshot(context.selected_device, context, f"[@testcase_executor:{execution_id}]")
-            
+            _log_phase('tc.initial_screenshot', _t)
+
             # Initialize scriptConfig inputs and variables in context
+            _t = _phase_t0()
             self._initialize_script_inputs_and_variables(graph, context)
-            
+            _log_phase('tc.init_inputs_and_variables', _t)
+
             # Store context for block execution callbacks
             self.context = context
             self.device = device
-            
+
             # Execute graph with progress tracking
             print(f"[@testcase_executor:{execution_id}] Executing test case...")
             import asyncio
+            _t = _phase_t0()
             execution_result = asyncio.run(self._execute_graph_with_tracking(graph, context, execution_id))
-            
+            _log_phase('tc.graph_execution', _t, f"result={execution_result.get('result_type')} steps={len(context.step_results)}")
+
             # Calculate execution time
             execution_time_ms = int((time.time() - start_time) * 1000)
             
@@ -990,6 +1146,10 @@ class TestCaseExecutor:
             print(f"[@testcase_executor:{execution_id}] Finalizing execution (generate_report={generate_report})...")
             report_url = ""
             logs_url = ""
+            report_tail = None
+            mode = background_report_mode()
+            defer_report = bool(generate_report) and (
+                mode == 'all' or (mode == 'pass' and bool(execution_result.get('success'))))
             try:
                 from shared.src.lib.executors.script_executor import ScriptExecutor
                 executor = ScriptExecutor(testcase_name)
@@ -1000,13 +1160,22 @@ class TestCaseExecutor:
                 context.error_message = execution_result.get('error', '') or ''
                 context.execution_summary = self._build_execution_summary(context, testcase_name, execution_result)
 
+                # The MCP/REST caller keeps polling until the status flips to 'completed'
+                # below. With defer_report, finalize returns once the browser is closed (the
+                # next run's Chrome must find the debug port free) and the verdict is in
+                # script_results; the report tail then runs in the background.
+                _t = _phase_t0()
                 finalization = executor.finalize_execution_context(
                     context,
                     userinterface_name,
                     success=execution_result['success'],
                     error_message=execution_result.get('error'),
                     generate_report=generate_report,
+                    defer_report=defer_report,
                 )
+                report_tail = finalization.get('report_tail')
+                _log_phase('tc.finalize', _t, f"deferred_report={report_tail is not None} mode={mode} "
+                                              '(stdout capture already stopped: journal only)')
                 report_url = finalization.get('report_url', '')
                 logs_url = finalization.get('logs_url', '')
                 print(f"[@testcase_executor:{execution_id}] Report URL: {report_url}")
@@ -1017,6 +1186,7 @@ class TestCaseExecutor:
                 traceback.print_exc()
             
             # Update execution state
+            aborted = False
             with self._lock:
                 if self._executions[execution_id].get('status') != 'aborted':
                     self._executions[execution_id]['status'] = 'completed'
@@ -1033,7 +1203,15 @@ class TestCaseExecutor:
                     }
                 else:
                     # Abort already emitted; don't overwrite state.
-                    return
+                    aborted = True
+            if report_tail is not None:
+                # An aborted run still gets its report, as when finalize ran it inline.
+                self._start_report_tail(execution_id, device_id, report_tail)
+            if aborted:
+                return
+            _log_phase('tc.worker_until_status_completed', _t_worker,
+                       f"execution_id={execution_id} (status pollers see 'completed' from here"
+                       f"{'; report tail running in the background' if report_tail is not None else ''})")
             emit_execution_event(
                 'testcase',
                 execution_id,
@@ -1045,7 +1223,7 @@ class TestCaseExecutor:
                 progress=100,
                 message='Test case execution completed',
             )
-            
+
             print(f"[@testcase_executor:{execution_id}] Execution completed: {execution_result.get('result_type')}")
             
         except Exception as e:
@@ -1295,18 +1473,26 @@ class TestCaseExecutor:
             block_start_time = time.time()
             block_start_iso = datetime.now(timezone.utc).isoformat()
             next_step_number = context.step_counter + 1
+            _block_detail = self._block_phase_detail(current_node, next_step_number)
+            _t_block = _phase_t0()
             step_start_screenshot_path = self._capture_step_screenshot(context, next_step_number, 'start', node_type)
+            _log_phase('block.start_screenshot', _t_block, _block_detail)
             self.current_block_id = current_node_id
+            _t = _phase_t0()
             try:
                 block_result = await self._execute_block(current_node, context)
             except Exception as e:
                 error_msg = f"Block {current_node_id} execution error: {str(e)}"
                 return {'success': False, 'result_type': 'error', 'error': error_msg}
-            
+            _log_phase('block.execute', _t, f"{_block_detail} success={block_result.get('success')}")
+
             block_duration_ms = int((time.time() - block_start_time) * 1000)
             block_end_iso = datetime.now(timezone.utc).isoformat()
+            _t = _phase_t0()
             step_end_screenshot_path = self._capture_step_screenshot(context, next_step_number, 'end', node_type)
-            
+            _log_phase('block.end_screenshot', _t, _block_detail)
+            _t = _phase_t0()
+
             # ✅ Store block output_data for scriptConfig resolution (CRITICAL!)
             if block_result.get('output_data'):
                 if not hasattr(context, 'block_outputs'):
@@ -1341,7 +1527,9 @@ class TestCaseExecutor:
                 step_start_screenshot_path=step_start_screenshot_path,
                 step_end_screenshot_path=step_end_screenshot_path,
             )
-            
+            _log_phase('block.outputs_and_record_step', _t, _block_detail)
+            _log_phase('block.total', _t_block, _block_detail)
+
             # Find next node
             edge_type = 'success' if block_result['success'] else 'failure'
             next_node_id = self._find_next_node(current_node_id, edge_type, edges)
@@ -1492,16 +1680,23 @@ class TestCaseExecutor:
             block_start_time = time.time()
             block_start_iso = datetime.now(timezone.utc).isoformat()
             next_step_number = context.step_counter + 1
+            _block_detail = self._block_phase_detail(current_node, next_step_number)
+            _t_block = _phase_t0()
             step_start_screenshot_path = self._capture_step_screenshot(context, next_step_number, 'start', node_type)
+            _log_phase('block.start_screenshot', _t_block, _block_detail)
+            _t = _phase_t0()
             try:
                 block_result = await self._execute_block(current_node, context)
             except Exception as e:
                 error_msg = f"Block {current_node_id} execution error: {str(e)}"
                 print(f"[@testcase_executor] ERROR: {error_msg}")
                 return {'success': False, 'result_type': 'error', 'error': error_msg}
+            _log_phase('block.execute', _t, f"{_block_detail} success={block_result.get('success')}")
             block_duration_ms = int((time.time() - block_start_time) * 1000)
             block_end_iso = datetime.now(timezone.utc).isoformat()
+            _t = _phase_t0()
             step_end_screenshot_path = self._capture_step_screenshot(context, next_step_number, 'end', node_type)
+            _log_phase('block.end_screenshot', _t, _block_detail)
             
             # Show execution result
             result_status = "SUCCESS" if block_result['success'] else "FAILURE"
@@ -1564,10 +1759,15 @@ class TestCaseExecutor:
         log_buffer = io.StringIO()
         old_stdout = sys.stdout
         old_stderr = sys.stderr
-        
+        # The block's output stays in its own buffer (the step's `logs`), except the
+        # '⏱ <phase> <ms> ms' timing lines: those also go on to the stream that was active
+        # before (the run's stdout capture → execution.txt and the journal). Without this
+        # everything printed inside a block is invisible to both.
+        block_stdout = PhaseLinePassthrough(log_buffer, old_stdout)
+
         try:
             # Redirect stdout/stderr to buffer
-            sys.stdout = log_buffer
+            sys.stdout = block_stdout
             sys.stderr = log_buffer
             
             node_type = node['type']
@@ -1594,7 +1794,15 @@ class TestCaseExecutor:
 
             # Execute based on type
             if node_type == 'action':
-                result = await self._execute_action_block(data, context)
+                # The testcase sets the device up itself: its first navigation starts
+                # from wherever these actions leave it, not from entry (BUG-0190).
+                context.start_from_entry_pending = False
+                try:
+                    result = await self._execute_action_block(data, context)
+                finally:
+                    # The screen may have moved on: the next one-step navigation probes
+                    # again instead of trusting the last verified position (BUG-0195).
+                    self._forget_position_verification('action block')
             elif node_type == 'verification':
                 # Verification blocks run through the VERIFICATION executor (not
                 # the action executor): it evaluates ALL legs and honors the
@@ -1619,12 +1827,19 @@ class TestCaseExecutor:
                 try:
                     result = await self._execute_loop_block({**node, 'data': data}, context)
                 finally:
-                    sys.stdout = log_buffer
+                    sys.stdout = block_stdout
                     sys.stderr = log_buffer
             else:
                 # Try to execute as standard block (evaluate_condition, sleep, etc.)
                 # Block registry auto-discovers all blocks from builder/blocks/ folder
-                result = await self._execute_standard_block(data, context)
+                command = data.get('command') if isinstance(data, dict) else None
+                try:
+                    result = await self._execute_standard_block(data, context)
+                finally:
+                    # custom_code can drive the device, api_call can reach the app: see
+                    # _BLOCKS_WITHOUT_DEVICE_COMMANDS (BUG-0195).
+                    if command not in self._BLOCKS_WITHOUT_DEVICE_COMMANDS:
+                        self._forget_position_verification(f"{command or 'standard'} block")
             
             # Add captured logs to result
             result['logs'] = log_buffer.getvalue()
@@ -1635,6 +1850,20 @@ class TestCaseExecutor:
             sys.stdout = old_stdout
             sys.stderr = old_stderr
     
+    # Standard blocks that never send the device a command or touch the app under test. After
+    # any other non-navigation block that can (action blocks, custom_code, api_call, a block
+    # added later), the last verified position is no longer trusted without a probe (BUG-0195).
+    # Verification blocks only read the screen and keep it.
+    _BLOCKS_WITHOUT_DEVICE_COMMANDS = frozenset({'sleep', 'evaluate_condition', 'get_current_time',
+                                                 'common_operation'})
+
+    def _forget_position_verification(self, reason: str) -> None:
+        nav_context = getattr(self.device, 'navigation_context', None)
+        if not isinstance(nav_context, dict):
+            return
+        from backend_host.src.services.navigation.navigation_executor import forget_position_verification
+        forget_position_verification(nav_context, reason)
+
     async def _execute_action_block(self, data: Dict, context: ScriptExecutionContext) -> Dict[str, Any]:
         """
         Execute an ACTION container block: data['actions'] is an ordered sequence
@@ -1826,10 +2055,12 @@ class TestCaseExecutor:
             
             # Load navigation tree if not already loaded
             if not context.tree_id:
+                _t = _phase_t0()
                 nav_result = navigation_executor.load_navigation_tree(
                     context.userinterface_name,
                     context.team_id
                 )
+                _log_phase('navblock.load_navigation_tree', _t, f"ok={nav_result.get('success')}")
                 if not nav_result['success']:
                     return {
                         'success': False,
@@ -1865,9 +2096,11 @@ class TestCaseExecutor:
             # DB, which that call would do a moment later anyway) -- and keep
             # the id only when it is a node of that graph.
             if target_id:
+                _t = _phase_t0()
                 graph = navigation_executor._sync_unified_graph(
                     context.tree_id, context.team_id, context.userinterface_name
                 )
+                _log_phase('navblock.target_id_precheck_graph_sync', _t)
                 if graph is None:
                     # Nothing to check against (cache miss and the populate
                     # failed): keep id-first behaviour and let navigation
@@ -1886,7 +2119,13 @@ class TestCaseExecutor:
             
             # ✅ Use ExecutionOrchestrator for unified logging and consistent execution
             from backend_host.src.orchestrator import ExecutionOrchestrator
-            
+
+            # Only the testcase's first navigation starts from entry (armed at testcase
+            # start, see _starts_from_entry); later hops keep the tracked position.
+            start_from_entry = bool(getattr(context, 'start_from_entry_pending', False))
+            context.start_from_entry_pending = False
+            _t_nav = _phase_t0()
+
             if target_id:
                 print(f"[@testcase_executor:_execute_navigation_block] Using target_node_id: {target_id}")
                 result = await ExecutionOrchestrator.execute_navigation(
@@ -1896,7 +2135,8 @@ class TestCaseExecutor:
                     target_node_id=target_id,
                     target_node_label=None,  # Explicitly set to None when using ID
                     team_id=context.team_id,
-                    context=context
+                    context=context,
+                    start_from_entry=start_from_entry,
                 )
             elif target_label:
                 print(f"[@testcase_executor:_execute_navigation_block] Using target_node_label: {target_label}")
@@ -1907,7 +2147,8 @@ class TestCaseExecutor:
                     target_node_id=None,  # Explicitly set to None when using label
                     target_node_label=target_label,
                     team_id=context.team_id,
-                    context=context
+                    context=context,
+                    start_from_entry=start_from_entry,
                 )
             else:
                 return {
@@ -1915,7 +2156,9 @@ class TestCaseExecutor:
                     'execution_time_ms': int((time.time() - start_time) * 1000),
                     'error': 'Navigation block missing both target_node_label and target_node_id'
                 }
-            
+            _log_phase('navblock.execute_navigation', _t_nav,
+                       f"target={target_label or target_id} start_from_entry={start_from_entry} success={result.get('success')}")
+
             execution_time_ms = int((time.time() - start_time) * 1000)
             
             # Get the target for the message

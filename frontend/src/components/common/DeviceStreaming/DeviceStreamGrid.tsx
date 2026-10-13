@@ -9,6 +9,7 @@ import React, { useState, useEffect } from 'react';
 import { Box, Typography, CircularProgress, Button } from '@mui/material';
 import { HLSVideoPlayer } from '../HLSVideoPlayer';
 import { useStream } from '../../../hooks/controller/useStream';
+import { useHostSession } from '../../../hooks/useHostSession';
 import { calculateVncScaling } from '../../../utils/vncUtils';
 
 // Component interfaces
@@ -64,6 +65,12 @@ const DeviceStreamItem: React.FC<DeviceStreamItemProps> = ({ device, allHosts, g
     (d) => d.device_id === effectiveDeviceId
   );
   const deviceModel = deviceObject?.device_model || '';
+  const isVnc = deviceModel === 'host_vnc';
+
+  // The stream proxy's auth_request gate 401s /host/<name>/vnc_lite.html without the
+  // host-session cookie, so the iframe is only mounted once the mint resolves (same
+  // pattern as DevicePanel / VNCStream). Not keepAlive: only the handshake is gated.
+  const vncSessionReady = useHostSession(isVnc ? streamUrl : null, false);
   const displayLabel = device.deviceId ? `${device.hostName}:${device.deviceId}` : device.hostName;
   const modelLabel = deviceModel && deviceModel !== 'unknown' ? ` (${deviceModel})` : '';
   
@@ -116,9 +123,9 @@ const DeviceStreamItem: React.FC<DeviceStreamItemProps> = ({ device, allHosts, g
           <Typography variant="caption" color="text.secondary">
             Stream hidden
           </Typography>
-        ) : streamUrl && hostObject ? (
+        ) : streamUrl && hostObject && (!isVnc || vncSessionReady) ? (
           // VNC devices: Show iframe, Others: Use HLSVideoPlayer
-          deviceModel === 'host_vnc' ? (
+          isVnc ? (
             <Box
               sx={{
                 position: 'relative',
@@ -182,7 +189,7 @@ const DeviceStreamItem: React.FC<DeviceStreamItemProps> = ({ device, allHosts, g
               height: '100%',
             }}
           >
-            {isLoadingUrl ? (
+            {isLoadingUrl || (isVnc && streamUrl && hostObject) ? (
               <>
                 <CircularProgress sx={{ color: 'white', mb: 1 }} size={20} />
                 <Typography variant="caption">Loading...</Typography>

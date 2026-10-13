@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 import React, { useMemo } from 'react';
 
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { useR2Url } from '../../hooks/storage/useR2Url';
 
 interface VerificationImageComparisonThumbnailsProps {
@@ -44,6 +45,7 @@ export const VerificationImageComparisonThumbnails: React.FC<
   getCacheBustedUrl,
   onImageClick,
 }) => {
+  const P = useAgentChatPalette();
   const handleClick = () => {
     onImageClick(
       sourceUrl,
@@ -61,13 +63,13 @@ export const VerificationImageComparisonThumbnails: React.FC<
   const getResultColor = () => {
     switch (resultType) {
       case 'PASS':
-        return '#4caf50';
+        return P.success;
       case 'FAIL':
-        return '#f44336';
+        return P.error;
       case 'ERROR':
-        return '#ff9800';
+        return P.warning;
       default:
-        return '#757575';
+        return P.textMuted;
     }
   };
 
@@ -132,10 +134,10 @@ export const VerificationImageComparisonThumbnails: React.FC<
               width: '100%',
               maxWidth: '200px',
               height: 'auto',
-              border: '1px solid #ddd',
+              border: `1px solid ${P.borderColor}`,
               borderRadius: 1,
               overflow: 'hidden',
-              backgroundColor: '#000', // Black background to show image bounds clearly
+              backgroundColor: '#000', // palette: drawn behind the source screenshot — keep dark frame to show image bounds
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -181,10 +183,10 @@ export const VerificationImageComparisonThumbnails: React.FC<
               width: '100%',
               maxWidth: '200px',
               height: 'auto',
-              border: '1px solid #ddd',
+              border: `1px solid ${P.borderColor}`,
               borderRadius: 1,
               overflow: 'hidden',
-              backgroundColor: '#000', // Black background to show image bounds clearly
+              backgroundColor: '#000', // palette: drawn behind the reference screenshot — keep dark frame to show image bounds
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -224,11 +226,11 @@ export const VerificationImageComparisonThumbnails: React.FC<
       {/* Additional Info */}
       <Box sx={{ mt: 1, textAlign: 'center' }}>
         {imageFilter && imageFilter !== 'none' && (
-          <Typography variant="caption" sx={{ display: 'block', color: '#666' }}>
+          <Typography variant="caption" sx={{ display: 'block', color: P.textMuted }}>
             Filter: {imageFilter} (CSS)
           </Typography>
         )}
-        <Typography variant="caption" sx={{ display: 'block', color: '#999', fontSize: '0.7rem' }}>
+        <Typography variant="caption" sx={{ display: 'block', color: P.textMuted, fontSize: '0.7rem' }}>
           Click to view full size
         </Typography>
       </Box>

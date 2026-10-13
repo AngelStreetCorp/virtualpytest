@@ -1,8 +1,9 @@
 """
 AI Queue Status Routes
 
-Provides queue monitoring endpoints that directly query Redis
-without requiring the backend_discard service to be running.
+Scripts: the Redis queue p2_scripts (vpt-discard-scripts).
+Incidents: no queue — vpt-discard-incidents polls the alerts table, so "pending" is the number of
+recent alerts it has not handled yet (check_type IS NULL, last 6 h).
 """
 
 import os
@@ -32,6 +33,16 @@ def peek_redis_queue(queue_name, limit=50):
     """Peek at items in a Redis queue without removing them using RedisQueueProcessor"""
     queue_processor = get_queue_processor()
     return queue_processor.peek_queue(queue_name, limit)
+
+
+def _pending_alerts(include_items: bool):
+    """Alerts the triage worker has not handled yet (it only looks back 6 h)."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat()
+    res = get_supabase_client().table('alerts').select(
+        'id,host_name,device_id,incident_type,status,start_time,created_at', count='exact'
+    ).is_('check_type', 'null').gte('start_time', since).order('start_time', desc=True).limit(
+        50 if include_items else 1).execute()
+    return res.count or 0, (res.data or []) if include_items else []
 
 
 def _get_24h_analysis_summary(team_id=None):
@@ -77,7 +88,7 @@ def _get_24h_analysis_summary(team_id=None):
         summary['scripts']['kept'] = max(0, summary['scripts']['analyzed'] - summary['scripts']['discarded'])
 
         scripts_all_query = supabase.table('script_results').select(
-            'id,script_name,success,discard,check_type,discard_comment,updated_at'
+            'id,script_name,success,discard,check_type,discard_comment,updated_at,jev:metadata->jev'
         ).eq('checked', True).gte('updated_at', since_iso)
         if team_id:
             scripts_all_query = scripts_all_query.eq('team_id', team_id)
@@ -125,7 +136,7 @@ def get_ai_queue_status():
         }), 500
     
     # Get queue items if requested
-    incidents_items = peek_redis_queue('p1_alerts', 50) if include_items else []
+    incidents_length, incidents_items = _pending_alerts(include_items)
     scripts_items = peek_redis_queue('p2_scripts', 50) if include_items else []
     analysis_24h = _get_24h_analysis_summary(team_id=team_id)
     
@@ -141,8 +152,8 @@ def get_ai_queue_status():
         'queues': {
             'incidents': {
                 'name': 'Incidents',
-                'length': queue_lengths.get('p1_alerts', 0),
-                'processed': 0,  # Would need backend_discard stats for this
+                'length': incidents_length,
+                'processed': 0,
                 'discarded': 0,
                 'validated': 0,
                 'items': incidents_items
@@ -163,13 +174,10 @@ def get_ai_queue_status():
 def clear_queues():
     """Clear AI processing queues"""
     data = request.json if request.json else {}
-    queue_type = data.get('queue_type', 'all')  # 'incidents', 'scripts', or 'all'
+    queue_type = data.get('queue_type', 'all')  # 'scripts' or 'all' (incidents have no queue)
     
     results = {}
     
-    if queue_type in ['incidents', 'all']:
-        results['incidents'] = clear_redis_queue('p1_alerts')
-        
     if queue_type in ['scripts', 'all']:
         results['scripts'] = clear_redis_queue('p2_scripts')
         

@@ -5,6 +5,7 @@
  * All timestamps from the backend are expected to be in UTC ISO 8601 format.
  * These utilities convert them to the user's local timezone for display.
  */
+import { getIntlLocale, translate as t, translatePlural as tn } from '../i18n';
 
 /**
  * Get the user's timezone
@@ -25,7 +26,7 @@ export const formatToLocalTime = (utcTimestamp: string | null | undefined): stri
     const date = new Date(utcTimestamp);
     if (isNaN(date.getTime())) return utcTimestamp;
     
-    return date.toLocaleString(undefined, {
+    return date.toLocaleString(getIntlLocale(), {
       year: '2-digit',
       month: '2-digit',
       day: '2-digit',
@@ -45,7 +46,7 @@ export const formatToLocalTimeShort = (utcTimestamp: string | null | undefined):
   try {
     const date = new Date(utcTimestamp);
     if (isNaN(date.getTime())) return utcTimestamp;
-    return date.toLocaleString(undefined, {
+    return date.toLocaleString(getIntlLocale(), {
       year: '2-digit',
       month: '2-digit',
       day: '2-digit',
@@ -68,7 +69,7 @@ export const formatExecutionHistoryTimestamp = (utcTimestamp: string | null | un
     && date.getMonth() === now.getMonth()
     && date.getDate() === now.getDate();
   if (!isToday) return formatToLocalTimeShort(utcTimestamp);
-  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  return date.toLocaleTimeString(getIntlLocale(), { hour: '2-digit', minute: '2-digit', hour12: false });
 };
 
 /**
@@ -83,7 +84,7 @@ export const formatToLocalDate = (utcTimestamp: string | null | undefined): stri
     const date = new Date(utcTimestamp);
     if (isNaN(date.getTime())) return utcTimestamp;
     
-    return date.toLocaleDateString(undefined, {
+    return date.toLocaleDateString(getIntlLocale(), {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -153,15 +154,28 @@ export const formatRelativeTime = (utcTimestamp: string | null | undefined): str
     const diffHour = Math.floor(diffMin / 60);
     const diffDay = Math.floor(diffHour / 24);
     
-    if (diffSec < 10) return 'just now';
-    if (diffSec < 60) return `${diffSec} seconds ago`;
-    if (diffMin < 60) return `${diffMin} minute${diffMin > 1 ? 's' : ''} ago`;
-    if (diffHour < 24) return `${diffHour} hour${diffHour > 1 ? 's' : ''} ago`;
-    if (diffDay < 7) return `${diffDay} day${diffDay > 1 ? 's' : ''} ago`;
+    if (diffSec < 10) return t('just now');
+    if (diffSec < 60) return t('{count} seconds ago', { count: diffSec });
+    if (diffMin < 60) return tn(diffMin, '{count} minute ago', '{count} minutes ago');
+    if (diffHour < 24) return tn(diffHour, '{count} hour ago', '{count} hours ago');
+    if (diffDay < 7) return tn(diffDay, '{count} day ago', '{count} days ago');
     
     return formatToLocalDate(utcTimestamp);
   } catch (e) {
     console.error('Error formatting relative time:', e);
     return utcTimestamp;
   }
+};
+
+/**
+ * Wall-clock time with milliseconds: "HH:MM:SS.mmm" (local, 24h).
+ * Accepts an ISO string or epoch seconds. Used by the monitoring overlay so the
+ * displayed frame time and the last key press time can be compared to the ms.
+ */
+export const formatTimeWithMs = (value: string | number | null | undefined): string => {
+  if (value === null || value === undefined || value === '') return '-';
+  const date = typeof value === 'number' ? new Date(value * 1000) : new Date(value);
+  if (isNaN(date.getTime())) return '-';
+  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`;
 };

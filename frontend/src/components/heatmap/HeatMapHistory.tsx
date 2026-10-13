@@ -32,9 +32,7 @@ interface HeatmapReport {
   generated_at: string;
 }
 
-interface HeatMapHistoryProps {
-  // We can add props later if needed to filter by team, etc.
-}
+type HeatMapHistoryProps = object;
 
 export interface HeatMapHistoryRef {
   refreshReports: () => Promise<void>;
@@ -202,18 +200,21 @@ export const HeatMapHistory = forwardRef<HeatMapHistoryRef, HeatMapHistoryProps>
           <Table
             size="small"
             sx={{
+              tableLayout: 'fixed',
+              minWidth: 620,
               backgroundColor: 'transparent',
               '& .MuiTableRow-root': {
                 backgroundColor: 'transparent !important',
               },
               '& .MuiTableRow-root:hover': {
-                backgroundColor: 'rgba(0, 0, 0, 0.04) !important',
+                backgroundColor: 'transparent !important',
               },
               '& .MuiTableCell-root': {
                 backgroundColor: 'transparent !important',
               },
             }}
           >
+            <colgroup><col style={{ width: 190 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 100 }} /><col style={{ width: 80 }} /></colgroup>
             <TableHead>
               <TableRow sx={{ backgroundColor: 'transparent !important' }}>
                 <TableCell>

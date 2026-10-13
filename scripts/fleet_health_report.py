@@ -4,10 +4,20 @@ fleet_health_report.py — daily per-device fleet health report (GOAL-04).
 
 Usage:
     AUTO_SIGN_TOKEN=... python3 scripts/fleet_health_report.py \\
-        [--servers https://virtualpytest.angelstreet.io,https://rpitest.angelstreet.io] \\
+        [--servers <url>,<url>]   # default: FLEET_HEALTH_SERVERS from .env (required) \\
         [--team 7fdeb4bb-3639-4ec3-959f-b54769a219ce] \\
-        [--ai]                      # add per-device AI diagnosis (needs AI provider keys in env) \\
-        [--output fleet_health_YYYY-MM-DD.md]
+        [--ai]                      # per-device AI diagnosis via the server AI gateway, usage text.report (needs SERVER_URL + API_KEY in env) \\
+        [--output fleet_health_YYYY-MM-DD.md] \\
+        [--live]                    # 10-minute live check of the capture pipeline only (see below)
+
+Two systemd timers run this on the server VM and the Grafana dashboard shows both:
+  vpt-fleet-health.timer       nightly 07:00, --ai --upload-r2  -> run_kind=nightly (history)
+  vpt-fleet-health-live.timer  every 10 min, --live            -> run_kind=live (pruned after 24h)
+
+--live checks only what the incident page cannot see: host offline, monitoring unreachable,
+capture stalled or lagging. Blackscreen / freeze / audio loss are raised as incidents by the
+capture monitor itself, so live mode skips the alerts and script-results fetches (the two
+expensive calls) and leaves those signals to the incident page and the nightly check.
 
 Passive signals only — NO probe takes control of any device (GOAL-04 guardrail):
   - host registry + heartbeat:  GET  /server/system/getAllHosts
@@ -43,10 +53,7 @@ CTX.verify_mode = ssl.CERT_NONE
 
 UA = {"User-Agent": "fleet-health-report/1.0", "Content-Type": "application/json"}
 
-DEFAULT_SERVERS = os.environ.get(
-    "FLEET_HEALTH_SERVERS",
-    "https://virtualpytest.angelstreet.io,https://rpitest.angelstreet.io",
-)
+DEFAULT_SERVERS = os.environ.get("FLEET_HEALTH_SERVERS", "")
 DEFAULT_TEAM = os.environ.get("FLEET_HEALTH_TEAM", "7fdeb4bb-3639-4ec3-959f-b54769a219ce")
 DEFAULT_TOKEN = os.environ.get("AUTO_SIGN_TOKEN", "")
 
@@ -64,6 +71,10 @@ ACTIVITY_WINDOW_H = 2
 # don't animate the desktop) and there is no audio path — freeze/audio_loss incidents
 # are noise on these models, never faults.
 DESKTOP_MODELS = {"host_vnc"}
+
+# Live rows only answer "what is the state right now" — older ones are deleted on each
+# live run so a 10-minute cadence does not grow the table without bound.
+LIVE_RETENTION_H = 24
 
 
 def _url(server: str, path: str, token: str, **params) -> str:
@@ -192,6 +203,48 @@ def device_is_active(device: dict, run: dict | None) -> bool:
     return False
 
 
+def capture_layer(host: dict, device: dict, latest: dict | None,
+                  latest_err: str | None) -> tuple[str | None, str, float | None]:
+    """Host + capture-pipeline checks shared by the nightly and live runs.
+
+    Returns (verdict, reason, frame_age); verdict None = pipeline healthy, frame fresh
+    enough to judge its content.
+    """
+    if host.get("status") == "offline":
+        return "DOWN", (f"host offline (network/host layer) — "
+                        f"last seen {host.get('last_seen', '?')}"), None
+
+    if not device.get("video_capture_path"):
+        return "UNKNOWN", "no capture path configured — no passive video signal available", None
+
+    if latest_err:
+        return "UNKNOWN", f"monitoring unreachable ({latest_err}) — cannot assess capture layer", None
+
+    if not latest or not latest.get("success"):
+        msg = (latest or {}).get("error", "no monitoring data")
+        return "DEGRADED", f"capture layer: {msg} (monitor not running or no frames yet)", None
+
+    jd = latest.get("json_data") or {}
+    frame_age = age_seconds(parse_ts(jd.get("timestamp") or latest.get("timestamp")))
+
+    if frame_age is not None and frame_age > FRESH_DOWN_S:
+        return "DOWN", (f"capture stalled — latest frame {human_duration(frame_age)} old "
+                        f"(ffmpeg/monitor layer on host, not the device)"), frame_age
+    return None, "", frame_age
+
+
+def assess_live(host: dict, device: dict, latest: dict | None,
+                latest_err: str | None) -> tuple[str, str, str]:
+    """Live verdict: is the capture pipeline producing fresh frames? Content is not judged."""
+    verdict, reason, frame_age = capture_layer(host, device, latest, latest_err)
+    if verdict:
+        return verdict, "—", reason
+    if frame_age is not None and frame_age > FRESH_WARN_S:
+        return "DEGRADED", "—", f"frames lagging ({human_duration(frame_age)} old)"
+    fresh = f"capture fresh ({human_duration(frame_age)})" if frame_age is not None else "capture fresh"
+    return "OK", "—", fresh
+
+
 def assess_device(host: dict, device: dict, latest: dict | None, latest_err: str | None,
                   asum: dict, run: dict | None) -> tuple[str, str, str]:
     """Return (verdict, since, reason).
@@ -209,30 +262,16 @@ def assess_device(host: dict, device: dict, latest: dict | None, latest_err: str
             return "—"
         return f"{dt.strftime('%m-%d %H:%M')} ({human_duration((now - dt).total_seconds())})"
 
-    if host.get("status") == "offline":
-        return "DOWN", "—", (f"host offline (network/host layer) — "
-                             f"last seen {host.get('last_seen', '?')}")
+    if (host.get("status") != "offline" and not device.get("video_capture_path")
+            and open_since):
+        worst = min(open_since.items(), key=lambda kv: kv[1])
+        return "DEGRADED", since_str(worst[0]), \
+            f"open incidents: {', '.join(sorted(open_since))} (no video signal to cross-check)"
 
-    if not device.get("video_capture_path"):
-        if open_since:
-            worst = min(open_since.items(), key=lambda kv: kv[1])
-            return "DEGRADED", since_str(worst[0]), \
-                f"open incidents: {', '.join(sorted(open_since))} (no video signal to cross-check)"
-        return "UNKNOWN", "—", "no capture path configured — no passive video signal available"
-
-    if latest_err:
-        return "UNKNOWN", "—", f"monitoring unreachable ({latest_err}) — cannot assess capture layer"
-
-    if not latest or not latest.get("success"):
-        msg = (latest or {}).get("error", "no monitoring data")
-        return "DEGRADED", "—", f"capture layer: {msg} (monitor not running or no frames yet)"
-
+    verdict, reason, frame_age = capture_layer(host, device, latest, latest_err)
+    if verdict:
+        return verdict, "—", reason
     jd = latest.get("json_data") or {}
-    frame_age = age_seconds(parse_ts(jd.get("timestamp") or latest.get("timestamp")))
-
-    if frame_age is not None and frame_age > FRESH_DOWN_S:
-        return "DOWN", "—", (f"capture stalled — latest frame {human_duration(frame_age)} old "
-                             f"(ffmpeg/monitor layer on host, not the device)")
 
     active = device_is_active(device, run)
     desktop = device.get("device_model") in DESKTOP_MODELS
@@ -312,6 +351,25 @@ def db_insert_rows(rows: list[dict]) -> str:
         return f"FAILED ({e})"
 
 
+def db_prune_live(before: datetime) -> str:
+    """Delete live rows older than `before`. Best-effort, same auth as db_insert_rows."""
+    base = os.environ.get("SUPABASE_URL", "").rstrip("/")
+    key = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "") or os.environ.get("SUPABASE_ANON_KEY", "")
+    if not base or not key:
+        return "skipped (SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not in env)"
+    query = urllib.parse.urlencode({"run_kind": "eq.live",
+                                    "generated_at": f"lt.{before.isoformat()}"})
+    try:
+        req = urllib.request.Request(
+            f"{base}/rest/v1/fleet_health?{query}", method="DELETE",
+            headers={"apikey": key, "Authorization": f"Bearer {key}", "Prefer": "return=minimal"},
+        )
+        with urllib.request.urlopen(req, context=CTX, timeout=30) as resp:
+            return f"OK (HTTP {resp.status})"
+    except Exception as e:
+        return f"FAILED ({e})"
+
+
 def ai_analyze(ctx: dict) -> str:
     """One-shot AI diagnosis for a problem device via the shared provider layer.
 
@@ -321,6 +379,8 @@ def ai_analyze(ctx: dict) -> str:
     try:
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         from shared.src.lib.utils.ai_utils import call_text_ai
+        from shared.src.lib.ai import caller as ai_caller
+        ai_caller.set_process_default(origin='background', job='fleet_health_report')
     except Exception as e:
         return f"(AI unavailable: {e})"
     prompt = (
@@ -337,7 +397,7 @@ def ai_analyze(ctx: dict) -> str:
         "(2) the single next action."
     )
     try:
-        res = call_text_ai(prompt, max_tokens=120, temperature=0.1)
+        res = call_text_ai(prompt, 'text.report', max_tokens=120, temperature=0.1)
         if res.get("success"):
             return " ".join(res.get("content", "").split())
         return f"(AI failed: {res.get('error', 'unknown')})"
@@ -371,13 +431,19 @@ def main() -> int:
     ap.add_argument("--no-db", action="store_true",
                     help="skip inserting per-device rows into the fleet_health table")
     ap.add_argument("--output", default=None, help="output .md path")
+    ap.add_argument("--live", action="store_true",
+                    help="live check: tag rows run_kind=live and prune live rows older "
+                         f"than {LIVE_RETENTION_H}h (the nightly run is the history)")
     args = ap.parse_args()
+    if not args.servers:
+        ap.error("--servers or the FLEET_HEALTH_SERVERS environment variable is required (comma-separated server URLs)")
+    run_kind = "live" if args.live else "nightly"
 
     run_ts = datetime.now(timezone.utc)  # uniform per run — all DB rows share it
     db_rows: list[dict] = []
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    default_name = f"fleet_health_{today}.md"
+    default_name = "fleet_health_live.md" if args.live else f"fleet_health_{today}.md"
     if args.output and (args.output.endswith(os.sep) or os.path.isdir(args.output)):
         out_path = os.path.join(args.output, default_name)   # --output may be a directory
     else:
@@ -387,7 +453,7 @@ def main() -> int:
     tally = {"OK": 0, "IDLE": 0, "DEGRADED": 0, "DOWN": 0, "UNKNOWN": 0}
     summary_rows: list[tuple[str, str, str, str, str]] = []  # (server, host, device, verdict, since)
 
-    ai_col = args.ai
+    ai_col = args.ai and not args.live
     header = ("| Device | Model | Verdict | Since | Reason | 24h incidents | Last script run |"
               + (" AI analysis |" if ai_col else ""))
     divider = "|---|---|---|---|---|---|---|" + ("---|" if ai_col else "")
@@ -399,16 +465,16 @@ def main() -> int:
             sections.append(f"## {server}\n\n**UNREACHABLE:** getAllHosts failed: {e}\n")
             continue
 
-        try:
-            alerts = fetch_alerts(server, args.token)
-        except Exception as e:
-            alerts = []
-            sections.append(f"> ⚠️ {server}: alerts fetch failed ({e}) — incident columns empty\n")
-        try:
-            results = fetch_script_results(server, args.token, args.team)
-        except Exception as e:
-            results = []
-            sections.append(f"> ⚠️ {server}: script-results fetch failed ({e}) — last-run column empty\n")
+        alerts, results = [], []
+        if not args.live:  # live judges the capture pipeline only — see module docstring
+            try:
+                alerts = fetch_alerts(server, args.token)
+            except Exception as e:
+                sections.append(f"> ⚠️ {server}: alerts fetch failed ({e}) — incident columns empty\n")
+            try:
+                results = fetch_script_results(server, args.token, args.team)
+            except Exception as e:
+                sections.append(f"> ⚠️ {server}: script-results fetch failed ({e}) — last-run column empty\n")
 
         sections.append(f"## {server}\n")
         for host in sorted(hosts, key=lambda h: h.get("host_name", "")):
@@ -433,7 +499,10 @@ def main() -> int:
                     except Exception as e:
                         latest_err = str(e)
 
-                verdict, since, reason = assess_device(host, device, latest, latest_err, asum, run)
+                if args.live:
+                    verdict, since, reason = assess_live(host, device, latest, latest_err)
+                else:
+                    verdict, since, reason = assess_device(host, device, latest, latest_err, asum, run)
                 tally[verdict] += 1
                 summary_rows.append((server.split("//")[-1], host_name, device_name, verdict, since))
 
@@ -474,6 +543,7 @@ def main() -> int:
                     "last_script_name": run.get("script_name") if run else None,
                     "last_script_success": run.get("success") if run else None,
                     "last_script_at": (run.get("completed_at") or run.get("created_at")) if run else None,
+                    "run_kind": run_kind,
                 })
 
                 sections.append(
@@ -484,7 +554,7 @@ def main() -> int:
 
     # Assemble report: summary first
     lines = [
-        f"# Fleet Health Report — {today}",
+        f"# Fleet Health Report — {today}" + (" (live check)" if args.live else ""),
         "",
         f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')} · "
         "passive probes only (no device control taken)",
@@ -544,6 +614,9 @@ def main() -> int:
             # nothing except the visibility it should have had all along.
             print(f"ERROR: DB insert: {status}", file=sys.stderr)
             return 1
+        if args.live:
+            print(f"DB prune live rows >{LIVE_RETENTION_H}h: "
+                  f"{db_prune_live(run_ts - timedelta(hours=LIVE_RETENTION_H))}")
     return 0
 
 

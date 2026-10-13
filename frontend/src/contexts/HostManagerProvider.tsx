@@ -18,6 +18,7 @@ import { useIdleLockMonitor } from '../hooks/useIdleLockMonitor';
 import { HostDataContext } from './HostDataContext';
 import { HostControlContext } from './HostControlContext';
 import { useAuthContext } from './auth';
+import { isAuthEnabled } from '../lib/supabase';
 import { useWorkspaceContext } from './workspace/WorkspaceContext';
 
 const log = (..._args: unknown[]): void => {};
@@ -60,7 +61,7 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
   // ========================================
 
   // Get server selection and server data from ServerManager (now centralized)
-  const { selectedServer, availableServers, setSelectedServer, serverHostsData, isLoading: serverLoading, error: serverError, refreshServerData } = useServerManager();
+  const { selectedServer, availableServers, setSelectedServer, serverHostsData, isLoading: serverLoading, error: serverError, refreshServerData, serverAuthStates } = useServerManager();
   
   // Toast notifications
   const { showWarning, showError } = useToast();
@@ -112,7 +113,12 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
 
   // Use hosts from ServerManager instead of fetching separately
   const [availableHosts, setAvailableHosts] = useState<Host[]>([]);
-  const isLoading = serverLoading;
+  // availableHosts is copied from ServerManager in an effect, so for one render after
+  // the server data arrives (or straight from the cache on mount) it is still empty.
+  // Report loading until it catches up, otherwise consumers treat that render as
+  // "loaded with no devices" (BUG-0387: Rec pruned a saved Target filter).
+  const hostsNotSynced = allHostsFromServers.length > 0 && availableHosts.length === 0;
+  const isLoading = serverLoading || hostsNotSynced;
   const error = serverError;
 
   // Panel and UI state
@@ -159,8 +165,22 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
 
   // Display name attached to manual locks so other viewers see WHO holds
   // control instead of the generic "take-control" label.
-  const { profile } = useAuthContext();
+  const { profile, isAuthenticated } = useAuthContext();
   const userName = profile?.full_name || null;
+
+  // Whether the selected server will answer us at all right now. `/server/control/
+  // lockedDevices` sits behind the global /server/* auth guard, and this provider mounts
+  // above the login gate — so it used to fire (and 401) on every logged-out page load,
+  // and again for a signed-in user who selected a server they hold no session for
+  // (per-server identities, TASK-18). ServerManagerProvider already skips those servers;
+  // this is the same rule.
+  //
+  // Held in a ref so refreshServerLocks keeps its stable identity — it is captured by the
+  // socket handlers and mount effects below, which must not re-bind on every auth tick.
+  const canCallSelectedServer =
+    (!isAuthEnabled || isAuthenticated) && serverAuthStates[selectedServer] !== 'needs-auth';
+  const canCallSelectedServerRef = useRef(canCallSelectedServer);
+  canCallSelectedServerRef.current = canCallSelectedServer;
 
   // Get current location to determine when lock sync is needed
   const location = useLocation();
@@ -317,6 +337,12 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
   // ========================================
 
   const refreshServerLocks = useCallback(async (): Promise<Map<string, any>> => {
+    // No session for this server → the request can only 401. Report "no locks known"
+    // rather than spending a round trip on it.
+    if (!canCallSelectedServerRef.current) {
+      return new Map<string, any>();
+    }
+
     // Coalesce concurrent callers onto the same in-flight request. The reclaim
     // effect on mount and the socket `connect` handler both call this within a
     // few milliseconds of each other; without this, the page fires two identical
@@ -502,7 +528,11 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
       device_id?: string,
       sessionId?: string,
       tree_id_or_userinterface_id?: string,
-      id_type?: 'tree_id' | 'userinterface_id'  // NEW: specify which ID type
+      id_type?: 'tree_id' | 'userinterface_id',  // NEW: specify which ID type
+      // Scope the server should warm the navigation cache for. The cache is keyed
+      // per variant, so without it the warm-up fills base while a variant run
+      // rebuilds the hierarchy mid-run (BUG-0202).
+      variant?: string | null,
     ): Promise<{
       success: boolean;
       error?: string;
@@ -546,6 +576,10 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
             requestBody.tree_id = tree_id_or_userinterface_id;
           }
           // team_id is automatically added by buildServerUrl
+        }
+
+        if (variant) {
+          requestBody.variant = variant;
         }
 
         const response = await fetch(buildServerUrl('/server/control/takeControl'), {

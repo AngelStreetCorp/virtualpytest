@@ -94,7 +94,7 @@ class VerificationValidator:
                         f"\n\n❌ Invalid verification_type '{verification_type}'"
                         f"\n💡 Valid types: text, image, adb, appium, web, audio, video"
                     )
-                elif 'selector' in verification.get('params', {}) and device_model in ['android_mobile', 'android_tv', 'fire_tv']:
+                elif 'selector' in verification.get('params', {}) and device_model in ['android_mobile', 'android_tv', 'fire_tv_fireos']:
                     error_msg += (
                         f"\n\n❌ Mobile devices use 'search_term', not 'selector'"
                         f"\n💡 Use analyze_screen_for_verification() with platform='mobile'"
@@ -178,7 +178,7 @@ class VerificationValidator:
             'android_tv': 'device3',
             'web': 'host',
             'host_vnc': 'host',
-            'fire_tv': 'device3',
+            'fire_tv_fireos': 'device3',
             'stb': 'device1'
         }
         return model_to_device.get(device_model, 'device1')

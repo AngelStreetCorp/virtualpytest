@@ -1,0 +1,80 @@
+{
+  "_comment": "Stub node fingerprints for the switch userinterface. EXPERIMENT-01 §1.1 says the Switch has no userinterface loaded in the production DB, so this fixture is hand-authored (the operator's job, separate from this PR). Same v6 fingerprint shape as stb_tv_node_fps.json — the matcher consumes both through the same path. No real brand names: the userinterface 'switch' and the 4 node labels are placeholders (AGENTS.md leak-gate).",
+  "userinterface": "switch",
+  "company": null,
+  "tier": "rule",
+  "nodes": [
+    {
+      "node_id": "switch_home",
+      "label": "switch_home",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "switch_home",
+        "text": ["switch_home"]
+      }
+    },
+    {
+      "node_id": "switch_game_tile",
+      "label": "switch_game_tile",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "switch_game_tile",
+        "text": ["switch_game_tile"]
+      }
+    },
+    {
+      "node_id": "switch_in_game",
+      "label": "switch_in_game",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "switch_in_game",
+        "text": ["switch_in_game"]
+      }
+    },
+    {
+      "node_id": "switch_error_dialog",
+      "label": "switch_error_dialog",
+      "fingerprint": {
+        "v": 6,
+        "dhash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "regions": {
+          "top_left": "00000000000000000000000000000000",
+          "top": "00000000000000000000000000000000",
+          "top_right": "00000000000000000000000000000000",
+          "middle": "00000000000000000000000000000000",
+          "bottom": "00000000000000000000000000000000"
+        },
+        "focus": {"kind": "none"},
+        "title": "switch_error_dialog",
+        "text": ["switch_error_dialog"]
+      }
+    }
+  ]
+}

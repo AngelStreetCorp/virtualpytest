@@ -1,0 +1,36 @@
+{
+  "id": "sport/soccer",
+  "category": "sport",
+  "subcategory": "soccer",
+  "hints": "football pitch, players in two kits, a score bug with two team codes, a score and a match clock",
+  "entity": [
+    "home_team",
+    "away_team",
+    "competition"
+  ],
+  "identify_interval_s": 60,
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "home_team_name": "full name of the home team (the first team shown)",
+      "away_team_name": "full name of the away team",
+      "competition": "competition and round, e.g. 'UEFA Champions League, league phase'",
+      "venue": "stadium and city",
+      "kickoff": "kickoff time with timezone",
+      "home_lineup": "list of the home starting XI player names",
+      "away_lineup": "list of the away starting XI player names",
+      "home_coach": "home team head coach",
+      "away_coach": "away team head coach",
+      "standings": "the current table of this competition (for a league phase or group: that table), as a list of {rank, team, played, won, drawn, lost, goals_for, goals_against, points}: the top 8 rows plus the rows of both teams of this match"
+    }
+  },
+  "track": {
+    "type": "scoreboard",
+    "interval_s": 10,
+    "steps": {
+      "1": "goal"
+    },
+    "clock": "up"
+  },
+  "render": "match"
+}

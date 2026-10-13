@@ -7,11 +7,11 @@ import os
 import re
 import threading
 from datetime import datetime, timezone
-from pathlib import Path
 
 from backend_server.src.integrations import testrail_client
+from backend_server.src.lib.utils.integration_state import state_path
 
-_CONFIG_PATH = Path(__file__).parents[2] / 'config' / 'integrations' / 'testrail.json'
+_CONFIG_PATH = state_path('testrail.json')
 _LOCK = threading.RLock()
 
 

@@ -79,6 +79,14 @@ vi.mock('../../frontend/src/hooks/useServerManager', () => ({
   }),
 }));
 
+// The page reads the signed-in user via useAuthContext(), which throws outside an AuthProvider
+// (since BUG-0186 / useUserSession). Mock the context hook rather than put a Supabase session behind a render test.
+vi.mock('../../frontend/src/contexts/auth/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../frontend/src/contexts/auth/AuthContext')>()),
+  useAuthContext: () => authContextValue,
+}));
+const authContextValue = { user: { id: 'test-user', email: 'tester@vpt.local' } };
+
 import Workspaces from '../../frontend/src/pages/Workspaces';
 
 describe('Workspaces page', () => {
@@ -102,9 +110,9 @@ describe('Workspaces page', () => {
       </BrowserRouter>,
     );
 
-    expect(screen.getByRole('heading', { name: 'Workspaces Management' })).toBeInTheDocument();
-    expect(
-      await screen.findByText('No workspaces found. Create your first workspace to get started.'),
-    ).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Workspaces' })).toBeInTheDocument();
+    // The built-in "All" workspace is on every server and never stored, so an empty list still
+    // shows that one row (BUG-0292) instead of the old "No workspaces found" empty state.
+    expect(await screen.findByText('Built-in')).toBeInTheDocument();
   });
 });

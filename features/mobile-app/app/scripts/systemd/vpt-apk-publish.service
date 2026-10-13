@@ -1,0 +1,8 @@
+[Unit]
+Description=VirtualPyTest APK auto-publish (rebuild intermediary APK / publish release APK if due)
+
+[Service]
+Type=oneshot
+# Runs the script as it is on origin/main, so the checkout's own branch never matters.
+ExecStart=/bin/bash -c 'git -C "$HOME/virtualpytest" fetch -q origin main && git -C "$HOME/virtualpytest" show origin/main:features/mobile-app/app/scripts/auto-publish.sh | bash'
+Nice=10

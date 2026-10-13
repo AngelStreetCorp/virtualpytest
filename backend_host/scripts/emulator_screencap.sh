@@ -1,7 +1,27 @@
 #!/bin/bash
 
-# Usage: ./emulator_screencap.sh [serial]
-# Feeds /var/www/html/stream/emulator_frames/latest.png from adb screencap for run_ffmpeg.sh.
+# Usage: ./emulator_screencap.sh [serial] [output_file] [device_id]
+#
+# Feeds `output_file` from `adb -s serial exec-out screencap -p` every 0.2 s, so
+# run_ffmpeg.sh's `imagefile` source type can read it as a live frame for one
+# device. One instance per device — multiple real handsets on a single host
+# (e.g. a Mac with several USB-tethered Android phones) need one process per
+# serial, each writing to its own path.
+#
+# Argument resolution (all optional, all default to the original emulator-5554
+# behaviour so the singleton vpt-emulator-fifo.service keeps working):
+#   $1 serial        — adb serial. Default: emulator-5554.
+#                      Ignored if $3 (device_id) is set and resolves the serial
+#                      from backend_host/src/.env (DEVICE<n>_ADB_SERIAL).
+#   $2 output_file   — full path to the PNG the loop writes. Default:
+#                      /var/www/html/stream/emulator_frames/latest.png
+#                      (the canonical emulator path; pair with
+#                      DEVICEn_VIDEO=/var/www/html/stream/emulator_frames/latest.png).
+#                      Ignored if $3 is set — resolved from DEVICEn_VIDEO.
+#   $3 device_id     — logical slot, e.g. "device6". When set, both the serial
+#                      and the output file are read from the host .env so the
+#                      same loop binary serves any number of slots. The matching
+#                      template unit is vpt-emulator-fifo@<device_id>.service.
 #
 # Self-heal: the emulator sometimes finishes booting with every SurfaceFlinger layer
 # hidden — the guest keeps rendering but the display composes nothing, so screencap
@@ -10,9 +30,32 @@
 
 umask 0000
 
-SERIAL="${1:-emulator-5554}"
-OUT_DIR=/var/www/html/stream/emulator_frames
-OUT="$OUT_DIR/latest.png"
+SERIAL="${1:-}"
+OUT_FILE="${2:-}"
+DEV_ID="${3:-}"
+
+# Resolve serial + output file from .env when $3 (device_id) is set. Lets the
+# vpt-emulator-fifo@.service template unit stay generic — one unit, every slot.
+if [ -n "$DEV_ID" ]; then
+  ENV_FILE="/opt/virtualpytest/backend_host/src/.env"
+  if [ ! -f "$ENV_FILE" ]; then
+    echo "emulator_screencap.sh: DEV_ID=$DEV_ID but $ENV_FILE is missing" >&2
+    exit 1
+  fi
+  DEV_ID_UPPER=$(echo "$DEV_ID" | tr '[:lower:]' '[:upper:]')
+  if [ -z "$SERIAL" ]; then
+    SERIAL=$(grep -E "^${DEV_ID_UPPER}_ADB_SERIAL=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '\r')
+  fi
+  if [ -z "$OUT_FILE" ]; then
+    OUT_FILE=$(grep -E "^${DEV_ID_UPPER}_VIDEO=" "$ENV_FILE" | head -1 | cut -d= -f2- | tr -d '\r')
+  fi
+fi
+
+# Defaults — preserve the original emulator-5554 behaviour.
+SERIAL="${SERIAL:-emulator-5554}"
+OUT_FILE="${OUT_FILE:-/var/www/html/stream/emulator_frames/latest.png}"
+OUT_DIR=$(dirname "$OUT_FILE")
+OUT="$OUT_FILE"
 
 CHECK_INTERVAL=30
 STRIKES_TO_RECOVER=2

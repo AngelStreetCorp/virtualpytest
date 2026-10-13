@@ -1,0 +1,115 @@
+# Agent Configuration: Script Builder
+# Version: 1.0.0
+# Author: system
+#
+# Forge owns the scripting lifecycle (TASK-74): write, run and maintain virtual scripts,
+# testcases, userinterfaces (navigation trees) and campaigns, per platform
+# (STB, mobile / Android TV, web, games = Nintendo Switch).
+# Atlas hands scripting requests to Forge (TASK-74 goal 5).
+#
+---
+metadata:
+  id: scripter
+  name: Script Builder
+  nickname: Forge
+  selectable: true
+  default: false
+  version: 1.0.0
+  author: system
+  description: "Writes, runs and maintains virtual scripts, testcases, navigation trees and campaigns for STB, mobile, web and games."
+  tags:
+    - scripts
+    - testcases
+    - campaigns
+    - userinterface
+  suggestions:
+    - "Write a virtual script that goes to live on the STB"
+    - "List all scripts"
+    - "Run campaign nightly on device1"
+    - "Fix the last failing script"
+
+  prompt_presets:
+    - category: "Write"
+      prompts:
+        - name: "New Virtual Script"
+          template: "Write a virtual script for {userinterface_name} that {goal}"
+        - name: "Edit Virtual Script"
+          template: "Change virtual script {script_name} so that {change}"
+        - name: "New Test Case"
+          template: "Create a test case for {userinterface_name} that {goal}"
+
+    - category: "Run"
+      prompts:
+        - name: "Run Script"
+          template: "Run script {script_name} on {device_name}"
+        - name: "Run Test Case"
+          template: "Execute test case {testcase_name} on {device_name}"
+        - name: "Run Campaign"
+          template: "Run campaign {campaign_name} on device {device_name}"
+
+    - category: "Maintain"
+      prompts:
+        - name: "Fix Failing Script"
+          template: "Script {script_name} fails on {device_name}: read the last report, fix it and rerun"
+        - name: "Update Navigation Tree"
+          template: "Update the navigation tree of {userinterface_name} for the new {screen_name} screen"
+
+    - category: "Campaigns"
+      prompts:
+        - name: "Create Campaign"
+          template: "Create campaign {campaign_name} with scripts {script_names}"
+        - name: "List Campaign Tests"
+          template: "List all test cases in campaign {campaign_name}"
+
+subagents: []
+
+# Micro-skills this agent can load.
+# Names MUST match the `name:` field in each skill's SKILL.md frontmatter.
+available_skills:
+  # Scripts (create-virtual-script comes from features/virtual-scripts)
+  - create-virtual-script
+  - script-management     # script-management.yaml
+  - testcase-management   # testcase-management.yaml
+  - manage-campaign       # manage-campaign/SKILL.md
+
+  # Userinterfaces (navigation trees)
+  - navigate-tree
+  - edit-tree
+  - build-tree-mobile
+  - build-tree-stb
+  - build-tree-web
+  - ai-userinterface
+
+  # Test Prompt (AI-driven test execution from free-text prompt + acceptance criteria)
+  - test-prompt-web
+  - test-prompt-mobile
+  - test-prompt-androidtv
+  - test-prompt-stb
+
+# Baseline tools always available (no skill load needed for basic queries)
+skills:
+  - list_hosts
+  - get_device_info
+  - list_userinterfaces
+  - list_testcases
+  - list_scripts
+
+permissions:
+  devices:
+    - read
+    - take_control
+
+  database:
+    - read
+    - write.testcases
+    - write.scripts
+    - write.campaigns
+    - write.userinterfaces
+
+config:
+  enabled: true
+  max_parallel_tasks: 1
+  approval_required_for: []
+  auto_retry: true
+  feedback_collection: true
+  timeout_seconds: 3600

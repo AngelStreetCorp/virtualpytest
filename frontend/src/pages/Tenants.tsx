@@ -5,6 +5,8 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, TextField, Stack,
   Tooltip,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -18,6 +20,7 @@ import { useProfile } from '../hooks/auth/useProfile';
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 const Tenants: React.FC = () => {
+  const P = useAgentChatPalette();
   const { isPlatformAdmin } = useProfile();
   const { tenants, loading, error, loadTenants, createTenant, updateTenant, deleteTenant } = useTenants();
 
@@ -84,11 +87,11 @@ const Tenants: React.FC = () => {
   };
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
+    <Container maxWidth="lg" sx={{ ...(pageSurfaceSx(P) as object), py: 4 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-        <TenantIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+        <TenantIcon sx={{ fontSize: 28, color: P.accentText }} />
         <Box sx={{ flexGrow: 1 }}>
-          <Typography variant="h4" component="h1" fontWeight="bold">
+          <Typography component="h1" sx={PAGE_TITLE_SX}>
             Tenants
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -123,7 +126,8 @@ const Tenants: React.FC = () => {
 
       <Paper>
         <TableContainer>
-          <Table>
+          <Table sx={{ tableLayout: 'fixed', minWidth: 860, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
+<colgroup><col style={{ width: 150 }} /><col style={{ width: 130 }} /><col /><col style={{ width: 80 }} /><col style={{ width: 80 }} /><col style={{ width: 130 }} /><col style={{ width: 120 }} /></colgroup>
             <TableHead>
               <TableRow>
                 <TableCell>Name</TableCell>
@@ -153,7 +157,7 @@ const Tenants: React.FC = () => {
                 </TableRow>
               )}
               {tenants.map((t) => (
-                <TableRow key={t.id} hover>
+                <TableRow key={t.id}>
                   <TableCell>
                     <Stack direction="row" alignItems="center" spacing={1}>
                       <Typography fontWeight={500}>{t.name}</Typography>

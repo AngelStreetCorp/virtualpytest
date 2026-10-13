@@ -135,6 +135,8 @@ services:
     volumes:
       - ../../test_scripts:/app/test_scripts:ro
       - ../../test_campaign:/app/test_campaign:ro
+      # Integration state written at runtime (TestRail/JIRA/Slack tokens), kept across recreates
+      - server-config:/var/lib/vpt_user/.config/virtualpytest
     ports:
       - "5109:5109"
     depends_on:
@@ -237,6 +239,8 @@ services:
       - ./grafana/grafana_entrypoint.sh:/grafana_entrypoint.sh:ro
       - grafana-data:/var/lib/grafana
       - ../../infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # template.json is the Atlas dashboard template, not a dashboard: hide it from file provisioning
+      - /dev/null:/var/lib/grafana/dashboards/template.json:ro
     environment:
       # Read-only role created by db-init; the datasource uid is `supabase-postgres`
       SUPABASE_DB_URI: postgresql://grafana_reader:${GRAFANA_DB_PASSWORD}@db:5432/postgres
@@ -257,6 +261,7 @@ services:
         condition: service_completed_successfully
 
 volumes:
+  server-config:
   redis-data:
   minio-data:
   stream-data:

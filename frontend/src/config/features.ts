@@ -12,6 +12,8 @@ import type { ComponentType, ReactElement, ReactNode } from 'react';
 import { matchPath } from 'react-router-dom';
 import { features as loaded } from 'virtual:vpt-features';
 
+import type { ModDefinition } from '../mods/core/types';
+
 export interface FeatureRoute {
   /** Full route path, e.g. `/monitoring/avq/:hostName/:deviceId`. */
   path: string;
@@ -105,12 +107,39 @@ export interface FeatureTargetReadiness {
   ) => { ready: boolean; reason?: string } | undefined;
 }
 
+/**
+ * Lets a feature draw on top of a device's video player (the live-TV companion strip is the case
+ * this exists for). Core mounts every registered overlay inside the player with the device and
+ * the player's mode; the feature fetches its own data and decides what, if anything, to render.
+ * With no feature registering one, the player renders exactly as before.
+ */
+export interface FeatureVideoOverlay {
+  Component: ComponentType<{
+    hostName: string;
+    deviceId: string;
+    isLiveMode: boolean;
+    /** The player's "Monitoring" toggle. */
+    monitoringMode: boolean;
+  }>;
+}
+
+/**
+ * A notice a feature shows at the top of Settings (the APK's "update available" banner is
+ * the case this exists for). Core mounts every registered one under the page title; the feature
+ * decides whether there is anything to say and renders nothing otherwise.
+ */
+export type FeatureSettingsNotice = ComponentType;
+
 export interface FeatureDefinition {
   routes?: FeatureRoute[];
   nav?: FeatureNavItem[];
   deviceLinks?: FeatureDeviceLink[];
   previewActions?: FeaturePreviewAction[];
   targetReadiness?: FeatureTargetReadiness[];
+  videoOverlays?: FeatureVideoOverlay[];
+  settingsNotices?: FeatureSettingsNotice[];
+  /** Mods (TASK-77, docs/agent/platform/MODS.md): each user turns them on or off on the Mods page. */
+  mods?: ModDefinition[];
 }
 
 export interface LoadedFeature {
@@ -127,6 +156,11 @@ export function enabledFeatures(): string[] {
 
 export function isFeatureEnabled(name: string): boolean {
   return FEATURES.some((f) => f.name === name);
+}
+
+/** Every mod an enabled feature ships, in feature-folder order. */
+export function featureMods(): ModDefinition[] {
+  return FEATURES.flatMap((f) => f.entry.mods ?? []);
 }
 
 export function featureRoutes(): FeatureRoute[] {
@@ -157,6 +191,16 @@ export function featurePreviewAction(deviceModel?: string): FeaturePreviewAction
  */
 export function featureTargetReadiness(): FeatureTargetReadiness[] {
   return FEATURES.flatMap((f) => f.entry.targetReadiness ?? []);
+}
+
+/** Every overlay a feature draws on the device video player, in a stable order. */
+export function featureVideoOverlays(): FeatureVideoOverlay[] {
+  return FEATURES.flatMap((f) => f.entry.videoOverlays ?? []);
+}
+
+/** Every notice a feature shows at the top of Settings, in a stable order. */
+export function featureSettingsNotices(): FeatureSettingsNotice[] {
+  return FEATURES.flatMap((f) => f.entry.settingsNotices ?? []);
 }
 
 /** True when `pathname` matches a feature route carrying the given flag. */

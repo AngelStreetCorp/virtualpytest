@@ -614,8 +614,8 @@ backend_host container:
 #### AI Provider (Anthropic default, OpenRouter/OpenAI/others supported)
 - **Purpose**: AI-powered agent, vision analysis, UI detection, verification
 - **Connection**: REST API (HTTPS port 443)
-- **Default**: Anthropic (agent task); OpenRouter (vision/text tasks) unless overridden — see `shared/src/lib/ai/config.py`
-- **Used by**: Backend Server (via MCP tools)
+- **Selection**: per use case (usage key such as `agent.atlas`, `vision.banner`), routed from the DB and edited in Settings → AI; seeded default Anthropic for agents, OpenRouter for vision/text. Local OpenAI-compatible servers (LM Studio, Ollama, vLLM) are endpoints too — see `docs/agent/ai/AI_ROUTING.md`
+- **Used by**: Backend Server only — it holds the API keys; hosts call models through the server gateway (`/server/ai/complete`), except keyless `reach=host` endpoints they call directly
 
 #### Grafana (Monitoring)
 - **Purpose**: Real-time monitoring dashboards and alerting

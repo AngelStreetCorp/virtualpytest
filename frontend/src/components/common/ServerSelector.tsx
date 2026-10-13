@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { FormControl, InputLabel, Select, MenuItem, Chip, Box, CircularProgress, Tooltip } from '@mui/material';
 import { Lock as LockIcon } from '@mui/icons-material';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { useServerManager } from '../../hooks/useServerManager';
 import { ServerAuthDialog } from '../auth/ServerAuthDialog';
 import { getServerAuthInfo } from '../../lib/serverIdentity';
+import { buildServerPickerLabels } from '../../utils/serverLabels';
+import { useI18n } from '../../i18n/useI18n';
 
 interface ServerSelectorProps {
   size?: 'small' | 'medium';
@@ -18,6 +21,8 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
   label = 'Server',
   variant = 'outlined'
 }) => {
+  const { t } = useI18n();
+  const P = useAgentChatPalette();
   const {
     selectedServer,
     setSelectedServer,
@@ -77,9 +82,16 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
     return `${value.slice(0, MAX_DISPLAY_LENGTH - 1)}…`;
   };
 
+  // Two servers can share a SERVER_NAME (a copied .env, or a rename that reached only
+  // one box); they then rendered as identical rows with nothing to tell them apart.
+  // Only colliding names get their host appended — a unique name is shown as before.
+  // Recomputed every render so a name that arrives late still disambiguates at once.
+  const pickerLabels = buildServerPickerLabels(availableServers, nameFor);
+  const labelFor = (serverUrl: string): string => pickerLabels[serverUrl] ?? nameFor(serverUrl);
+
   const renderSelectedServer = (value: unknown): React.ReactNode => {
     const serverUrl = typeof value === 'string' ? value : '';
-    return truncateForDisplay(nameFor(serverUrl));
+    return truncateForDisplay(labelFor(serverUrl));
   };
 
   const handleChange = (serverUrl: string) => {
@@ -107,10 +119,10 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
   return (
     <>
       <FormControl size={size} sx={{ minWidth }} variant={variant}>
-        <InputLabel>{isServerChanging ? 'Switching...' : label}</InputLabel>
+        <InputLabel>{isServerChanging ? t('Switching...') : t(label)}</InputLabel>
         <Select
           value={selectedServer}
-          label={isServerChanging ? 'Switching...' : label}
+          label={isServerChanging ? t('Switching...') : t(label)}
           onChange={(e) => handleChange(e.target.value)}
           disabled={isServerChanging}
           renderValue={renderSelectedServer}
@@ -131,7 +143,7 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
           {availableServers.map((serverUrl) => {
             const isFailed = failedServers.has(serverUrl);
             const needsAuth = serverAuthStates[serverUrl] === 'needs-auth';
-            const displayName = nameFor(serverUrl);
+            const displayName = labelFor(serverUrl);
 
             return (
               <MenuItem
@@ -139,10 +151,10 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
                 value={serverUrl}
                 disabled={isFailed}
                 sx={{
-                  color: isFailed ? '#d32f2f' : 'inherit',
+                  color: isFailed ? P.error : 'inherit',
                   '&.Mui-disabled': {
                     opacity: 1,
-                    color: '#d32f2f'
+                    color: P.error
                   }
                 }}
               >
@@ -150,14 +162,14 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
                   {displayName}
                   {isFailed && (
                     <Chip
-                      label="Offline"
+                      label={t('Offline')}
                       size="small"
                       color="error"
                       sx={{ height: 20, fontSize: '0.7rem' }}
                     />
                   )}
                   {!isFailed && needsAuth && (
-                    <Tooltip title="Different login — sign in to use this server">
+                    <Tooltip title={t('Different login — sign in to use this server')}>
                       <LockIcon sx={{ fontSize: 16, opacity: 0.7 }} />
                     </Tooltip>
                   )}
@@ -171,7 +183,7 @@ export const ServerSelector: React.FC<ServerSelectorProps> = ({
       <ServerAuthDialog
         open={pendingAuthServer !== null}
         serverUrl={pendingAuthServer || ''}
-        serverName={pendingAuthServer ? nameFor(pendingAuthServer) : undefined}
+        serverName={pendingAuthServer ? labelFor(pendingAuthServer) : undefined}
         onCancel={() => {
           setDismissedAuthFor(pendingAuthServer);
           setPendingAuthServer(null);

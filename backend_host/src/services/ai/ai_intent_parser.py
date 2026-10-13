@@ -274,12 +274,14 @@ def build_structure_hints_for_ai(intent: Dict) -> str:
     
     if patterns['has_loop']:
         loop_count = patterns.get('loop_count', '?')
-        hints.append(f"- Create LOOP block with {loop_count} iterations")
+        # The step list has no loop block: repeated steps are written out (TASK-36).
+        hints.append(f"- Repeat the steps {loop_count} times: write each repeated step out again, "
+                     f"one numbered line per step (there is no loop step)")
         if patterns.get('loop_scope'):
             hints.append(f"  Loop scope: {', '.join(patterns['loop_scope'])}")
     
     if patterns['has_conditional']:
-        hints.append("- Include conditional branching (success/failure edges)")
+        hints.append("- A check that may fail without failing the test ends with [on fail: continue]")
     
     # Provide workflow hints
     if intent['keywords']['navigation']:

@@ -60,7 +60,7 @@ remote was left as the odd one out.
 It only becomes load-bearing where there is no adb — a cloud farm device. There, a navigation
 tree's `click_element` action never dumps first, so **every click in a tree failed**. This is
 the second defect of exactly that shape found the same day; the first was
-[BUG-0143](BUG-0143-2026-09-17-appium-page-source-parsed-as-zero-elements.md), and it is worth
+[BUG-0146](BUG-0146-2026-09-17-appium-page-source-parsed-as-zero-elements.md), and it is worth
 noticing the pattern: the Appium path quietly carries assumptions the adb path satisfies for it.
 
 ## Fix

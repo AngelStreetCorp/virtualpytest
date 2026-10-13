@@ -589,7 +589,7 @@ noVNC URL asks for a password.
 - **Apply an `.env` change**: recreate the affected containers
   (`docker compose … up -d --force-recreate --no-deps <service>`); the frontend reads its
   `VITE_*` values at start, so `--rebuild` is only for `VPT_IMAGE_TAG=local` code changes.
-- **Refresh the docs pages** after a `git pull`: `cd frontend && bash scripts/prebuild.sh`, then
+- **Refresh the docs pages** after a `git pull`: `cd frontend && npm run prebuild`, then
   recreate the frontend container. The prebuild swaps `frontend/public/docs` atomically
   (new directory, old one deleted), and a bind mount keeps pointing at the deleted one —
   the container then serves the SPA fallback for every `/docs/*.md` until it is recreated.
@@ -600,7 +600,7 @@ noVNC URL asks for a password.
   out of the way with a local override file, and pass it on every compose command —
   `launch.sh` cannot be used on such a box (it pulls and starts `minio`):
   ```yaml
-  # setup/docker/docker-compose.gcloud.yml (untracked; add it to .git/info/exclude)
+  # docker-compose.gcloud.yml, next to the compose file in setup/docker (untracked; add it to .git/info/exclude)
   services:
     minio:      { profiles: ["host-minio-disabled"] }
     minio-init: { profiles: ["host-minio-disabled"] }

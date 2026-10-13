@@ -190,7 +190,7 @@ if ! ${PLATFORM_MOVED}; then
   printf '## Roll it out\n\n'
   printf '**At a glance:** no database migration · no new setting · no nginx change · no service restart beyond the deploy.\n\n'
   printf 'The core tree is identical to what is already running. Unpack and `bash ~/update_core.sh`; the frontend rebuilds and the hosts pick up the new scripts. **Grafana dashboards are the exception** — they are hand-deployed:\n\n'
-  ov_dash="$(git -C "${OVERLAY_DIR:-.}" diff --name-only "${PREV_TAG:-HEAD}..HEAD" -- '*grafana*' 2>/dev/null | grep '\.json$' || true)"
+  ov_dash="$(git -C "${OVERLAY_DIR:-.}" diff --name-only "${PREV_TAG:-HEAD}..HEAD" -- '*grafana*' 2>/dev/null | grep '\.json$' | grep -v '/template\.json$' || true)"
   if [[ -n "${ov_dash}" ]]; then
     printf '%s\n' "${ov_dash}" | sed 's/^/- `/; s/$/`/'
     printf '\n```bash\npython3 infra/monitoring/grafana/dashboards/_push_dashboard.py <file>\n```\n\n'

@@ -247,6 +247,18 @@ async def execute_action(
             raise TimeoutError(f"No press target became visible: {selector_candidates(action, variables)}")
         await locator.press(render_template(action["key"], variables), timeout=timeout_ms)
         return
+    if action_type == "select_option":
+        # Pick a <select> option by its value attribute.
+        locator = await find_first_locator(
+            page,
+            selector_candidates(action, variables),
+            require_visible=True,
+            timeout_ms=timeout_ms,
+        )
+        if locator is None:
+            raise TimeoutError(f"No select target became visible: {selector_candidates(action, variables)}")
+        await locator.select_option(value=render_template(action["value"], variables), timeout=timeout_ms)
+        return
     if action_type == "read_value":
         # Read an input value (source="value", default) or visible text
         # (source="text") into a variable for later assertions / KPIs.

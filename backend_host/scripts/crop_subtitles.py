@@ -193,8 +193,6 @@ def main() -> None:
     # Auto-generate output filename alongside input when not provided
     output = args.output
     if output is None and args.input:
-        import os
-
         base, ext = os.path.splitext(args.input)
         output = f"{base}_crop{ext or '.jpg'}"
 

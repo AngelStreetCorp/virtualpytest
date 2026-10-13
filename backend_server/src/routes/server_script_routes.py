@@ -13,7 +13,9 @@ from  backend_server.src.lib.utils.server_utils import get_host_manager
 from backend_server.src.routes.server_system_socket_routes import emit_system_update
 from backend_server.src.lib.utils.completion_notifier import notify_completion
 from backend_server.src.lib.utils.webhook_utils import resolve_callback_url
+from backend_server.src.lib.utils.trigger_utils import resolve_caller_user
 from backend_server.src.lib.utils.lock_utils import (
+    resolve_lock_owner,
     abort_and_force_unlock,
     acquire_device_lock,
     clear_device_active_script,
@@ -24,6 +26,9 @@ from backend_server.src.lib.utils.lock_utils import (
 from shared.src.lib.config.constants import CACHE_CONFIG
 from shared.src.lib.database.library_visibility_db import list_hidden_library_keys
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.utils.script_params_utils import analyze_script_source
+from shared.src.lib.utils.script_target_rules_utils import target_incompatibility
+from backend_server.src.lib.utils.script_utils import extract_script_target_rules
 from backend_server.src.lib.utils.adhoc_execution import create_adhoc_execution, complete_adhoc_execution
 from backend_server.src.lib.auth_middleware import require_permission
 
@@ -166,190 +171,6 @@ def _build_lock_conflict_payload(host_name: str, device_id: str, lock_info: dict
         'lock_info': lock_info,
     }
 
-def analyze_script_source(source_text, script_name='virtual_script'):
-    """
-    Analyze Python *source text* to extract parameter information (argparse /
-    _script_args). Shared by disk-script analysis (analyze_script_parameters)
-    and DB-stored virtual scripts.
-    """
-    original_source = source_text or ''
-
-    # Read first 300 lines to analyze parameters (some scripts have args later in file)
-    lines = [line.strip() for line in original_source.splitlines()[:300]]
-    script_content = '\n'.join(lines)
-
-    # Look for both argparse patterns AND _script_args decorator patterns
-    parameters = []
-        
-    # FIRST: Check for _script_args pattern (used by @script decorator framework)
-    # Format: main._script_args = ['--param:type:default', ...]
-    script_args_pattern = r"_script_args\s*=\s*\[(.*?)\]"
-    script_args_match = re.search(script_args_pattern, script_content, re.DOTALL)
-        
-    if script_args_match:
-        args_content = script_args_match.group(1)
-        # Parse each argument: '--param:type:default' or '--param:type'
-        # Extract strings between quotes, but ignore Python comments after them
-        arg_items = re.findall(r"['\"]([^'\"]+)['\"]", args_content)
-        print(f"[@analyze_script] Found _script_args raw: {arg_items}")
-        
-        for arg_item in arg_items:
-            # Strip any Python comments that somehow got included (after # character)
-            if '#' in arg_item:
-                arg_item = arg_item.split('#')[0].strip()
-            
-            # Strip any commas or whitespace that got included
-            arg_item = arg_item.strip().rstrip(',').strip()
-            
-            # Parse format: --param-name:type:default or --param-name:type
-            # Extended: --param-name:type:default:choice1|choice2|choice3
-            # NOTE: defaults may contain colons (e.g. URLs like https://192.168.1.1),
-            # so we identify the choices part by the presence of '|' and rejoin the rest as default.
-            all_parts = arg_item.split(':')
-            if len(all_parts) >= 2:
-                # Keep dashes in parameter names - they're used for command-line arguments
-                param_name = all_parts[0].replace('--', '')
-                param_type = all_parts[1] if len(all_parts) > 1 else 'str'
-
-                # Remaining parts after name:type — find choices (contains '|')
-                remaining = all_parts[2:]
-                choices_raw = None
-                default_parts = remaining
-                for ri in range(len(remaining) - 1, -1, -1):
-                    if '|' in remaining[ri]:
-                        choices_raw = remaining[ri]
-                        default_parts = remaining[:ri]
-                        break
-                default_value = ':'.join(default_parts) if default_parts else None
-
-                # Convert default values
-                if default_value == 'None':
-                    default_value = None
-                elif default_value == 'true' or default_value == 'True':
-                    default_value = 'true'
-                elif default_value == 'false' or default_value == 'False':
-                    default_value = 'false'
-
-                # Parse pipe-separated choices
-                choices = [c.strip() for c in choices_raw.split('|') if c.strip()] if choices_raw else None
-
-                param = {
-                    'name': param_name,
-                    'type': 'optional',
-                    'required': False,
-                    'help': '',
-                    'default': default_value,
-                    'dataType': param_type,
-                }
-                if choices:
-                    param['choices'] = choices
-                print(f"[@analyze_script] Parsed parameter from _script_args: {param}")
-                parameters.append(param)
-        
-    # SECOND: Look for argparse patterns (fallback for scripts not using @script decorator)
-    parser_patterns = [
-        r"parser\.add_argument\(['\"]([^'\"]+)['\"][^)]*\)",
-        r"parser\.add_argument\(['\"]--([^'\"]+)['\"][^)]*\)",
-        r"parser\.add_argument\(['\"]([^'\"]+)['\"].*help=['\"]([^'\"]*)['\"]",
-    ]
-        
-    # Extract positional arguments (required) - only if not already found in _script_args
-    positional_pattern = r"parser\.add_argument\(['\"]([^-][^'\"]*)['\"](?:[^)]*help=['\"]([^'\"]*)['\"])?[^)]*\)"
-    positional_matches = re.findall(positional_pattern, script_content, re.MULTILINE)
-        
-    for match in positional_matches:
-        param_name = match[0]
-        help_text = match[1] if len(match) > 1 else ''
-        
-        # Skip if already added from _script_args
-        if not any(p['name'] == param_name for p in parameters):
-            parameters.append({
-                'name': param_name,
-                'type': 'positional',
-                'required': True,
-                'help': help_text,
-                'default': None
-            })
-        
-    # Extract optional arguments with better multi-line handling
-    # Look for parser.add_argument('--param_name', ... ) patterns that can span multiple lines
-    optional_pattern = r"parser\.add_argument\(['\"]--([^'\"]+)['\"]([^)]*?)\)"
-        
-    # Find all add_argument calls for optional parameters - only if not already found in _script_args
-    for match in re.finditer(optional_pattern, script_content, re.MULTILINE | re.DOTALL):
-        param_name = match.group(1)
-        
-        # Skip if already added from _script_args
-        if any(p['name'] == param_name for p in parameters):
-            continue
-        
-        args_content = match.group(2)  # Everything between the parameter name and closing )
-        
-        # Extract help text
-        help_match = re.search(r"help=['\"]([^'\"]*)['\"]", args_content)
-        help_text = help_match.group(1) if help_match else ''
-        
-        # Extract default value
-        default_match = re.search(r"default=([^,)]+)", args_content)
-        default_value = None
-        if default_match:
-            default_raw = default_match.group(1).strip()
-            # Handle different types of defaults
-            if default_raw == 'True':
-                default_value = 'true'
-            elif default_raw == 'False':
-                default_value = 'false'
-            elif default_raw.startswith("'") and default_raw.endswith("'"):
-                default_value = default_raw[1:-1]
-            elif default_raw.startswith('"') and default_raw.endswith('"'):
-                default_value = default_raw[1:-1]
-            elif default_raw.isdigit():
-                default_value = default_raw
-            else:
-                # For complex expressions like lambda, just take the value before comma/parenthesis
-                default_value = default_raw.split(',')[0].split(')')[0].strip()
-        
-        parameters.append({
-            'name': param_name,
-            'type': 'optional',
-            'required': False,
-            'help': help_text,
-            'default': default_value
-        })
-        
-    # NO MORE INJECTION - Scripts explicitly define all their parameters
-    # Framework parameters (userinterface_name, host, device) should be
-    # explicitly defined in script's _script_args if the script needs them
-        
-    # Special handling for common patterns
-    if 'userinterface_name' in [p['name'] for p in parameters]:
-        # Add suggestions for userinterface_name based on common patterns
-        ui_param = next(p for p in parameters if p['name'] == 'userinterface_name')
-        ui_param['suggestions'] = [
-            'example_mobile',
-            'example_androidtv'
-        ]
-        
-    # Enrich parameters with _arg_descriptions if available (from source)
-    try:
-        from shared.src.lib.utils.script_target_rules_utils import extract_arg_descriptions_from_source
-        arg_descs = extract_arg_descriptions_from_source(original_source)
-        if arg_descs:
-            for param in parameters:
-                desc = arg_descs.get(param['name'])
-                if desc:
-                    param['description'] = desc
-    except Exception:
-        pass
-
-    return {
-        'success': True,
-        'parameters': parameters,
-        'script_name': script_name,
-        'has_parameters': len(parameters) > 0
-    }
-
-
 def analyze_script_parameters(script_path):
     """Analyze a Python script file (disk) — thin wrapper over analyze_script_source."""
     if not os.path.exists(script_path):
@@ -482,7 +303,7 @@ def _build_script_items(script_names, team_id):
     The `scripts` array (bare names) is what every caller used to get, which
     forced each one to fetch /server/script/identity-map separately and
     re-implement the normalize + basename-fallback merge — the browser does that
-    in identityMapCache.ts, and an external caller (dmacp, MCP) could not do it
+    in identityMapCache.ts, and an external caller (idp, MCP) could not do it
     at all. `items` carries the server-rendered label so every consumer shows
     the same string.
 
@@ -717,7 +538,7 @@ def abort_running_script():
 # that says otherwise (test_permissions.py::test_viewer_cannot_run_test) existed but had
 # skipped itself since the day it was written: its host_name fixture read a route that does
 # not exist, so it never ran. Admin and the shared service key bypass the check inside the
-# decorator, so host callbacks, dmacp and MCP are unaffected.
+# decorator, so host callbacks, idp and MCP are unaffected.
 @server_script_bp.route('/script/execute', methods=['POST'])
 @require_permission('execution.run:run_test')
 def execute_script():
@@ -796,7 +617,21 @@ def execute_script():
             'success': False,
             'error': f'Host not found: {host_name}'
         }), 404
-        
+
+    # Same target rules the frontend applies before offering a target
+    # (frontend/src/utils/targetCompatibility.ts). Only for scripts that declare
+    # _target_rules; virtual scripts keep their source in the DB.
+    if not virtual_script_id:
+        target_rules = extract_script_target_rules(script_name)
+        if target_rules is not None:
+            problem = target_incompatibility(target_rules, {'host_name': host_name, **host_info}, device_id)
+            if problem:
+                return jsonify({
+                    'success': False,
+                    'error': f'Target not allowed for {script_name}: {problem}',
+                    'target_rules': target_rules,
+                }), 400
+
     # Generate session ID if not exists
     requested_session_id = data.get('session_id')
     if requested_session_id:
@@ -805,10 +640,9 @@ def execute_script():
         session['session_id'] = str(uuid.uuid4())
 
     session_id = session['session_id']
-    user_id = data.get('user_id') or request.headers.get('X-User-ID')
-    # Display name of whoever launched the run — stored on the lock so viewers see
-    # both who started the script and which script is running.
-    user_name = data.get('user_name')
+    # Verified login first; display name of whoever launched the run — stored on
+    # the lock so viewers see both who started the script and which script runs.
+    user_id, user_name = resolve_lock_owner(data)
     client_ip = get_client_ip()
 
     # Create task for async execution
@@ -922,7 +756,9 @@ def execute_script():
             'error': f'Failed to lock device {host_name}:{device_id} for script execution',
         }), 500
 
-    # If lock is subordinate to manual_control, don't release on completion
+    # Subordinate = the script runs under its user's Take Control (manual_control).
+    # A failed launch keeps that lock; a run that ends releases it
+    # (/script/taskComplete → _release_subordinate_lock).
     is_subordinate_lock = lock_result.get('subordinate', False)
 
     # Announce the new lock so viewers' lock badges update immediately — every
@@ -1013,7 +849,7 @@ def execute_script():
     payload['trigger'] = {
         'type': (incoming_trigger.get('type') or 'api'),
         'caller_ip': incoming_trigger.get('caller_ip') or client_ip,
-        'caller_user': incoming_trigger.get('caller_user') or user_id,
+        'caller_user': incoming_trigger.get('caller_user') or resolve_caller_user(user_id, user_name),
     }
 
     # Execution environment (dev/test/prod): what capacity this run counts as,
@@ -1176,7 +1012,8 @@ def execute_script():
                     })
                 except Exception:
                     pass
-            # Unlock device on error (skip if subordinate to manual_control)
+            # Unlock device on error (skip if subordinate to manual_control: the
+            # script never ran, so the user's Take Control stays)
             if not is_subordinate_lock:
                 release_result = release_device_lock(
                     host_name=host_name,
@@ -1234,6 +1071,48 @@ def _clear_subordinate_script(host_name, device_id, task_id):
             'is_locked': True,
             'lock_info': clear_result.get('lock_info'),
         })
+
+
+def _release_subordinate_lock(host_name, device_id, task_id) -> bool:
+    """End the run's user's Take Control when the script that ran under it ends.
+
+    A script only runs under a manual_control lock when its user holds that lock
+    (lock_utils: same-user subordinate). Leaving the device locked after the run
+    meant it stayed "in control" until that user remembered to release it, and
+    every queued or API run behind it waited. So a finished run releases it —
+    but only the lock it ran under: still manual_control AND still annotated
+    with this task (active_script_job_id). The release is scoped to
+    owner_job_id=task_id, so a Take Control taken afresh in between is kept.
+
+    Returns True if released; otherwise just clears the script annotation.
+    """
+    if not host_name or not device_id or not task_id:
+        _clear_subordinate_script(host_name, device_id, task_id)
+        return False
+    lock_info = get_device_lock_info(host_name, device_id) or {}
+    if (lock_info.get('owner_type') != 'manual_control'
+            or lock_info.get('active_script_job_id') != task_id):
+        _clear_subordinate_script(host_name, device_id, task_id)
+        return False
+    release_result = release_device_lock(
+        host_name=host_name,
+        device_id=device_id,
+        owner_type='manual_control',
+        owner_job_id=task_id,
+        force=False,
+    )
+    if release_result.get('success') and release_result.get('released'):
+        emit_system_update('lock_changed', {
+            'host_name': host_name,
+            'device_id': device_id,
+            'is_locked': False,
+            'lock_info': release_result.get('lock_info'),
+        })
+        print(f"[@route:server_script:_release_subordinate_lock] Released {host_name}:{device_id} "
+              f"(user's Take Control the run {task_id} ran under)")
+        return True
+    _clear_subordinate_script(host_name, device_id, task_id)
+    return False
 
 
 def _derive_run_success(result: dict, error) -> bool:
@@ -1321,11 +1200,9 @@ def task_complete():
             # Check if lock is still manual_control (script ran under umbrella)
             current_lock_info = get_device_lock_info(host_name, device_id)
             if current_lock_info and current_lock_info.get('owner_type') == 'manual_control':
-                # Script ran under manual_control umbrella — don't release the lock,
-                # just drop the "script running" annotation so the badge falls back
-                # to the lock owner alone.
-                print(f"[@route:server_script:task_complete] Device {host_name}:{device_id} under manual_control umbrella, skipping unlock")
-                _clear_subordinate_script(host_name, device_id, task_id)
+                # Script ran under its user's Take Control: release that lock with
+                # the run (only if it is still the lock this run ran under).
+                _release_subordinate_lock(host_name, device_id, task_id)
             else:
                 unlock_result = release_device_lock(
                     host_name=host_name,
@@ -1446,10 +1323,16 @@ def script_progress():
     if not task_id:
         return jsonify({'success': False, 'error': 'task_id required'}), 400
 
+    from backend_server.src.lib.utils.task_manager import task_manager
+    task = task_manager.get_task(task_id) or {}
     payload = {
         'domain': 'execution',
         'execution_type': 'script',
         'execution_id': task_id,
+        # The task's team routes the update to that team's /system room only.
+        'team_id': (task.get('params') or {}).get('team_id'),
+        'host_name': (task.get('params') or {}).get('host_name'),
+        'device_id': (task.get('params') or {}).get('device_id'),
         'status': 'running',
         'progress': data.get('progress'),
         'message': data.get('message'),
@@ -1460,6 +1343,13 @@ def script_progress():
         },
         'timestamp': time.time(),
     }
+    task_manager.record_progress(task_id, {
+        'step': data.get('step'),
+        'step_number': data.get('step_number'),
+        'total_steps': data.get('total_steps'),
+        'progress': data.get('progress'),
+        'message': data.get('message'),
+    })
     emit_system_update('execution_update', payload)
     return jsonify({'success': True}), 200
 
@@ -1469,9 +1359,9 @@ def release_device_early():
     """Release a device's lock mid-run, when the script subprocess reports it no
     longer needs control (before report/video/upload).
 
-    Mirrors the manual_control guard in /script/taskComplete: if a user holds the
-    lock (manual_control umbrella) the script is subordinate to it, so we must NOT
-    release it. Otherwise release the script_execution / deployment_execution lock
+    A run under its user's Take Control (manual_control umbrella) releases that
+    lock too, scoped to this task (_release_subordinate_lock) — same rule as
+    /script/taskComplete. Otherwise release the script_execution / deployment_execution lock
     so the next user/job can take control immediately. The normal completion
     callback releases idempotently afterwards (no-op), so the end state is
     unchanged — only the timing moves earlier.
@@ -1492,8 +1382,9 @@ def release_device_early():
 
     owner_type = current_lock_info.get('owner_type')
     if owner_type == 'manual_control':
-        print(f"[@route:server_script:release_device_early] {host_name}:{device_id} under manual_control umbrella, skipping early release")
-        return jsonify({'success': True, 'released': False, 'message': 'manual_control'}), 200
+        released = _release_subordinate_lock(host_name, device_id, data.get('task_id'))
+        return jsonify({'success': True, 'released': released,
+                        'message': None if released else 'manual_control'}), 200
 
     release_result = release_device_lock(
         host_name=host_name,

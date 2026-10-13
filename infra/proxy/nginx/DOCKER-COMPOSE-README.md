@@ -61,8 +61,8 @@ X11VNC_PASSWORD=admin123
 
 ### Optional Variables
 ```bash
-# AI Features
-OPENROUTER_API_KEY=your-openrouter-key
+# AI Features: no env key — set providers, keys and models in the web app
+# (Settings → AI); keys are stored server-side.
 
 # Cloud Storage
 CLOUDFLARE_R2_ENDPOINT=https://your-account.r2.cloudflarestorage.com

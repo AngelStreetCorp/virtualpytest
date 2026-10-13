@@ -2,6 +2,7 @@ import { Close as CloseIcon, Send as SendIcon } from '@mui/icons-material';
 import { Box, TextField, Button, CircularProgress, Typography, IconButton } from '@mui/material';
 import React, { useState } from 'react';
 
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { buildServerUrl, resolveImageSourceUrl } from '../../utils/buildUrlUtils';
 import { Host, Device } from '../../types/common/Host_Types';
 
@@ -20,6 +21,7 @@ export const AIImageQueryModal: React.FC<AIImageQueryModalProps> = ({
   device,
   onClose,
 }) => {
+  const P = useAgentChatPalette();
   const [query, setQuery] = useState('');
   const [response, setResponse] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -46,7 +48,7 @@ export const AIImageQueryModal: React.FC<AIImageQueryModalProps> = ({
       
       const result = await res.json();
       setResponse(result.response || 'No response');
-    } catch (error) {
+    } catch {
       setResponse('Error: Could not analyze image');
     }
     setIsLoading(false);
@@ -126,7 +128,7 @@ export const AIImageQueryModal: React.FC<AIImageQueryModalProps> = ({
                 backgroundColor: 'rgba(0, 0, 0, 0.5)',
                 '& fieldset': { borderColor: '#444' },
                 '&:hover fieldset': { borderColor: '#666' },
-                '&.Mui-focused fieldset': { borderColor: '#2196f3' },
+                '&.Mui-focused fieldset': { borderColor: P.accent },
               },
               '& .MuiInputBase-input': {
                 color: '#fff',

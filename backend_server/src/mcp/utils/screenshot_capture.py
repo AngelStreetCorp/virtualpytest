@@ -1,85 +1,36 @@
 """
 Screenshot Capture Helper
 
-Captures a device screenshot and returns it as an MCP image content block (base64 PNG),
+Captures a device screenshot and returns it as an MCP image content block (base64),
 so execution tools (goto / action / verification) can embed the resulting screen state
 inline in their responses.
 
-Server-side HTTP fetch is the only path: the MCP server (backend_server VM) and the host
-that holds the screenshot file do not share a filesystem.
+The bytes are fetched from the host that holds the file (call_host): the MCP server and the host
+do not share a filesystem.
 """
 
 import base64
-import os
-import requests
 from typing import Dict, Any, Optional
-from flask import request, has_request_context
 
 from shared.src.lib.config.constants import get_team_id
 
 
-def _absolutize_url(url: str) -> str:
-    """Turn a server-relative host path (e.g. /host/<name>/stream/...) into an absolute URL.
+def image_block_from_url(screenshot_url: str, host_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Fetch a capture and return it as an MCP image content block (base64).
 
-    The host serves screenshots via the same public base the MCP client used to reach us,
-    so we derive the base from the inbound request (honoring proxy headers). MCP clients are
-    external HTTP callers, not same-origin browsers, so they need an absolute URL to fetch it.
+    A relative /host/<name>/stream/... path is fetched from the host that holds it, through
+    call_host() (BUG-0388: the server VM has no nginx to route that path, so the old fetch
+    through the caller's public URL never delivered the image on navigation/action/verification
+    tools). Returns None on any failure so callers can skip the image without breaking their result.
     """
-    if not url or url.startswith(('http://', 'https://')) or not has_request_context():
-        return url
-    proto = request.headers.get('X-Forwarded-Proto', request.scheme)
-    host = request.headers.get('X-Forwarded-Host') or request.headers.get('Host') or request.host
-    # Host/X-Forwarded-Host are caller-controlled: only trust a host we are configured to be,
-    # otherwise the server would fetch an attacker-chosen URL (SSRF). Fall back to our own base.
-    if not host or host.split(':')[0].lower() not in _own_hostnames():
-        server_base = os.getenv('SERVER_URL', 'http://localhost:5109').rstrip('/')
-        return f"{server_base}/{url.lstrip('/')}"
-    from urllib.parse import quote
-    return f"{proto}://{quote(host, safe='.:[]-')}/{quote(url.lstrip('/'), safe='/?=&%+,:@')}"
+    from ..tools.screenshot_tools import _fetch_screenshot_bytes   # lazy: that module imports this package
 
-
-def _own_hostnames() -> set:
-    """Hostnames this server answers as: SERVER_URL, MCP_PUBLIC_HOSTS (comma list), loopback."""
-    from urllib.parse import urlparse
-    names = {'localhost', '127.0.0.1', '::1'}
-    server_host = urlparse(os.getenv('SERVER_URL', 'http://localhost:5109')).hostname
-    if server_host:
-        names.add(server_host.lower())
-    for extra in os.getenv('MCP_PUBLIC_HOSTS', '').split(','):
-        extra = extra.strip().lower()
-        if extra:
-            names.add(extra.split(':')[0])
-    return names
-
-
-def image_block_from_url(screenshot_url: str) -> Optional[Dict[str, Any]]:
-    """Fetch a screenshot URL and return it as an MCP image content block (base64 PNG).
-
-    Returns None on any failure so callers can skip the image without breaking their result.
-    """
-    try:
-        url = _absolutize_url(screenshot_url or '')
-        if not url:
-            return None
-
-        # /host/<name>/stream/... now sits behind the host-session auth_request gate
-        # (BUG-0107 step 2) — this is a server-to-server fetch with no browser cookie,
-        # so it authenticates with the shared service key instead.
-        headers = {}
-        api_key = os.getenv('API_KEY')
-        if api_key:
-            headers['X-API-Key'] = api_key
-        resp = requests.get(url, headers=headers, timeout=10)
-        if resp.status_code != 200 or not resp.content:
-            print(f"[@MCP:image_block_from_url] Screenshot fetch HTTP {resp.status_code}")
-            return None
-
-        b64 = base64.b64encode(resp.content).decode()
-        return {"type": "image", "data": b64, "mimeType": "image/png"}
-
-    except Exception as e:
-        print(f"[@MCP:image_block_from_url] Screenshot fetch error: {e}")
+    content, reason = _fetch_screenshot_bytes(screenshot_url, host_name)
+    if content is None:
+        print(f"[@MCP:image_block_from_url] Screenshot fetch failed: {reason}")
         return None
+    mime = "image/png" if content[:8] == b"\x89PNG\r\n\x1a\n" else "image/jpeg"
+    return {"type": "image", "data": base64.b64encode(content).decode(), "mimeType": mime}
 
 
 def capture_image_block(
@@ -116,7 +67,7 @@ def capture_image_block(
             print(f"[@MCP:capture_image_block] Screenshot capture failed: {result.get('error')}")
             return None
 
-        return image_block_from_url(result.get('screenshot_url', ''))
+        return image_block_from_url(result.get('screenshot_url', ''), host_name)
 
     except Exception as e:
         print(f"[@MCP:capture_image_block] Screenshot capture error: {e}")

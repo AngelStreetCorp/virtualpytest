@@ -323,7 +323,7 @@ def _node_verifications(state, nid, dom_texts, img_size_cache):
     return [{
         "command": "waitForTextToAppear",
         "verification_type": "text",
-        "params": {"text": text, "timeout": 10, "check_interval": 1,
+        "params": {"text": text, "timeout": 10000, "check_interval": 1,
                    "area": {"x": x, "y": y, "width": w, "height": h}},
         "expected": True,
     }]

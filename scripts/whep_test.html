@@ -1,0 +1,112 @@
+<!doctype html>
+<!--
+  Standalone WHEP check — same steps as the app (frontend/src/actions/webrtc/whepActions.ts),
+  with a timestamped log. Doc: docs/agent/devices/WEBRTC.md §5.
+  Serve it from an allowed CORS origin, like the app (it sends cookies the same way):
+    python3 -m http.server 5073 --bind 127.0.0.1 --directory scripts
+    http://localhost:5073/whep_test.html?host=vpt-pi1&cap=capture4            all candidates
+    http://localhost:5073/whep_test.html?host=vpt-pi1&cap=capture4&public=1   gateway public IP only
+  The WHEP endpoint is the public proxy route, so no tunnel is needed.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>WHEP Test</title>
+  <style>
+    body { margin: 0; padding: 8px; background: #111; color: #eee; font: 13px monospace; }
+    video { width: 640px; max-width: 100%; background: #000; }
+  </style>
+</head>
+<body>
+  <video id="v" muted autoplay playsinline></video>
+  <pre id="log"></pre>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const host = q.get('host') || 'vpt-pi3';
+    const cap = q.get('cap') || 'capture1';
+    const base = q.get('base');
+    if (!base) { document.body.textContent = 'add ?base=https://<server>'; throw new Error('missing ?base'); }
+    const WHEP_URL = `${base}/host/${host}/whep/${cap}/whep`;
+    const PUBLIC_ONLY = q.get('public') === '1';
+    const GATHER_MAX_MS = 1000; // WHEP_ICE_GATHER_MAX_MS in the app
+
+    const t0 = performance.now();
+    const log = (m) => {
+      document.getElementById('log').textContent += `${(performance.now() - t0).toFixed(0).padStart(6)} ms  ${m}\n`;
+    };
+    const video = document.getElementById('v');
+
+    // Summary for scripts (measure_whep_solo.py) and the javascript console.
+    window.whepResult = async () => {
+      const pc = window.__whep_pc;
+      if (!pc) return null;
+      const stats = await pc.getStats();
+      let pairId, inbound;
+      stats.forEach((r) => {
+        if (r.type === 'transport') pairId = r.selectedCandidatePairId;
+        if (r.type === 'inbound-rtp' && r.kind === 'video') inbound = r;
+      });
+      const pair = pairId && stats.get(pairId);
+      const remote = pair && stats.get(pair.remoteCandidateId);
+      return {
+        connection: pc.connectionState,
+        remote: remote ? `${remote.address}:${remote.port}` : null,
+        rttMs: pair ? Math.round(pair.currentRoundTripTime * 1000) : null,
+        frames: inbound ? inbound.framesDecoded : 0,
+        size: inbound ? `${inbound.frameWidth}x${inbound.frameHeight}` : null,
+      };
+    };
+
+    (async () => {
+      log(`${WHEP_URL}${PUBLIC_ONLY ? '  (public candidate only)' : ''}  origin=${location.origin}`);
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      window.__whep_pc = pc;
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+      pc.onicegatheringstatechange = () => log(`gathering ${pc.iceGatheringState}`);
+      pc.oniceconnectionstatechange = () => log(`ice ${pc.iceConnectionState}`);
+      pc.onconnectionstatechange = () => log(`connection ${pc.connectionState}`);
+      pc.ontrack = (ev) => {
+        log(`track ${ev.track.kind}`);
+        video.srcObject = ev.streams[0];
+      };
+      video.onplaying = () => {
+        window.__whep_firstFrameAt = Date.now();
+        log('VIDEO PLAYING');
+      };
+
+      await pc.setLocalDescription(await pc.createOffer());
+      // Same as waitForIceCandidates in the app: first srflx candidate, complete, or the cap.
+      await new Promise((resolve) => {
+        if (pc.iceGatheringState === 'complete') return resolve();
+        pc.addEventListener('icegatheringstatechange', () => pc.iceGatheringState === 'complete' && resolve());
+        pc.addEventListener('icecandidate', (ev) => ev.candidate?.type === 'srflx' && resolve());
+        setTimeout(resolve, GATHER_MAX_MS);
+      });
+
+      // Same credentials mode as the app (whepActions.ts): the cookie goes along, so the
+      // answer must echo this page's origin, never '*'. Serve the page from an allowed origin
+      // (http://localhost:5073); creds=0 skips it, e.g. when opened as a file.
+      const res = await fetch(WHEP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/sdp' },
+        body: pc.localDescription.sdp,
+        credentials: q.get('creds') === '0' ? 'same-origin' : 'include',
+      });
+      log(`POST ${res.status}`);
+      if (!res.ok) return log(await res.text());
+      let sdp = await res.text();
+      const cands = sdp.split('\r\n').filter((l) => l.startsWith('a=candidate'));
+      cands.forEach((l) => log(`  remote ${l.split(' ').slice(4, 6).join(':')}`));
+      if (PUBLIC_ONLY) {
+        // The public candidate is the one that is neither private, loopback, Tailnet nor IPv6.
+        const isPrivate = (ip) => /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|100\.)/.test(ip) || ip.includes(':');
+        sdp = sdp.split('\r\n').filter((l) => !l.startsWith('a=candidate') || !isPrivate(l.split(' ')[4])).join('\r\n');
+        log(`  kept ${(sdp.match(/a=candidate/g) || []).length} public candidate(s)`);
+      }
+      await pc.setRemoteDescription({ type: 'answer', sdp });
+      setTimeout(async () => log(`RESULT ${JSON.stringify(await window.whepResult())}`), 5000);
+    })().catch((e) => log(`ERROR ${e}`));
+  </script>
+</body>
+</html>

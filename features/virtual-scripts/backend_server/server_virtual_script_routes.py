@@ -33,10 +33,8 @@ from ..lib.virtual_script_utils import (
     validate_virtual_script,
     extract_virtual_script_metadata,
 )
-from backend_server.src.routes.server_script_routes import (
-    analyze_script_source,
-    invalidate_script_list_cache,
-)
+from backend_server.src.routes.server_script_routes import invalidate_script_list_cache
+from shared.src.lib.utils.script_params_utils import analyze_script_source
 from backend_server.src.routes.server_executable_routes import invalidate_executable_list_cache
 from backend_server.src.lib.utils.script_utils import is_discoverable_script_ref
 

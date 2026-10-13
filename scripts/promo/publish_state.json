@@ -1,0 +1,80 @@
+{
+ "consoles": {
+  "new_id": "Dvd5CpA2SwU",
+  "old_id": "ob1LxcZku7Y",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "localize": {
+  "new_id": "qAm6YmmvU5g",
+  "old_id": "nJNQLd7llBc",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "whatsnew": {
+  "new_id": "IP7rehiSBo4",
+  "old_id": "Pz1EFJnR_G8",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "subqa": {
+  "new_id": "03jh3MMb6PM",
+  "old_id": "Z4jB-E_KNGw",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "grafana": {
+  "new_id": "ujmCqAn-RvE",
+  "old_id": "6MdT1BnV0bc",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "mcp": {
+  "new_id": "pSYvpoRfTIM",
+  "old_id": "8snlgWd2rlw",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "vscript": {
+  "new_id": "x0ghHYXUFeI",
+  "old_id": "6GwIDvqtlVI",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "tpzap": {
+  "new_id": "ehsC4x7_5KQ",
+  "old_id": "1KqhV311A74",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "atlas": {
+  "new_id": "HF2Kuiw8zaE",
+  "old_id": "kNS8bacppXc",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "nipogi": {
+  "new_id": "hdcoyhftNEs",
+  "old_id": "PrxZpLWWo2A",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "aigen": {
+  "new_id": "sDkJ3U14mlE",
+  "old_id": "mst3HuyKEXA",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "avq": {
+  "new_id": "YlOJau8WPqE",
+  "old_id": "nV1NesElnAU",
+  "thumb": true,
+  "old_deleted": true
+ },
+ "cicd": {
+  "new_id": "RdMTfT4MjAM",
+  "old_id": "cwL_e0j0hGY",
+  "thumb": true,
+  "old_deleted": true
+ }
+}

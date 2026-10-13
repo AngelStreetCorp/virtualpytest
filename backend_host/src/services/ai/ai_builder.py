@@ -30,11 +30,77 @@ from shared.src.lib.database.ai_graph_cache_db import (
     get_graph_by_fingerprint,
     _generate_fingerprint
 )
+from backend_host.src.services.ai.ai_step_list import (
+    NotAStepList,
+    graph_to_steps,
+    parse_step_list,
+    step_to_line,
+)
 from backend_host.src.services.ai.ai_preprocessing import (
     preprocess_prompt,
     check_exact_match,
     smart_preprocess  # NEW: Smart preprocessing with filtering
 )
+
+
+# =====================================================
+# COMMAND SIGNATURES (action / verification params)
+# =====================================================
+
+def _signature(entry: Dict) -> str:
+    """'press_key(key=OK)' / 'waitForTextToAppear(text=<Text to search for>)'.
+
+    A catalog param is either a concrete value (remote keys) or a typed schema
+    (create_param). A schema becomes a <placeholder> the AI fills; area params
+    are left out — the AI cannot know screen coordinates.
+    """
+    parts = []
+    for name, value in (entry.get('params') or {}).items():
+        if isinstance(value, dict) and 'type' in value:
+            if value.get('type') == 'area':
+                continue
+            hint = value.get('description') or value.get('type')
+            parts.append(f"{name}=<{hint}{'' if value.get('required') else ', optional'}>")
+        elif value not in (None, ''):
+            parts.append(f"{name}={value}")
+    return f"{entry.get('command')}({', '.join(parts)})"
+
+
+def _block_item(command: str, params: Dict[str, Any], catalog: List[Dict]) -> Dict[str, Any]:
+    """One item of an action/verification container block, typed from the catalog.
+
+    Schema defaults fill the params the AI left out; concrete catalog values
+    (press_key's key=UP) are examples, never defaults.
+    """
+    entry = next((e for e in catalog if e.get('command') == command), {})
+    merged: Dict[str, Any] = {}
+    for name, value in (entry.get('params') or {}).items():
+        if isinstance(value, dict) and 'type' in value and value.get('default') not in (None, ''):
+            merged[name] = value['default']
+    merged.update(params)
+    return {'command': command, 'action_type': entry.get('action_type'), 'params': merged}
+
+
+def _check_commands(steps: List[Dict], context: Dict) -> None:
+    """Every action/verification command must exist on the device. An invented one (e.g.
+    "DetectMotion") fails the generation instead of becoming a block that cannot run."""
+    for step_type, key in (('action', 'actions_raw'), ('verification', 'verifications_raw')):
+        known = {e.get('command') for e in context.get(key) or []}
+        if not known:
+            continue  # no catalog (nodes given by the caller): nothing to check against
+        for step in steps:
+            if step['type'] != step_type:
+                continue
+            unknown = [it['command'] for it in step['items'] if it['command'] not in known]
+            if unknown:
+                raise ValueError(f"Unknown {step_type} command(s) on this device: {', '.join(unknown)}")
+
+
+def _block_command(node: Dict) -> str:
+    """First command of an action/verification container block."""
+    data = node.get('data', {})
+    items = data.get('actions') or data.get('verifications') or []
+    return (items[0].get('command') or '') if items else ''
 
 
 # =====================================================
@@ -93,23 +159,64 @@ REASONING: [Brief explanation: How do you translate the user's intent into these
 
 STEPS:
 1. Navigate to: [node_name]
-2. Navigate to: [node_name]
+2. Action: [command](param=value, ...)
+3. Verify: [command](param=value, ...)
 ... or include Action/Verify ONLY if the task explicitly requires them
 
 Guidelines:
 - For navigation-only tasks: Use ONLY Navigate steps
 - Add Action steps ONLY if task requires user interaction (press, tap, enter text, swipe)
 - Add Verify steps ONLY if task requires checking something specific
+- Write every Action and Verify with its parameters, as listed: press_key(key=OK), waitForTextToAppear(text="Live TV")
+- Replace each <placeholder> with a real value; leave out optional parameters you don't need
 - Keep it simple and direct
 
 DON'T DO THIS (common mistakes):
 ✗ Navigate to: Navigate to home  ← WRONG! Remove duplicate "Navigate to"
 ✗ Navigation: Navigate to home   ← WRONG! Use "Navigate to:" format only
-✗ Verify: None                   ← WRONG! Skip verification entirely if not needed'''
+✗ Verify: None                   ← WRONG! Skip verification entirely if not needed
+✗ Action: press_key              ← WRONG! Say which key: press_key(key=OK)'''
     }
 }
 
 DEFAULT_PROMPT_VERSION = 'v2'  # Current production version
+
+# Prompt editing (TASK-36 §3): the open graph as a step list + the requested change.
+EDIT_TEMPLATE = '''CONTEXT:
+You are editing an existing automated device test. The test is a numbered list of steps that run in order.
+
+CURRENT STEPS:
+{current_steps}
+
+REQUESTED CHANGE:
+{request}
+
+Available Navigation Nodes:
+{available_nodes}
+
+{available_actions}
+
+{available_verifications}
+
+RULES:
+- Return the COMPLETE new list, not only the changed steps.
+- Copy every step the change does not concern EXACTLY as it is written above, in the same order.
+- Use only navigation nodes, actions and verifications from the lists above, written with their parameters.
+- Step formats:
+  Navigate to: <node>
+  Action: <command>(param=value, ...)
+  Verify: <command>(param=value, ...)
+  Wait: <milliseconds>
+  Several commands in one step are joined with " + ". A step that must not stop the test when it fails ends with " [on fail: continue]".
+
+Respond in this format:
+
+GOAL: [One sentence: what the edited test checks]
+
+REASONING: [What you changed and why]
+
+STEPS:
+1. ...'''
 
 
 # =====================================================
@@ -310,8 +417,13 @@ class AIGraphBuilder:
                       userinterface_name: str,
                       team_id: str,
                       current_node_id: Optional[str] = None,
-                      available_nodes: Optional[List[str]] = None) -> Dict[str, Any]:
+                      available_nodes: Optional[List[str]] = None,
+                      notes: Optional[str] = None) -> Dict[str, Any]:
         """
+        notes: what the interface's nodes do (e.g. Test Prompt's action nodes: "live_chup: zap
+        channel up, repeatable"). Given to the AI as context after preprocessing, never parsed
+        as part of the prompt (its words are not screen names to disambiguate).
+
         Generate test case graph from natural language prompt
         
         Complete pipeline:
@@ -352,10 +464,11 @@ class AIGraphBuilder:
             print(f"[@ai_builder]   Interface: {userinterface_name}")
             
             # Step 1: Load context (or use provided nodes)
-            context = self._load_context(userinterface_name, current_node_id, team_id, available_nodes)
+            context = dict(self._load_context(userinterface_name, current_node_id, team_id, available_nodes))
+            context['notes'] = (notes or '').strip()
             
             # Step 2: Generate fingerprint for this request
-            fingerprint = _generate_fingerprint(prompt, context)
+            fingerprint = _generate_fingerprint(f"{prompt}\n{context['notes']}", context)
             
             # Step 3: Get or create lock for this fingerprint (prevent duplicate AI calls)
             with self._lock_manager:
@@ -504,6 +617,14 @@ class AIGraphBuilder:
                     # Update context with filtered data for AI
                     # Replace full catalog with filtered items
                     context['available_nodes'] = formatted_context
+                    # The notes name nodes the prompt's words don't (e.g. "zap" → live_chup); the
+                    # relevance filter drops those, and the AI may only use listed nodes.
+                    noted = [n for n in context.get('nodes_raw', [])
+                             if context.get('notes') and re.search(rf'(?<![\w-]){re.escape(n)}(?![\w-])', context['notes'])]
+                    if noted:
+                        context['available_nodes'] += (
+                            "\nNavigation nodes from the interface notes (also usable):\n"
+                            + "\n".join(f"- {n}" for n in noted))
                     context['structure_hints'] = structure_hints
                     context['intent'] = preprocessed['intent']
                     
@@ -514,7 +635,6 @@ class AIGraphBuilder:
                     print(f"[@ai_builder]   Verifications count: {len(context.get('verifications_raw', []))}")
                     if filtered_context and 'Navigation' in formatted_context:
                         # Extract node list from formatted context for debugging
-                        import re
                         node_matches = re.findall(r'- (\w+)', formatted_context)
                         if node_matches:
                             print(f"[@ai_builder]   Filtered nodes for AI: {node_matches}")
@@ -560,11 +680,9 @@ class AIGraphBuilder:
                         target = node.get('data', {}).get('target_node_label') or node.get('data', {}).get('target_node_id')
                         print(f"[@ai_builder]     {idx+1}. Navigation → {target}")
                     elif node_type == 'action':
-                        command = node.get('data', {}).get('command', 'unknown')
-                        print(f"[@ai_builder]     {idx+1}. Action: {command}")
+                        print(f"[@ai_builder]     {idx+1}. Action: {_block_command(node)}")
                     elif node_type == 'verification':
-                        command = node.get('data', {}).get('command', 'unknown')
-                        print(f"[@ai_builder]     {idx+1}. Verify: {command}")
+                        print(f"[@ai_builder]     {idx+1}. Verify: {_block_command(node)}")
                     else:
                         print(f"[@ai_builder]     {idx+1}. {node_type}")
                 
@@ -607,6 +725,67 @@ class AIGraphBuilder:
                 'error': f'Graph generation error: {str(e)}',
                 'execution_time': time.time() - start_time
             }
+    
+    def edit_graph(self,
+                   prompt: str,
+                   current_graph: Dict[str, Any],
+                   userinterface_name: str,
+                   team_id: str) -> Dict[str, Any]:
+        """
+        Change an open step-list graph by prompt (TASK-36 §3).
+        
+        The graph is written as a numbered step list (ai_step_list), the LLM returns the
+        complete edited list, and it is turned back into a graph. Blocks the edit did not
+        change are copied from the original. Not cached: an edit depends on the graph.
+        
+        Returns {'success', 'graph', 'analysis', 'steps_before', 'steps_after'}, or
+        {'success': False, 'error', 'not_a_step_list'?}.
+        """
+        start_time = time.time()
+        try:
+            original = graph_to_steps(current_graph)
+        except NotAStepList as e:
+            return {
+                'success': False,
+                'not_a_step_list': True,
+                'error': f'Prompt editing needs a step-list graph: {e}',
+            }
+        steps_before = [step_to_line(step) for step, _ in original]
+        reuse_blocks = {line: node.get('data') or {} for line, (_, node) in zip(steps_before, original)}
+        
+        try:
+            context = dict(self._load_context(userinterface_name, None, team_id))
+            ai_prompt = EDIT_TEMPLATE.format(
+                current_steps='\n'.join(f'{i}. {line}' for i, line in enumerate(steps_before, 1)) or '(no steps yet)',
+                request=prompt,
+                available_nodes='\n'.join(f'- {n}' for n in context.get('nodes_raw', [])[:80]),
+                available_actions=context.get('available_actions', ''),
+                available_verifications=context.get('available_verifications', ''),
+            )
+            print(f"[@ai_builder:edit] Editing a {len(steps_before)}-step graph: {prompt[:100]}")
+            result = call_text_ai(
+                prompt=ai_prompt,
+                usage='text.plan',
+                max_tokens=AI_CONFIG['MAX_TOKENS'],
+                temperature=AI_CONFIG['TEMPERATURE'],
+            )
+            if not result.get('success'):
+                raise Exception(f"AI call failed: {result.get('error')}")
+            context['reuse_blocks'] = reuse_blocks
+            parsed = self._parse_ai_response(result['content'], context)
+            graph = self._postprocess_graph(parsed['graph'], context)
+            steps_after = [step_to_line(step) for step, _ in graph_to_steps(graph)]
+            return {
+                'success': True,
+                'graph': graph,
+                'analysis': parsed.get('analysis', ''),
+                'steps_before': steps_before,
+                'steps_after': steps_after,
+                'execution_time': time.time() - start_time,
+            }
+        except Exception as e:
+            print(f"[@ai_builder:edit] ❌ Edit failed: {e}")
+            return {'success': False, 'error': f'Graph edit error: {e}', 'execution_time': time.time() - start_time}
     
     # ========================================
     # CONTEXT LOADING
@@ -707,10 +886,12 @@ class AIGraphBuilder:
             return "Available Actions: []"
         
         action_list = []
-        for action in actions[:20]:  # Limit to 20
-            name = action.get('name', action.get('command'))
+        for action in actions[:40]:  # Limit to 40
+            sig = _signature(action)
             desc = action.get('description', '')
-            action_list.append(f"- {name}: {desc}" if desc else f"- {name}")
+            line = f"- {sig}: {desc}" if desc else f"- {sig}"
+            if line not in action_list:
+                action_list.append(line)
         
         return f"Available Actions:\n" + "\n".join(action_list)
     
@@ -720,10 +901,12 @@ class AIGraphBuilder:
             return "Available Verifications: []"
         
         verify_list = []
-        for verify in verifications[:20]:  # Limit to 20
-            name = verify.get('name', verify.get('type'))
+        for verify in verifications[:40]:  # Limit to 40
+            sig = _signature(verify)
             desc = verify.get('description', '')
-            verify_list.append(f"- {name}: {desc}" if desc else f"- {name}")
+            line = f"- {sig}: {desc}" if desc else f"- {sig}"
+            if line not in verify_list:
+                verify_list.append(line)
         
         return f"Available Verifications:\n" + "\n".join(verify_list)
     
@@ -744,9 +927,9 @@ class AIGraphBuilder:
         print(f"[@ai_builder:ai] Calling AI (prompt length: {len(ai_prompt)} chars)...")
         result = call_text_ai(
             prompt=ai_prompt,
+            usage='text.plan',
             max_tokens=AI_CONFIG['MAX_TOKENS'],
             temperature=AI_CONFIG['TEMPERATURE'],
-            model=AI_CONFIG['MODEL']
         )
         
         if not result.get('success'):
@@ -761,7 +944,7 @@ class AIGraphBuilder:
         print("="*80)
         
         # Parse JSON
-        parsed = self._parse_ai_response(result['content'])
+        parsed = self._parse_ai_response(result['content'], context)
         
         # Attach usage stats
         if 'usage' in result:
@@ -799,6 +982,8 @@ class AIGraphBuilder:
             available_actions=context.get('available_actions', ''),
             available_verifications=context.get('available_verifications', '')
         ) + current_context
+        if context.get('notes'):
+            ai_prompt += f"\n\nINTERFACE NOTES (what these screens and actions do; use them):\n{context['notes']}"
         
         print(f"[@ai_builder:prompt] Using template {self.prompt_version} ({template_config['version']})")
         if current_node_id:
@@ -808,7 +993,7 @@ class AIGraphBuilder:
         
         return ai_prompt
     
-    def _parse_ai_response(self, content: str) -> Dict[str, Any]:
+    def _parse_ai_response(self, content: str, context: Dict) -> Dict[str, Any]:
         """
         Parse AI text response and convert to graph structure
         
@@ -817,8 +1002,8 @@ class AIGraphBuilder:
         REASONING: ...
         STEPS:
         1. Navigate to: node_name
-        2. Action: command
-        3. Verify: type
+        2. Action: command(param=value)
+        3. Verify: command(param=value)
         """
         try:
             print(f"[@ai_builder:parse] Parsing AI text response...")
@@ -848,43 +1033,8 @@ class AIGraphBuilder:
             if not steps_match:
                 raise Exception("AI response missing STEPS section")
             
-            steps_text = steps_match.group(1).strip()
-            steps = []
-            
-            # Parse each step line
-            for line in steps_text.split('\n'):
-                line = line.strip()
-                if not line or not re.match(r'^\d+\.', line):
-                    continue
-                
-                # Remove step number
-                step_content = re.sub(r'^\d+\.\s*', '', line)
-                
-                # Determine step type
-                if 'Navigate to:' in step_content or 'navigate to' in step_content.lower() or 'Navigation:' in step_content:
-                    # Match both formats: "Navigate to: home" and "Navigation: Navigate to home"
-                    node_match = re.search(r'(?:Navigation:|Navigate to:|navigation:|navigate to:)\s*(?:Navigate to:|navigate to:)?\s*([a-zA-Z0-9_]+)', step_content, re.IGNORECASE)
-                    if node_match:
-                        steps.append({
-                            'type': 'navigation',
-                            'target': node_match.group(1).strip()
-                        })
-                
-                elif 'Action:' in step_content or 'action:' in step_content.lower():
-                    action_match = re.search(r'(?:Action|action):\s*([a-zA-Z0-9_]+)', step_content, re.IGNORECASE)
-                    if action_match:
-                        steps.append({
-                            'type': 'action',
-                            'command': action_match.group(1).strip()
-                        })
-                
-                elif 'Verify:' in step_content or 'verify:' in step_content.lower():
-                    verify_match = re.search(r'(?:Verify|verify):\s*([a-zA-Z0-9_]+)', step_content, re.IGNORECASE)
-                    if verify_match:
-                        steps.append({
-                            'type': 'verification',
-                            'check': verify_match.group(1).strip()
-                        })
+            steps = parse_step_list(steps_match.group(1))
+            _check_commands(steps, context)
             
             if not steps:
                 raise Exception("No valid steps found in AI response")
@@ -892,10 +1042,10 @@ class AIGraphBuilder:
             print(f"[@ai_builder:parse] ✅ Parsed {len(steps)} steps from AI")
             print(f"[@ai_builder:parse] Steps breakdown:")
             for i, step in enumerate(steps, 1):
-                print(f"[@ai_builder:parse]   {i}. {step['type']}: {step.get('target') or step.get('command') or step.get('check')}")
+                print(f"[@ai_builder:parse]   {i}. {step_to_line(step)}")
             
-            # Convert steps to graph structure
-            graph = self._steps_to_graph(steps)
+            # Convert steps to graph structure (an edit reuses the blocks it did not change)
+            graph = self._steps_to_graph(steps, context, context.get('reuse_blocks'))
             
             print(f"[@ai_builder:parse] Analysis: {analysis[:100]}...")
             
@@ -913,117 +1063,80 @@ class AIGraphBuilder:
             print("="*80)
             raise Exception(f"Failed to parse AI response: {str(e)}")
     
-    def _steps_to_graph(self, steps: List[Dict]) -> Dict:
+    def _steps_to_graph(self, steps: List[Dict], context: Dict,
+                        reuse_blocks: Optional[Dict[str, Dict]] = None) -> Dict:
         """
-        Convert simple steps list to React Flow graph structure
+        Convert a step list (ai_step_list.parse_step_line) to a testcase graph.
+        
+        Action and verification steps become the container blocks the testcase
+        executor runs and the builders edit: data.actions / data.verifications.
+        A step whose canonical line is in reuse_blocks (an edit's unchanged block)
+        keeps that block's data as is, so fields the step text does not carry
+        (references, thresholds, areas) survive the edit.
         
         Args:
-            steps: List of step dicts with 'type' and details
-            
-        Returns:
-            Graph dict with nodes and edges
+            steps: step dicts in run order
+            context: Loaded context; its actions_raw / verifications_raw type each command
+            reuse_blocks: canonical line -> original block data (prompt edit only)
         """
-        nodes = []
+        nodes = [{'id': 'start', 'type': 'start', 'position': {'x': 250, 'y': 100}, 'data': {'label': 'START'}}]
         edges = []
-        y_position = 100
+        y_position = 200
         y_increment = 100
+        prefix = {'navigation': 'nav', 'action': 'act', 'verification': 'ver', 'wait': 'wait'}
+        counter = {k: 0 for k in prefix}
+        ids = []
         
-        # Always start with START node
-        nodes.append({
-            'id': 'start',
-            'type': 'start',
-            'position': {'x': 250, 'y': y_position},
-            'data': {'label': 'START'}
-        })
-        y_position += y_increment
-        
-        prev_node_id = 'start'
-        node_counter = {'navigation': 1, 'action': 1, 'verification': 1}
-        
-        # Create nodes for each step
         for step in steps:
             step_type = step['type']
-            
-            if step_type == 'navigation':
-                node_id = f'nav{node_counter["navigation"]}'
-                target = step['target']
-                nodes.append({
-                    'id': node_id,
-                    'type': 'navigation',
-                    'position': {'x': 250, 'y': y_position},
-                    'data': {
-                        'label': f'navigation_{node_counter["navigation"]}:{target}',
-                        'target_node_label': target,  # ✅ FIX: Frontend expects target_node_label
-                        'target_node_id': target,
-                        'action_type': 'navigation',
-                        'transitions': []  # Empty - navigation is autonomous at runtime
-                    }
-                })
-                node_counter['navigation'] += 1
-                
+            counter[step_type] += 1
+            node_id = f"{prefix[step_type]}{counter[step_type]}"
+            ids.append(node_id)
+            reused = (reuse_blocks or {}).get(step_to_line(step))
+            if reused is not None:
+                node_type = 'sleep' if step_type == 'wait' else step_type
+                data = dict(reused)
+            elif step_type == 'navigation':
+                node_type = 'navigation'
+                data = {
+                    'target_node_label': step['target'],
+                    'target_node_id': step['target'],
+                    'action_type': 'navigation',
+                    'transitions': [],  # Empty - navigation is autonomous at runtime
+                }
+            elif step_type == 'wait':
+                # Same block QuickTest writes for a wait: the 'sleep' standard block (ms).
+                node_type = 'sleep'
+                data = {'command': 'sleep', 'params': {'duration': step['ms']}}
             elif step_type == 'action':
-                node_id = f'act{node_counter["action"]}'
-                command = step['command']
-                nodes.append({
-                    'id': node_id,
-                    'type': 'action',
-                    'position': {'x': 250, 'y': y_position},
-                    'data': {
-                        'label': f'action_{node_counter["action"]}:{command}',
-                        'command': command,
-                        'action_type': 'action'
-                    }
-                })
-                node_counter['action'] += 1
-                
-            elif step_type == 'verification':
-                node_id = f'ver{node_counter["verification"]}'
-                check = step['check']
-                nodes.append({
-                    'id': node_id,
-                    'type': 'verification',
-                    'position': {'x': 250, 'y': y_position},
-                    'data': {
-                        'label': f'verification_{node_counter["verification"]}:{check}',
-                        'verification_type': check,
-                        'action_type': 'verification'
-                    }
-                })
-                node_counter['verification'] += 1
-            
-            # Create edge from previous node
-            edges.append({
-                'id': f'e_{prev_node_id}_{node_id}',
-                'source': prev_node_id,
-                'target': node_id,
-                'sourceHandle': 'success',
-                'type': 'success'
-            })
-            
-            prev_node_id = node_id
+                node_type = 'action'
+                data = {'actions': [_block_item(it['command'], it['params'], context.get('actions_raw', []))
+                                    for it in step['items']]}
+            else:
+                node_type = 'verification'
+                items = []
+                for it in step['items']:
+                    item = _block_item(it['command'], it['params'], context.get('verifications_raw', []))
+                    # The verification context types each command as 'verification_<type>'.
+                    item['verification_type'] = (item.pop('action_type') or 'verification_text').replace('verification_', '')
+                    items.append(item)
+                data = {'verifications': items, 'verification_pass_condition': 'all'}
+            nodes.append({'id': node_id, 'type': node_type, 'position': {'x': 250, 'y': y_position}, 'data': data})
             y_position += y_increment
         
-        # Add SUCCESS terminal node
-        nodes.append({
-            'id': 'success',
-            'type': 'success',
-            'position': {'x': 250, 'y': y_position},
-            'data': {'label': 'SUCCESS'}
-        })
+        nodes.append({'id': 'success', 'type': 'success', 'position': {'x': 250, 'y': y_position}, 'data': {'label': 'SUCCESS'}})
+        chain = ['start'] + ids + ['success']
+        for source, target in zip(chain, chain[1:]):
+            edges.append({'id': f'e_{source}_{target}', 'source': source, 'target': target,
+                          'sourceHandle': 'success', 'type': 'success'})
+        # "[on fail: continue]": the failure edge goes on to the next block too. Every other
+        # block has no failure edge, which the executor treats as a failed run.
+        for step, source, target in zip(steps, ids, chain[2:]):
+            if step.get('continue_on_fail'):
+                edges.append({'id': f'e_{source}_{target}_failure', 'source': source, 'target': target,
+                              'sourceHandle': 'failure', 'type': 'failure'})
         
-        # Edge to SUCCESS
-        edges.append({
-            'id': f'e_{prev_node_id}_success',
-            'source': prev_node_id,
-            'target': 'success',
-            'sourceHandle': 'success',
-            'type': 'success'
-        })
-        
-        return {
-            'nodes': nodes,
-            'edges': edges
-        }
+        return {'nodes': nodes, 'edges': edges}
     
     def _sanitize_json_string(self, json_str: str) -> str:
         """Remove/escape control characters that break JSON parsing"""
@@ -1139,12 +1252,12 @@ class AIGraphBuilder:
                 data['label'] = f"navigation_{nav_counter}:{target}"
             elif node_type == 'action':
                 action_counter += 1
-                command = data.get('command') or data.get('action_type') or 'action'
-                data['label'] = f"action_{action_counter}:{command}"
+                data['label'] = f"action_{action_counter}:{_block_command(node) or 'action'}"
             elif node_type == 'verification':
                 verify_counter += 1
-                verify_type = data.get('verification_type') or data.get('type') or 'verify'
-                data['label'] = f"verification_{verify_counter}:{verify_type}"
+                data['label'] = f"verification_{verify_counter}:{_block_command(node) or 'verify'}"
+            elif node_type == 'sleep':
+                data['label'] = f"wait:{(data.get('params') or {}).get('duration', '')}ms"
         
         print(f"[@ai_builder:labels] Enforced labels: {nav_counter} nav, {action_counter} action, {verify_counter} verify")
         
@@ -1172,18 +1285,11 @@ class AIGraphBuilder:
             node_type = node.get('type')
             data = node.get('data', {})
             
-            # Check verification nodes for "None" type
-            if node_type == 'verification':
-                verify_type = data.get('verification_type', '').strip()
-                if not verify_type or verify_type.lower() in ['none', 'null', '']:
-                    print(f"[@ai_builder:filter] ❌ Removing invalid verification node: {node_id} (type: '{verify_type}')")
-                    nodes_to_remove.add(node_id)
-            
-            # Check action nodes for "None" command
-            elif node_type == 'action':
-                command = data.get('command', '').strip()
+            # Check action / verification nodes for a "None" command
+            if node_type in ('action', 'verification'):
+                command = _block_command(node).strip()
                 if not command or command.lower() in ['none', 'null', '']:
-                    print(f"[@ai_builder:filter] ❌ Removing invalid action node: {node_id} (command: '{command}')")
+                    print(f"[@ai_builder:filter] ❌ Removing invalid {node_type} node: {node_id} (command: '{command}')")
                     nodes_to_remove.add(node_id)
         
         if not nodes_to_remove:

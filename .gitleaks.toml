@@ -49,6 +49,9 @@ regexes = [
   '''7fdeb4bb-3639-4ec3-959f-b54769a219ce''',
   # Public by design (TASK-14 §5): the server's PUBLIC key is meant to be distributed.
   '''SERVER_PUBLIC_KEY''',
+  # jwt.io's public sample token (unsigned demo payload {"sub":"1234567890"}), used as a
+  # planted value that the TASK-42 share redaction test asserts never leaves the server.
+  '''eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.abc''',
 ]
 
 # ---------------------------------------------------------------------------------------

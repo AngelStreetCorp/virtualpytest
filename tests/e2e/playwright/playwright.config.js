@@ -2,7 +2,8 @@ const { defineConfig } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_URL = process.env.E2E_BASE_URL || (() => { throw new Error('E2E_BASE_URL is required (e.g. https://your-server)'); })();
+// Default so the config still loads in IDE test explorers; run_e2e_*.sh enforce E2E_BASE_URL for real runs.
+const BASE_URL = process.env.E2E_BASE_URL || 'http://localhost:5073';
 const storageStatePath = './playwright/.auth/user.json';
 
 // Ensure the auth directory exists

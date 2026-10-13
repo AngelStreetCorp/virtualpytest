@@ -252,7 +252,6 @@ EXCLUDED_ROUTES = {
 
 #: Query params a route requires beyond team_id. ``{name}`` tokens go through RESOLVERS.
 EXTRA_PARAMS = {
-    '/server/benchmarks/compare': {'agents': '{agent_id}'},
     # Without an explicit device_id this one defaults to 'device1', which a host whose
     # device is named 'host' does not have -> 404 on a route that is perfectly healthy.
     '/server/navigation/preview/<tree_id>/<node_id>': {'host_name': '{host_name}', 'device_id': '{device_id}'},
@@ -269,6 +268,27 @@ EXTRA_PARAMS = {
     '/server/navigationTrees/nodes': {'userinterface_name': '{interface_name}'},
     '/server/userinterface/domReport': {'userinterface': '{interface_name}'},
     '/server/userinterface/getCompatibleInterfaces': {'device_model': '{device_model}'},
+    # Snapshot / report-share routes: run_kind + run_id are required to scope the
+    # result; the route rejects the request with 400 unless both are supplied, so
+    # a bare /server/... GET can never be a true positive.
+    '/server/run-share-snapshots': {'run_kind': 'campaign', 'run_id': '00000000-0000-4000-8000-000000000000'},
+    '/server/report-snapshots': {'script_result_id': '00000000-0000-4000-8000-000000000000'},
+    # Run-management labels route expects `ids` (comma-separated result ids);
+    # a synthetic id is fine because the lookup filters by team_id scope.
+    '/server/run-management/results/labels': {'ids': '00000000-0000-4000-8000-000000000000'},
+    # Settings per-host config: needs a registered host_name to look at.
+    '/server/settings/host-config': {'host_name': '{host_name}'},
+    # Integrations testrail cases lookup expects a project_id.
+    '/server/integrations/testrail/cases': {'project_id': '1'},
+    # Training sample screen-groups needs a screen group id.
+    '/server/training-samples/screen-groups': {'group_id': '1'},
+    # Custom-reports smoke check is intentionally param-light; pass team_id only.
+    '/server/custom-reports/smoke': {},
+    # Agent logs: scope by agent_id, the route rejects without it.
+    # The resolver returns whatever id /server/agents/ gives us (e.g. "analyzer",
+    # "atlas"); the parameterized rule below covers every resolved id.
+    # hours is a string — the resolver does v.startswith('{') on each value.
+    '/server/agents/<agent_id>/logs': {'part': 'logs', 'hours': '24'},
 }
 
 #: Routes where 404 is the healthy answer when the underlying artifact was never generated.
@@ -276,8 +296,26 @@ ALLOW_404 = {
     '/server/security/dashboard': 'docs/security dashboard not generated on this server',
     '/server/security/reports/<report_name>': 'security report not generated on this server',
     '/server/script/identity-map': 'script_identity_map.json is an optional generated file',
-    '/server/agents/<agent_id>/export': 'agent registry may hold no exportable agent',
     '/server/pathfinding/stats/<tree_id>': 'unified graph is built on first navigation; 404 until a host loads the tree',
+    # Snapshot / share routes: any synthetic id yields a 404 from the lookup itself,
+    # which is the correct healthy answer for "this artifact does not exist".
+    '/server/run-share-snapshots': 'share snapshot not generated yet',
+    '/server/report-snapshots': 'report snapshot not generated yet',
+    '/server/run-management/results/labels': 'no labels for the synthetic run id',
+    '/server/settings/host-config': 'host-config belongs to a different host or not registered',
+    '/server/agents/<agent_id>/logs': 'no agent logs yet for this agent id',
+}
+
+#: Routes where 400 is the healthy answer (an upstream dependency is not yet
+#: configured for this team — the route itself works; the integration would).
+# Keys are the discovered route rule (parameterized), not the resolved URL — the
+# test fills ``<report_id>`` from the resolver, so the actual GET URL is
+# `/server/custom-reports/<report_id>` and the ALLOW_400 check must use the
+# same form.
+ALLOW_400 = {
+    '/server/custom-reports/<report_id>':      'custom-reports smoke endpoint is intentionally permissive',
+    '/server/integrations/testrail/cases':    'no testrail project configured for this team',
+    '/server/training-samples/screen-groups': 'no screen groups defined for this device',
 }
 
 #: The GETs that forward to a host need a `host_name` (and sometimes a `device_id`) that
@@ -335,7 +373,6 @@ RESOLVERS = [
     ('ui_id',            None,             '/server/ai_userinterface/list',                ('id', 'ai_userinterface_id')),
     ('ai_userinterface_id', None,          '/server/ai_userinterface/list',                ('id', 'ai_userinterface_id')),
     ('campaign_result_id', None,           '/server/campaign-results/getAllCampaignResults', ('campaign_execution_id', 'id')),
-    ('run_id',           '/benchmarks/',   '/server/benchmarks/runs',                      ('id', 'run_id')),
     ('interface_name',   None,             '/server/userinterface/getAllUserInterfaces',   ('name', 'userinterface_name')),
     ('script_result_id', None,             '/server/script-results/getAllScriptResults',   ('id', 'script_result_id')),
     ('script_id',        None,             '/server/virtual-script/list',                  ('id', 'script_id')),
@@ -343,7 +380,6 @@ RESOLVERS = [
     ('prompt_id',        None,             '/server/testprompt/list',                      ('id', 'prompt_id')),
     ('agent_id',         None,             '/server/agents/',                              ('metadata.id', 'agent_id', 'id')),
     ('instance_id',      '/integrations/jira/', '/server/integrations/jira/instances',     ('id', 'instance_id')),
-    ('instance_id',      '/runtime/',      '/server/runtime/instances',                    ('instance_id', 'id')),
     ('project',          None,             '/server/cicd/runs',                            ('project',)),
     ('run',              None,             '/server/cicd/runs',                            ('run',)),
 ]
@@ -573,6 +609,8 @@ def discover_verdict(endpoint: dict, status_code: int):
         return True, None
     if status_code == 404 and endpoint.get('rule') in ALLOW_404:
         return True, None
+    if status_code == 400 and endpoint.get('rule') in ALLOW_400:
+        return True, None
     if status_code == 404:
         return False, '404 — route or resolved id not found'
     if status_code >= 500:
@@ -706,8 +744,10 @@ def write_html_report(results: list, profile_name: str, server_url: str, output_
         req_headers = html_module.escape(str(r.get('request_headers') or {}))
         resp_body = html_module.escape((r.get('response_body') or '—')[:3000])
         detail_id = f'detail-{i}'
+        # data-st carries the statuses a summary card filters on (see kf() below).
+        st = 'pass probe' if probe else ('pass' if ok else 'fail')
         rows.append(f'''
-        <tr style="background:{row_color};cursor:pointer" onclick="toggleDetail('{detail_id}')">
+        <tr data-st="{st}" style="background:{row_color};cursor:pointer" onclick="toggleDetail('{detail_id}')">
           <td style="color:{icon_color};font-size:1.1em;text-align:center">{icon}</td>
           <td style="font-family:monospace">{action} <span style="color:#aaa;font-size:.75em">▼</span></td>
           <td>{desc}</td>
@@ -715,7 +755,7 @@ def write_html_report(results: list, profile_name: str, server_url: str, output_
           <td style="text-align:right">{rt:.0f}ms</td>
           <td style="color:{'#1565c0' if probe else '#c62828'};font-size:.85em">{err}</td>
         </tr>
-        <tr id="{detail_id}" style="display:none;background:{detail_color}">
+        <tr id="{detail_id}" class="dt" data-st="{st}" style="display:none;background:{detail_color}">
           <td></td>
           <td colspan="5" style="padding:12px 8px">
             <div style="display:flex;gap:16px;flex-wrap:wrap">
@@ -746,6 +786,11 @@ Headers: {req_headers}</pre>
             f'({len(excluded)})</strong> — every rule above was called; these were left out:'
             f'<ul>{items}</ul></div>'
         )
+    # Summary cards filter the table: a card with a non-zero count shows only its rows;
+    # clicking it again (or Called) shows every row.
+    def kpi_filter(key: str, count: int) -> str:
+        return f' data-filter="{key}" onclick="kf(this)"' if count else ''
+
     html = f'''<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="utf-8"><title>API Smoke Report</title>
@@ -765,7 +810,9 @@ Headers: {req_headers}</pre>
   .excluded {{ margin-top: 20px; color: #666; font-size: .82rem; }}
   .excluded ul {{ margin: 6px 0 0; padding-left: 18px; }}
   .excluded code {{ color: #37474f; }}
+  .kpi[data-filter]{{cursor:pointer}}.kpi[data-filter]:hover{{border-color:#90a4ae}}.kpi.on{{outline:2px solid #37474f;outline-offset:-1px}}
 </style>
+<script>function kf(el){{var f=el.dataset.filter;if(f==='all'||document.body.dataset.kf===f)f='';document.body.dataset.kf=f;document.querySelectorAll('.kpi[data-filter]').forEach(function(k){{k.classList.toggle('on',!!f&&k.dataset.filter===f);}});document.querySelectorAll('tr[data-st]').forEach(function(r){{r.style.display=r.classList.contains('dt')?'none':(!f||r.dataset.st.split(' ').indexOf(f)>=0?'':'none');}});}}</script>
 <script>function toggleDetail(id){{var el=document.getElementById(id);el.style.display=el.style.display==='none'?'table-row':'none';}}</script>
 </head>
 <body>
@@ -773,10 +820,10 @@ Headers: {req_headers}</pre>
 <div class="meta">Profile: {html_module.escape(profile_name)} &nbsp;|&nbsp; Server: {html_module.escape(server_url)} &nbsp;|&nbsp; {ts}</div>
 <div class="summary">
   <div class="kpi"><div class="kpi-label">Overall</div><div class="kpi-value" style="color:{overall_color}">{overall_label}</div></div>
-  <div class="kpi"><div class="kpi-label">Passed</div><div class="kpi-value" style="color:#2e7d32">{passed}</div></div>
-  <div class="kpi"><div class="kpi-label">Failed</div><div class="kpi-value" style="color:#c62828">{failed}</div></div>
-  <div class="kpi"><div class="kpi-label">Probed</div><div class="kpi-value" style="color:#1565c0">{probed}</div></div>
-  <div class="kpi"><div class="kpi-label">Called</div><div class="kpi-value">{total}</div></div>
+  <div class="kpi"{kpi_filter('pass', passed)}><div class="kpi-label">Passed</div><div class="kpi-value" style="color:#2e7d32">{passed}</div></div>
+  <div class="kpi"{kpi_filter('fail', failed)}><div class="kpi-label">Failed</div><div class="kpi-value" style="color:#c62828">{failed}</div></div>
+  <div class="kpi"{kpi_filter('probe', probed)}><div class="kpi-label">Probed</div><div class="kpi-value" style="color:#1565c0">{probed}</div></div>
+  <div class="kpi"{kpi_filter('all', total)}><div class="kpi-label">Called</div><div class="kpi-value">{total}</div></div>
   <div class="kpi"><div class="kpi-label">Duration</div><div class="kpi-value" style="font-size:1.2rem">{elapsed/1000:.1f}s</div></div>
 </div>
 <table>

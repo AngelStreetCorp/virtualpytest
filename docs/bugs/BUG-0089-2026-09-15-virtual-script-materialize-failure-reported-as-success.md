@@ -98,7 +98,7 @@ All three parts of the stacked failure are now addressed.
    adhoc `deployment_execution` row. The in-memory task record and the outbound
    completion webhook were still on `'failed' if error else 'completed'`, so the same
    run the adhoc row correctly marked failed was reported to an external consumer
-   (dmacp) as completed. The verdict is now derived once in `task_complete` and used
+   (idp) as completed. The verdict is now derived once in `task_complete` and used
    for all three, and a failure the host did not phrase as an error gets a factual
    reason on the wire (`result['stderr']`, else "host reported no script result")
    rather than `status=failed` with `error=None`.

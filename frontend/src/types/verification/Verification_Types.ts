@@ -39,7 +39,7 @@ export interface ReferenceArea {
 export interface ImageVerificationParams {
   image_path?: string; // Required for waitForImage*; absent for waitForIcon* (built-in glyph)
   threshold?: number; // Optional: match threshold (0.0 to 1.0), default 0.8
-  timeout?: number; // Optional: timeout in whole seconds (1-60), default 1
+  timeout?: number; // Optional: timeout in ms, default 1000
   area?: ReferenceArea; // Optional: area to search within
   image_filter?: 'none' | 'greyscale' | 'binary'; // Optional: filter to apply, default 'none'
   reference_name?: string; // Optional: reference name for UI display (same as image_path usually)
@@ -59,7 +59,7 @@ export interface TextVerificationParams {
   // 0.7 enforced both in the UI input and server-side in the controller.
   threshold?: number;
   confidence?: number; // Deprecated — historical, not consumed by the backend.
-  timeout?: number; // Optional: timeout in whole seconds (1-60), default 10
+  timeout?: number; // Optional: timeout in ms, default 10000
   case_sensitive?: boolean; // Optional: case sensitive matching, default false
   area?: ReferenceArea; // Optional: area to search within
   image_filter?: 'none' | 'greyscale' | 'binary'; // Optional: filter to apply
@@ -72,19 +72,20 @@ export interface TextVerificationParams {
 // ADB verification parameters
 export interface AdbVerificationParams {
   search_term: string; // Required: element search term
-  timeout?: number; // Optional: timeout in whole seconds (0-60), default 0 (single check)
+  timeout?: number; // Optional: timeout in ms, default 0 (single check)
 }
 
 // Appium verification parameters
 export interface AppiumVerificationParams {
   search_term: string; // Required: element search term
-  timeout?: number; // Optional: timeout in whole seconds (0-60), default 0 (single check)
+  timeout?: number; // Optional: timeout in ms, default 0 (single check)
 }
 
 // Web verification parameters (Playwright)
 export interface WebVerificationParams {
-  search_term: string; // Required: element search term (text, selector, aria-label)
-  timeout?: number; // Optional: timeout in whole seconds (0-60), default 10
+  search_term?: string; // waitForElementTo*: element search term (text, selector, aria-label)
+  title?: string; // waitForTitleToAppear: expected text in document.title (case-insensitive)
+  timeout?: number; // Optional: timeout in ms, default 10000
   check_interval?: number; // Optional: interval between checks in seconds, default 1
 }
 
@@ -93,7 +94,7 @@ export interface AudioVerificationParams {
   // For detect_silence command
   threshold?: number; // Optional: silence threshold percentage
   duration?: number; // Optional: analysis duration in seconds
-  timeout?: number; // Optional: timeout in whole seconds (0-60)
+  timeout?: number; // Optional: timeout in ms
   audio_file?: string; // Optional: audio file path
 
   // For verify_audio_playing command
@@ -109,7 +110,7 @@ export interface VideoVerificationParams {
   // For motion detection commands
   motion_threshold?: number; // Optional: motion threshold percentage
   duration?: number; // Optional: analysis duration in seconds
-  timeout?: number; // Optional: timeout in whole seconds (0-60)
+  timeout?: number; // Optional: timeout in ms
   area?: ReferenceArea; // Optional: area to search within
 
   // For color verification

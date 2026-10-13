@@ -1,5 +1,6 @@
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { AppBar, Toolbar, Typography, Box, Button, CircularProgress, DialogTitle, DialogContent, DialogActions, List, ListItem, IconButton, Chip, Tooltip } from '@mui/material';
-import { History as HistoryIcon, Restore as RestoreIcon, Publish as PublishIcon } from '@mui/icons-material';
+import { History as HistoryIcon, Restore as RestoreIcon, Publish as PublishIcon, AutoAwesome as AutoAwesomeIcon } from '@mui/icons-material';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -91,7 +92,9 @@ export const NavigationEditorHeader: React.FC<{
   onToggleRemotePanel,
   onControlStateChange,
   onDeviceSelect,
+  onToggleAIGeneration,
 }) => {
+  const P = useAgentChatPalette();
   // Get toast notifications
   const { showError, showSuccess } = useToast();
 
@@ -101,7 +104,7 @@ export const NavigationEditorHeader: React.FC<{
   // Dev/prod scope. The editor shows either the dev row (editable) or its prod
   // snapshot (read-only); both share the interface name, disambiguated by mode.
   const navigateRouter = useNavigate();
-  const { getUserInterfaceByName, publishUserInterface } = useUserInterface();
+  const { getProdSnapshot, publishUserInterface } = useUserInterface();
   const uiModeView: 'dev' | 'prod' = userInterface?.mode === 'prod' ? 'prod' : 'dev';
   const isProdView = uiModeView === 'prod';
   const [prodVersion, setProdVersion] = React.useState<number | null>(null);
@@ -116,16 +119,20 @@ export const NavigationEditorHeader: React.FC<{
       setProdVersion(userInterface?.published_version ?? null);
       return;
     }
-    getUserInterfaceByName(userInterface.name, 'prod')
-      .then((prod: any) => {
-        setHasProd(true);
+    // Existence probe, not an error path: an interface that was never published
+    // simply has no prod row, and getProdSnapshot answers that with null.
+    getProdSnapshot(userInterface.name)
+      .then((prod) => {
+        setHasProd(!!prod);
         setProdVersion(prod?.published_version ?? null);
       })
       .catch(() => {
+        // A real failure (network, 5xx): assume no snapshot rather than offering
+        // a toggle that cannot work.
         setHasProd(false);
         setProdVersion(null);
       });
-  }, [userInterface?.name, userInterface?.published_version, isProdView, getUserInterfaceByName]);
+  }, [userInterface?.name, userInterface?.published_version, isProdView, getProdSnapshot]);
 
   const handleToggleUiMode = () => {
     if (!userInterface?.name) return;
@@ -203,6 +210,9 @@ export const NavigationEditorHeader: React.FC<{
         resetCurrentNodeId();
       }
     },
+    // Warm the cache for the scope on screen, not base — otherwise the first
+    // run under a variant rebuilds the whole hierarchy mid-run (BUG-0202).
+    variant: viewingScope ?? null,
   });
 
   // Show control errors
@@ -372,6 +382,28 @@ export const NavigationEditorHeader: React.FC<{
                 selectedHost={selectedHost}
                 selectedDeviceId={selectedDeviceId || null}
               />
+              {/* Build Map — maps the device's current screen into nodes and edges
+                  (AIGenerationModal): fixed rules on a UI dump for Android/web, a vision model
+                  only on TV/STB. Not the agent pipeline. Dev view only, needs the device under control. */}
+              {onToggleAIGeneration && !isProdView && (
+                <Tooltip title="Map the device's current screen: propose its screens as nodes and edges, then validate each edge on the device">
+                  <span>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      startIcon={<AutoAwesomeIcon />}
+                      onClick={onToggleAIGeneration}
+                      size="small"
+                      disabled={
+                        isLoading || !!error || !selectedHost || !selectedDeviceId || !isControlActive || !treeId
+                      }
+                      sx={{ minWidth: 'auto', height: 32, whiteSpace: 'nowrap', fontSize: '0.75rem', textTransform: 'none' }}
+                    >
+                      Build Map
+                    </Button>
+                  </span>
+                </Tooltip>
+              )}
               {/* Phase 4 §3.5 — canvas viewing scope chip (Base | <variant>).
                   The show/hide-disabled-rows toggle lives INSIDE this dropdown
                   as a per-variant eye (see canToggleDisabledOnVariant note on the
@@ -406,7 +438,7 @@ export const NavigationEditorHeader: React.FC<{
                       fontSize: '0.7rem',
                       cursor: 'pointer',
                       ...(isProdView
-                        ? { bgcolor: '#b8860b', color: '#fff', '&:hover': { bgcolor: '#9a7209' } }
+                        ? { bgcolor: P.gold, color: 'primary.contrastText', '&:hover': { bgcolor: `${P.gold}cc` } }
                         : {}),
                     }}
                     variant={isProdView ? 'filled' : 'outlined'}
@@ -525,6 +557,8 @@ export const NavigationEditorHeader: React.FC<{
                 variant={viewingScope ?? null}
                 disabled={!isControlActive || !selectedHost || !selectedDeviceId}
                 disabledTitle="Take control of a device to localize"
+                width={300}
+                expandedWidth={430}
                 onCandidates={(candidates: LocalizeCandidate[]) => {
                   const top = candidates[0];
                   if (!top) return;

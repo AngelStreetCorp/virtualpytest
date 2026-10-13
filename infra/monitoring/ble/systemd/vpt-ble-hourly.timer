@@ -1,0 +1,23 @@
+[Unit]
+# vpt-ble-hourly.timer — hourly trigger for the BLE health probe
+#
+# Calendar-time scheduling (Persistent=true): if the host was off when the
+# tick was due, the next boot fires a single catch-up run; subsequent ticks
+# return to schedule. AccuracySec=1min keeps the timer from drifting.
+#
+# The probe itself runs as a one-shot (vpt-ble-hourly.service). The hourly
+# tick lands at HH:01 — one minute past the hour, deliberately off-zero so
+# that a boundary journald rotation doesn't run concurrently with the
+# probe's 5-min journal fetch.
+
+Description=VPT BLE hourly timer (TASK-76)
+Documentation=https://...
+
+[Timer]
+OnCalendar=*-*-* *:01:00
+AccuracySec=1min
+Persistent=true
+Unit=vpt-ble-hourly.service
+
+[Install]
+WantedBy=timers.target

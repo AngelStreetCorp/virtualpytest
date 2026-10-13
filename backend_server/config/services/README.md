@@ -28,16 +28,19 @@ This directory contains system service configurations for running VirtualPyTest 
 - **Function**: Consumes `p2_scripts` Redis queue and writes `checked/discard/discard_comment` updates
 - **Requires**:
   - `REDIS_URL` (or local Redis config)
-  - `OPENROUTER_API_KEY` (for direct LLM classification mode)
+  - a working AI route for usage `analyzer.sherlock` (Settings → AI; resolved in-process from the DB,
+    key from `~/.config/virtualpytest/ai_secrets.json` — no provider key in `.env`)
 - **Restart**: Automatic restart on failure with 10-second delay
 
 ### `vpt-discard-incidents.service`
-**Purpose**: Continuous background analyzer worker for incident discard/false-positive decisions
-- **Executes**: `scripts/discard_worker.py` - starts Sherlock (`analyzer`) background queue processor
-- **Function**: Tracks incident discard flow using the same analyzer worker runtime
-- **Requires**:
-  - `REDIS_URL` (or local Redis config)
-  - `OPENROUTER_API_KEY` (for direct LLM classification mode)
+**Purpose**: Alert triage — decides whether a monitoring alert is a real incident or noise
+- **Executes**: `scripts/discard_worker.py --incidents` → `NightwatchHandler` (`backend_server/src/agent/core/nightwatch_handler.py`)
+- **Function**: Polls the `alerts` table every `ALERT_DISCARD_POLL_S` (30) s, applies the cost rules
+  (`ALERT_DISCARD_MIN_DURATION_S`, `ALERT_DISCARD_REPEAT_WINDOW_H`, `ALERT_DISCARD_DAILY_MAX`) and writes
+  `checked/check_type/discard/discard_type/discard_comment` on the alert. No Redis.
+- **Requires**: a working AI route for usage `vision.alert_triage` (inherits `vision`)
+- **On/off**: enabling this unit is the switch; installed disabled, and disabled in production
+  (see `docs/agent/ai/agent.md` → Alert triage for the evaluation)
 - **Restart**: Automatic restart on failure with 10-second delay
 
 ## macOS Services (`mac/`)

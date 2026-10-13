@@ -11,6 +11,8 @@
 | Area      | `backend_host/src/lib/utils/playwright_utils.py`, `backend_host/src/controllers/web/playwright.py` |
 | Fixed in  | build 9151                                                                                         |
 
+> **Update 2026-09-28:** the 300 s wait added here is gone. It assumed every run closes its browser, which a run that had only *attached* to one never did, so the wait fired on every later script. A browser on the port when a script holds the device lock is an orphan by definition: it is now reused or killed, never waited for — [BUG-0179](BUG-0179-2026-09-28-goto-waits-300s-for-an-orphan-chromium.md).
+
 ---
 
 ## Symptom

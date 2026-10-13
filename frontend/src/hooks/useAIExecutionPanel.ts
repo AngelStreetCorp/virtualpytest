@@ -4,6 +4,7 @@ import { useToast } from './useToast';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { waitForExecutionSocketEvent } from '../utils/executionSocketWait';
+import { useUserSession } from './useUserSession';
 
 interface UseAIExecutionPanelProps {
   host: Host;
@@ -62,6 +63,7 @@ export const useAIExecutionPanel = ({
   const [executionStatus, setExecutionStatus] = useState<ExecutionStatus>('idle');
 
   const { showError, showSuccess, showInfo } = useToast();
+  const { userId } = useUserSession();
 
   // Reset the whole result lifecycle back to a clean prompt-entry state.
   const resetResult = useCallback(() => {
@@ -94,6 +96,7 @@ export const useAIExecutionPanel = ({
         const result = await api.post(buildServerUrl('/server/testcase/execute'), {
           device_id: device.device_id,
           host_name: host.host_name,
+          user_id: userId,
           userinterface_name: selectedUserinterface,
           graph_json: graphToRun,
           async_execution: true,
@@ -122,7 +125,7 @@ export const useAIExecutionPanel = ({
         showError(error.message || 'Execution failed');
       }
     },
-    [device, host, selectedUserinterface, showError, showSuccess, showInfo]
+    [device, host, selectedUserinterface, userId, showError, showSuccess, showInfo]
   );
 
   // Send the prompt: generate a plan. If it's a direct match (no AI), auto-run it.
@@ -202,12 +205,13 @@ export const useAIExecutionPanel = ({
 
       try {
         if (saveToDb) {
-          await api.post(buildServerUrl('/server/ai/saveDisambiguationAndRegenerate'), {
+          // Same route and shape as the Test Builder (useTestCaseAI): proxied to
+          // /host/ai-disambiguation/saveDisambiguation, selections as {phrase, resolved}.
+          await api.post(buildServerUrl('/server/ai-disambiguation/saveDisambiguation'), {
             prompt,
             userinterface_name: selectedUserinterface,
-            device_id: device.device_id,
             host_name: host.host_name,
-            selections,
+            selections: Object.entries(selections).map(([phrase, resolved]) => ({ phrase, resolved })),
           });
         }
 
@@ -218,7 +222,7 @@ export const useAIExecutionPanel = ({
         setIsGenerating(false);
       }
     },
-    [prompt, selectedUserinterface, device, host, handleSend, showError]
+    [prompt, selectedUserinterface, host, handleSend, showError]
   );
 
   return {

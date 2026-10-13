@@ -1,5 +1,6 @@
 import { Chip, Tooltip } from '@mui/material';
 import React from 'react';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface FingerprintBadgeProps {
   hasScreenshot: boolean;
@@ -18,6 +19,7 @@ export const FingerprintBadge: React.FC<FingerprintBadgeProps> = ({
   confusable,
   size = 'small',
 }) => {
+  const P = useAgentChatPalette();
   // Non-discriminative region: a wrong node hashes as close as this node's own
   // drift → amber warning so the author draws a tighter region.
   if (hasFingerprint && confusable && confusable.length > 0) {
@@ -31,15 +33,16 @@ export const FingerprintBadge: React.FC<FingerprintBadgeProps> = ({
   if (!hasScreenshot) {
     return (
       <Tooltip title="No screenshot — capture one to enable Localize">
-        <Chip label="– no screenshot" size={size} variant="outlined" sx={{ fontSize: '0.7rem', height: 20 }} />
+        <Chip label="– no screenshot" size={size} variant="outlined"
+          sx={{ fontSize: '0.7rem', height: 20, color: P.textSecondary, borderColor: P.borderColor }} />
       </Tooltip>
     );
   }
   if (!hasFingerprint) {
     return (
       <Tooltip title="Screenshot present, but no Localize fingerprint yet — set a region">
-        <Chip label="○ no fingerprint" size={size} color="default"
-          sx={{ fontSize: '0.7rem', height: 20, bgcolor: 'grey.300' }} />
+        <Chip label="○ no fingerprint" size={size}
+          sx={{ fontSize: '0.7rem', height: 20, bgcolor: P.hoverBg, color: P.textSecondary }} />
       </Tooltip>
     );
   }

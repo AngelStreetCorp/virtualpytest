@@ -51,7 +51,7 @@ import { NodeEditDialog } from '../components/navigation/Navigation_NodeEditDial
 import { NodeGotoPanel } from '../components/navigation/Navigation_NodeGotoPanel';
 import { NodeSelectionPanel } from '../components/navigation/Navigation_NodeSelectionPanel';
 import { NavigationScreenshotProvider } from '../contexts/navigation/NavigationScreenshotContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { AGENT_CHAT_PALETTE, useAgentChatPalette } from '../constants/agentChatTheme';
 import { useDeviceData } from '../contexts/device/DeviceDataContext';
 import { useHostControl } from '../hooks/useHostManager';
 import {
@@ -119,12 +119,12 @@ const edgeTypes = {
 const defaultEdgeOptions = {
   type: 'navigation',
   animated: false,
-  style: { strokeWidth: 2, stroke: '#b1b1b7' },
+  style: { strokeWidth: 2, stroke: AGENT_CHAT_PALETTE.textMuted },
   markerEnd: {
     type: MarkerType.ArrowClosed,
     width: 20,
     height: 20,
-    color: '#b1b1b7',
+    color: AGENT_CHAT_PALETTE.textMuted,
   },
 };
 
@@ -141,30 +141,30 @@ const miniMapNodeColor = (node: any) => {
 
   // Current position gets bright purple
   if (isCurrentPosition) {
-    return '#9c27b0'; // Bright purple for current position
+    return AGENT_CHAT_PALETTE.series[2]; // palette: purple for current position
   }
 
   // Navigation route nodes get orange/amber
   if (isOnNavigationRoute) {
-    return '#ff9800'; // Orange for navigation route
+    return AGENT_CHAT_PALETTE.warning; // palette: warning for navigation route
   }
 
   // Default colors based on node type
   switch (node.data?.type) {
     case 'screen':
-      return '#3b82f6';
+      return AGENT_CHAT_PALETTE.series[1]; // steel
     case 'dialog':
-      return '#8b5cf6';
+      return AGENT_CHAT_PALETTE.series[2]; // purple
     case 'popup':
-      return '#f59e0b';
+      return AGENT_CHAT_PALETTE.series[3]; // rose
     case 'overlay':
-      return '#10b981';
+      return AGENT_CHAT_PALETTE.series[4]; // sage
     case 'menu':
-      return '#ffc107';
+      return AGENT_CHAT_PALETTE.gold; // palette: gold for menus
     case 'entry':
-      return '#ef4444'; // Red for entry points
+      return AGENT_CHAT_PALETTE.error; // palette: error red for entry points
     default:
-      return '#6b7280';
+      return AGENT_CHAT_PALETTE.textMuted;
   }
 };
 
@@ -172,9 +172,12 @@ const miniMapNodeColor = (node: any) => {
 
 // Exported for embedding in ContentViewer
 export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeName }) => {
+    // Get palette tokens — replaces the prior actualMode ternaries that did the same job
+    // (the palette already switches between dark and light).
+    const P = useAgentChatPalette();
 
-    // Get theme context for dynamic styling
-    const { actualMode } = useTheme();
+    // Theme context no longer needed for colours. Palette handles dark/light.
+// const { actualMode } = useTheme();
 
     // Get navigation stack for nested navigation
     const { currentLevel, isNested, stack } = useNavigationStack();
@@ -195,15 +198,13 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
     // Dynamic miniMapStyle based on theme - black background in dark mode, white in light mode
     const miniMapStyle = useMemo(
       () => ({
-        backgroundColor: actualMode === 'dark' ? '#1f2937' : '#ffffff',
-        border: `1px solid ${actualMode === 'dark' ? '#374151' : '#e5e7eb'}`,
+        backgroundColor: P.surface,
+        border: `1px solid ${P.borderColor}`,
         borderRadius: '8px',
         boxShadow:
-          actualMode === 'dark'
-            ? '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)'
-            : '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+          '0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.12)',
       }),
-      [actualMode],
+      [],
     );
 
     // Use the restored navigation editor hook
@@ -2274,12 +2275,12 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
                       width: '26px',
                       height: '26px',
                       padding: '0',
-                      background: '#ffffff',
-                      border: `0px solid ${actualMode === 'dark' ? '#334155' : '#e2e8f0'}`,
+                      background: P.surface,
+                      border: `0px solid ${P.borderColor}`,
                       borderRadius: '0',
                       cursor: 'pointer',
                       fontSize: '16px',
-                      color: '#000000',
+                      color: P.textPrimary,
                       zIndex: 5,
                       display: 'flex',
                       alignItems: 'center',
@@ -2287,10 +2288,10 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
                       boxShadow: 'rgba(0, 0, 0, 0.1) 0px 0px 0px 1px',
                     }}
                     onMouseEnter={(e) => {
-                      e.currentTarget.style.background = '#f1f5f9';
+                      e.currentTarget.style.background = P.hoverBg;
                     }}
                     onMouseLeave={(e) => {
-                      e.currentTarget.style.background = '#ffffff';
+                      e.currentTarget.style.background = P.surface;
                     }}
                   >
                     <svg 
@@ -2482,7 +2483,7 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
           const selectedDevice = selectedHost.devices?.find((d) => d.device_id === selectedDeviceId);
           const isDesktopDevice = selectedDevice?.device_model === 'host_vnc';
           const remoteCapability = selectedDevice?.device_capabilities?.remote;
-          const hasMultipleRemotes = Array.isArray(remoteCapability) || selectedDevice?.device_model === 'fire_tv';
+          const hasMultipleRemotes = Array.isArray(remoteCapability);
           
           if (isDesktopDevice) {
             // For desktop devices, render both DesktopPanel and WebPanel together
@@ -2505,51 +2506,6 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
                   initialCollapsed={true}
                 />
               </>
-            );
-          } else if (hasMultipleRemotes && selectedDevice?.device_model === 'fire_tv') {
-            // For Fire TV devices, render both AndroidTvRemote and InfraredRemote side by side
-            return (
-              <Box
-                sx={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  gap: 2,
-                  position: 'absolute',
-                  right: 20,
-                  top: 100,
-                  zIndex: 1000,
-                  height: 'auto',
-                }}
-              >
-                <RemotePanel
-                  host={selectedHost}
-                  deviceId={selectedDeviceId}
-                  deviceModel={selectedDevice?.device_model || 'fire_tv'}
-                  remoteType="android_tv"
-                  isConnected={isControlActive}
-                  onReleaseControl={handleDisconnectComplete}
-                  deviceResolution={DEFAULT_DEVICE_RESOLUTION}
-                  streamCollapsed={isAVPanelCollapsed}
-                  streamMinimized={false}
-                  streamHidden={showAVPanel} // Hide overlay when AV panel is active (screenshot/video mode)
-                  captureMode="stream"
-                  initialCollapsed={true}
-                />
-                <RemotePanel
-                  host={selectedHost}
-                  deviceId={selectedDeviceId}
-                  deviceModel={selectedDevice?.device_model || 'fire_tv'}
-                  remoteType="ir_remote"
-                  isConnected={isControlActive}
-                  onReleaseControl={handleDisconnectComplete}
-                  deviceResolution={DEFAULT_DEVICE_RESOLUTION}
-                  streamCollapsed={isAVPanelCollapsed}
-                  streamMinimized={false}
-                  streamHidden={showAVPanel} // Hide overlay when AV panel is active (screenshot/video mode)
-                  captureMode="stream"
-                  initialCollapsed={true}
-                />
-              </Box>
             );
           } else if (hasMultipleRemotes) {
             // For other devices with multiple remote controllers - render side by side

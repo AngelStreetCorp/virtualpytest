@@ -7,9 +7,6 @@ import { useAuth } from '../hooks/auth/useAuth';
 import { isAuthEnabled } from '../lib/supabase';
 import { useHostData } from '../hooks/useHostManager';
 
-// Same storage keys as useAgentChat to share data
-const STORAGE_KEY_API = 'virtualpytest_ai_api_key';
-const STORAGE_KEY_PROVIDER = 'virtualpytest_ai_provider';
 const STORAGE_KEY_AUTO_NAV = 'virtualpytest_allow_auto_navigation';
 const STORAGE_KEY_AI_STATUS = 'virtualpytest_ai_status';
 
@@ -137,42 +134,19 @@ export const AIProvider: React.FC<{children: React.ReactNode}> = ({ children }) 
         // mid-deploy and got no key in the answer) hid the floating Ask AI button forever,
         // even after a key was configured server-side. The cache now only seeds the
         // initial render; the backend answer always wins.
-        const savedKey = localStorage.getItem(STORAGE_KEY_API);
-
-        // First check if API key is configured on backend
+        // The agent's endpoint key is a server-side secret (Settings → AI → Endpoints);
+        // the browser never holds or re-sends it. Purge the plaintext copy older builds kept.
+        localStorage.removeItem('virtualpytest_ai_api_key');
+        localStorage.removeItem('virtualpytest_ai_provider');
         const healthResponse = await fetch(buildServerUrl('/server/agent/health'));
         const healthData = await healthResponse.json();
 
-        if (healthData.api_key_configured) {
-          // API key already configured on backend
-          updateStatus('ready');
-        } else {
-          // Check if we have a saved key in localStorage (same as AgentChat)
-          if (savedKey) {
-            // Send the saved key to backend
-            const saveResponse = await fetch(buildServerUrl('/server/agent/api-key'), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                provider: localStorage.getItem(STORAGE_KEY_PROVIDER) || healthData.provider || 'anthropic',
-                model: healthData.model || '',
-                api_key: savedKey,
-              })
-            });
-
-            const saveData = await saveResponse.json();
-            if (saveData.success) {
-              updateStatus('ready');
-            } else {
-              updateStatus('needs_key');
-              return;
-            }
-          } else {
-            updateStatus('needs_key');
-            return;
-          }
+        if (!healthData.api_key_configured) {
+          updateStatus('needs_key');
+          return;
         }
-        
+        updateStatus('ready');
+
         // Create shared session (via SocketContext — shared with useAgentChat)
         const sharedSessionId = await socketInitSession();
         if (sharedSessionId) {
@@ -296,7 +270,7 @@ export const AIProvider: React.FC<{children: React.ReactNode}> = ({ children }) 
     if (agentChat.status === 'needs_key') {
       setExecutionSteps([{
         id: 'error-key', label: 'Error', status: 'error',
-        detail: '⚠️ AI provider not configured. Please go to AI Agent page or Settings → AI to set the active provider key.'
+        detail: '⚠️ AI provider not configured. The platform admin sets the endpoint API key in Settings → AI → Endpoints.'
       }]);
       return;
     }

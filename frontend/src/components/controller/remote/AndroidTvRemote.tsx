@@ -4,6 +4,8 @@ import { Box, Button, IconButton, Typography, CircularProgress } from '@mui/mate
 import React, { useState, useCallback, useEffect } from 'react';
 
 import { useAndroidTv } from '../../../hooks/controller/useAndroidTv';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { useDisabledRemoteKeys } from '../../../contexts/RemoteCommandSinkContext';
 import { Host } from '../../../types/common/Host_Types';
 
 interface AndroidTvRemoteProps {
@@ -11,6 +13,10 @@ interface AndroidTvRemoteProps {
   deviceId?: string;
   isConnected?: boolean;
   // onDisconnectComplete removed - disconnect button was removed
+  // Publishes the ADB link + last-send health dot up to RemotePanel
+  // (shared with the IR / Vega / Bluetooth remote dots). See
+  // backend_host/src/controllers/remote/android_tv.py:get_health().
+  onStatusChange?: (color: string, tooltip: string) => void;
   sx?: any;
   isCollapsed: boolean;
   streamContainerDimensions?: {
@@ -27,12 +33,14 @@ export const AndroidTvRemote = React.memo(
     deviceId,
     isConnected,
     // onDisconnectComplete removed
+    onStatusChange,
     sx = {},
     isCollapsed,
     streamContainerDimensions,
   }: AndroidTvRemoteProps) {
     const {
       session,
+      status,
       isLoading,
       layoutConfig,
       handleConnect,
@@ -41,6 +49,24 @@ export const AndroidTvRemote = React.memo(
     } = useAndroidTv(host, deviceId, isConnected);
 
     const [showOverlays, setShowOverlays] = useState(true);
+    const P = useAgentChatPalette();
+
+    // Android TV link + last-send health → status dot (same colour rules
+    // as InfraredRemote so operators see one consistent "is this remote
+    // working?" indicator across IR / Vega / BLE / Android TV).
+    const dotColor: string = (() => {
+      if (status === null) return P.textMuted; // grey — status not loaded yet
+      if (!status.device_present) return P.error; // red — adb device missing
+      if (!status.tx_probe_ok) return P.error; // red — adb shell wedged
+      if (status.last_send_ok === false) return P.error; // red — last press failed
+      if (status.healthy) return P.success; // green — ready
+      return P.error;
+    })();
+    const dotTooltip: string = status?.detail || 'Android TV status unknown';
+
+    useEffect(() => {
+      onStatusChange?.(dotColor, dotTooltip);
+    }, [onStatusChange, dotColor, dotTooltip]);
 
     // Keep showOverlays state persistent when isCollapsed changes
     // This helps with button alignment as overlays remain visible by default
@@ -62,6 +88,11 @@ export const AndroidTvRemote = React.memo(
       setRemoteContainerEl(node);
     }, []);
     const [measuredContainerHeight, setMeasuredContainerHeight] = useState<number | null>(null);
+
+    // TASK-80 multi-profile group: keys outside the shared intersection render
+    // greyed; clicks are dropped. Same as IR / BLE leaves.
+    const disabledKeys = useDisabledRemoteKeys();
+    const isKeyDisabled = (key: string): boolean => disabledKeys != null && !disabledKeys.has(key);
 
     useEffect(() => {
       if (!remoteContainerEl) return;
@@ -249,7 +280,9 @@ export const AndroidTvRemote = React.memo(
               streamContainerDimensions
                 ? layoutConfig.button_layout_recmodal
                 : layoutConfig.button_layout,
-            ).map(([buttonId, button]) => (
+            ).map(([buttonId, button]) => {
+              const keyDisabled = isKeyDisabled(button.key);
+              return (
               <Box
                 key={buttonId}
                 sx={{
@@ -260,54 +293,59 @@ export const AndroidTvRemote = React.memo(
                   height: `${button.size.height * layoutConfig.remote_info.button_scale_factor * remoteScale}px`,
                   borderRadius: button.shape === 'circle' ? '50%' : '4px',
                   backgroundColor: (() => {
-                    if (isCollapsed) {
-                      return 'rgba(255, 255, 255, 0.1)'; // Always visible when collapsed for debugging
-                    } else if (showOverlays) {
-                      return 'rgba(255, 255, 255, 0.1)'; // Normal visibility when expanded
-                    } else {
-                      return 'rgba(255, 255, 255, 0.02)'; // 20% transparency for debugging when hidden
-                    }
+                    if (keyDisabled) return 'rgba(102, 102, 102, 0.06)';
+                    if (isCollapsed) return 'rgba(255, 255, 255, 0.1)';
+                    if (showOverlays) return 'rgba(255, 255, 255, 0.1)';
+                    return 'rgba(255, 255, 255, 0.02)';
                   })(),
                   border: (() => {
-                    if (isCollapsed) {
-                      return '1px solid rgba(255, 255, 255, 0.5)'; // Always visible when collapsed for debugging
-                    } else if (showOverlays) {
-                      return '1px solid rgba(255, 255, 255, 0.3)'; // Normal visibility when expanded
-                    } else {
-                      return '1px solid rgba(255, 255, 255, 0.06)'; // 20% transparency for debugging when hidden
-                    }
+                    if (keyDisabled) return '1px solid rgba(102, 102, 102, 0.4)';
+                    if (isCollapsed) return '1px solid rgba(255, 255, 255, 0.5)';
+                    if (showOverlays) return '1px solid rgba(255, 255, 255, 0.3)';
+                    return '1px solid rgba(255, 255, 255, 0.06)';
                   })(),
-                  cursor: 'pointer',
+                  cursor: keyDisabled ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   transition: 'all 0.2s ease-in-out',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    transform: 'scale(1.05)',
-                  },
-                  '&:active': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                    transform: 'scale(0.95)',
-                  },
+                  '&:hover': keyDisabled
+                    ? undefined
+                    : {
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        transform: 'scale(1.05)',
+                      },
+                  '&:active': keyDisabled
+                    ? undefined
+                    : {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        transform: 'scale(0.95)',
+                      },
                 }}
-                onClick={() => handleButtonPress(button.key)}
-                title={`${button.label} - ${button.comment}`}
+                onClick={() => {
+                  if (keyDisabled) return;
+                  handleButtonPress(button.key);
+                }}
+                title={keyDisabled
+                  ? `${button.label} - not on every member's transport`
+                  : `${button.label} - ${button.comment}`}
               >
                 <Typography
                     variant="caption"
                     sx={{
                       fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`,
                       fontWeight: layoutConfig.remote_info.text_style.fontWeight,
-                      color: layoutConfig.remote_info.text_style.color,
+                      color: keyDisabled ? 'rgba(160, 160, 160, 0.5)' : layoutConfig.remote_info.text_style.color,
                       textShadow: layoutConfig.remote_info.text_style.textShadow,
                       userSelect: 'none',
+                      textDecoration: keyDisabled ? 'line-through' : 'none',
                     }}
                   >
                     {button.label}
                   </Typography>
               </Box>
-            ))}
+              );
+            })}
           </Box>
         </Box>
       );
@@ -337,6 +375,7 @@ export const AndroidTvRemote = React.memo(
       prevProps.host?.host_name === nextProps.host?.host_name &&
       prevProps.deviceId === nextProps.deviceId &&
       prevProps.isConnected === nextProps.isConnected &&
+      prevProps.onStatusChange === nextProps.onStatusChange &&
       // onDisconnectComplete comparison removed &&
       JSON.stringify(prevProps.sx) === JSON.stringify(nextProps.sx) &&
       prevProps.isCollapsed === nextProps.isCollapsed &&

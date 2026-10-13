@@ -1,0 +1,19 @@
+{
+ "id": "bBheQqaRIQM",
+ "title": "Proof, not a checkmark: what every VirtualPyTest run leaves behind",
+ "description": "A green tick tells you nothing when the screen was wrong. Every VirtualPyTest run leaves evidence you can open: initial and final state, the full execution video, one screenshot per step, the DOM captured at every screen, and per-step pass or fail with timings. Then pass rate and run history across the whole team.\n\nRecorded on a real browser driven by the navigation tree, on the YouTube web app.",
+ "tags": [
+  "test report",
+  "test evidence",
+  "qa automation",
+  "screenshot testing",
+  "ui verification",
+  "test automation",
+  "open source",
+  "playwright",
+  "virtualpytest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-27"
+}

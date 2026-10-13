@@ -85,6 +85,12 @@ awk -v tot="$TOTAL" '
   END { for (k in c) printf "    %-22s %6d  %5.1f%%\n", k, c[k], (tot? 100*c[k]/tot:0) }
 ' "$OUT" | sort -t' ' -k2 -rn
 
+# 5b. Native threads py-spy cannot see (e.g. an OpenCV thread pool — see
+#     OPTIMIZATION.md §6). The "inotify" bucket above is mostly idle epoll_wait.
+echo "· busiest OS threads (top -H; py-spy is blind to native-only threads):"
+top -H -b -d 5 -n 2 -p "$PID" | awk '/^top/{n++} n==2 && $1 ~ /^[0-9]+$/' | head -10 \
+  | awk '{printf "    tid %-8s %5s%%\n", $1, $9}'
+
 # 6. Hottest individual stacks.
 echo "· top stacks:"
 sort "$OUT" | awk '{c=$NF; $NF=""; s[$0]+=c} END{for(k in s) print s[k], k}' \

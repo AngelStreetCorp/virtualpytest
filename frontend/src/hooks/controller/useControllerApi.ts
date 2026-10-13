@@ -1,6 +1,9 @@
 import { useCallback } from 'react';
 
+import { GROUP_PRIMARY_ONLY_COMMANDS } from '../../constants/groupControl';
+import { useRemoteCommandSink } from '../../contexts/RemoteCommandSinkContext';
 import { Host } from '../../types/common/Host_Types';
+import type { RemoteCommandPayload } from '../../types/pages/groupControl.types';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 
@@ -19,6 +22,8 @@ interface PostOptions {
  */
 export function useControllerApi(host: Host | null | undefined, deviceId?: string | null) {
   const hostName = host?.host_name ?? null;
+  // Group control (TASK-76): a provider above the remote fans commands out to every member.
+  const sink = useRemoteCommandSink();
 
   const getHostName = useCallback((): string => {
     if (!hostName) {
@@ -60,17 +65,13 @@ export function useControllerApi(host: Host | null | undefined, deviceId?: strin
       extras: Payload = {},
       options?: PostOptions,
     ): Promise<T> => {
-      return postToHost<T>(
-        '/server/remote/executeCommand',
-        {
-          ...extras,
-          command,
-          params,
-        },
-        options,
-      );
+      const body = { ...extras, command, params };
+      if (sink && !GROUP_PRIMARY_ONLY_COMMANDS.has(command)) {
+        return sink(withHostPayload(body, options) as RemoteCommandPayload) as Promise<T>;
+      }
+      return postToHost<T>('/server/remote/executeCommand', body, options);
     },
-    [postToHost],
+    [postToHost, sink, withHostPayload],
   );
 
   return {

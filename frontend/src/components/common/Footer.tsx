@@ -9,6 +9,7 @@ import { useBranding } from '../../contexts/BrandingContext';
 import { useIsNativeApp } from '../../hooks/useIsNativeApp';
 
 const GITHUB_REPO_URL = 'https://github.com/AngelStreetCorp/virtualpytest';
+const PROJECT_HOMEPAGE_URL = 'https://virtualpytest.com/';
 // features/mobile-app: the "Get the app" card (APK link + config QR) lives on this page.
 // The link is pointless inside the app itself, hence the native check.
 const MOBILE_APP_PAGE = '/configuration/mobile-app';
@@ -95,19 +96,24 @@ const Footer: React.FC = () => {
               />
             );
           })()}
-          <Typography
-            variant="body2"
+          <Link
+            href={PROJECT_HOMEPAGE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            underline="hover"
             color="text.secondary"
             sx={branding.tenantFooterTextColor ? { color: branding.tenantFooterTextColor } : undefined}
           >
-            © {year} {[branding.showProjectName ? branding.name : '', branding.tagline]
-              .filter(Boolean)
-              .join(' - ')}
-          </Typography>
+            <Typography variant="body2" component="span">
+              © {year} {[branding.showProjectName ? branding.name : '', branding.tagline]
+                .filter(Boolean)
+                .join(' - ')}
+            </Typography>
+          </Link>
         </Box>
 
         <Box display="flex" alignItems="center" gap={2}>
-          {isFeatureEnabled('mobile-app') && !isNative && (
+          {isFeatureEnabled('mobile-app') && !isNative && branding.showMobileAppLink && (
             <Link
               component={RouterLink}
               to={MOBILE_APP_PAGE}
@@ -120,6 +126,7 @@ const Footer: React.FC = () => {
               <PhoneAndroidIcon sx={{ fontSize: 14 }} />
             </Link>
           )}
+          {branding.showGithubLink && (
           <Link
             href={GITHUB_REPO_URL}
             target="_blank"
@@ -132,6 +139,7 @@ const Footer: React.FC = () => {
             View on GitHub
             <GitHubIcon sx={{ fontSize: 14 }} />
           </Link>
+          )}
           {appVersion && (
             <Typography variant="caption" color="text.secondary">
               {appVersion}

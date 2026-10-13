@@ -155,28 +155,32 @@ def create_index_html(yaml_files):
     
     server_specs = [f for f in yaml_files if f.stem.startswith('server-')]
     
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from shared.src.lib.utils.report_theme import report_theme_head
+    theme_head = report_theme_head()
     html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>API Documentation</title>
+    {theme_head}
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; 
-               background: #0f172a; 
+               background: var(--vpt-page); color: var(--vpt-text); 
                padding: 20px; min-height: 100vh; }}
         .container {{ max-width: 1400px; margin: 0 auto; }}
-        .section {{ background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 20px; margin-bottom: 20px; 
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.2); }}
-        .section h2 {{ color: #94a3b8; margin-bottom: 16px; font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }}
+        .section {{ background: var(--vpt-surface); border: 1px solid var(--vpt-border); border-radius: 10px; padding: 20px; margin-bottom: 20px; 
+                    box-shadow: var(--vpt-shadow); }}
+        .section h2 {{ color: var(--vpt-text-2); margin-bottom: 16px; font-size: 1rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }}
         .api-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }}
-        .api-card {{ background: #334155; 
+        .api-card {{ background: var(--vpt-subtle); 
                      padding: 14px 16px; border-radius: 6px; transition: all 0.2s; 
-                     border-left: 3px solid #64748b; }}
-        .api-card:hover {{ transform: translateY(-2px); box-shadow: 0 6px 16px rgba(0,0,0,0.3); background: #3f4f63; }}
-        .api-card a {{ text-decoration: none; color: #f1f5f9; font-weight: 500; font-size: 0.95rem; }}
-        .api-card p {{ color: #94a3b8; margin-top: 4px; font-size: 0.8rem; }}
+                     border-left: 3px solid var(--vpt-accent); }}
+        .api-card:hover {{ transform: translateY(-2px); box-shadow: var(--vpt-shadow); background: var(--vpt-accent-tint); }}
+        .api-card a {{ text-decoration: none; color: var(--vpt-text); font-weight: 500; font-size: 0.95rem; }}
+        .api-card p {{ color: var(--vpt-muted); margin-top: 4px; font-size: 0.8rem; }}
     </style>
 </head>
 <body>

@@ -1,3 +1,4 @@
+import RefreshIcon from '@mui/icons-material/Refresh';
 import {
   Box,
   Button,
@@ -13,6 +14,7 @@ import {
   DialogActions,
   Snackbar,
   Alert,
+  Tooltip,
 } from '@mui/material';
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -26,6 +28,33 @@ import { PanelInfo } from '../../../types/controller/Panel_Types';
 import { AndroidElement } from '../../../types/controller/Remote_Types';
 
 import { AndroidMobileOverlay } from './AndroidMobileOverlay';
+
+// adb returns package names only, so the launcher shows a readable name derived from the package
+// (full package name on hover). Overrides cover packages whose last segment reads badly.
+const APP_NAME_OVERRIDES: Record<string, string> = {
+  'com.android.chrome': 'Chrome',
+  'com.android.vending': 'Play Store',
+  'com.google.android.gm': 'Gmail',
+  'com.google.android.youtube': 'YouTube',
+  'com.google.android.apps.youtube.music': 'YouTube Music',
+  'com.spotify.music': 'Spotify',
+  'com.whatsapp': 'WhatsApp',
+};
+const PACKAGE_NOISE = new Set([
+  'com', 'org', 'net', 'android', 'google', 'apps', 'app', 'samsung', 'sec', 'microsoft',
+  'office', 'mobile', 'client', 'mediaclient', 'activity', 'main', 'launcher',
+]);
+
+const appDisplayName = (packageName: string, label: string): string => {
+  if (label && label !== packageName) return label;
+  if (APP_NAME_OVERRIDES[packageName]) return APP_NAME_OVERRIDES[packageName];
+  const parts = packageName.split('.');
+  const name = parts.filter((p) => !PACKAGE_NOISE.has(p.toLowerCase())).pop() ?? parts[parts.length - 1];
+  return name
+    .replace(/[_-]+/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+};
 
 interface AndroidMobileRemoteProps {
   host: Host;
@@ -96,7 +125,7 @@ export const AndroidMobileRemote = React.memo(
 
       // Manual orientation
       isLandscape,
-      toggleOrientation,
+      screenSize,
       checkOrientation,
 
       // Actions
@@ -117,12 +146,22 @@ export const AndroidMobileRemote = React.memo(
       session,
     } = hookResult;
 
+    const launcherApps = React.useMemo(
+      () =>
+        androidApps
+          .map((app) => ({ ...app, name: appDisplayName(app.packageName, app.label) }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      [androidApps],
+    );
+
     // Keeps the app-launcher menu the width of its Select instead of the longest package name
     const appSelectRef = React.useRef<HTMLDivElement>(null);
 
     // Local state for element interaction
     const [elementActionType, setElementActionType] = React.useState<'click_id' | 'click_text' | 'find'>('click_id');
     const [elementActionInput, setElementActionInput] = React.useState('');
+    const [typeTextInput, setTypeTextInput] = React.useState('');
+    const [isTyping, setIsTyping] = React.useState(false);
     const [isExecutingAction, setIsExecutingAction] = React.useState(false);
     const [actionStatus, setActionStatus] = React.useState<'idle' | 'success' | 'error'>('idle');
 
@@ -179,6 +218,27 @@ export const AndroidMobileRemote = React.memo(
     }, [actionStatus]);
 
     // Handle element interaction action execution
+    // Enter: types the field's text (if any) then presses Enter on the phone
+    const handleTypeEnter = async () => {
+      if (isTyping) return;
+      setIsTyping(true);
+      try {
+        if (typeTextInput) {
+          const result = await handleRemoteCommand('INPUT_TEXT', { text: typeTextInput });
+          if (!result?.success) {
+            setToastMessage(`Text input failed${result?.error ? `: ${result.error}` : ''}`);
+            setToastSeverity('error');
+            setToastOpen(true);
+            return;
+          }
+          setTypeTextInput('');
+        }
+        await handleRemoteCommand('ENTER');
+      } finally {
+        setIsTyping(false);
+      }
+    };
+
     const handleElementAction = async () => {
       if (!elementActionInput.trim() || isExecutingAction || isDumpingUI) return;
 
@@ -250,6 +310,8 @@ export const AndroidMobileRemote = React.memo(
     }, [androidElements]);
 
     // Panel integration - prepare panelInfo for overlay
+    const overlayScreen = screenSize ?? layoutConfig.deviceResolution;
+
     const panelInfo: PanelInfo | undefined = React.useMemo(() => {
       // Skip unnecessary recalculations if missing required props
       if (!panelWidth || !panelHeight || !deviceResolution) {
@@ -446,8 +508,8 @@ export const AndroidMobileRemote = React.memo(
                 App Launcher ({androidApps.length} apps)
               </Typography>
 
-              <Box sx={{ mb: 1, mt: 0 }}>
-                <FormControl fullWidth size="small" ref={appSelectRef}>
+              <Box sx={{ display: 'flex', gap: 0.5, mb: 1, mt: 0 }}>
+                <FormControl fullWidth size="small" ref={appSelectRef} sx={{ minWidth: 0 }}>
                   <InputLabel>Select an app...</InputLabel>
                   <Select
                     value={selectedApp}
@@ -468,98 +530,53 @@ export const AndroidMobileRemote = React.memo(
                         },
                       },
                     }}
-                    renderValue={(value) =>
-                      androidApps.find((app) => app.packageName === value)?.label || value
-                    }
+                    renderValue={(value) => {
+                      const app = androidApps.find((a) => a.packageName === value);
+                      return app ? appDisplayName(app.packageName, app.label) : value;
+                    }}
                   >
-                    {androidApps.map((app) => (
-                      <MenuItem
-                        key={app.packageName}
-                        value={app.packageName}
-                        sx={{
-                          fontSize: '0.875rem',
-                          py: 1,
-                          px: 2,
-                          gap: 1,
-                          display: 'flex',
-                          alignItems: 'baseline',
-                          justifyContent: 'space-between',
-                          whiteSpace: 'nowrap',
-                          overflow: 'hidden',
-                        }}
-                      >
-                        <Box
-                          component="span"
-                          sx={{
-                            flex: '1 1 auto',
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                          }}
-                        >
-                          {app.label}
-                        </Box>
-                        {app.label !== app.packageName && (
+                    {launcherApps.map((app) => (
+                      <MenuItem key={app.packageName} value={app.packageName} sx={{ fontSize: '0.875rem', py: 0.75, px: 1.5 }}>
+                        <Tooltip title={app.packageName} placement="left" enterDelay={300}>
                           <Box
                             component="span"
                             sx={{
-                              flex: '0 1 auto',
-                              minWidth: 0,
-                              fontSize: '0.65rem',
-                              opacity: 0.6,
+                              display: 'block',
+                              width: '100%',
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
                             }}
                           >
-                            {app.packageName}
+                            {app.name}
                           </Box>
-                        )}
+                        </Tooltip>
                       </MenuItem>
                     ))}
                   </Select>
                 </FormControl>
+                <Tooltip title="Refresh apps">
+                  <span>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      aria-label="Refresh apps"
+                      onClick={handleGetApps}
+                      disabled={!session.connected || isRefreshingApps}
+                      sx={{ minWidth: 0, width: 40, height: 40, p: 0 }}
+                    >
+                      {isRefreshingApps ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
+                    </Button>
+                  </span>
+                </Tooltip>
               </Box>
-
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={handleGetApps}
-                disabled={!session.connected || isRefreshingApps}
-                fullWidth
-              >
-                {isRefreshingApps ? (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <CircularProgress size={16} />
-                    <Typography variant="caption">Loading...</Typography>
-                  </Box>
-                ) : (
-                  'Refresh Apps'
-                )}
-              </Button>
             </Box>
 
             {/* UI Elements Section */}
             <Box sx={{ mb: 0.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-                <Typography variant="subtitle2">
-                  UI Elements ({androidElements.length})
-                </Typography>
-                <Button
-                  variant="text"
-                  size="small"
-                  onClick={toggleOrientation}
-                  disabled={!session.connected}
-                  sx={{ 
-                    minWidth: 'auto', 
-                    p: 0.25,
-                    fontSize: '0.75rem',
-                    opacity: session.connected ? 1 : 0.5
-                  }}
-                  title={isLandscape ? 'Switch to Portrait' : 'Switch to Landscape'}
-                >
-                  🔄
-                </Button>
-              </Box>
+              <Typography variant="subtitle2" gutterBottom>
+                UI Elements ({androidElements.length})
+              </Typography>
 
               <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5 }}>
                 <Button
@@ -673,14 +690,74 @@ export const AndroidMobileRemote = React.memo(
                 Device Controls
               </Typography>
 
-              {/* System buttons */}
-              <Box sx={{ display: 'flex', gap: 0.5, mb: 1 }}>
+              {/* D-pad (OK in the middle) with Back / Home / Menu beside it */}
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 36px)',
+                    gridTemplateRows: 'repeat(3, 36px)',
+                    gap: '5px',
+                    flexShrink: 0,
+                  }}
+                >
+                <Box />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('DPAD_UP')}
+                  disabled={!session.connected}
+                  sx={{ minWidth: 0, p: 0, height: 36 }}
+                >
+                  ↑
+                </Button>
+                <Box />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('DPAD_LEFT')}
+                  disabled={!session.connected}
+                  sx={{ minWidth: 0, p: 0, height: 36 }}
+                >
+                  ←
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('DPAD_CENTER')}
+                  disabled={!session.connected}
+                  sx={{ minWidth: 0, p: 0, height: 36, borderRadius: '50%' }}
+                >
+                  OK
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('DPAD_RIGHT')}
+                  disabled={!session.connected}
+                  sx={{ minWidth: 0, p: 0, height: 36 }}
+                >
+                  →
+                </Button>
+                <Box />
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('DPAD_DOWN')}
+                  disabled={!session.connected}
+                  sx={{ minWidth: 0, p: 0, height: 36 }}
+                >
+                  ↓
+                </Button>
+                <Box />
+                </Box>
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, flex: 1, minWidth: 0 }}>
                 <Button
                   variant="outlined"
                   size="small"
                   onClick={() => handleRemoteCommand('BACK')}
                   disabled={!session.connected}
-                  sx={{ flex: 1 }}
+                  sx={{  }}
                 >
                   Back
                 </Button>
@@ -689,7 +766,7 @@ export const AndroidMobileRemote = React.memo(
                   size="small"
                   onClick={() => handleRemoteCommand('HOME')}
                   disabled={!session.connected}
-                  sx={{ flex: 1 }}
+                  sx={{  }}
                 >
                   Home
                 </Button>
@@ -698,14 +775,55 @@ export const AndroidMobileRemote = React.memo(
                   size="small"
                   onClick={() => handleRemoteCommand('MENU')}
                   disabled={!session.connected}
-                  sx={{ flex: 1 }}
+                  sx={{  }}
                 >
                   Menu
+                </Button>
+                </Box>
+              </Box>
+
+              {/* Scroll buttons: Scr↓ shows what is below, so the finger swipes up (BUG-0489) */}
+              <Box sx={{ display: 'flex', gap: 0.25, mb: 0.5 }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('SWIPE_DOWN')}
+                  disabled={!session.connected}
+                  sx={{ flex: 1, fontSize: '0.65rem', padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
+                >
+                  Scr↑
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('SWIPE_UP')}
+                  disabled={!session.connected}
+                  sx={{ flex: 1, fontSize: '0.65rem', padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
+                >
+                  Scr↓
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('SWIPE_RIGHT')}
+                  disabled={!session.connected}
+                  sx={{ flex: 1, fontSize: '0.65rem', padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
+                >
+                  Scr←
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => handleRemoteCommand('SWIPE_LEFT')}
+                  disabled={!session.connected}
+                  sx={{ flex: 1, fontSize: '0.65rem', padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
+                >
+                  Scr→
                 </Button>
               </Box>
 
               {/* Volume controls */}
-              <Box sx={{ display: 'flex', gap: 0.5, mb: 1 }}>
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
                 <Button
                   variant="outlined"
                   size="small"
@@ -724,80 +842,45 @@ export const AndroidMobileRemote = React.memo(
                 >
                   Vol-
                 </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handleRemoteCommand('POWER')}
-                  disabled={!session.connected}
-                  sx={{ flex: 1 }}
-                >
-                  Power
-                </Button>
               </Box>
+            </Box>
 
-
-
-              {/* Scroll buttons */}
-              <Box sx={{ display: 'flex', gap: 0.25 }}>
+            {/* Type Text: Enter types the field's text then presses Enter; empty field = Enter only */}
+            <Box sx={{ mb: 0.5 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Type Text
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                <TextField
+                  value={typeTextInput}
+                  onChange={(e) => setTypeTextInput(e.target.value)}
+                  placeholder="Type text"
+                  variant="outlined"
+                  size="small"
+                  disabled={!session.connected || isTyping}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleTypeEnter();
+                    }
+                  }}
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    '& .MuiOutlinedInput-root': {
+                      fontSize: '0.75rem',
+                      '& input': { py: 0.5 },
+                    },
+                  }}
+                />
                 <Button
                   variant="outlined"
                   size="small"
-                  onClick={() => handleRemoteCommand('SWIPE_UP')}
-                  disabled={!session.connected}
-                  sx={{ 
-                    flex: 1, 
-                    fontSize: '0.65rem', 
-                    padding: '1px 2px',
-                    minWidth: '40px',
-                    maxWidth: '55px'
-                  }}
+                  onClick={handleTypeEnter}
+                  disabled={!session.connected || isTyping}
+                  sx={{ minWidth: '64px' }}
                 >
-                  Scr↑
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handleRemoteCommand('SWIPE_DOWN')}
-                  disabled={!session.connected}
-                  sx={{ 
-                    flex: 1, 
-                    fontSize: '0.65rem', 
-                    padding: '1px 2px',
-                    minWidth: '40px',
-                    maxWidth: '55px'
-                  }}
-                >
-                  Scr↓
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handleRemoteCommand('SWIPE_LEFT')}
-                  disabled={!session.connected}
-                  sx={{ 
-                    flex: 1, 
-                    fontSize: '0.65rem', 
-                    padding: '1px 2px',
-                    minWidth: '40px',
-                    maxWidth: '55px'
-                  }}
-                >
-                  Scr←
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handleRemoteCommand('SWIPE_RIGHT')}
-                  disabled={!session.connected}
-                  sx={{ 
-                    flex: 1, 
-                    fontSize: '0.65rem', 
-                    padding: '1px 2px',
-                    minWidth: '40px',
-                    maxWidth: '55px'
-                  }}
-                >
-                  Scr→
+                  {isTyping ? <CircularProgress size={16} /> : 'Enter'}
                 </Button>
               </Box>
             </Box>
@@ -985,8 +1068,10 @@ export const AndroidMobileRemote = React.memo(
               <AndroidMobileOverlay
                 key={`overlay-${isLandscape}`} // Force re-render on orientation change
                 elements={androidElements}
-                deviceWidth={isLandscape ? 2340 : 1080} // Swap dimensions for landscape
-                deviceHeight={isLandscape ? 1080 : 2340} // Swap dimensions for landscape
+                // Real device screen size (falls back to the layout default until the
+                // first orientation read answers); swapped for landscape
+                deviceWidth={isLandscape ? overlayScreen.height : overlayScreen.width}
+                deviceHeight={isLandscape ? overlayScreen.width : overlayScreen.height}
                 isVisible={captureMode === 'stream' && !streamMinimized && !streamHidden && !isVerificationVisible && showOverlay}
                 onElementClick={handleOverlayElementClick}
                 panelInfo={panelInfo}

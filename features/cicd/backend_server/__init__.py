@@ -26,11 +26,12 @@ from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request, send_from_directory
 
-from backend_server.src.lib.auth_middleware import require_role, require_user_auth
+from backend_server.src.lib.auth_middleware import require_permission, require_user_auth
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 
 from features.cicd.lib import cicd_db
 from features.cicd.lib import github_api
+from shared.src.lib.utils.report_theme import report_theme_head
 
 feature_cicd_bp = Blueprint('feature_cicd', __name__, url_prefix='/server/cicd')
 
@@ -92,7 +93,7 @@ def list_projects():
 
 @feature_cicd_bp.route('/projects/<project>', methods=['PUT'], strict_slashes=False)
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.cicd:edit')
 @handle_route_exceptions('cicd:update_project')
 def update_project(project: str):
     error = cicd_db.schema_error()
@@ -535,7 +536,7 @@ def _run_index_html(run: str, run_dir: Path) -> str:
             job = {}
         name = job_file.stem
         status = str(job.get('status') or 'unknown')
-        color = {'success': '#2e7d32', 'failure': '#c62828'}.get(status, '#757575')
+        color = {'success': 'var(--vpt-success)', 'failure': 'var(--vpt-error)'}.get(status, 'var(--vpt-text-2)')
         report = job.get('report')
         link = (f'<a href="{_html.escape(str(report))}/">report</a>'
                 if report and (run_dir / str(report) / 'index.html').is_file() else '—')
@@ -545,11 +546,12 @@ def _run_index_html(run: str, run_dir: Path) -> str:
     subtitle = ' · '.join(_html.escape(str(meta[k])) for k in ('branch', 'sha', 'date') if meta.get(k))
     return (
         '<!DOCTYPE html><html><head><meta charset="utf-8">'
+        f'{report_theme_head()}'
         f'<title>{title}</title>'
-        '<style>body{font-family:system-ui,sans-serif;margin:24px;color:#212121}'
-        'table{border-collapse:collapse}td,th{padding:6px 14px;border-bottom:1px solid #e0e0e0;text-align:left}'
-        'th{background:#37474f;color:#fff;font-size:.8rem;text-transform:uppercase}</style></head><body>'
-        f'<h1 style="margin:0 0 4px">{title}</h1><div style="color:#666;margin-bottom:16px">{subtitle}</div>'
+        '<style>body{font-family:system-ui,sans-serif;margin:24px;background:var(--vpt-page);color:var(--vpt-text)}'
+        'table{border-collapse:collapse}td,th{padding:6px 14px;border-bottom:1px solid var(--vpt-border);text-align:left}'
+        'th{background:var(--vpt-subtle);color:var(--vpt-text);font-size:.8rem;text-transform:uppercase}a{color:var(--vpt-accent-text)}</style></head><body>'
+        f'<h1 style="margin:0 0 4px">{title}</h1><div style="color:var(--vpt-muted);margin-bottom:16px">{subtitle}</div>'
         '<table><thead><tr><th>Job</th><th>Category</th><th>Status</th><th>Report</th></tr></thead>'
         f'<tbody>{"".join(rows) or "<tr><td colspan=4>No jobs recorded</td></tr>"}</tbody></table></body></html>'
     )

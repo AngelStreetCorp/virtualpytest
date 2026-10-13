@@ -6,7 +6,7 @@ import {
   useTestCaseExecution,
   useTestCaseBuilder as useTestCaseBuilderHook,
   useExecutionState, // 🆕 ADD
-  type NavigationNode,
+  type TestCaseNavigationNode,
   type UserInterface,
 } from '../../hooks/testcase';
 import { useDeviceData } from '../device/DeviceDataContext';
@@ -95,8 +95,8 @@ interface TestCaseBuilderContextType {
   
   // Available options
   availableInterfaces: UserInterface[];
-  availableNodes: NavigationNode[];
-  setAvailableNodes: React.Dispatch<React.SetStateAction<NavigationNode[]>>;
+  availableNodes: TestCaseNavigationNode[];
+  setAvailableNodes: React.Dispatch<React.SetStateAction<TestCaseNavigationNode[]>>;
   isLoadingOptions: boolean;
   
   // Selected elements
@@ -144,9 +144,40 @@ export const useTestCaseBuilder = () => {
   return context;
 };
 
+/**
+ * The builder context, or `undefined` when there is no provider above.
+ *
+ * For components that render both inside TestCaseBuilder and outside it —
+ * QuickTestBuilder and the Campaign builder mount several of the block and dialog
+ * components with no TestCaseBuilderProvider, and they degrade to "no refs, no
+ * execution values" rather than failing.
+ *
+ * Those call sites used to wrap `useTestCaseBuilder()` in try/catch. That reads as
+ * harmless (provider presence does not change across a mount's renders, so the hook
+ * either always threw or never did) but it is a hook call inside a conditional, which
+ * means react-hooks/rules-of-hooks cannot verify it and had to stay switched off for
+ * the whole repo. This returns instead of throwing, so the call is unconditional and
+ * the rule can check it.
+ */
+export const useOptionalTestCaseBuilder = () => useContext(TestCaseBuilderContext);
+
 interface TestCaseBuilderProviderProps {
   children: ReactNode;
 }
+
+/** What an undo step is: blocks (id, type, data, rounded position) and connections. Size,
+ *  selection and drag state are left out. */
+const historyKey = (nodes: Node[], edges: Edge[]): string => {
+  try {
+    return JSON.stringify([
+      nodes.map((n) => [n.id, n.type, Math.round(n.position?.x ?? 0), Math.round(n.position?.y ?? 0), n.data]),
+      edges.map((e) => [e.id, e.source, e.target, e.sourceHandle, e.targetHandle]),
+    ]);
+  } catch {
+    // Unserialisable data (should not happen): treat every change as a new step.
+    return String(Date.now());
+  }
+};
 
 export const TestCaseBuilderProvider: React.FC<TestCaseBuilderProviderProps> = ({ children }) => {
   // Use testcase hooks (following Navigation pattern)
@@ -167,6 +198,8 @@ export const TestCaseBuilderProvider: React.FC<TestCaseBuilderProviderProps> = (
   
   // Undo/Redo state
   const [history, setHistory] = useState<Array<{ nodes: Node[]; edges: Edge[] }>>([]);
+  // Set by undo/redo: their restore must not record a new history entry.
+  const restoringHistoryRef = useRef(false);
   const [historyIndex, setHistoryIndex] = useState(-1);
   
   // Copy/Paste state
@@ -208,7 +241,7 @@ export const TestCaseBuilderProvider: React.FC<TestCaseBuilderProviderProps> = (
   
   // Available options for dropdowns
   const [availableInterfaces, setAvailableInterfaces] = useState<UserInterface[]>([]);
-  const [availableNodes, setAvailableNodes] = useState<NavigationNode[]>([]);
+  const [availableNodes, setAvailableNodes] = useState<TestCaseNavigationNode[]>([]);
   // Nav nodes are pushed in from the page hook; there is no async fetch in this
   // context anymore, so loading is constant-false (kept for the consumer API).
   const isLoadingOptions = false;
@@ -424,6 +457,7 @@ export const TestCaseBuilderProvider: React.FC<TestCaseBuilderProviderProps> = (
   const undo = useCallback(() => {
     if (historyIndex > 0) {
       const prevState = history[historyIndex - 1];
+      restoringHistoryRef.current = true;
       setNodes(prevState.nodes);
       setEdges(prevState.edges);
       setHistoryIndex(prev => prev - 1);
@@ -434,6 +468,7 @@ export const TestCaseBuilderProvider: React.FC<TestCaseBuilderProviderProps> = (
   const redo = useCallback(() => {
     if (historyIndex < history.length - 1) {
       const nextState = history[historyIndex + 1];
+      restoringHistoryRef.current = true;
       setNodes(nextState.nodes);
       setEdges(nextState.edges);
       setHistoryIndex(prev => prev + 1);
@@ -473,15 +508,23 @@ export const TestCaseBuilderProvider: React.FC<TestCaseBuilderProviderProps> = (
 
   const canPaste = copiedBlock !== null && !isProtectedTerminalNodeId(copiedBlock.id);
 
-  // Auto-push history when nodes/edges change
-  const prevNodesRef = useRef<Node[]>(nodes);
-  const prevEdgesRef = useRef<Edge[]>(edges);
+  // Auto-push history when the graph's CONTENT changes: blocks (type, data, position) and
+  // connections. ReactFlow also rewrites nodes when it measures them, on selection and on every
+  // mouse move of a drag; those used to push one entry each, so one change (e.g. an AI edit's
+  // Apply) took several Undo presses. A drag is recorded once, when it ends. Undo/Redo's own
+  // restore is not a new entry (it used to push one, which broke the history).
+  const lastHistoryKeyRef = useRef<string>('');
   useEffect(() => {
-    if (nodes !== prevNodesRef.current || edges !== prevEdgesRef.current) {
-      prevNodesRef.current = nodes;
-      prevEdgesRef.current = edges;
-      if (nodes.length > 0) pushHistory();
+    if (nodes.some((n) => n.dragging)) return;
+    const key = historyKey(nodes, edges);
+    if (restoringHistoryRef.current) {
+      restoringHistoryRef.current = false;
+      lastHistoryKeyRef.current = key;
+      return;
     }
+    if (key === lastHistoryKeyRef.current) return;
+    lastHistoryKeyRef.current = key;
+    if (nodes.length > 0) pushHistory();
   }, [nodes, edges, pushHistory]);
 
   // Execute testcase

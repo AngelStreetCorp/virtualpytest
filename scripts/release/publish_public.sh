@@ -97,6 +97,16 @@ for p in "${DENY[@]}"; do
     rm -rf "$hit"
   done
 done
+# macOS metadata: gitignored, so never in the tag and never in the git archive, but the
+# runner writes it into the export WHILE this script works — it appears in exactly the
+# directories the deny-list above just emptied (Finder, editor, a trash-style rm). The
+# default-deny allow-list check would then abort the release on OS junk that carries no
+# leak risk and never leaves this machine. Strip it instead of failing on it.
+# `-delete` rather than `rm`: a delete routed through a trash helper makes macOS write a
+# fresh .DS_Store into the very directory it just emptied, so the strip would re-create
+# what it removed and the release could never pass.
+find "$EXPORT" -type f \( -name '.DS_Store' -o -name '._*' \) -delete
+removed=$((removed + 1))
 # TASK-14 invariant: agent documentation is internal-only. Keep this explicit even though
 # docs/agent/ is also present in internal-paths.txt, so a future deny-list/parser regression
 # fails closed instead of publishing maintainer runbooks.

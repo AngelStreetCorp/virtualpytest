@@ -86,7 +86,8 @@ const MetricsTable: React.FC<{ items: LowConfidenceItem[] }> = ({ items }) => {
 
   return (
     <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, maxHeight: 350 }}>
-      <Table stickyHeader size="small" sx={{ '& .MuiTableRow-root': { height: '40px' } }}>
+      <Table stickyHeader size="small" sx={{ tableLayout: 'fixed', minWidth: 560, '& .MuiTableCell-root': { overflowWrap: 'anywhere' }, '& .MuiTableRow-root': { height: '40px' } }}>
+<colgroup><col /><col style={{ width: 90 }} /><col style={{ width: 90 }} /><col style={{ width: 120 }} /><col style={{ width: 100 }} /></colgroup>
         <TableHead>
           <TableRow>
             <TableCell sx={{ py: 1 }}><strong>Name</strong></TableCell>

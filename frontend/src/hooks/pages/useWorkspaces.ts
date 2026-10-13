@@ -6,7 +6,13 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useSyncExternalStore } from 'react';
+import { useCallback, useSyncExternalStore } from 'react';
+
+import {
+  getServerAuthInfo,
+  ServerAuthMode,
+  subscribeToServerIdentities,
+} from '../../lib/serverIdentity';
 import { buildServerUrl, getServerBaseUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 
@@ -29,6 +35,11 @@ export interface Workspace {
   project_tags: string[];
   hidden_pages: string[];
   is_public: boolean;
+  /**
+   * SERVER_NAME of the server that created it. Servers can share one database, and each lists
+   * only its own workspaces.
+   */
+  server_name: string;
   member_count: number;
   created_at: string;
   updated_at: string;
@@ -82,6 +93,17 @@ const subscribeToServerChange = (cb: () => void) => {
 
 const useSelectedServer = (): string =>
   useSyncExternalStore(subscribeToServerChange, getServerBaseUrl, getServerBaseUrl);
+
+/**
+ * The auth mode the selected server advertises, re-read when discovery updates it.
+ *
+ * Same reason as `useSelectedServer` above: WorkspaceProvider sits outside
+ * ServerManagerProvider, so `serverAuthStates` from context is not reachable here.
+ */
+const useSelectedServerAuthMode = (server: string): ServerAuthMode | undefined => {
+  const read = useCallback(() => getServerAuthInfo(server)?.mode, [server]);
+  return useSyncExternalStore(subscribeToServerIdentities, read, read);
+};
 
 // Query keys for React Query caching — all scoped by server
 const QUERY_KEYS = {
@@ -287,16 +309,29 @@ export const useUserWorkspaces = (userId: string) => {
  * Hook for listing public workspaces only — used when there is no Supabase
  * session (no user id to query memberships with). Backed by the plain
  * GET /server/workspaces endpoint, filtered client-side to `is_public`.
+ *
+ * Only asked of a server that needs no login. `/server/workspaces` is not in the
+ * backend's UNAUTHENTICATED_SERVER_PREFIXES, so on a server running in `supabase` mode
+ * this request is a guaranteed 401 — it fired on every logged-out page load and could
+ * never return anything. `open` and `public_key` servers do answer it (in public_key
+ * mode the interceptor attaches X-Server-Key), which is the deployment shape the
+ * anonymous fallback was written for.
+ *
+ * Undiscovered (undefined mode) counts as "don't ask": discovery dispatches
+ * `vpt:server-identities-changed` when it lands, which re-renders this hook.
  */
 export const usePublicWorkspaces = (enabled: boolean) => {
   const server = useSelectedServer();
+  const mode = useSelectedServerAuthMode(server);
+  const serverNeedsNoLogin = mode === 'open' || mode === 'public_key';
+
   return useQuery({
     queryKey: ['workspaces', server, 'public'],
     queryFn: async (): Promise<Workspace[]> => {
       const all: Workspace[] = await api.get(workspacesUrl());
       return all.filter((w) => w.is_public);
     },
-    enabled,
+    enabled: enabled && serverNeedsNoLogin,
     staleTime: 5 * 60 * 1000,
   });
 };

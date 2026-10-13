@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  DialogTitle, 
-  DialogContent, 
-  DialogActions, 
-  TextField, 
-  Button, 
+import {
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Button,
   Box,
   Typography,
   Alert,
@@ -25,6 +25,7 @@ import { api } from '../../../utils/apiClient';
 import { getErrorMessage } from '../../../utils/testcase/testCaseHelpers';
 import { TestCaseSelector } from '../TestCaseSelector';
 import { StyledDialog } from '../../common/StyledDialog';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface Folder {
   folder_id: number;
@@ -117,6 +118,7 @@ export const TestCaseBuilderDialogs: React.FC<TestCaseBuilderDialogsProps> = ({
   
   // State for save button animation
   const [saveStatus, setSaveStatus] = useState<'idle' | 'loading' | 'success'>('idle');
+  const P = useAgentChatPalette();
 
   // Reset save status when dialog closes
   useEffect(() => {
@@ -291,15 +293,15 @@ export const TestCaseBuilderDialogs: React.FC<TestCaseBuilderDialogsProps> = ({
             options={availableTags.map(t => t.name)}
             renderTags={(value, getTagProps) =>
               value.map((option, index) => {
-                // Find tag color if exists, or use default for new tags
+                // Find tag color if exists, or use the muted token for new tags
                 const existingTag = availableTags.find(t => t.name === option);
-                const color = existingTag?.color || '#9e9e9e';
-                
+                const color = existingTag?.color || P.textMuted;
+
                 return (
                   <Chip
                     label={option}
                     {...getTagProps({ index })}
-                    sx={{ 
+                    sx={{
                       backgroundColor: color,
                       color: 'white',
                       '& .MuiChip-deleteIcon': {

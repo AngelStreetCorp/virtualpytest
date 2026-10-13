@@ -8,6 +8,9 @@ from typing import Dict, Any
 import uuid
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
+from ..utils.lock_ownership import (
+    EXECUTION_OWNER_TYPES, anonymous_session, forget_anonymous_session, holder, remember_anonymous_session,
+)
 from shared.src.lib.config.constants import get_team_id
 
 
@@ -17,12 +20,6 @@ class ControlTools:
     def __init__(self, api_client: MCPAPIClient):
         self.api = api_client
         self.formatter = MCPFormatter()
-        # Device-scoped MCP lock ownership cache: "host:device" -> session_id
-        self._control_sessions: Dict[str, str] = {}
-
-    @staticmethod
-    def _device_key(host_name: str, device_id: str) -> str:
-        return f"{host_name}:{device_id}"
 
     def _get_or_create_session_id(
         self,
@@ -33,11 +30,8 @@ class ControlTools:
     ) -> str:
         if explicit_session_id:
             return explicit_session_id
-        device_key = self._device_key(host_name, device_id)
-        existing = self._control_sessions.get(device_key)
-        if existing:
-            return existing
-        return f"mcp-{uuid.uuid4()}"
+        # Only reuse a session no caller named: a chat's session is never handed to another caller.
+        return anonymous_session(host_name, device_id) or f"mcp-{uuid.uuid4()}"
 
     @staticmethod
     def _extract_owner_type(result: Dict[str, Any]) -> str:
@@ -69,7 +63,9 @@ class ControlTools:
         device_id = params.get('device_id')
         team_id = params.get('team_id', get_team_id())
         userinterface_name = params.get('userinterface_name')
-        allow_takeover = bool(params.get('allow_takeover', True))
+        # Never steal by default: a device another session holds is reported, not taken.
+        # Takeover (which stops a running script) only on an explicit allow_takeover=True (BUG-0402).
+        allow_takeover = bool(params.get('allow_takeover', False))
         if not host_name or not device_id:
             return self.formatter.format_api_response({
                 'success': False,
@@ -96,7 +92,7 @@ class ControlTools:
         # STEP 2: If device is locked by execution, optionally take over via explicit takeover API.
         if not result.get('success') and result.get('errorType') == 'device_locked' and allow_takeover:
             owner_type = self._extract_owner_type(result)
-            if owner_type in ('script_execution', 'deployment_execution'):
+            if owner_type in EXECUTION_OWNER_TYPES:
                 print(
                     f"[@mcp:take_control] Device {host_name}:{device_id} locked by {owner_type}, "
                     "attempting takeover..."
@@ -116,10 +112,20 @@ class ControlTools:
                 )
 
         if result.get('success'):
-            self._control_sessions[self._device_key(host_name, device_id)] = session_id
+            if not params.get('session_id'):
+                # An MCP client that gave no session: its device tools run under this lock.
+                remember_anonymous_session(host_name, device_id, session_id)
             if not result.get('session_id'):
                 result['session_id'] = session_id
-        
+        elif result.get('errorType') == 'device_locked':
+            # Name the holder, as the device tools do (auto_lock); the formatter keeps only 'error'.
+            owner_type = self._extract_owner_type(result) or 'unknown'
+            text = (f"Device '{device_id}' on host '{host_name}' is in use by {holder(result)} ({owner_type}). "
+                    "Not taking it over - wait until they release it or ask them to.")
+            if owner_type in EXECUTION_OWNER_TYPES and not allow_takeover:
+                text += " To stop their running execution, retry with allow_takeover=true."
+            return {"content": [{"type": "text", "text": text}], "isError": True, "errorType": 'device_locked'}
+
         return self.formatter.format_api_response(result)
     
     def release_control(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -146,9 +152,8 @@ class ControlTools:
                 'error': 'host_name and device_id are required',
             })
 
-        device_key = self._device_key(host_name, device_id)
-        explicit_session_id = params.get('session_id')
-        if not explicit_session_id and device_key not in self._control_sessions:
+        session_id = params.get('session_id') or anonymous_session(host_name, device_id)
+        if not session_id:
             return self.formatter.format_api_response({
                 'success': False,
                 'error': (
@@ -156,8 +161,7 @@ class ControlTools:
                     'Pass session_id explicitly or call take_control first.'
                 ),
             })
-        session_id = explicit_session_id or self._control_sessions.get(device_key)
-        
+
         # Build request
         data = {
             'host_name': host_name,
@@ -168,5 +172,6 @@ class ControlTools:
         # Call API and format response
         result = self.api.post('/server/control/releaseControl', data=data, params={'team_id': team_id})
         if result.get('success'):
-            self._control_sessions.pop(device_key, None)
+            if session_id == anonymous_session(host_name, device_id):
+                forget_anonymous_session(host_name, device_id)
         return self.formatter.format_api_response(result)

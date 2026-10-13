@@ -65,7 +65,7 @@ def get_tools() -> List[Dict[str, Any]]:
     },
     {
         "name": "create_node",
-        "description": "Create a node in navigation tree. Accepts userinterface_name for auto-resolving tree_id. IMPORTANT: Add verifications AFTER creation using update_node - they will be validated against device controllers. Created node object\n\nExample: create_node(userinterface_name='example_mobile', node_id='home', label='Home Screen')",
+        "description": "Create a node in navigation tree. Accepts userinterface_name for auto-resolving tree_id. Verifications passed here are validated against the device controllers, exactly as in update_node. Created node object\n\nExample: create_node(userinterface_name='example_mobile', node_id='home', label='Home Screen', verifications=[{'command': 'waitForElementToAppear', 'verification_type': 'adb', 'params': {'search_term': 'Home'}}])",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -79,11 +79,11 @@ def get_tools() -> List[Dict[str, Any]]:
                 },
                 "node_id": {
                     "type": "string",
-                    "description": "node identifier auto-generated if omitted"
+                    "description": "node identifier defaults to label"
                 },
                 "label": {
                     "type": "string",
-                    "description": "node label or name"
+                    "description": "node label or name defaults to node_id or data.label"
                 },
                 "type": {
                     "type": "string",
@@ -96,11 +96,13 @@ def get_tools() -> List[Dict[str, Any]]:
                 "data": {
                     "type": "object",
                     "description": "custom metadata"
+                },
+                "verifications": {
+                    "type": "array",
+                    "description": "node verifications each with command verification_type params"
                 }
             },
-            "required": [
-                "label"
-            ]
+            "required": []
         }
     },
     {

@@ -10,7 +10,7 @@
 import React from 'react';
 import { Box, MenuItem, TextField } from '@mui/material';
 
-import { useTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
+import { useOptionalTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
 import { NavigationBlockData } from '../../../types/testcase/TestCase_Types';
 
 interface InlineNavigationConfigProps {
@@ -19,12 +19,8 @@ interface InlineNavigationConfigProps {
 }
 
 export const InlineNavigationConfig: React.FC<InlineNavigationConfigProps> = ({ data, onUpdate }) => {
-  let contextData: any = null;
-  try {
-    contextData = useTestCaseBuilder();
-  } catch {
-    // Outside provider — render an empty picker.
-  }
+  // Outside a provider this is undefined and the picker renders empty.
+  const contextData = useOptionalTestCaseBuilder();
   const availableNodes: any[] = contextData?.availableNodes || [];
 
   const handleSelect = (label: string) => {

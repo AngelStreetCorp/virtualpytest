@@ -8,6 +8,7 @@ import React from 'react';
 
 import type { FeatureDefinition } from '../../../frontend/src/config/features';
 
+import AppUpdateNotice from './AppUpdateNotice';
 import PhoneSlotPreviewAction from './PhoneSlotPreviewAction';
 import { usePhoneTargetReadiness } from './usePhoneTargetReadiness';
 
@@ -26,6 +27,8 @@ const feature: FeatureDefinition = {
   // Run Tests offers a phone slot whether or not a phone is behind it; this says when one
   // really is there and streaming. See usePhoneTargetReadiness.
   targetReadiness: [{ deviceModel: 'phone_agent', useReadiness: usePhoneTargetReadiness }],
+  // Inside the APK, Settings says when a newer APK is published. See AppUpdateNotice.
+  settingsNotices: [AppUpdateNotice],
   nav: [
     {
       section: 'settings',

@@ -1,0 +1,22 @@
+{
+ "id": "prG2eqnbjfs",
+ "title": "Ask the AI, it acts: driving real devices from a chat with VirtualPyTest",
+ "description": "Plain English in, tool calls out. VirtualPyTest ships an AI agent backed by a built-in MCP server that exposes the whole platform: docs, scripts, devices and the screen itself.\n\nIn this video, four requests in one chat, recorded live on a real host:\n1. \"Show device status\": every device in the fleet, in seconds.\n2. A question about the freeze detector: the agent searches the docs, reads them and answers with the threshold and where it lives.\n3. \"Run the goto script to video_player on youtube-web\": it picks the device, the script and the parameters, runs it and comes back with the report link.\n4. \"Open YouTube, search Raspberry Pi and give me the first result\": no script this time. It works the browser itself and answers with the exact title.\n\nEvery tool call is visible in the transcript. The same tools are available to any MCP client: Claude, Cursor or your own agent.\n\nChapters\n0:00 Ask\n0:12 It knows the platform\n0:24 It runs a test\n0:36 It acts on the device\n0:56 MCP",
+ "tags": [
+  "ai agent",
+  "mcp server",
+  "model context protocol",
+  "test automation",
+  "ai testing",
+  "device automation",
+  "qa automation",
+  "llm agent",
+  "playwright",
+  "open source",
+  "virtualpytest",
+  "claude"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-29"
+}

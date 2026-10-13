@@ -34,6 +34,12 @@ git_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
 if [[ -n "${git_branch}" && "${git_branch}" != "HEAD" ]]; then
   branch_name="${git_branch}"
 fi
+# A commit that will land on main from another checkout (a worktree pushing HEAD:main)
+# must still be labelled main: VPT_VERSION_BRANCH=main git commit ...  (see the main
+# label check in .githooks/pre-push and RELEASING.md "Merging into main").
+if [[ -n "${VPT_VERSION_BRANCH:-}" ]]; then
+  branch_name="${VPT_VERSION_BRANCH}"
+fi
 next_current="current:${branch_name}-${today}-${next_build_number}"
 next_previous="previous:${current_value}-${head_hash}"
 

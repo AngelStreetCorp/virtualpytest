@@ -7,6 +7,7 @@ tools:
   - list_scripts
   - get_compatible_hosts
   - execute_script
+  - get_script_execution_status
 triggers:
   - list scripts
   - show scripts
@@ -17,10 +18,13 @@ triggers:
 
 # Manage Script
 
-Manage scripts: list, create and execute
+Manage scripts: list and execute. To write or edit a script, use the create-virtual-script skill.
+
+A virtual (DB-stored) script has a virtual_script_id in list_scripts: pass it to execute_script.
 
 Naming convention: SC_<CAT>_<NUM>_<CamelCase> (e.g., SC_AUTH_01_LoginFlow)
 
 CRITICAL:
  - Call get_compatible_hosts only if host_name, device_id not available in current message or conversation history
  - Do NOT call list_scripts if script_name is clearly specified in the current user message
+ - execute_script only starts the script and returns execution_id: call get_script_execution_status(execution_id) until done is true, then report passed/failed and the report link

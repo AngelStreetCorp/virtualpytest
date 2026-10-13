@@ -57,7 +57,8 @@ backend_server/config/grafana/grafana.db-wal
 SSH.md
 backend_server/scripts/backup_grafana_db.sh
 
-# Integration credentials (JIRA API tokens, Slack bot tokens, etc.)
+# Integration credentials (JIRA/TestRail/Slack tokens) now live in ~/.config/virtualpytest/
+# (integration_state.py); kept ignored for old copies still sitting in the tree
 backend_server/config/integrations/jira_instances.json
 backend_server/config/integrations/testrail.json
 backend_server/config/integrations/slack_config.json
@@ -179,6 +180,7 @@ docs/security/temp/
 /virtualpytest/
 docs/_archive/
 docs/.obsidian/
+docs/agent/OBSIDIAN.md
 pitch-deck/
 docs/tasks/images/intruth-debate-factcheck-reference.png
 docs/tasks/TASK-12-disaster-recovery-offsite-backup.md
@@ -211,3 +213,40 @@ setup/docker/.env
 frontend/dist.new/
 frontend/dist.old/
 .env.cloud
+
+# TASK-27 step 5: raw eval result files (score_eval.py); the merged report is docs/tasks/TASK-27-eval-results.md
+features/ai-dataset/results/
+claude-mods/agents/tsconfig.json
+claude-mods/fleet/tsconfig.json
+claude-mods/run-clock/tsconfig.json
+test_scripts/gw/email_imap_login.md
+test_scripts/gw/email_imap_login.py
+test_scripts/gw/gw_gui_advanced_profiles.json
+test_scripts/gw/gw_gui_advanced.md
+test_scripts/gw/gw_gui_advanced.py
+test_scripts/gw/gw_info_gui_profiles.json
+test_scripts/gw/gw_info_gui.md
+test_scripts/gw/gw_info_gui.py
+test_scripts/gw/gw_info_profiles.json
+test_scripts/gw/gw_info.md
+test_scripts/gw/gw_info.py
+test_scripts/gw/utils_gw_gui_flow.py
+test_scripts/gw/utils_gw_model_map.py
+test_scripts/gw/utils_gw_network copy.py
+test_scripts/gw/utils_gw_profile_detection.py
+test_scripts/gw/windows_lan_connection_information.md
+test_scripts/gw/windows_lan_connection_information.py
+test_scripts/gw/windows_networkassessmenttools.md
+test_scripts/gw/windows_networkassessmenttools.py
+
+# NAT rules helper — sets port-forwards on the customer gateway from
+# vpt-pi1's NW (its REST v1 endpoint). Credentials baked into the script.
+# Run only from vpt-pi1; the script is single-host automation.
+test_scripts/gw/gw_set_nat.md
+test_scripts/gw/gw_set_nat.py
+test_scripts/gw/gw_set_nat_re.py
+test_scripts/gw/gw_set_nat_sfr.py
+# SFR box (NB6VAC) port-forward GUI flow: script + per-GUI profiles.
+test_scripts/gw/gw_nat_gui.md
+test_scripts/gw/gw_nat_gui.py
+test_scripts/gw/gw_nat_gui_profiles.json

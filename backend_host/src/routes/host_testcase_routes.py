@@ -61,7 +61,7 @@ def testcase_save():
             return jsonify({'success': False, 'error': 'Failed to update test case'}), 500
     else:
         # Create new
-        testcase_id = create_testcase(
+        created = create_testcase(
             team_id=team_id,
             testcase_name=testcase_name,
             graph_json=graph_json,
@@ -70,6 +70,8 @@ def testcase_save():
             created_by=created_by,
             environment=environment
         )
+        # A new row comes back as {testcase_id, testcase_name, success} (BUG-0215).
+        testcase_id = created.get('testcase_id') if isinstance(created, dict) else created
         
         if testcase_id:
             print(f"[@host_testcase] Created test case: {testcase_name} (ID: {testcase_id})")
@@ -347,169 +349,110 @@ def testcase_history(testcase_id):
 @host_testcase_bp.route('/execute-from-prompt', methods=['POST'])
 @route_exception_handler()
 def execute_from_prompt():
+    """Generate a testcase graph from a prompt (device.ai_builder), optionally save it,
+    and run it through the TestCaseExecutor exactly like /execute."""
     from shared.src.lib.database.testcase_db import create_testcase
-    from backend_host.src.services.ai.ai_preprocessing import preprocess_prompt
-    
-    print("[@host_testcase] Unified execute-from-prompt")
-    
+    from backend_host.src.services.testcase.testcase_executor import TestCaseExecutor
+
     data = request.get_json() or {}
     team_id = request.args.get('team_id')
-    
-    # Required params
+
     prompt = data.get('prompt')
     userinterface_name = data.get('userinterface_name')
     device_id = data.get('device_id')
     host_name = data.get('host_name')
-    
-    # Optional params
-    save_testcase = data.get('save', False)  # ← KEY: Optional save flag
-    testcase_name = data.get('testcase_name')  # Required if save=true
-    description = data.get('description')
-    created_by = data.get('created_by')
-    use_cache = data.get('use_cache', True)
+    save_testcase = data.get('save', False)
+    testcase_name = data.get('testcase_name')
+    execution_metadata = data.get('execution_metadata') or {}
     async_execution = data.get('async_execution', False)
-    skip_validation = data.get('skip_validation', False)  # Skip if already validated
-    
-    # Validate required
-    if not all([prompt, userinterface_name, device_id, team_id]):
+
+    if not all([prompt, userinterface_name, device_id, host_name, team_id]):
         return jsonify({
-            'success': False, 
-            'error': 'Missing required fields: prompt, userinterface_name, device_id, team_id'
+            'success': False,
+            'error': 'Missing required fields: prompt, userinterface_name, device_id, host_name, team_id'
         }), 400
-    
-    # If save=true, testcase_name is required
     if save_testcase and not testcase_name:
-        return jsonify({
-            'success': False,
-            'error': 'testcase_name is required when save=true'
-        }), 400
-    
-    # Get device from app registry (same as other routes)
+        return jsonify({'success': False, 'error': 'testcase_name is required when save=true'}), 400
+
     if not hasattr(current_app, 'host_devices') or device_id not in current_app.host_devices:
-        return jsonify({
-            'success': False,
-            'error': f'Device {device_id} not found in host registry'
-        }), 404
-    
+        return jsonify({'success': False, 'error': f'Device {device_id} not found in host registry'}), 404
     device = current_app.host_devices[device_id]
-    
-    # Use device's existing AI executor (don't create new instance)
-    if not hasattr(device, 'ai_executor') or not device.ai_executor:
+    if not getattr(device, 'ai_builder', None):
+        return jsonify({'success': False, 'error': f'Device {device_id} does not have AIGraphBuilder initialized'}), 500
+
+    # STEP 1: prompt -> graph (preprocessing, disambiguation and cache live in the builder)
+    print(f"[@host_testcase:execute_from_prompt] Generating graph: {prompt[:50]}...")
+    generated = device.ai_builder.generate_graph(
+        prompt=prompt,
+        userinterface_name=userinterface_name,
+        team_id=team_id,
+        notes=data.get('notes'),
+    )
+    if generated.get('needs_disambiguation'):
         return jsonify({
             'success': False,
-            'error': f'Device {device_id} does not have AIExecutor initialized'
-        }), 500
-    
-    # STEP 1: Validate prompt for disambiguation (unless skipped)
-    if not skip_validation:
-        print(f"[@host_testcase] Validating prompt for disambiguation...")
-        
-        # Load context to get available nodes
-        context = device.ai_executor._load_context(userinterface_name, None, team_id)
-        available_nodes = context.get('available_nodes', [])
-        
-        # Validate prompt
-        validation_result = preprocess_prompt(
-            prompt=prompt,
-            available_nodes=available_nodes,
+            'needs_disambiguation': True,
+            'analysis': generated,
+            'available_nodes': generated.get('available_nodes', []),
+        }), 200  # Not an error, just needs user input
+    if not generated.get('success') or not generated.get('graph'):
+        return jsonify({'success': False, 'error': generated.get('error') or 'No graph generated by AI'}), 400
+    graph = generated['graph']
+    analysis = generated.get('analysis', '')
+    # Test Prompt: the run starts at home (shared/src/lib/utils/testcase_start.py) — the gate
+    # that wakes the device and launches the app; the graph saved and returned includes it.
+    if data.get('start_node_label'):
+        from shared.src.lib.utils.testcase_start import with_start_node
+        graph = with_start_node(graph, data['start_node_label'])
+
+    # STEP 2: optional save
+    testcase_id = None
+    if save_testcase:
+        created = create_testcase(
             team_id=team_id,
-            userinterface_name=userinterface_name
+            testcase_name=testcase_name,
+            graph_json=graph,
+            description=data.get('description') or analysis,
+            userinterface_name=userinterface_name,
+            created_by=data.get('created_by'),
+            creation_method='ai',
+            ai_prompt=prompt,
+            ai_analysis=analysis,
         )
-        
-        # Check if disambiguation needed
-        if validation_result.get('status') == 'needs_disambiguation':
-            print(f"[@host_testcase] ⚠️ Disambiguation needed")
+        # A new row comes back as {testcase_id, testcase_name, success} (BUG-0215).
+        testcase_id = created.get('testcase_id') if isinstance(created, dict) else created
+        if testcase_id == 'VALIDATION_FAILED':
             return jsonify({
                 'success': False,
-                'needs_disambiguation': True,
-                'analysis': validation_result,
-                'available_nodes': available_nodes
-            }), 200  # Not an error, just needs user input
-        
-        # If auto-corrected, use corrected prompt
-        if validation_result.get('status') == 'auto_corrected':
-            corrected_prompt = validation_result.get('corrected_prompt')
-            if corrected_prompt:
-                print(f"[@host_testcase] ✅ Auto-corrected prompt")
-                prompt = corrected_prompt
-    
-    # STEP 2: Execute prompt using AI executor
-    print(f"[@host_testcase] Executing prompt: {prompt[:50]}...")
-    print(f"[@host_testcase] Save mode: {save_testcase}")
-    
+                'error': 'Test case validation failed - graph references non-existent nodes, edges, or actions. Check logs for details.'
+            }), 400
+
+    # STEP 3: run the graph
+    if not hasattr(current_app, 'testcase_executor'):
+        current_app.testcase_executor = TestCaseExecutor()
+    executor = current_app.testcase_executor
+    run_kwargs = dict(
+        graph=graph,
+        team_id=team_id,
+        host_name=host_name,
+        device_id=device_id,
+        device_name=device.device_name,
+        device_model=device.device_model,
+        userinterface_name=userinterface_name,
+        testcase_name=testcase_name or (f"AI: {prompt[:50]}"),
+        execution_metadata=execution_metadata,
+    )
     if async_execution:
-        # Async execution with polling (for Live Modal)
-        execution_result = device.ai_executor.execute_prompt(
-            prompt=prompt,
-            userinterface_name=userinterface_name,
-            team_id=team_id,
-            use_cache=use_cache,
-            async_execution=True
-        )
-        
-        # Plan is already generated and stored in ai_executor._executions[execution_id]['plan']
-        # Frontend will poll /getStatus to get the plan and track execution
-        return jsonify({
-            'success': True,
-            'execution_id': execution_result.get('execution_id'),
-            'plan_steps': execution_result.get('plan_steps', 0),
-            'message': 'Execution started asynchronously'
-        })
+        result = executor.execute_testcase_from_graph_async(**run_kwargs)
     else:
-        # Synchronous execution
-        execution_result = device.ai_executor.execute_prompt(
-            prompt=prompt,
-            userinterface_name=userinterface_name,
-            team_id=team_id,
-            use_cache=use_cache,
-            async_execution=False  # ✅ Correct parameter name
-        )
-        
-        if not execution_result.get('success'):
-            return jsonify(execution_result), 400
-        
-        # If save=true, save the generated graph to database
-        testcase_id = None
-        if save_testcase:
-            graph = execution_result.get('graph')
-            analysis = execution_result.get('analysis')
-            
-            if graph:
-                print(f"[@host_testcase] Saving generated test case: {testcase_name}")
-                
-                testcase_id = create_testcase(
-                    team_id=team_id,
-                    testcase_name=testcase_name,
-                    graph_json=graph,
-                    description=description or analysis,
-                    userinterface_name=userinterface_name,
-                    created_by=created_by,
-                    creation_method='ai',
-                    ai_prompt=prompt,
-                    ai_analysis=analysis
-                )
-                
-                # Check for validation failure
-                if testcase_id == 'VALIDATION_FAILED':
-                    return jsonify({
-                        'success': False,
-                        'error': 'Test case validation failed - graph references non-existent nodes, edges, or actions. Check logs for details.'
-                    }), 400
-                
-                if testcase_id:
-                    print(f"[@host_testcase] Saved test case: {testcase_name} (ID: {testcase_id})")
-                else:
-                    print(f"[@host_testcase] Warning: Failed to save test case")
-        
-        # Return execution result
-        response = {
-            'success': True,
-            'result': execution_result,
-            'saved': save_testcase,
-        }
-        
-        if testcase_id:
-            response['testcase_id'] = testcase_id
-        
-        return jsonify(response)
-    
+        result = executor.execute_testcase_from_graph(**run_kwargs)
+
+    response = {
+        **result,
+        'graph': graph,
+        'analysis': analysis,
+        'saved': bool(testcase_id),
+    }
+    if testcase_id:
+        response['testcase_id'] = testcase_id
+    return jsonify(response)

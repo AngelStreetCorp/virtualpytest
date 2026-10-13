@@ -19,6 +19,8 @@ interface UseDeviceControlWithForceUnlockProps {
   sessionId: string;
   autoCleanup?: boolean;
   tree_id?: string; // Navigation tree ID for cache population
+  // Scope to warm the navigation cache for (BUG-0202).
+  variant?: string | null;
   requireTreeId?: boolean; // If true, requires tree_id to take control (default: false)
   onControlStateChange?: (active: boolean) => void;
 }
@@ -43,6 +45,7 @@ export const useDeviceControlWithForceUnlock = ({
   sessionId,
   autoCleanup = true,
   tree_id,
+  variant,
   requireTreeId = false, // Default: tree_id is optional
   onControlStateChange,
 }: UseDeviceControlWithForceUnlockProps): UseDeviceControlWithForceUnlockReturn => {
@@ -67,6 +70,7 @@ export const useDeviceControlWithForceUnlock = ({
     sessionId: effectiveSessionId,
     autoCleanup,
     tree_id,
+    variant,
   });
 
   /**

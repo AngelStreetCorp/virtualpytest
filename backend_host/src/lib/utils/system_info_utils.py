@@ -65,6 +65,9 @@ def _check_linux_service(service_names: List[str]) -> Dict[str, Any]:
                 return {'status': 'stopped', 'runtime': 'service', 'resolved_name': service_name}
             if stdout_value == 'failed':
                 return {'status': 'error', 'runtime': 'service', 'resolved_name': service_name}
+            # Mid-(re)start or stop: a known transient state, not "can't tell".
+            if stdout_value in ('activating', 'deactivating', 'reloading'):
+                return {'status': 'restarting', 'runtime': 'service', 'resolved_name': service_name}
             return {'status': 'unknown', 'runtime': 'service', 'resolved_name': service_name}
         except Exception:
             return {'status': 'unknown', 'runtime': 'service', 'resolved_name': service_name}
@@ -336,6 +339,7 @@ def build_service_health_summary(
     - subtitle is always optional
     - transcript is optional on host_vnc-only hosts
     - runner hosts (HOST_TYPE=runner_*) only run vpt-host; all other services are non-critical
+    - lite hosts (HOST_PROFILE=lite) do not run KPI / transcript / VNC / websockify
     """
     platform_name = platform.system()
     has_audio_devices = _host_has_audio_capable_devices(devices)
@@ -343,6 +347,9 @@ def build_service_health_summary(
     host_type = os.getenv('HOST_TYPE', 'host_vnc')
     is_runner = host_type.startswith('runner_')
     is_android = 'android' in host_type
+    # HOST_PROFILE=lite (TASK-83): one device on a 1 GB board, no KPI / transcript / VNC services.
+    is_lite = os.getenv('HOST_PROFILE', '').strip().lower() == 'lite'
+    skip_extras = is_runner or is_lite
 
     # Start with stream functional check (better than service-only check).
     # For runner hosts, this service is not installed so it is non-critical.
@@ -366,10 +373,10 @@ def build_service_health_summary(
         {'name': 'vpt-host', 'label': 'Host API', 'description': 'Host API: manages devices & incoming requests', 'critical': True, 'optional': False, 'linux_names': ['vpt-host', 'host', 'flask'], 'windows_names': ['vpt-host']},
         {'name': 'vpt-monitor', 'label': 'Monitor', 'description': 'Device health & incident monitoring', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-monitor', 'monitor', 'capture_monitor'], 'windows_names': ['vpt-monitor']},
         {'name': 'vpt-archiver', 'label': 'Archiver', 'description': 'Buffers video & archives screenshots', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-archiver', 'archiver', 'hot_cold_archiver'], 'windows_names': ['vpt-archiver']},
-        {'name': 'vpt-kpi', 'label': 'KPI', 'description': 'Measures navigation & action KPIs', 'critical': not is_runner, 'optional': is_runner, 'linux_names': ['vpt-kpi', 'kpi', 'kpi_executor'], 'windows_names': ['vpt-kpi']},
-        {'name': 'vpt-vnc', 'label': 'VNC', 'description': 'Remote desktop (VNC) for the device', 'critical': has_vnc_device and not is_runner, 'optional': not has_vnc_device or is_runner, 'linux_names': ['vpt-vnc', 'vnc', 'x11vnc'], 'windows_names': _windows_service_candidates('vpt-vnc')},
-        {'name': 'vpt-websockify', 'label': 'Websockify', 'description': 'Bridges VNC to the browser (noVNC)', 'critical': has_vnc_device and not is_runner, 'optional': not has_vnc_device or is_runner, 'linux_names': ['vpt-websockify', 'websockify', 'novnc'], 'windows_names': ['vpt-websockify']},
-        {'name': 'vpt-transcript', 'label': 'Transcript', 'description': 'Audio → text transcription', 'critical': has_audio_devices and not is_runner, 'optional': not has_audio_devices or is_runner, 'linux_names': ['vpt-transcript', 'transcript', 'transcript_accumulator'], 'windows_names': ['vpt-transcript']},
+        {'name': 'vpt-kpi', 'label': 'KPI', 'description': 'Measures navigation & action KPIs', 'critical': not skip_extras, 'optional': skip_extras, 'linux_names': ['vpt-kpi', 'kpi', 'kpi_executor'], 'windows_names': ['vpt-kpi']},
+        {'name': 'vpt-vnc', 'label': 'VNC', 'description': 'Remote desktop (VNC) for the device', 'critical': has_vnc_device and not skip_extras, 'optional': not has_vnc_device or skip_extras, 'linux_names': ['vpt-vnc', 'vnc', 'x11vnc'], 'windows_names': _windows_service_candidates('vpt-vnc')},
+        {'name': 'vpt-websockify', 'label': 'Websockify', 'description': 'Bridges VNC to the browser (noVNC)', 'critical': has_vnc_device and not skip_extras, 'optional': not has_vnc_device or skip_extras, 'linux_names': ['vpt-websockify', 'websockify', 'novnc'], 'windows_names': ['vpt-websockify']},
+        {'name': 'vpt-transcript', 'label': 'Transcript', 'description': 'Audio → text transcription', 'critical': has_audio_devices and not skip_extras, 'optional': not has_audio_devices or skip_extras, 'linux_names': ['vpt-transcript', 'transcript', 'transcript_accumulator'], 'windows_names': ['vpt-transcript']},
         {'name': 'vpt-subtitle', 'label': 'Subtitle', 'description': 'Subtitle extraction & overlay', 'critical': False, 'optional': True, 'linux_names': ['vpt-subtitle', 'subtitle'], 'windows_names': []},
         {'name': 'vpt-emulator', 'label': 'Emulator', 'description': 'Android emulator runtime', 'critical': is_android and not is_runner, 'optional': not is_android or is_runner, 'linux_names': ['vpt-emulator'], 'windows_names': []},
         {'name': 'vpt-emulator-fifo', 'label': 'Screencap', 'description': 'Emulator frame capture pipe', 'critical': is_android and not is_runner, 'optional': not is_android or is_runner, 'linux_names': ['vpt-emulator-fifo'], 'windows_names': []},
@@ -416,7 +423,7 @@ def build_service_health_summary(
 
     if 'error' in critical_statuses or 'stopped' in critical_statuses:
         overall_status = 'error'
-    elif 'stuck' in critical_statuses or 'unknown' in critical_statuses or 'not_installed' in critical_statuses:
+    elif {'stuck', 'unknown', 'not_installed', 'restarting'} & critical_statuses:
         overall_status = 'degraded'
     else:
         overall_status = 'online'
@@ -676,6 +683,103 @@ from shared.src.lib.utils.network_utils import get_network_speed_cached
 # All speedtest functions moved to shared/src/lib/utils/network_utils.py
 
 
+def _read_text_file(path: str, limit: int = 8192) -> Optional[str]:
+    """Read the first `limit` bytes of a small text file, or None if unreadable."""
+    try:
+        with open(path, encoding='utf-8', errors='ignore') as f:
+            return f.read(limit)
+    except OSError:
+        return None
+
+
+def _detect_wsl() -> bool:
+    """
+    True when the Linux kernel we are running on is the WSL2 kernel.
+
+    Docker Desktop on Windows runs its Linux VM on the WSL2 kernel, so a
+    container there reports `Linux` from `platform.system()` even though the
+    machine the operator cares about is a Windows PC. `uname -r` on that kernel
+    carries a `microsoft-standard-WSL2` / `-WSL2-` marker, which is the only
+    in-band signal available from inside the container.
+    """
+    release = platform.release().lower()
+    if 'microsoft' in release or 'wsl' in release:
+        return True
+    for marker_path in ('/proc/sys/kernel/osrelease', '/proc/version'):
+        content = (_read_text_file(marker_path) or '').lower()
+        if 'microsoft' in content or 'wsl' in content:
+            return True
+    return False
+
+
+def detect_container_runtime() -> Optional[str]:
+    """
+    Detect the container runtime this process runs inside, or None on bare metal.
+
+    Returns 'docker' / 'podman' / 'lxc' / 'containerd' when a well-known marker
+    is present, else None. Detection is deliberately marker-based and cheap (a
+    few small file reads, no subprocesses) because it runs on every stats
+    collection — the metrics collector fires every 60s per host.
+    """
+    if os.path.exists('/.dockerenv'):
+        return 'docker'
+    if os.path.exists('/run/.containerenv'):
+        return 'podman'
+
+    cgroup = (_read_text_file('/proc/1/cgroup') or '').lower()
+    for marker, runtime in (
+        ('kubepods', 'kubernetes'),
+        ('docker', 'docker'),
+        ('containerd', 'containerd'),
+        ('lxc', 'lxc'),
+    ):
+        if marker in cgroup:
+            return runtime
+    return None
+
+
+def get_physical_platform() -> Dict[str, Any]:
+    """
+    Describe the machine underneath, which is not always the machine we run on.
+
+    A host named `vpt-windows` whose vpt-host runs as a Linux Docker container
+    reports `platform.system() == 'Linux'`, so the dashboard would show the
+    physical PC as a Linux box. This resolves the two facts the operator needs
+    separately:
+
+    - `in_container` / `container_runtime`: vpt-host is containerised, so the
+      Linux it reports describes the container, not the hardware.
+    - `physical_platform`: the OS of the machine itself. Under WSL2 (the kernel
+      Docker Desktop uses on Windows) that is Windows, so we report it instead
+      of the container's Linux. On bare-metal Linux hosts the WSL probe is false
+      and this stays identical to `platform.system()`, so nothing changes there.
+
+    Returns a dict; every key is always present so callers can render without
+    None-guards.
+    """
+    system = platform.system()
+    runtime = detect_container_runtime()
+    is_wsl = _detect_wsl() if system == 'Linux' else False
+
+    # Only claim a physical Windows box when we have positive evidence for it:
+    # the WSL2 kernel. Never infer Windows from a hostname — HOST_NAME is an
+    # operator-set label and is deliberately unconstrained.
+    if is_wsl:
+        physical = 'Windows'
+    else:
+        physical = system
+
+    return {
+        'in_container': runtime is not None,
+        'container_runtime': runtime,
+        'is_wsl': is_wsl,
+        'physical_platform': physical,
+        # True when the two differ, i.e. the container's own OS misrepresents
+        # the hardware. The UI flags this instead of silently showing Linux.
+        'os_mismatch': physical != system,
+    }
+
+
 def get_platform_distribution() -> Optional[str]:
     """
     Detect OS distribution beyond platform.system() for Linux hosts.
@@ -868,6 +972,62 @@ def has_vaapi_h264_encode():
         return False
 
 
+
+# ============================================================================
+# DISK — which filesystems to watch
+# ============================================================================
+# `psutil.disk_usage('/')` used to be the whole story, and on a host where the
+# stream tree has its own mount it is the one filesystem that cannot fill: a
+# customer host reported Disk=9.8% (a 56 GB `/` at 10%) while the 960 GB /data
+# holding every capture, reference and report was at 100%, so nothing — not the
+# dashboard tile with its red threshold, not the Status page's >90% Resources
+# row — saw it coming (BUG-0198). `disk_percent` is now the FULLEST monitored
+# mount, with the per-mount breakdown alongside it.
+
+def _monitored_disk_paths() -> list:
+    """Root, the stream tree (captures/references/reports), and each hot tmpfs."""
+    # abspath(os.sep) is the drive root on Windows, '/' on POSIX — no literals.
+    paths = [os.path.abspath(os.sep)]
+    try:
+        from shared.src.lib.utils.storage_path_utils import (
+            get_capture_base_directories,
+            get_stream_base_path,
+        )
+        stream_base = get_stream_base_path()
+        if stream_base:
+            paths.append(stream_base)
+        for capture_dir in get_capture_base_directories():
+            paths.append(capture_dir)
+            hot_dir = os.path.join(capture_dir, 'hot')
+            if os.path.isdir(hot_dir):
+                paths.append(hot_dir)
+    except Exception as e:
+        # A dev box without active_captures.conf still reports its root.
+        print(f"[@system_info:disk] Could not enumerate stream mounts, watching root only: {e}")
+    return paths
+
+
+def get_disk_stats() -> dict:
+    """{disk_percent, disk_used_gb, disk_total_gb, disk_worst_mount, disk_mounts}.
+
+    disk_percent is the fullest monitored mount, so a single number keeps working
+    for the tiles, the >90% Resources row and the metrics table while finally
+    tracking a filesystem that can actually fill.
+    """
+    from shared.src.lib.utils.disk_space_utils import worst_usage
+    worst, mounts = worst_usage(_monitored_disk_paths())
+    if not worst:
+        return {'disk_percent': 0, 'disk_used_gb': 0, 'disk_total_gb': 0,
+                'disk_worst_mount': None, 'disk_mounts': []}
+    return {
+        'disk_percent': worst['percent'],
+        'disk_used_gb': worst['used_gb'],
+        'disk_total_gb': worst['total_gb'],
+        'disk_worst_mount': worst['mount'],
+        'disk_mounts': mounts,
+    }
+
+
 def get_host_system_stats(skip_speedtest=False, devices: Optional[List[Any]] = None):
     """
     Get basic system statistics for host registration
@@ -887,17 +1047,20 @@ def get_host_system_stats(skip_speedtest=False, devices: Optional[List[Any]] = N
         stats = {
             'cpu_percent': psutil.cpu_percent(interval=1),
             'memory_percent': psutil.virtual_memory().percent,
-            'disk_percent': psutil.disk_usage('/').percent,
+            **get_disk_stats(),
             'uptime_seconds': int(time.time() - psutil.boot_time()),
             'platform': platform.system(),
             'platform_distribution': get_platform_distribution(),
             'architecture': platform.machine(),
+            **get_physical_platform(),
             'python_version': platform.python_version(),
             'ffmpeg_service_uptime_seconds': ffmpeg_service_uptime,
             'monitor_service_uptime_seconds': monitor_service_uptime,
             'service_health': service_health,
             'operational_status': service_health.get('overall_status', 'unknown'),
             'hardware_encode': has_vaapi_h264_encode(),  # gates the HD+ stream tier in the UI
+            # ARCHIVE_VIDEO=false: no 24h review buffer on this host; the UI disables Last 24h.
+            'archive_video': os.getenv('ARCHIVE_VIDEO', 'true').strip().lower() not in ('false', '0', 'no', 'off'),
         }
         
         # Add disk I/O write speed tracking
@@ -988,7 +1151,6 @@ def get_enhanced_system_stats(skip_speedtest=False, devices: Optional[List[Any]]
     try:
         # Basic system stats
         memory = psutil.virtual_memory()
-        disk = psutil.disk_usage('/')
         
         # System uptime
         boot_time = psutil.boot_time()
@@ -1011,13 +1173,12 @@ def get_enhanced_system_stats(skip_speedtest=False, devices: Optional[List[Any]]
             'memory_percent': round(memory.percent, 2),
             'memory_used_gb': round(memory.used / (1024**3), 2),
             'memory_total_gb': round(memory.total / (1024**3), 2),
-            'disk_percent': round((disk.used / disk.total) * 100, 2),
-            'disk_used_gb': round(disk.used / (1024**3), 2),
-            'disk_total_gb': round(disk.total / (1024**3), 2),
+            **get_disk_stats(),
             'uptime_seconds': uptime_seconds,
             'platform': platform.system(),
             'platform_distribution': get_platform_distribution(),
             'architecture': platform.machine(),
+            **get_physical_platform(),
             'ffmpeg_status': ffmpeg_status,
             'monitor_status': monitor_status,
             'ffmpeg_service_uptime_seconds': ffmpeg_service_uptime,
@@ -1025,6 +1186,8 @@ def get_enhanced_system_stats(skip_speedtest=False, devices: Optional[List[Any]]
             'service_health': service_health,
             'operational_status': service_health.get('overall_status', 'unknown'),
             'hardware_encode': has_vaapi_h264_encode(),  # gates the HD+ stream tier in the UI
+            # ARCHIVE_VIDEO=false: no 24h review buffer on this host; the UI disables Last 24h.
+            'archive_video': os.getenv('ARCHIVE_VIDEO', 'true').strip().lower() not in ('false', '0', 'no', 'off'),
         }
         
         # Add disk I/O write speed tracking

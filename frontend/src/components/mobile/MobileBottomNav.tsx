@@ -21,6 +21,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { isFeatureEnabled } from '../../config/features';
 import { useIsNativeApp } from '../../hooks/useIsNativeApp';
 import { useResponsiveMode } from '../../hooks/useResponsiveMode';
+import { useI18n } from '../../i18n/useI18n';
+import { PreferencesRows } from '../common/PreferencesRows';
+import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
 import { MOBILE_MORE_MENU_ITEMS, MORE_TAB_VALUE, type MobileMoreMenuItem } from './MobileMoreMenuItems';
 
 // features/mobile-app entry point (docs/tasks/TASK-17): one More-menu entry whose label and
@@ -63,12 +66,14 @@ const resolveTabValue = (pathname: string, native: boolean): string => {
 const MobileBottomNav: React.FC = () => {
   const { isMobile } = useResponsiveMode();
   const isNative = useIsNativeApp();
+  const { t } = useI18n();
   const location = useLocation();
   const navigate = useNavigate();
+  const { isPathHidden } = useWorkspaceContext();
   const [moreMenuAnchorEl, setMoreMenuAnchorEl] = useState<HTMLElement | null>(null);
 
   const isAuthPage = location.pathname === '/login' || location.pathname === '/auth/callback';
-  const isHiddenRoute = location.pathname.startsWith('/ai-agent');
+  const isHiddenRoute = location.pathname.startsWith('/ai-agent') || location.pathname.startsWith('/share/run/');
 
   if (!isMobile || isAuthPage || isHiddenRoute) {
     return null;
@@ -113,19 +118,20 @@ const MobileBottomNav: React.FC = () => {
           },
         }}
       >
-        <BottomNavigationAction label="Dashboard" value="/" icon={<DashboardIcon />} />
-        <BottomNavigationAction label="Device" value="/device-control" icon={<DevicesIcon />} />
-        <BottomNavigationAction label="Run" value="/run/tests" icon={<PlayArrowIcon />} />
-        <BottomNavigationAction label="Heatmap" value="/monitoring/heatmap" icon={<GridViewIcon />} />
-        <BottomNavigationAction label="More" value={MORE_TAB_VALUE} icon={<MoreHorizIcon />} />
+        <BottomNavigationAction label={t('Dashboard')} value="/" icon={<DashboardIcon />} />
+        <BottomNavigationAction label={t('Device')} value="/device-control" icon={<DevicesIcon />} />
+        <BottomNavigationAction label={t('Run', { context: 'nav' })} value="/run/tests" icon={<PlayArrowIcon />} />
+        <BottomNavigationAction label={t('Heatmap')} value="/monitoring/heatmap" icon={<GridViewIcon />} />
+        <BottomNavigationAction label={t('More')} value={MORE_TAB_VALUE} icon={<MoreHorizIcon />} />
       </BottomNavigation>
       <Menu anchorEl={moreMenuAnchorEl} open={Boolean(moreMenuAnchorEl)} onClose={closeMoreMenu}>
-        {moreMenuItems(isNative).map((item) => (
+        {moreMenuItems(isNative).filter((item) => !isPathHidden(item.path)).map((item) => (
           <MenuItem key={item.path} onClick={() => handleMoreItemClick(item.path)}>
             <ListItemIcon>{item.icon}</ListItemIcon>
-            <ListItemText>{item.label}</ListItemText>
+            <ListItemText>{t(item.label)}</ListItemText>
           </MenuItem>
         ))}
+        <PreferencesRows />
       </Menu>
     </Paper>
   );

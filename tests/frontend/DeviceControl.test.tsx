@@ -79,6 +79,9 @@ describe('Device Control page', () => {
       </BrowserRouter>,
     );
 
-    expect(screen.getByRole('heading', { name: 'Device' })).toBeInTheDocument();
+    // The heading carries a live device count ("Device (0)" with no devices mocked), so
+    // match the prefix rather than the exact string — asserting 'Device' broke the day the
+    // count was added and stayed broken.
+    expect(screen.getByRole('heading', { name: /^Device/ })).toBeInTheDocument();
   });
 });

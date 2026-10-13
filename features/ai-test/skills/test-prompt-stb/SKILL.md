@@ -7,6 +7,7 @@ timeout_seconds: 300
 tools:
   - execute_device_action
   - navigate_to_node
+  - verify_node
 triggers:
   - test prompt stb
   - test prompt set top box
@@ -47,14 +48,13 @@ navigate_to_node(
 
 ## How to call execute_device_action
 
-**ALWAYS include `action_type: "infrared"` and `force_unlock: true`.**
+**ALWAYS include `action_type: "infrared"`.**
 
 ```
 execute_device_action(
   host_name="<from context>",
   device_id="<from context>",
   action_type="infrared",
-  force_unlock=true,
   actions=[{command: "press_key", params: {key: "<KEY_NAME>"}}]
 )
 ```
@@ -89,6 +89,20 @@ Do not call these — they will fail:
 5. **Verify criteria**: you have NO `dump_elements`. Your evidence comes from the auto-captured screenshots — describe what you see in the most recent screenshot to support each criterion.
 6. **Report**: output results in the format below.
 
+## How to check what is on screen: verify_node
+
+Every screen of the tree can carry saved checks (an image, a text, video motion). To confirm the
+device shows a screen, call:
+
+```
+verify_node(node_label="<EXACT label from the tree>", userinterface_name="<from context>",
+            host_name="<from context>", device_id="<from context>")
+```
+
+It runs that screen's checks and answers pass/fail with the results, e.g. `replay_asset_stream`
+checks that the video is moving. On a set-top box or TV there is no page text to read: verify_node
+is how you verify a criterion. Use it as evidence; do not guess from key presses that "completed".
+
 ## Report Format
 
 ```
@@ -108,12 +122,17 @@ Do not call these — they will fail:
 ### Overall: PASS (or FAIL)
 ```
 
+Every acceptance criterion is PASS or FAIL. A criterion you could not verify is FAIL, with the
+reason. The last line is exactly `### Overall: PASS` (every criterion PASS) or `### Overall: FAIL`:
+nothing else ("PARTIAL PASS", "UNABLE TO VERIFY" are not verdicts).
+
+
 ## Rules
 
 1. **The navigation tree is in your context — read it before navigating.** It is the only structured map you have on this platform.
 2. **Copy node labels EXACTLY from the tree** — never invent, normalize, or guess them.
 3. **ALWAYS include `action_type: "infrared"`** in every execute_device_action call.
-4. **Use `force_unlock: true`** on the first call.
+4. **Never pass `force_unlock`.** The run holds the user's Take Control and the tools act under it; `force_unlock` would take the device away from the user.
 5. **`press_key` is your only command** — anything else will fail.
 6. **Send keys one at a time** — don't try to chain multiple keys in a single action.
 7. **Evidence is screenshots** — describe what you see, since you cannot dump or query.

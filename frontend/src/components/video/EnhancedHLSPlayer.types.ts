@@ -23,7 +23,9 @@ export interface ArchiveMetadata {
 export interface TimedSegment {
   start: number;  // Start time in seconds (relative to chunk start)
   end: number;    // End time in seconds (relative to chunk start)
-  text: string;   // Text for this segment
+  text: string;   // Text for this segment (LLM-corrected when raw_text is set)
+  raw_text?: string;  // Whisper's original text, kept when the host's correction pass changed it
+  corrected?: boolean;  // Host's correction pass has handled this segment
   translations?: Record<string, string>;  // Optional translations
 }
 
@@ -132,4 +134,9 @@ export interface EnhancedHLSPlayerProps {
   // Freeze on the seeked frame in archive mode: don't auto-play, and pause again
   // if playback starts (AVQ frame inspector — click a time, hold that still frame).
   freezeArchiveFrame?: boolean;
+
+  // Force the latency-debug overlay on (TASK-79 follow-up). The rec modal's
+  // header shows its own toggle and threads this through so users don't have
+  // to edit the URL.
+  latencyDebug?: boolean;
 }

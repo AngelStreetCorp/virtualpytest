@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low                                                          |
 | Area      | shared selector scoring / backend_server MCP / Playwright    |
-| Fixed in  | Unreleased (the cut sets the build — never copy VERSION.txt)  |
+| Fixed in  | Unreleased                                                   |
 | Commit    | 9384a9c4c                                                    |
 
 ---

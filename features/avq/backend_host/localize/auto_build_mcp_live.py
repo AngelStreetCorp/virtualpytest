@@ -44,7 +44,7 @@ import urllib3
 
 # Lab defaults — every one overridable per-invocation (CLI flag) or per-machine (env).
 # Ladder C: a run against any other server/host/device needs only flags, no edits.
-DEFAULT_MCP_URL = os.getenv("VPT_MCP_URL", "https://rpitest.angelstreet.io/server/mcp")
+DEFAULT_MCP_URL = os.getenv("VPT_MCP_URL")
 DEFAULT_HOST = os.getenv("VPT_BUILD_HOST", "host3")
 DEFAULT_DEVICE = os.getenv("VPT_BUILD_DEVICE", "device4")
 DEFAULT_DEVICE_NAME = os.getenv("VPT_BUILD_DEVICE_NAME", "blestbv1+")
@@ -2388,6 +2388,8 @@ def cmd_init(args: argparse.Namespace) -> int:
             (run_dir / sub).mkdir(parents=True, exist_ok=True)
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    if not args.mcp_url:
+        raise LiveBuildError("--mcp-url or the VPT_MCP_URL environment variable is required (e.g. https://<server>/server/mcp)")
     client = MCPClient(args.mcp_url, _find_auth(args.mcp_config), args.verify_tls)
     _validate_target(client, args.host, args.device, args.device_name)
     state = _new_state(args)
@@ -3164,11 +3166,11 @@ def _certification_report_html(run_dir: Path, state: Dict[str, Any]) -> Path:
     for ek, r in sorted(v.items()):
         src, key, dst = ek.split("|")
         status = r.get("status") or "?"
-        color = "#2e7d32" if status.startswith("pass") else "#c62828"
+        color = "var(--vpt-success)" if status.startswith("pass") else "var(--vpt-error)"
         _gt = r.get("gotos")
         _repo_cell = ("" if r.get("reposition_s") is None
                       else f"{r.get('reposition_s')}s"
-                      + (f" · <b style='color:#c62828'>{_gt} goto</b>" if _gt else " · walk"))
+                      + (f" · <b style='color:var(--vpt-error)'>{_gt} goto</b>" if _gt else " · walk"))
         rows.append(f"<tr><td>{_lbl(src)}</td><td><code>{key}</code></td><td>{_lbl(dst)}</td>"
                     f"<td style='color:{color}'>{status}</td><td>{_repo_cell}</td>"
                     f"<td>{r.get('checked_at') or ''}</td></tr>")
@@ -3176,10 +3178,16 @@ def _certification_report_html(run_dir: Path, state: Dict[str, Any]) -> Path:
             fails.append(f"<h3>{_lbl(src)} --{key}--> {_lbl(dst)}: {status}</h3>"
                          + _thumb(r.get("screenshot")))
     rev = sum(1 for e in state["edges"] if e.get("reverse"))
+    repo = Path(__file__).resolve().parents[4]  # same bootstrap as the R2 upload below
+    if str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+    from shared.src.lib.utils.report_theme import report_theme_head
+    theme_head = report_theme_head()
     html = f"""<!doctype html><html><head><meta charset='utf-8'>
 <title>Certification — {state['userinterface_name']}</title>
-<style>body{{font-family:sans-serif;margin:24px}}table{{border-collapse:collapse}}
-td,th{{border:1px solid #ccc;padding:4px 10px;font-size:13px}}</style></head><body>
+{theme_head}
+<style>body{{font-family:sans-serif;margin:24px;background:var(--vpt-page);color:var(--vpt-text)}}table{{border-collapse:collapse;background:var(--vpt-surface)}}
+td,th{{border:1px solid var(--vpt-border);padding:4px 10px;font-size:13px}}a{{color:var(--vpt-accent-text)}}</style></head><body>
 <h1>Auto-build certification — {state['userinterface_name']}</h1>
 <p>run: <code>{run_dir.name}</code> · device: {state['target']['host_name']}/{state['target']['device_id']}
 ({state['target']['device_name']}) · generated {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}</p>

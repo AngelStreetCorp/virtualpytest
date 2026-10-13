@@ -24,6 +24,7 @@ import { getScriptIdentity } from '../../utils/executionUtils';
 import { testcaseScriptConfigToBlockIO } from '../../utils/testcase/scriptInputUtils';
 import { addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from 'reactflow';
 import { useExecutionState } from '../../hooks/testcase/useExecutionState';
+import { useUserSession } from '../../hooks/useUserSession';
 import { DEFAULT_TERMINAL_POSITIONS } from '../../constants/builderDefaults';
 
 interface CampaignBuilderContextValue {
@@ -131,6 +132,7 @@ const createInitialGraph = (): CampaignGraph => ({
 });
 
 export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = ({ children }) => {
+  const { userId } = useUserSession();
   const [state, setState] = useState<CampaignBuilderState>({
     graph: createInitialGraph(),
   });
@@ -891,6 +893,7 @@ export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = (
             graph_json: testCaseGraph,
             device_id: deviceId,
             host_name: hostName,
+            user_id: userId,
             userinterface_name: userinterfaceName,
             testcase_name: blockToExecute.data.executableName || blockToExecute.data.label || 'single_block',
             async_execution: true
@@ -988,7 +991,7 @@ export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = (
 
       throw error; // Re-throw for CampaignBlock to handle
     }
-  }, [nodes, unifiedExecution]);
+  }, [nodes, unifiedExecution, userId]);
 
   // Computed execution state
   const isExecuting = unifiedExecution.state.isExecuting;

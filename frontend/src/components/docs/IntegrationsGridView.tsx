@@ -7,6 +7,7 @@ import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { createDocsMarkdownComponents } from './markdownComponents';
 import { INTEGRATIONS, STATUS_LABEL, type Integration } from './integrationsData';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 const urlTransform = (url: string) => (url.startsWith('data:image/') ? url : defaultUrlTransform(url));
 
@@ -37,6 +38,7 @@ const SHOWS_STATUS = new Set(INTEGRATIONS.map((i) => i.status)).size > 1;
  * and the name is right underneath — a screen reader reading the logo would say it twice.
  */
 const IntegrationCard: React.FC<{ item: Integration }> = ({ item }) => {
+  const P = useAgentChatPalette();
   const navigate = useNavigate();
   const { brand, logo, name, description, status } = item;
 
@@ -70,7 +72,7 @@ const IntegrationCard: React.FC<{ item: Integration }> = ({ item }) => {
         },
         '&:focus-visible': {
           outline: '2px solid',
-          outlineColor: 'primary.main',
+          outlineColor: P.accent,
           outlineOffset: 2,
         },
       }}
@@ -143,7 +145,9 @@ const IntegrationsGridView: React.FC<{
   markdown: string;
   getCurrentDocPath: () => string;
   page?: string;
-}> = ({ markdown, getCurrentDocPath, page }) => (
+}> = ({ markdown, getCurrentDocPath, page }) => {
+  const P = useAgentChatPalette();
+  return (
   <Box>
     <Typography
       variant="h4"
@@ -152,7 +156,7 @@ const IntegrationsGridView: React.FC<{
     >
       {/* The same icon the docs navigator draws for this section, so the page and the
           dropdown that reached it agree. An emoji here would be the one glyph left. */}
-      <ExtensionOutlined sx={{ fontSize: '1.6rem', color: 'primary.main' }} />
+      <ExtensionOutlined sx={{ fontSize: '1.6rem', color: P.accentText }} />
       Integrations
     </Typography>
     <Typography sx={{ mb: 3, color: 'text.secondary' }}>
@@ -191,11 +195,12 @@ const IntegrationsGridView: React.FC<{
       remarkPlugins={[remarkGfm]}
       rehypePlugins={[rehypeRaw]}
       urlTransform={urlTransform}
-      components={createDocsMarkdownComponents(getCurrentDocPath, page)}
+      components={createDocsMarkdownComponents(getCurrentDocPath, page, P)}
     >
       {bodyAfterIntro(markdown)}
     </ReactMarkdown>
   </Box>
-);
+  );
+};
 
 export default IntegrationsGridView;

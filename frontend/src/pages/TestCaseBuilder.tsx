@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, DragEvent, useState } from 'react';
+import React, { useCallback, useMemo, useRef, DragEvent, useState } from 'react';
 import {
   Box,
   Button,
@@ -19,6 +19,7 @@ import 'reactflow/dist/style.css';
 
 // Auto-layout utility
 import { getLayoutedElements } from '../components/testcase/ai/autoLayout';
+import { AGENT_CHAT_PALETTE } from '../constants/agentChatTheme';
 
 // Hide React Flow attribution
 const styles = TESTCASE_BUILDER_ATTRIBUTION_CSS;
@@ -38,7 +39,9 @@ import { FailureEdge } from '../components/testcase/edges/FailureEdge';
 import { DataEdge } from '../components/testcase/edges/DataEdge';
 // 🆕 NEW: Execution components - using unified component
 import { ExecutionProgressOverlay } from '../components/common/ExecutionProgressOverlay';
-import { VersionHistoryDialog, VersionHistoryRow } from '../components/common/VersionHistoryDialog';
+import { VersionHistoryDialog } from '../components/common/VersionHistoryDialog';
+import { TestcaseVersionInsights } from '../components/reports/TestcaseVersionInsights';
+import type { TestcaseVersion } from '../types/reports';
 
 // Dialogs
 import { ActionConfigDialog } from '../components/testcase/dialogs/ActionConfigDialog';
@@ -131,19 +134,20 @@ const EDGE_TYPES = {
   data: DataEdge, // NEW: Data flow edges
 };
 
-// Default edge options
+// Default edge options. Static palette: at module scope (no hooks possible),
+// and slate-grey is the same on both themes (textMuted).
 const defaultEdgeOptions = {
   type: 'success',
   animated: false,
   style: {
-    stroke: '#94a3b8', // grey
+    stroke: AGENT_CHAT_PALETTE.textMuted,
     strokeWidth: 2,
   },
   markerEnd: {
     type: MarkerType.ArrowClosed,
     width: 20,
     height: 20,
-    color: '#94a3b8', // grey to match edge
+    color: AGENT_CHAT_PALETTE.textMuted,
   },
 };
 
@@ -160,7 +164,6 @@ export const TestCaseBuilderContent: React.FC = () => {
   }, []);
 
   const { actualMode } = useTheme();
-  
   // 🗑️ REMOVED: Local execution overlay state - now using unifiedExecution from context
   
   // 🆕 NEW: Data linking state for click-to-link I/O
@@ -174,8 +177,79 @@ export const TestCaseBuilderContent: React.FC = () => {
   // Use the consolidated hook for all business logic
   const hookData = useTestCaseBuilderPage();
 
-  // Get undo/redo/copy/paste from context
-  const { undo, redo, canUndo, canRedo, resetBuilder, copyBlock, pasteBlock } = useTestCaseBuilder();
+  // Get undo/redo/copy/paste from context, plus the script I/O the standard-block
+  // config dialog offers as linkable variables.
+  const {
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    resetBuilder,
+    copyBlock,
+    pasteBlock,
+    scriptInputs,
+    scriptOutputs,
+    scriptVariables,
+    executionOutputValues,
+  } = useTestCaseBuilder();
+
+  // Linkable variables offered by StandardBlockConfigDialog: script inputs (with
+  // their defaults), outputs (with runtime values once a run has produced them),
+  // script variables, and every other block's declared outputs.
+  //
+  // Computed here rather than in an IIFE inside the dialog's JSX. That IIFE called
+  // useTestCaseBuilder(), and because the dialog renders behind
+  // `selectedBlock && STANDARD_BLOCK_TYPES.includes(...)`, the hook ran on some
+  // renders and not others — the hook count changed as soon as a block was selected
+  // or cleared, which is the "Rendered more hooks than during the previous render"
+  // crash waiting to happen.
+  const standardBlockVariables = useMemo(() => {
+    const variables: any[] = [];
+
+    scriptInputs.forEach((input: any) => {
+      variables.push({ name: input.name, type: input.type, source: 'input', value: input.default });
+    });
+
+    scriptOutputs.forEach((output: any) => {
+      variables.push({
+        name: output.name,
+        type: output.type,
+        source: 'output',
+        value: executionOutputValues[output.name],
+      });
+    });
+
+    scriptVariables.forEach((variable: any) => {
+      variables.push({
+        name: variable.name,
+        type: variable.type,
+        source: 'variable',
+        value: variable.value,
+      });
+    });
+
+    hookData.nodes.forEach((node: any) => {
+      if (node.data?.outputSchema && node.id !== hookData.selectedBlock?.id) {
+        Object.entries(node.data.outputSchema).forEach(([outputName, outputType]) => {
+          variables.push({
+            name: outputName,
+            type: outputType as string,
+            source: 'block_output',
+            blockId: node.data.label || node.id,
+          });
+        });
+      }
+    });
+
+    return variables;
+  }, [
+    scriptInputs,
+    scriptOutputs,
+    scriptVariables,
+    executionOutputValues,
+    hookData.nodes,
+    hookData.selectedBlock?.id,
+  ]);
 
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
   const [reactFlowInstance, setReactFlowInstance] = React.useState<any>(null);
@@ -203,7 +277,7 @@ export const TestCaseBuilderContent: React.FC = () => {
   const [apiConfigModalOpen, setApiConfigModalOpen] = React.useState(false);
   const [selectedApiBlock, setSelectedApiBlock] = React.useState<any>(null);
   const [versionDialogOpen, setVersionDialogOpen] = React.useState(false);
-  const [versionRows, setVersionRows] = React.useState<VersionHistoryRow[]>([]);
+  const [versionRows, setVersionRows] = React.useState<TestcaseVersion[]>([]);
   const [loadingVersions, setLoadingVersions] = React.useState(false);
   const [restoringVersion, setRestoringVersion] = React.useState<number | null>(null);
 
@@ -462,7 +536,7 @@ export const TestCaseBuilderContent: React.FC = () => {
     if (!hookData.currentTestcaseId) return;
     setLoadingVersions(true);
     try {
-      const response = await api.get<{ success: boolean; versions: VersionHistoryRow[] }>(
+      const response = await api.get<{ success: boolean; versions: TestcaseVersion[] }>(
         buildServerUrl(`/server/testcase/${hookData.currentTestcaseId}/versions`),
       );
       if (!response?.success) {
@@ -495,7 +569,7 @@ export const TestCaseBuilderContent: React.FC = () => {
         throw new Error(response?.error || 'Failed to restore version');
       }
       await hookData.handleLoad(hookData.currentTestcaseId);
-      const refreshed = await api.get<{ success: boolean; versions: VersionHistoryRow[] }>(
+      const refreshed = await api.get<{ success: boolean; versions: TestcaseVersion[] }>(
         buildServerUrl(`/server/testcase/${hookData.currentTestcaseId}/versions`),
       );
       setVersionRows(refreshed.versions || []);
@@ -520,7 +594,6 @@ export const TestCaseBuilderContent: React.FC = () => {
     <BuilderPageLayout>
       {/* Header */}
       <TestCaseBuilderHeader
-        actualMode={actualMode}
         builderType="TestCase"
         creationMode={hookData.creationMode}
         setCreationMode={hookData.setCreationMode}
@@ -586,7 +659,6 @@ export const TestCaseBuilderContent: React.FC = () => {
           onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         >
           <TestCaseBuilderSidebar
-          actualMode={actualMode}
           creationMode={hookData.creationMode}
           isSidebarOpen={isSidebarOpen}
           toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -603,6 +675,7 @@ export const TestCaseBuilderContent: React.FC = () => {
           handleGenerateWithAI={hookData.handleGenerateWithAI}
             hasLastGeneration={!!hookData.aiGenerationResult}
             handleShowLastGeneration={hookData.handleShowLastGeneration}
+            aiEdit={hookData.aiEdit}
           />
         </BuilderSidebarContainer>
 
@@ -710,7 +783,6 @@ export const TestCaseBuilderContent: React.FC = () => {
             fitViewOptions={fitViewOptions}
           >
             <TestCaseBuilderCanvas
-              actualMode={actualMode}
               isSidebarOpen={isSidebarOpen}
               onAutoLayout={handleAutoLayout}
               // 🗑️ REMOVED: isExecuting, executionDetails - no longer needed
@@ -759,59 +831,7 @@ export const TestCaseBuilderContent: React.FC = () => {
           blockLabel={hookData.selectedBlock.data.label || hookData.selectedBlock.type}
           params={hookData.selectedBlock.data.paramSchema || {}}
           initialData={hookData.selectedBlock.data.params || {}}
-          availableVariables={(() => {
-            // Get script I/O from context
-            const { scriptInputs, scriptOutputs, scriptVariables, executionOutputValues } = useTestCaseBuilder();
-            
-            const variables: any[] = [];
-            
-            // Add script inputs with their default values
-            scriptInputs.forEach((input: any) => {
-              variables.push({
-                name: input.name,
-                type: input.type,
-                source: 'input',
-                value: input.default, // Show default value
-              });
-            });
-            
-            // Add script outputs with execution values if available
-            scriptOutputs.forEach((output: any) => {
-              variables.push({
-                name: output.name,
-                type: output.type,
-                source: 'output',
-                value: executionOutputValues[output.name], // Show runtime value
-              });
-            });
-            
-            // Add script variables
-            scriptVariables.forEach((variable: any) => {
-              variables.push({
-                name: variable.name,
-                type: variable.type,
-                source: 'variable',
-                value: variable.value, // Show variable value
-              });
-            });
-            
-            // Add block outputs from nodes
-            hookData.nodes.forEach((node: any) => {
-              if (node.data?.outputSchema && node.id !== hookData.selectedBlock?.id) {
-                Object.entries(node.data.outputSchema).forEach(([outputName, outputType]) => {
-                  variables.push({
-                    name: outputName,
-                    type: outputType as string,
-                    source: 'block_output',
-                    blockId: node.data.label || node.id,
-                    // Could add execution values here if available
-                  });
-                });
-              }
-            });
-            
-            return variables;
-          })()}
+          availableVariables={standardBlockVariables}
           onSave={(newParams) => {
             if (hookData.selectedBlock) {
               hookData.updateBlock(hookData.selectedBlock.id, { params: newParams });
@@ -896,6 +916,15 @@ export const TestCaseBuilderContent: React.FC = () => {
         restoringVersion={restoringVersion}
         emptyMessage="Save the test case to create the first version."
         onRestore={handleRestoreVersion}
+        extraContent={
+          hookData.currentTestcaseId && versionRows.length > 0 ? (
+            <TestcaseVersionInsights
+              testcaseId={hookData.currentTestcaseId}
+              testcaseName={versionRows[0]?.testcase_name ?? null}
+              versions={versionRows}
+            />
+          ) : null
+        }
       />
       
       {/* Delete Confirmation Dialog */}

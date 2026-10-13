@@ -1,0 +1,166 @@
+{
+  "version": 1,
+  "_comment": "Real-classifier test manifest: 11 labeled UI screens from EXPERIMENT-01 §1.2 (3 broadcast promos and 1 black-frame excluded — broadcast = playback's job, black = capture-side). This is the COMPLEMENT of the existing test_localize_regression.py manifest (which mocks matcher + Tier 2): here the test calls the REAL ImageHelpers.identify_screen + scv.screen_state + scv.error, with a STUB node_fps set loaded from tests/localize/fixtures/*.json (the goal is to test the payload plumbing, not the matcher quality). The 11 userinterfaces come from the table in EXPERIMENT-01-onejev-abstain-coverage.md:39-43. Source paths follow the cold-archive convention: /Users/Shared/vpt_captures/<host>_<captureN>/capture_<NNNNNN>.jpg. Unreachable rows are SKIPPED with a warning, not failed (per the task spec). No real brand names (AGENTS.md leak-gate).",
+  "userinterfaces": [
+    {"name": "stb_tv", "company": "brand_a"},
+    {"name": "switch", "company": null},
+    {"name": "android_tv", "company": "brand_c"},
+    {"name": "game2048-web", "company": "brand_b"}
+  ],
+  "rows": [
+    {
+      "id": "switch_home_frozen",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_000000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 1: Switch HOME menu (frozen, 174 of 200 frames in pi3 widened capture2). UI is settled, no overlay, no error dialog, no playback. company=NULL on switch."
+    },
+    {
+      "id": "switch_home_focused",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_000195.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 2: Switch HOME menu with focused tile highlight (mid-archive). Same screen, focus ring does not change the page. UI is settled, no overlay."
+    },
+    {
+      "id": "switch_game_title",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_001000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 3: Switch game title screen (mid-archive, slot ~1000). Settled UI; no playback, no error."
+    },
+    {
+      "id": "switch_cutscene_a",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_010000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 4: Switch in-game cutscene A. Treat as a settled game surface; not a video. Playback is_media is not wired in the standalone monitor, so 'not_applicable' regardless."
+    },
+    {
+      "id": "switch_cutscene_b",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_020000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 5: Switch in-game cutscene B (mid-archive). Same surface logic as cutscene A."
+    },
+    {
+      "id": "switch_cutscene_c",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_030000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 6: Switch in-game cutscene C (mid-archive). Same surface logic."
+    },
+    {
+      "id": "switch_cutscene_d",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_050000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 7: Switch in-game cutscene D (mid-archive). Same surface logic."
+    },
+    {
+      "id": "switch_error_dialog_a",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_070000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "popup",
+        "playback": "not_applicable",
+        "error": "visible",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 8: Switch error dialog A — a raised plate over a dimmed backdrop (the geometry screen_state_cv.overlay already tests). Error arm 'visible' is the optimistic case (no OCR tokens here, so it depends on the cascade's no-keyword behaviour). NOTE: with no real error tokens, the cascade returns 'unknown' on real runs — see the per-frame diff in results/real_match_11.json for the actual answer."
+    },
+    {
+      "id": "switch_error_dialog_b",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_080000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "popup",
+        "playback": "not_applicable",
+        "error": "visible",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 9: Switch error dialog B — same surface as A."
+    },
+    {
+      "id": "game2048_board",
+      "userinterface": "game2048-web",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture1/capture_000000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 10: 2048 web game page (pi1 capture1, first frame). Settled browser game, no overlay, no playback (game is canvas-driven, not a video surface)."
+    },
+    {
+      "id": "android_quick_settings",
+      "userinterface": "android_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture1/capture_005000.jpg",
+      "motion": {"kind": "static", "state": "static", "pct": 0.0},
+      "expected": {
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "gate_skip": null
+      },
+      "note": "EXPERIMENT-01 row 11: Android quick-settings shade (pi1 capture1, mid-archive). A system overlay surface; Tier-2 overlay='none' because the shade IS the foreground, not an overlay on something else. (EXPERIMENT-01 §1.1 frames it as uncaptured, not unidentified.)"
+    }
+  ]
+}

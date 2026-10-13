@@ -27,6 +27,8 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import { Search as SearchIcon, Link as LinkIcon, Check, Close, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Pause, PlayArrow, DeleteOutline, Visibility, VisibilityOff } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
@@ -40,6 +42,21 @@ import { useResizableColumns } from '../hooks/useResizableColumns';
 import { useHostData } from '../hooks/useHostManager';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { useToast } from '../hooks/useToast';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+
+/** Section count as a small pill next to its title (gold when something is running). */
+const CountPill: React.FC<{ count: number; color?: string; P: ReturnType<typeof useAgentChatPalette> }> = ({ count, color, P }) => (
+  <Box
+    component="span"
+    sx={{
+      fontSize: '0.72rem', fontWeight: 600, lineHeight: 1.7, px: 1, borderRadius: 999,
+      color: color || P.textSecondary, bgcolor: color ? `${P.accent}26` : P.hoverBg,
+      fontVariantNumeric: 'tabular-nums',
+    }}
+  >
+    {count}
+  </Box>
+);
 import { formatToLocalTime, getUserTimezone } from '../utils/dateUtils';
 import { cronToHuman, validateCronExpression } from '../utils/cronUtils';
 import { CronHelper } from '../components/common/CronHelper';
@@ -226,6 +243,7 @@ function buildParameterStringFromParsed(params: ParsedParam[]): string {
 }
 
 const MonitorTests: React.FC = () => {
+  const P = useAgentChatPalette();
   const [searchParams, setSearchParams] = useSearchParams();
   const theme = useTheme();
   const { isMobile, isTablet } = useResponsiveMode();
@@ -878,7 +896,7 @@ const MonitorTests: React.FC = () => {
 
               return (
                 <Box key={`${sc.script_name}-${scIdx}`}>
-                  <Typography variant="caption" sx={{ fontWeight: 600, color: 'primary.main', display: 'block', mb: 0.5 }}>
+                  <Typography variant="caption" sx={{ fontWeight: 600, color: P.accentText, display: 'block', mb: 0.5 }}>
                     {sc.script_name}
                   </Typography>
                   {paramEntries.length > 0 ? (
@@ -933,7 +951,7 @@ const MonitorTests: React.FC = () => {
     <Box sx={{ px: isMobile ? 0.25 : isTablet ? 0.75 : 1, pt: isMobile ? 0.25 : 0.5, pb: isMobile ? 0.25 : isTablet ? 0.75 : 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: isCompact ? 'flex-start' : 'center', mb: 2, gap: 1, flexDirection: isCompact ? 'column' : 'row' }}>
         <Box sx={{ display: 'flex', alignItems: isCompact ? 'stretch' : 'center', gap: 1, flexDirection: isCompact ? 'column' : 'row', flex: 1, minWidth: 0 }}>
-          <Typography variant="h4" sx={{ flexShrink: 0 }}>
+          <Typography component="h1" sx={{ flexShrink: 0, fontSize: '1.5rem', fontWeight: 600 }}>
             Monitor Tests
           </Typography>
           <TextField
@@ -951,39 +969,48 @@ const MonitorTests: React.FC = () => {
             sx={{ minWidth: isCompact ? '100%' : 260, maxWidth: isCompact ? '100%' : 340 }}
           />
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Chip
-            label="Tests"
-            clickable
-            color={browserTab === 'tests' ? 'primary' : 'default'}
-            variant={browserTab === 'tests' ? 'filled' : 'outlined'}
-            onClick={() => {
-              setBrowserTab('tests');
-              setSearchParams((prev) => {
-                const next = new URLSearchParams(prev);
-                next.set('tab', 'tests');
-                return next;
-              });
-            }}
-          />
-          <Chip
-            label="Campaigns"
-            clickable
-            color={browserTab === 'campaigns' ? 'primary' : 'default'}
-            variant={browserTab === 'campaigns' ? 'filled' : 'outlined'}
-            onClick={() => {
-              setBrowserTab('campaigns');
-              setSearchParams((prev) => {
-                const next = new URLSearchParams(prev);
-                next.set('tab', 'campaigns');
-                return next;
-              });
-            }}
-          />
-        </Box>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={browserTab}
+          onChange={(_e, v) => {
+            if (!v) return;
+            setBrowserTab(v);
+            setSearchParams((prev) => {
+              const next = new URLSearchParams(prev);
+              next.set('tab', v);
+              return next;
+            });
+          }}
+          sx={{
+            bgcolor: P.hoverBg, p: 0.375, borderRadius: 2, gap: 0.375,
+            '& .MuiToggleButton-root': {
+              border: '1px solid transparent !important', borderRadius: '6px !important',
+              textTransform: 'none', fontSize: 13, fontWeight: 500, color: P.textSecondary, py: 0.4, px: 2,
+            },
+            '& .MuiToggleButton-root.Mui-selected': {
+              bgcolor: P.surface, color: P.accentText, fontWeight: 600,
+              borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
+            },
+          }}
+        >
+          <ToggleButton value="tests">Tests</ToggleButton>
+          <ToggleButton value="campaigns">Campaigns</ToggleButton>
+        </ToggleButtonGroup>
       </Box>
 
-      <Grid container spacing={2}>
+      <Grid
+        container
+        spacing={2}
+        sx={{
+          // One card look: hairline border, no shadow; section tables get the palette header.
+          '& .MuiCard-root': { borderRadius: 3, border: `1px solid ${P.borderColor}`, boxShadow: 'none' },
+          '& .MuiCard-root .MuiTypography-h6': { fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 },
+          '& .MuiTableContainer-root': { borderRadius: 2, borderColor: P.borderColor },
+          '& .MuiTableCell-root': { borderColor: P.borderColor },
+          '& thead .MuiTableCell-root': { fontSize: '0.72rem', fontWeight: 600, color: `${P.textSecondary} !important`, bgcolor: `${P.hoverBg} !important` },
+        }}
+      >
         {/* Tests Running */}
         <Grid item xs={12}>
           <Card sx={{ '& .MuiCardContent-root': { p: 2, '&:last-child': { pb: 2 } } }}>
@@ -993,7 +1020,8 @@ const MonitorTests: React.FC = () => {
                   {runningExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                 </IconButton>
                 <Typography variant="h6">
-                  {browserTab === 'campaigns' ? 'Campaigns Running' : 'Tests Running'} - {filteredRunningExecutions.length}
+                  {browserTab === 'campaigns' ? 'Campaigns Running' : 'Tests Running'}
+                  <CountPill count={filteredRunningExecutions.length} color={filteredRunningExecutions.length ? P.accentText : undefined} P={P} />
                 </Typography>
               </Box>
               <Collapse in={runningExpanded}>
@@ -1096,7 +1124,8 @@ const MonitorTests: React.FC = () => {
                   {queueExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                 </IconButton>
                 <Typography variant="h6">
-                  {browserTab === 'campaigns' ? 'Campaign Queue' : 'Test Queue'} - {filteredQueuedExecutions.length}
+                  {browserTab === 'campaigns' ? 'Campaign Queue' : 'Test Queue'}
+                  <CountPill count={filteredQueuedExecutions.length} P={P} />
                 </Typography>
               </Box>
               <Collapse in={queueExpanded}>
@@ -1117,7 +1146,7 @@ const MonitorTests: React.FC = () => {
                           <Typography variant="body2" sx={{ fontWeight: 600 }}>
                             {getTargetLabel(execution.deployments?.host_name, execution.deployments?.device_id)}
                           </Typography>
-                          <Chip label="Queued" size="small" color="info" variant="outlined" />
+                          <Chip label="Queued" size="small" sx={{ color: P.textSecondary, borderColor: P.borderColor }} variant="outlined" />
                         </Box>
                         <Typography variant="caption" color="text.secondary" display="block" sx={{ overflowWrap: 'anywhere' }}>
                           {isCampaignDeployment(execution.deployments?.campaign_id, execution.deployments?.script_name, execution.is_campaign)
@@ -1158,7 +1187,7 @@ const MonitorTests: React.FC = () => {
                               </Typography>
                             </TableCell>
                             <TableCell>
-                              <Chip label="Queued" size="small" color="info" variant="outlined" />
+                              <Chip label="Queued" size="small" sx={{ color: P.textSecondary, borderColor: P.borderColor }} variant="outlined" />
                             </TableCell>
                             <TableCell>
                               {formatToLocalTime(execution.scheduled_at || execution.started_at || execution.completed_at || '')}
@@ -1189,7 +1218,8 @@ const MonitorTests: React.FC = () => {
                   {scheduledExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                 </IconButton>
                 <Typography variant="h6">
-                  {browserTab === 'campaigns' ? 'Campaigns Scheduled' : 'Tests Scheduled'} - {scheduledDeployments.length}
+                  {browserTab === 'campaigns' ? 'Campaigns Scheduled' : 'Tests Scheduled'}
+                  <CountPill count={scheduledDeployments.length} P={P} />
                 </Typography>
               </Box>
               <Collapse in={scheduledExpanded}>
@@ -1330,7 +1360,7 @@ const MonitorTests: React.FC = () => {
         {/* Last Executions */}
         <Grid item xs={12}>
           <ExecutionHistorySection
-            title={`${browserTab === 'campaigns' ? 'Last Campaign Executions' : 'Last Executions'} - ${allExecutions.length}`}
+            title={`${browserTab === 'campaigns' ? 'Last Campaign Executions' : 'Last Executions'} (${allExecutions.length})`}
             rows={executionHistoryRows}
             scriptColumnLabel={browserTab === 'campaigns' ? 'Campaign' : 'Test'}
             emptyMessage="No execution history"

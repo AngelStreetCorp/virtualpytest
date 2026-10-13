@@ -888,6 +888,23 @@ def generate_kpi_failure_report(
         else:
             late_scan_banner = ''
 
+        # Earliest probed frame where a colour miss would have matched in grey
+        # (greyscale_success is set by the image controller on failed matches).
+        grey_hits = [ev for ev in evidence_list if ev.get('greyscale_success')]
+        if grey_hits:
+            first = min(grey_hits, key=lambda ev: ev.get('frame_offset') or 0)
+            ref = os.path.splitext(os.path.basename(
+                str((first.get('params') or {}).get('image_path') or '')))[0] or 'the reference'
+            greyscale_hint_banner = (
+                '<div class="meta-line" style="margin-top:6px;padding:6px 10px;'
+                'background:rgba(255,255,255,0.18);border-left:4px solid #81c784;">'
+                f'💡 <strong>Greyscale would have matched</strong> {ref} on frame '
+                f'{first.get("frame_label", "")} (score {first.get("greyscale_score", 0):.3f}) — '
+                'set its image filter to <strong>greyscale</strong>.</div>'
+            )
+        else:
+            greyscale_hint_banner = ''
+
         scan_window = 0.0
         scan_end_timestamp_full = 'N/A'
         if all_captures:
@@ -943,6 +960,7 @@ def generate_kpi_failure_report(
             algorithm=match_result.get('algorithm', 'unknown'),
             captures_scanned=match_result.get('captures_scanned', 0),
             late_scan_banner=late_scan_banner,
+            greyscale_hint_banner=greyscale_hint_banner,
             thumbnail_cards=thumbnail_cards,
             scan_mosaic_section=scan_mosaic_section,
             scan_rail_note=scan_rail_note,

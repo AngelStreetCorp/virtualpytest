@@ -1,0 +1,29 @@
+[Unit]
+Description=VirtualPyTest Nintendo Switch Pro Controller emulator (Bluetooth, nxbt)
+# Opt-in, for a host with a nintendo_switch device (switch controller
+# bluetooth_procon). Install with setup/local/linux/backend_host/install_procon.sh,
+# which also prepares bluetoothd (--compat --noplugin=*), the nxbt venv and the
+# audio stack. Owns the Bluetooth adapter: never run it next to the BLE STB
+# remote units (hid-remote@/hid-agent@/vpt-ble-remote) on the same adapter.
+# Setup and revert: docs/agent/devices/NINTENDO_SWITCH.md
+After=bluetooth.service
+Wants=bluetooth.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Root: raw L2CAP HID sockets (PSM 17/19), hciconfig class, btmgmt.
+User=root
+# PROCON_ADAPTER (hci0), PROCON_ADAPTER_MAC (keep the bonded Switch's view of
+# the adapter after a reboot), PROCON_PORT (6190), PROCON_RETRY_S, PROCON_PAIR_WINDOW_S
+EnvironmentFile=-/etc/default/vpt-procon
+ExecStart=/opt/nxbt-venv/bin/python %PROJECT_ROOT%/backend_host/src/controllers/switch/procon/procon_daemon.py
+# The daemon exits when bluetoothd restarts; come back and re-register.
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vpt-procon
+
+[Install]
+WantedBy=multi-user.target

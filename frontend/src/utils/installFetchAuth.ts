@@ -35,7 +35,7 @@
  */
 import { supabase, isAuthEnabled } from '../lib/supabase';
 import { getAutoSignHeaderToken } from '../lib/autoSign';
-import { getClientForRequest, getSessionForServer } from '../lib/serverIdentity';
+import { getAccessTokenForRequest, getSessionForServer } from '../lib/serverIdentity';
 import { getServerBaseUrl } from './buildUrlUtils';
 import { capturePristineFetch } from './pristineFetch';
 import type { Session } from '@supabase/supabase-js';
@@ -121,14 +121,12 @@ export function installFetchAuth(): void {
           // TASK-18: the session is chosen by the request's TARGET server, not globally.
           // Servers can sit behind different Supabase instances, and sending one
           // server's token to another is what this replaces.
-          const client = getClientForRequest(url);
-          if (client) {
-            const {
-              data: { session },
-            } = await client.auth.getSession();
-            if (session?.access_token) {
-              headers.set('Authorization', `Bearer ${session.access_token}`);
-            }
+          // Bounded (getAccessTokenForRequest): this runs before originalFetch, so a
+          // server whose Supabase is unreachable must not hold every other request
+          // behind supabase-js's ~30 s refresh-retry window.
+          const accessToken = await getAccessTokenForRequest(url);
+          if (accessToken) {
+            headers.set('Authorization', `Bearer ${accessToken}`);
           }
         }
 

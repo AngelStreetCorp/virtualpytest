@@ -24,6 +24,8 @@ import { StyledDialog } from './StyledDialog';
 import { buildServerUrl, buildServerUrlForServer } from '../../utils/buildUrlUtils';
 import { apiClient } from '../../utils/apiClient';
 import { useServerManager } from '../../hooks/useServerManager';
+import { useI18n } from '../../i18n/useI18n';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface ServiceLogsModalProps {
   open: boolean;
@@ -64,6 +66,8 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
   defaultSince = '1h',
   onClose,
 }) => {
+  const { t, tn } = useI18n();
+  const P = useAgentChatPalette();
   const perDevice = logService === 'vpt-stream' && !!streamDevices && streamDevices.length > 0;
   const [lines, setLines] = useState(defaultLines);
   const [since, setSince] = useState(defaultSince);
@@ -120,10 +124,10 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
         if (data.success) {
           setLogs(data.logs || '');
         } else {
-          setError(data.error || 'Failed to fetch logs');
+          setError(data.error || t('Failed to fetch logs'));
         }
       } catch (err: any) {
-        setError(err?.message || 'Network error');
+        setError(err?.message || t('Network error'));
       } finally {
         setLoading(false);
       }
@@ -180,7 +184,7 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
       >
         <LogsIcon fontSize="small" />
         <Typography variant="subtitle2" noWrap sx={{ fontWeight: 600 }}>
-          Logs — {serviceLabel}
+          {t('Logs — {service}', { service: serviceLabel })}
         </Typography>
         <Chip
           label={logService}
@@ -207,10 +211,10 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
           onChange={(e) => setLevel(e.target.value)}
           size="small"
           sx={{ width: 100 }}
-          label="Severity"
+          label={t('Severity')}
         >
           {LEVEL_OPTIONS.map((value) => (
-            <MenuItem key={value || 'all'} value={value}>{value || 'All levels'}</MenuItem>
+            <MenuItem key={value || 'all'} value={value}>{value || t('All levels')}</MenuItem>
           ))}
         </TextField>
         <TextField
@@ -218,7 +222,7 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
           onChange={(e) => setGrep(e.target.value)}
           size="small"
           sx={{ width: 150 }}
-          label="Search"
+          label={t('Search')}
           onKeyDown={(e) => { if (e.key === 'Enter') fetchLogs(lines, since, activeDevice); }}
         />
         <TextField
@@ -241,10 +245,10 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
           onClick={() => fetchLogs(lines, since, activeDevice)}
           disabled={loading}
         >
-          Refresh
+          {t('Refresh')}
         </Button>
         <Typography variant="caption" color="textSecondary" sx={{ ml: 'auto' }}>
-          {logs ? `${logs.split('\n').filter(Boolean).length} lines` : ''}
+          {logs ? tn(logs.split('\n').filter(Boolean).length, '{count} line', '{count} lines') : ''}
         </Typography>
         <IconButton onClick={onClose} size="small">
           <CloseIcon fontSize="small" />
@@ -280,8 +284,8 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
             fontSize: '0.75rem',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-all',
-            backgroundColor: 'grey.900',
-            color: 'grey.100',
+            backgroundColor: P.surface,
+            color: P.textPrimary,
             p: 2,
             height: '100%',
             overflowY: 'auto',
@@ -293,12 +297,12 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
             </Box>
           )}
           {error && <Typography color="error.light">{error}</Typography>}
-          {!loading && !error && (logs || <Typography color="grey.500">No logs available</Typography>)}
+          {!loading && !error && (logs || <Typography color="grey.500">{t('No logs available')}</Typography>)}
         </Box>
       </DialogContent>
 
       <DialogActions>
-        <Button onClick={onClose}>Close</Button>
+        <Button onClick={onClose}>{t('Close')}</Button>
         <Button
           variant="outlined"
           size="small"
@@ -308,7 +312,7 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
           }}
           disabled={!logs}
         >
-          Open in New Tab
+          {t('Open in New Tab')}
         </Button>
       </DialogActions>
     </StyledDialog>

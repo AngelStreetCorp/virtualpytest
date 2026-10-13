@@ -36,6 +36,22 @@ interface VerificationControlsProps {
   linkProps?: VerificationControlsLinkProps;
 }
 
+interface TextParamField {
+  key: 'search_term' | 'title';
+  label: string;
+  placeholder: string;
+}
+
+const getTextParam = (verification: Verification): TextParamField | null => {
+  if (!verification.command) return null;
+  if (verification.verification_type !== 'adb' && verification.verification_type !== 'web') return null;
+  if (verification.command === 'getMenuInfo') return null;
+  if (verification.command === 'waitForTitleToAppear') {
+    return { key: 'title', label: 'Title', placeholder: 'Expected text in page title' };
+  }
+  return { key: 'search_term', label: 'Element Criteria', placeholder: 'text=Button' };
+};
+
 export const VerificationControls: React.FC<VerificationControlsProps> = ({
   verification,
   index,
@@ -92,6 +108,15 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
     );
   };
 
+  // The adb/web free-text field is chosen per COMMAND, not per type: each
+  // command's backend schema names a different param (waitForTitleToAppear
+  // reads `title`; getMenuInfo only takes an area). A single hardcoded
+  // `search_term` field saved title checks under the wrong key (BUG0193).
+  const textParam = getTextParam(verification);
+  const textParamValue = textParam
+    ? (verification.params as Record<string, unknown> | undefined)?.[textParam.key]
+    : undefined;
+
   return (
     // flexWrap lets the Timeout/Threshold/X/Y/W/H fields wrap instead of
     // overflowing a narrow container (inline TestCase block). Additive — in the
@@ -128,21 +153,17 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
         />
       )}
 
-      {verification.command && (verification.verification_type === 'adb' || verification.verification_type === 'web') && (
+      {textParam && (
         <TextField
           size="small"
-          label="Element Criteria"
-          placeholder="text=Button"
-          value={
-            typeof verification.params?.search_term === 'string'
-              ? verification.params.search_term
-              : ''
-          }
+          label={textParam.label}
+          placeholder={textParam.placeholder}
+          value={typeof textParamValue === 'string' ? textParamValue : ''}
           autoComplete="off"
           disabled={disabled}
           onChange={(e) =>
             onUpdateVerification(index, {
-              params: { ...verification.params, search_term: e.target.value },
+              params: { ...verification.params, [textParam.key]: e.target.value },
             })
           }
           sx={{

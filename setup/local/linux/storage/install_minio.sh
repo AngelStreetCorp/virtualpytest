@@ -283,6 +283,10 @@ add_ilm_rule "script-screenshots/" 14
 add_ilm_rule "reports/" 14
 add_ilm_rule "fleet-health/" 14
 
+# Shared report snapshots (TASK-49): the sweeper deletes them at expiry (max 30 days); this rule
+# is the safety net if the sweeper is down (30d max expiry + 1 day).
+add_ilm_rule "shared-snapshots/" 31
+
 echo "   Verifying lifecycle rules:"
 mc ilm rule ls local/virtualpytest 2>&1 || echo "   ⚠️  Could not list ILM rules"
 

@@ -19,6 +19,7 @@ import re
 from typing import Optional, Tuple, Dict, Any
 import cv2
 import numpy as np
+from shared.src.lib.utils import cv2_io
 
 try:
     import pytesseract
@@ -97,7 +98,7 @@ def compute_composite_note(image_path: str, brisque_model_path: str = None, bris
         }
     """
     try:
-        img = cv2.imread(image_path)
+        img = cv2_io.imread(image_path)
         if img is None:
             return None
 
@@ -354,7 +355,7 @@ def load_and_downscale_image(image_path: str, target_size: Tuple[int, int] = (32
         Downscaled grayscale image or None if error
     """
     try:
-        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if img is None:
             return None
         
@@ -442,9 +443,9 @@ def analyze_freeze(capture_path: str, thumbnails_dir: str, fps: int = 5) -> Tupl
         return False, None
     
     # Load thumbnails (already small at 320x180, no need to downscale further!)
-    thumb_current = cv2.imread(thumb_current_path, cv2.IMREAD_GRAYSCALE)
-    thumb_prev1 = cv2.imread(thumb_prev1_path, cv2.IMREAD_GRAYSCALE)
-    thumb_prev2 = cv2.imread(thumb_prev2_path, cv2.IMREAD_GRAYSCALE)
+    thumb_current = cv2_io.imread(thumb_current_path, cv2.IMREAD_GRAYSCALE)
+    thumb_prev1 = cv2_io.imread(thumb_prev1_path, cv2.IMREAD_GRAYSCALE)
+    thumb_prev2 = cv2_io.imread(thumb_prev2_path, cv2.IMREAD_GRAYSCALE)
     
     if thumb_current is None or thumb_prev1 is None or thumb_prev2 is None:
         return False, None
@@ -488,7 +489,7 @@ def analyze_macroblocks(image_path: str) -> Tuple[bool, float]:
         quality_score: 0-5 scale (5 = excellent, 0 = terrible)
     """
     try:
-        img = cv2.imread(image_path)
+        img = cv2_io.imread(image_path)
         if img is None:
             return False, 5.0  # No image = assume good quality
         

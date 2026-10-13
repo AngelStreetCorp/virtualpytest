@@ -5,7 +5,7 @@ validation_diff_report.py — generate a before/after.md for two `validation` ru
 Usage:
     AUTO_SIGN_TOKEN=... python3 scripts/validation_diff_report.py \\
         <before_script_result_id> <after_script_result_id> \\
-        [--server https://rpitest.angelstreet.io] \\
+        [--server https://<server>] \\
         [--team 7fdeb4bb-3639-4ec3-959f-b54769a219ce]
 
 Pulls both rows via /server/script-results/getAllScriptResults, compares the
@@ -19,13 +19,16 @@ Per-step pass/fail reconciliation is best done from the host journal (logs in
 from __future__ import annotations
 import argparse, json, os, re, ssl, sys, urllib.parse, urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _server_url import server_public_url  # noqa: E402
+
 CTX = ssl.create_default_context()
 CTX.check_hostname = False
 CTX.verify_mode = ssl.CERT_NONE
 
 UA = {"User-Agent": "validation-diff-report/1.0"}
 
-DEFAULT_SERVER = os.environ.get("VALIDATION_DIFF_SERVER", "https://rpitest.angelstreet.io")
+DEFAULT_SERVER = os.environ.get("VALIDATION_DIFF_SERVER") or None  # else server_public_url() (scripts/_server_url.py)
 DEFAULT_TEAM   = os.environ.get("VALIDATION_DIFF_TEAM",   "7fdeb4bb-3639-4ec3-959f-b54769a219ce")
 DEFAULT_TOKEN  = os.environ.get("AUTO_SIGN_TOKEN")
 
@@ -192,6 +195,8 @@ def main() -> int:
                    help="Path to a text file containing the host journal for the after-run")
     p.add_argument("--out", default=None)
     args = p.parse_args()
+    if not args.server:
+        args.server = server_public_url()
 
     if not args.token:
         print("ERROR: AUTO_SIGN_TOKEN env var or --token required", file=sys.stderr)

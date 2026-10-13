@@ -303,17 +303,16 @@ VirtualPyTest uses Redis for a **priority queue system**:
 
 ### Queue Types
 
-1. **P1 Queue** (`p1_alerts`) - Highest Priority
-   - Alert notifications
-   - Critical system events
-   - Immediate processing required
+Alerts are **not** queued: hosts only write them to the `alerts` table and the alert triage worker
+(`vpt-discard-incidents`) polls that table (BUG-0299). A leftover `p1_alerts` list from an older
+version can be deleted (`redis-cli DEL p1_alerts`).
 
-2. **P2 Queue** (`p2_scripts`) - Medium Priority
+1. **P2 Queue** (`p2_scripts`) - Medium Priority
    - Script execution results
    - Background task results
    - Deferred processing
 
-3. **P3 Queue** (`p3_reserved`) - Low Priority
+2. **P3 Queue** (`p3_reserved`) - Low Priority
    - Reserved for future use
    - Batch processing
    - Non-urgent tasks
@@ -329,12 +328,11 @@ from shared.src.lib.utils.redis_queue import get_queue_processor
 queue = get_queue_processor()
 
 # Add items to queues
-queue.add_alert_to_queue(alert_id, alert_data)
 queue.add_script_to_queue(script_id, script_data)
 
 # Check queue lengths
 lengths = queue.get_all_queue_lengths()
-# Returns: {'p1_alerts': 5, 'p2_scripts': 12, 'p3_reserved': 0}
+# Returns: {'p2_scripts': 12, 'p3_reserved': 0}
 
 # Peek at queue items (without removing)
 items = queue.peek_queue('p2_scripts', limit=10)
@@ -350,7 +348,6 @@ is_healthy = queue.health_check()
 
 ```bash
 # Using Redis CLI (local)
-redis-cli LLEN p1_alerts
 redis-cli LLEN p2_scripts
 redis-cli LLEN p3_reserved
 
@@ -482,11 +479,9 @@ unset REDIS_TOKEN
 redis-cli ping
 
 # Check queue lengths
-redis-cli LLEN p1_alerts
 redis-cli LLEN p2_scripts
 
 # Clear stuck queues
-redis-cli DEL p1_alerts
 redis-cli DEL p2_scripts
 
 # Verify memory
@@ -649,7 +644,6 @@ redis-cli INFO memory
 redis-cli INFO stats
 
 # Queue lengths
-redis-cli LLEN p1_alerts
 redis-cli LLEN p2_scripts
 redis-cli LLEN p3_reserved
 
@@ -668,7 +662,6 @@ curl http://localhost:5109/api/health
 #   "redis": {
 #     "status": "healthy",
 #     "queues": {
-#       "p1_alerts": 0,
 #       "p2_scripts": 5,
 #       "p3_reserved": 0
 #     }

@@ -16,6 +16,7 @@ on the match frame; the failure report draws it on the failed source frame.
 """
 
 import logging
+from shared.src.lib.utils import cv2_io
 
 logger = logging.getLogger(__name__)
 
@@ -65,11 +66,11 @@ def render_search_area_overlay(full_image_path: str, area, dest_path: str) -> bo
     if not full_image_path or not os.path.exists(full_image_path):
         return False
     try:
-        img = cv2.imread(full_image_path)
+        img = cv2_io.imread(full_image_path)
         if img is None:
             return False
         draw_search_area_rectangles(img, area)
-        cv2.imwrite(dest_path, img)
+        cv2_io.imwrite(dest_path, img)
         return True
     except Exception as e:
         logger.warning(f"⚠️  Could not render search-area overlay from {full_image_path}: {e}")

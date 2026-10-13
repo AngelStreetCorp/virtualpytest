@@ -23,6 +23,7 @@ import { useValidationColors } from '../../hooks/validation/useValidationColors'
 import { Host } from '../../types/common/Host_Types';
 import { UINavigationNode, NodeForm } from '../../types/pages/Navigation_Types';
 import { NodeMetricData } from '../../types/navigation/Metrics_Types';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { getZIndex } from '../../utils/zIndexUtils';
 
 interface NodeSelectionPanelProps {
@@ -53,9 +54,18 @@ interface NodeSelectionPanelProps {
 // No custom comparison function - use React's default shallow comparison
 // This matches how EdgeSelectionPanel works
 
-export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
-  ({
-    selectedNode,
+/**
+ * The panel body. Never mounted for an entry node, so every hook below runs
+ * unconditionally.
+ *
+ * The entry-node check used to be an early return at the top of this component,
+ * commented "MUST be before any hooks" — which had it backwards: a return above the
+ * hooks is precisely what makes them conditional. Doing the check in the wrapper
+ * keeps the behaviour (no hooks run, nothing fetched, for an entry node) and lets
+ * react-hooks/rules-of-hooks verify the rest.
+ */
+const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
+  selectedNode,
     nodes,
     onClose,
     onDelete,
@@ -72,13 +82,10 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
     nodeMetrics,
     variant,
   }) => {
-    // Don't render the panel for entry nodes - MUST be before any hooks
-    if ((selectedNode.type as string) === 'entry') {
-      return null;
-    }
+  const P = useAgentChatPalette();
 
-    // Memoize hook props to prevent unnecessary hook re-executions
-    const nodeHookProps = useMemo(
+  // Memoize hook props to prevent unnecessary hook re-executions
+  const nodeHookProps = useMemo(
       () => ({
         selectedHost,
         selectedDeviceId,
@@ -150,9 +157,9 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
       if (!nodeMetrics) {
         return {
           successRateText: 'No data',
-          successRateColor: '#666',
+          successRateColor: P.textMuted,
           confidenceScore: 0,
-          confidenceColor: '#666',
+          confidenceColor: P.textMuted,
           volumeText: '0',
           timeText: '0s'
         };
@@ -166,7 +173,7 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
       
       return {
         successRateText: `${successRatePercent}%`,
-        successRateColor: nodeMetrics.volume === 0 ? '#666' : (successRatePercent >= 90 ? '#22c55e' : successRatePercent >= 70 ? '#f59e0b' : '#ef4444'),
+        successRateColor: nodeMetrics.volume === 0 ? P.textMuted : (successRatePercent >= 90 ? P.success : successRatePercent >= 70 ? P.warning : P.error),
         confidenceScore: confidenceScore,
         confidenceColor: nodeColors.border,
         volumeText: `${nodeMetrics.volume}`,
@@ -234,7 +241,7 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
             zIndex: getZIndex('NAVIGATION_SELECTION_PANEL'),
             // Variant node → blue outline so the panel is unmistakably a
             // variant's (matches the canvas "v" badge colour). Base → white.
-            border: isVariantNode ? '2px solid #1976d2' : '1px solid white',
+            border: isVariantNode ? `2px solid ${P.accent}` : `1px solid ${P.surface}`,
             borderLeft: `4px solid ${nodeColors.border}`, // Show confidence color as left border
           }}
           onClick={handlePaperClick}
@@ -253,7 +260,7 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
                       fontSize: '0.75rem',
                       fontWeight: 'bold',
                       color: '#fff',
-                      backgroundColor: '#1976d2',
+                      backgroundColor: P.accent,
                       padding: '2px 7px',
                       borderRadius: '4px',
                       lineHeight: 1.2,
@@ -283,7 +290,7 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
                   sx={{
                     fontSize: '0.75rem',
                     fontWeight: 'bold',
-                    color: '#666',
+                    color: P.textMuted,
                     padding: '2px 6px',
                     borderRadius: '4px',
                     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -299,7 +306,7 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
                   sx={{
                     fontSize: '0.75rem',
                     fontWeight: 'bold',
-                    color: '#666',
+                    color: P.textMuted,
                     padding: '2px 6px',
                     borderRadius: '4px',
                     backgroundColor: 'rgba(255,255,255,0.1)',
@@ -344,7 +351,7 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
                 sx={{
                   fontSize: '0.8rem',
                   fontWeight: 'bold',
-                  color: '#4caf50',
+                  color: P.success,
                   minWidth: 0,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -499,5 +506,12 @@ export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo(
         </StyledDialog>
       </>
     );
+  };
+
+export const NodeSelectionPanel: React.FC<NodeSelectionPanelProps> = React.memo((props) => {
+  // Entry nodes have no selection panel.
+  if ((props.selectedNode.type as string) === 'entry') {
+    return null;
   }
-);
+  return <NodeSelectionPanelInner {...props} />;
+});

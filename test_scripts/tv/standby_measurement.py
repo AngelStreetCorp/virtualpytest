@@ -25,7 +25,12 @@ Workflow:
      a. goto(<standby_node>)            → traverses the `live → standby` edge (POWER)
      b. wait --wait minutes             → dwell in standby
      c. goto(<live_node>)               → traverses the `standby → live` edge (POWER),
-                                           which auto-queues the KPI measurement
+                                           which auto-queues the KPI measurement.
+        With a dwell of 5 min or more (deep standby) the wake is the BLE WoBLE
+        cold-wake instead: no POWER press; the KPI runs from the cold-wake
+        emission until the live node appears, on the same `standby → live` row.
+        Only a non-BLE remote uses (c); if live never appears the wake fails (no
+        POWER fallback).
 4. Poll execution_results until the `standby → live` measurements are
    post-processed by vpt-kpi.service, then fetch + summarize min/max/avg.
 
@@ -105,18 +110,17 @@ _arg_descriptions = {
 # Unicode arrow used in action_set labels (e.g. "standby → live").
 ARROW = " → "
 
-# Dwelling in standby for at least this long drops the STB into deep/eco
+# Dwelling in standby for at least this long can drop the STB into deep/eco
 # (cold) standby: the host CPU powers off and the BLE link is torn down, so a
-# plain POWER HID press in the wake edge can no longer reach it. At/above this
-# threshold we first emit the Broadcom WoBLE cold-wake (see cold_wake_on_press
-# in hid_remote.py) and wait for the host to reboot + reconnect, THEN run the
-# wake goto whose POWER press lands on a live link. Below it the box is still
-# in active standby and the existing auto-wake handles reconnection.
+# plain POWER HID press can no longer reach it. At/above this threshold the
+# wake is the Broadcom WoBLE cold-wake (see cold_wake_on_press in
+# hid_remote.py) instead of the wake edge's POWER press: the cold-wake itself
+# brings the STB up to live, so it is what gets timed (see _cold_wake_measured).
+# Below it the box is still reachable and the wake edge (POWER) is timed.
 COLD_STANDBY_THRESHOLD_S = 5 * 60
-# How long to wait for the woken host to re-establish the BLE link before
-# pressing POWER (host boot from S2/S3 + reconnect). Matches the daemon's
-# WOBLE_BROADCAST_S + COLD_WAKE_TIMEOUT_S budget with a small margin.
-COLD_WAKE_RECONNECT_TIMEOUT_S = 30
+# How long after the cold-wake the live node may take to appear (host boot from
+# S2/S3 + UI up). Past it, the wake fails (no POWER fallback).
+COLD_WAKE_LIVE_TIMEOUT_S = 240
 
 
 def _setup_tree(context, device) -> bool:
@@ -149,25 +153,27 @@ def _setup_tree(context, device) -> bool:
     return True
 
 
-def _resolve_action_set_id(context, from_label: str, to_label: str) -> str:
-    """Return the action_set id for the `from_label → to_label` direction.
+def _resolve_action_set_id(device, from_label: str, to_label: str) -> str:
+    """Return the action_set id goto actually takes for `from_label → to_label`.
 
-    execution_results.action_set_id equals the action set's `id` in the edge
-    JSONB (verified: 'standby_to_live'). We match on the human label first
-    (`"standby → live"`) which is how the directions are stored, so the fetched
-    KPI rows can be filtered to the wake direction only (the per-iteration
-    goto(standby) also produces a `live → standby` row we don't want here).
+    Read from the runtime graph (navigation_executor.unified_graph), which is
+    built for the run's variant — the same graph goto traverses and whose
+    action_set id the executor stamps on the queued KPI row. The raw DB row
+    (get_tree_edges) is base-only: when a variant supplies its own action_sets
+    for the edge, their ids differ from base, the wake rows never matched, and
+    the run failed with "No KPI measurements recorded" despite the variant
+    having KPI configured. Graph edges carry the traversed action_set at index 0
+    (a reverse edge holds only its reverse set), so that is the id to filter on.
     """
-    from shared.src.lib.database.navigation_trees_db import get_tree_edges
-
-    result = get_tree_edges(context.tree_id, context.team_id)
-    if not result.get('success'):
+    graph = getattr(getattr(device, 'navigation_executor', None), 'unified_graph', None)
+    if graph is None:
         return ''
-    wanted = f"{from_label}{ARROW}{to_label}"
-    for edge in result.get('edges', []):
-        for action_set in (edge.get('action_sets') or []):
-            if action_set.get('label') == wanted:
-                return action_set.get('id', '')
+    for src, dst, edge_data in graph.edges(data=True):
+        if (graph.nodes[src].get('label') == from_label
+                and graph.nodes[dst].get('label') == to_label):
+            action_sets = edge_data.get('action_sets') or []
+            if action_sets and action_sets[0].get('id'):
+                return action_sets[0]['id']
     return ''
 
 
@@ -227,77 +233,140 @@ def _goto(context, device, target_label: str) -> dict:
     ))
 
 
-def _cold_wake_before_power(context, device, standby_node) -> None:
-    """Wake a deep/cold-standby STB before the measured POWER press.
+def _wake_step(context, device, standby_node: str, live_node: str, action_set_id: str):
+    """The wake transition as the navigation executor would run it: the
+    `standby → live` edge of the run's (variant) graph, shaped like a
+    pathfinding step so the executor's own recording + KPI helpers accept it.
+    None if the edge isn't in the graph.
+    """
+    graph = getattr(getattr(device, 'navigation_executor', None), 'unified_graph', None)
+    if graph is None:
+        return None
+    for src, dst, edge_data in graph.edges(data=True):
+        if (graph.nodes[src].get('label') != standby_node
+                or graph.nodes[dst].get('label') != live_node):
+            continue
+        action_sets = edge_data.get('action_sets') or []
+        if not action_sets or action_sets[0].get('id') != action_set_id:
+            continue
+        return {
+            'edge_id': edge_data.get('edge_id'),
+            'action_set_id': action_set_id,
+            'from_node_id': src,
+            'to_node_id': dst,
+            'from_node_label': standby_node,
+            'to_node_label': live_node,
+            'to_tree_id': graph.nodes[dst].get('tree_id') or context.tree_id,
+            'actions': [],
+            'verifications': [],
+            'last_action': 'cold_wake (BLE WoBLE)',
+            'original_edge_data': edge_data,
+        }
+    return None
 
-    Called only when the dwell was ≥ COLD_STANDBY_THRESHOLD_S. The host CPU is
-    off and the BLE link gone, so the wake edge's POWER HID press would hit a
-    dead link; we first emit the Broadcom WoBLE cold-wake and wait for the host
-    to reboot + reconnect. No-op for remotes that don't expose cold_wake (only
-    the BLE HID controller does), so non-BLE STBs fall straight through to the
-    normal wake goto. Recorded as a step so the extra wake is visible in the
-    report.
+
+def _cold_wake_measured(context, device, step) -> bool:
+    """Wake a deep-standby STB with the BLE WoBLE cold-wake and time THAT wake.
+
+    The cold-wake brings the box all the way up to live on its own, so no POWER
+    is pressed (a POWER press would put it back to standby). The measurement is
+    the same as for the wake edge: the `standby → live` execution row, with a
+    KPI request whose start is the cold-wake emission and whose end anchor is
+    the moment the live node's verifications pass. vpt-kpi.service then scans
+    back from there for the first frame the live node appears, exactly as for a
+    POWER wake.
+
+    Returns True when the live node appeared within COLD_WAKE_LIVE_TIMEOUT_S
+    (wake recorded + KPI queued), False when it did not come up (the wake
+    failed), None when the STB has no cold-wake remote — the caller then uses
+    the wake edge (POWER).
     """
     remote = device._get_controller('remote') if hasattr(device, '_get_controller') else None
     if not remote or not hasattr(remote, 'cold_wake'):
-        # Non-BLE remote (e.g. IR) — nothing to do; the wake goto's POWER
-        # press is the only available path.
-        return
+        # Non-BLE remote (e.g. IR): the wake edge's POWER press is the only path.
+        return None
 
-    print("🌅 [standby_measurement] Deep standby (≥5min) — WoBLE cold-wake before POWER")
+    nav = device.navigation_executor
+    live_id = step['to_node_id']
+    live_node = step['to_node_label']
+    standby_node = step['from_node_label']
+
+    print(f"🌅 [standby_measurement] Deep standby (≥{COLD_STANDBY_THRESHOLD_S // 60}min) — "
+          f"WoBLE cold-wake is the wake; timing it until '{live_node}' appears (no POWER press)")
+    cold_wake_ts = time.time()
     cw_start = datetime.now()
     res = remote.cold_wake() or {}
+    emit_ms = int((time.time() - cold_wake_ts) * 1000)
     if not res.get('success'):
         print(f"⚠️  [standby_measurement] cold_wake request failed: {res.get('error')}")
 
-    # cold_wake() returns as soon as the FIFO sentinel is written; the actual
-    # WoBLE broadcast + host reboot happen on the daemon. Poll the link state
-    # until the STB is HID-ready so the subsequent POWER press lands live.
-    #
-    # Gate on hid_ready, NOT connected: after deep standby the box leaves
-    # without a clean BLE disconnect, so BlueZ keeps reporting a stale
-    # Connected=true from the torn-down session for several seconds. The old
-    # `connected` check read that leftover state on the first poll (~2s) and
-    # fired POWER into a dead link. hid_ready is the only signal that the Arris
-    # HID subscription is actually live and key presses will flow.
-    #
-    # Use the daemon's RAW StartNotify signal (_read_hid_ready) — NOT
-    # get_pairing_status()['hid_ready']. The latter OR's in a CCCD fallback
-    # (bluetooth.py: connected + bond-has-HID-CCCD ⇒ hid_ready=true) that fires
-    # on a bonded reconnect WITHOUT a fresh StartNotify — the battery-only trap,
-    # where keys are silently dropped. The raw file is cleared to false on
-    # disconnect (hid_remote.py _clear_subscriptions) and only set true by a
-    # genuine StartNotify, so it can't false-positive the POWER press.
-    def _hid_ready() -> bool:
-        if hasattr(remote, '_read_hid_ready'):
-            return bool(remote._read_hid_ready())
-        # Fallback for non-Arris controllers without the raw reader.
-        return bool((remote.get_pairing_status() or {}).get('hid_ready'))
-
-    hid_ready = False
-    deadline = time.time() + COLD_WAKE_RECONNECT_TIMEOUT_S
+    # Poll the live node's own verifications (each call has its own polling
+    # window) until they pass or the budget runs out.
+    landed = False
+    deadline = cold_wake_ts + COLD_WAKE_LIVE_TIMEOUT_S
     while time.time() < deadline:
-        time.sleep(2)
-        if _hid_ready():
-            hid_ready = True
+        check = asyncio.run(device.verification_executor.verify_node(
+            live_id, context.userinterface_name, context.team_id, context.tree_id,
+        )) or {}
+        if check.get('success'):
+            landed = True
             break
+        time.sleep(1)
+    verified_ts = time.time()
     cw_end = datetime.now()
-    print(f"{'✅' if hid_ready else '⚠️ '} [standby_measurement] cold_wake "
-          f"{'HID-ready' if hid_ready else 'NOT HID-ready (POWER may be dropped)'} after "
-          f"{(cw_end - cw_start).total_seconds():.1f}s")
+    elapsed_s = verified_ts - cold_wake_ts
+    print(f"{'✅' if landed else '⚠️ '} [standby_measurement] cold-wake: '{live_node}' "
+          f"{'verified' if landed else 'NOT seen'} after {elapsed_s:.1f}s")
 
     context.record_step_immediately({
-        'success': hid_ready,
-        'message': 'Cold-wake from deep standby (WoBLE)',
+        'success': landed,
+        'message': f"Cold-wake from deep standby (WoBLE) → {live_node}",
         'from_node': standby_node,
-        'to_node': standby_node,
-        'execution_time_ms': int((cw_end - cw_start).total_seconds() * 1000),
+        'to_node': live_node,
+        'execution_time_ms': int(elapsed_s * 1000),
         'start_time': cw_start.strftime('%H:%M:%S'),
         'end_time': cw_end.strftime('%H:%M:%S'),
         'actions': [{'command': 'cold_wake'}],
         'verifications': [],
         'step_category': 'cold_wake',
     })
+    if not landed:
+        return False
+
+    # The device is at live now: keep the executor's position in step with it so
+    # the next goto (next iteration's standby) plans from the right node. Only
+    # executor calls present since build 8713 are used here, so this script
+    # also runs on hosts that haven't taken a newer deploy.
+    nav.update_current_position(live_id, context.tree_id, live_node)
+
+    kpi_references = nav._resolve_kpi_references(step)
+    execution_result_id = nav._record_step_execution_results(
+        step=step,
+        team_id=context.team_id,
+        action_success=True,
+        verification_success=True,
+        verifications_ran=True,
+        action_time_ms=emit_ms,
+        verification_time_ms=int(elapsed_s * 1000),
+        action_message="cold_wake (BLE WoBLE)",
+    )
+    if kpi_references and execution_result_id:
+        nav._write_kpi_request_file(
+            execution_result_id=execution_result_id,
+            step=step,
+            action_timestamp=cold_wake_ts,
+            verification_timestamp=verified_ts,
+            team_id=context.team_id,
+            userinterface_name=context.userinterface_name,
+            kpi_references=kpi_references,
+            action_details={'command': 'cold_wake', 'source': 'BLE WoBLE'},
+        )
+        print(f"📊 [standby_measurement] Wake KPI queued from the cold-wake "
+              f"({len(kpi_references)} refs, start = cold-wake emission)")
+    elif not kpi_references:
+        print(f"⚠️  [standby_measurement] '{standby_node}{ARROW}{live_node}' has no KPI "
+              f"reference — wake recorded, nothing to measure")
+    return True
 
 
 def capture_standby_summary(context, args, variant, standby_node, live_node,
@@ -341,12 +410,7 @@ def capture_standby_summary(context, args, variant, standby_node, live_node,
     # is identical across modes, so the mode is what distinguishes the run).
     metrics_label = f"{mode_name} ({wake})" if args.standby_mode_node else f"{wake} (wake)"
     if relevant_results:
-        km._append_direction_metrics(
-            lines,
-            metrics_label,
-            relevant_results,
-            args.iterations,
-        )
+        km._append_direction_metrics(lines, metrics_label, relevant_results)
     elif measurement_attempted and not context.error_message:
         lines.append("⚠️  No KPI measurements found in database")
         lines.append("   (Post-processing may still be in progress, or the "
@@ -391,15 +455,18 @@ def _run_standby_measurement(context, args, device, state) -> bool:
         return False
 
     # Resolve the wake direction's action_set id so we can filter KPI rows to it.
-    measured_action_set_id = _resolve_action_set_id(context, standby_node, live_node)
+    measured_action_set_id = _resolve_action_set_id(device, standby_node, live_node)
     if not measured_action_set_id:
         context.error_message = (
             f"Could not resolve the '{standby_node}{ARROW}{live_node}' action set in the "
-            f"tree. Check the node labels and that the edge exists."
+            f"navigation graph for this run's variant. Check the node labels and that the "
+            f"edge exists with actions in that direction."
         )
         print(f"❌ [standby_measurement] {context.error_message}")
         return False
     state['measured_action_set_id'] = measured_action_set_id
+    # The wake as a step, for the deep-standby path that times the cold-wake.
+    wake_step = _wake_step(context, device, standby_node, live_node, measured_action_set_id)
     print(f"🔑 [standby_measurement] Wake action_set id: {measured_action_set_id}")
 
     # Resolve the standby mode's friendly display name. The measured wake edge is
@@ -445,6 +512,12 @@ def _run_standby_measurement(context, args, device, state) -> bool:
 
     # 3. Power-cycle loop: live → standby → (wait) → live.
     wake_success_count = 0
+    failed_wakes = []         # iterations whose cold-wake never reached live
+    # Wakes where goto found the device ALREADY at the live node, so the
+    # standby → live edge (POWER) never ran and no KPI could be queued. Seen
+    # when the WoBLE cold-wake itself fully wakes the STB. Tracked separately so
+    # the error names the real cause instead of blaming a missing KPI reference.
+    wake_not_traversed = []   # (iteration, cold_wake_used)
     for i in range(args.iterations):
         print(f"\n{'='*60}")
         print(f"🔄 [standby_measurement] Iteration {i+1}/{args.iterations}")
@@ -490,8 +563,21 @@ def _run_standby_measurement(context, args, device, state) -> bool:
         # the STB. Emit the WoBLE cold-wake first and wait for reconnect, then
         # the POWER press below lands on a live link. No-op for short dwells
         # (active standby) and for non-BLE remotes.
-        if wait_seconds >= COLD_STANDBY_THRESHOLD_S:
-            _cold_wake_before_power(context, device, standby_node)
+        # Deep standby: the BLE cold-wake is the wake, and it is what gets
+        # timed (until the live node appears). Falls through to the wake edge
+        # (POWER) only for a non-BLE remote or if live never appeared.
+        cold_wake_used = wait_seconds >= COLD_STANDBY_THRESHOLD_S and wake_step is not None
+        if cold_wake_used:
+            cold = _cold_wake_measured(context, device, wake_step)
+            if cold:
+                wake_success_count += 1
+                print(f"✅ [standby_measurement] Iteration {i+1} wake SUCCESS (cold-wake)")
+                continue
+            if cold is False:
+                print(f"❌ [standby_measurement] Iteration {i+1} wake FAILED — '{live_node}' not "
+                      f"reached by the cold-wake within {COLD_WAKE_LIVE_TIMEOUT_S}s (no POWER fallback)")
+                failed_wakes.append(i + 1)
+                continue
 
         # standby → live (this is the measured transition)
         print(f"\n{'═'*60}")
@@ -499,7 +585,12 @@ def _run_standby_measurement(context, args, device, state) -> bool:
               f"— goto '{live_node}' (measured standby → live)")
         print(f"{'═'*60}")
         up = _goto(context, device, live_node)
-        if up.get('success', False):
+        if up.get('success', False) and up.get('already_at_target'):
+            wake_not_traversed.append((i + 1, cold_wake_used))
+            print(f"⚠️  [standby_measurement] Iteration {i+1}: already at '{live_node}' — the "
+                  f"'{standby_node}{ARROW}{live_node}' edge did not run, nothing to measure"
+                  f"{' (STB woke during the cold-wake)' if cold_wake_used else ''}")
+        elif up.get('success', False):
             wake_success_count += 1
             print(f"✅ [standby_measurement] Iteration {i+1} wake SUCCESS")
         else:
@@ -511,12 +602,13 @@ def _run_standby_measurement(context, args, device, state) -> bool:
     print(f"{'='*60}")
 
     # 4. Poll the DB until every wake's KPI is post-processed by vpt-kpi.service.
-    print(f"\n⏳ [standby_measurement] Polling DB for {args.iterations} wake KPI measurements...")
+    expected_wakes = args.iterations - len(wake_not_traversed) - len(failed_wakes)
+    print(f"\n⏳ [standby_measurement] Polling DB for {expected_wakes} wake KPI measurements...")
     max_wait_seconds = 60
     poll_interval = 3
     elapsed = 0
     kpi_db_results = []
-    while elapsed < max_wait_seconds:
+    while expected_wakes > 0 and elapsed < max_wait_seconds:
         time.sleep(poll_interval)
         elapsed += poll_interval
         script_end_time = datetime.now(timezone.utc)
@@ -527,12 +619,13 @@ def _run_standby_measurement(context, args, device, state) -> bool:
             end_time=script_end_time,
         )
         wake_count = sum(1 for r in kpi_db_results if r.get('action_set_id') == measured_action_set_id)
-        print(f"   [{elapsed}s] wake {wake_count}/{args.iterations} (total fetched: {len(kpi_db_results)})")
-        if wake_count >= args.iterations:
+        print(f"   [{elapsed}s] wake {wake_count}/{expected_wakes} (total fetched: {len(kpi_db_results)})")
+        if wake_count >= expected_wakes:
             print(f"✅ [standby_measurement] All wake measurements present after {elapsed}s")
             break
     else:
-        print(f"⚠️  [standby_measurement] Timed out after {max_wait_seconds}s — proceeding with partial results")
+        if expected_wakes > 0:
+            print(f"⚠️  [standby_measurement] Timed out after {max_wait_seconds}s — proceeding with partial results")
 
     # Filter to the wake direction only (drop the incidental live → standby rows).
     relevant_results = sorted(
@@ -556,7 +649,23 @@ def _run_standby_measurement(context, args, device, state) -> bool:
 
     wake_label = f"{standby_node}{ARROW}{live_node}"
     if not context.overall_success and not context.error_message:
-        if not relevant_results:
+        if failed_wakes:
+            context.error_message = (
+                f"The WoBLE cold-wake did not bring '{live_node}' up within "
+                f"{COLD_WAKE_LIVE_TIMEOUT_S}s in {len(failed_wakes)}/{args.iterations} "
+                f"iteration(s) ({', '.join(map(str, failed_wakes))}); no POWER fallback."
+            )
+        elif wake_not_traversed:
+            iters = ', '.join(str(n) for n, _ in wake_not_traversed)
+            woke_in_cold_wake = all(cw for _, cw in wake_not_traversed)
+            context.error_message = (
+                f"Wake edge '{wake_label}' did not run in {len(wake_not_traversed)}/"
+                f"{args.iterations} iteration(s) ({iters}): the device was already at "
+                f"'{live_node}' when the wake started, so there was nothing to measure"
+                + (" — the STB woke during the WoBLE cold-wake, before the measured "
+                   "POWER press." if woke_in_cold_wake else ".")
+            )
+        elif not relevant_results:
             context.error_message = (
                 f"No KPI measurements recorded for '{wake_label}'. "
                 f"The wake edge likely has no KPI reference — add kpi_references to the "

@@ -19,7 +19,10 @@ CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'grafana_config.
 
 _DEFAULTS: Dict = {
     "default_role": "viewer",
-    "grafana_role_by_role": {"admin": "Admin", "tester": "Editor", "viewer": "Viewer"},
+    # TASK-31 D1: only an admin edits dashboards. Everyone else is a Viewer, so nobody can rewrite
+    # a panel's SQL and drop the device-scope filter.
+    "grafana_role_by_role": {"admin": "Admin", "manager": "Viewer", "developer": "Viewer",
+                             "tester": "Viewer", "viewer": "Viewer"},
     "grafana_org_id": 1,
 }
 
@@ -30,7 +33,10 @@ def load_grafana_config() -> Dict:
         if CONFIG_PATH.exists():
             with open(CONFIG_PATH) as f:
                 cfg = json.load(f)
-            return {**_DEFAULTS, **cfg}
+            # Per-role map merged key by key: a config written before a role existed must not
+            # drop that role to the "Viewer" fallback.
+            role_map = {**_DEFAULTS["grafana_role_by_role"], **(cfg.get("grafana_role_by_role") or {})}
+            return {**_DEFAULTS, **cfg, "grafana_role_by_role": role_map}
     except Exception as e:
         logger.warning(f"[grafana_config] Could not load {CONFIG_PATH}: {e}; using defaults")
     return dict(_DEFAULTS)

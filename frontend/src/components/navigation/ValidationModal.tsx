@@ -20,6 +20,7 @@ import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { NodeVerificationModal } from './NodeVerificationModal';
 import { useExplorationValidation, ValidationResult } from '../../hooks/exploration';
 import { StyledDialog } from '../common/StyledDialog';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface ValidationModalProps {
   isOpen: boolean;
@@ -46,6 +47,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
   onValidationStarted,
   onValidationComplete
 }) => {
+  const P = useAgentChatPalette();
   // ✅ USE HOOK INSTEAD OF COMPONENT STATE
   const {
     isValidating,
@@ -223,7 +225,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
           maxWidth: '800px',
           maxHeight: 'calc(100vh - 40px)',
           boxShadow: 3,
-          borderColor: isValidating ? 'info.main' : isComplete ? 'success.main' : error ? 'error.main' : 'divider',
+          borderColor: isValidating ? P.accent : isComplete ? P.success : error ? P.error : 'divider',
           borderRadius: 2,
           overflow: 'hidden'
         }
@@ -252,8 +254,8 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         }
       }}>
         {error && (
-          <Box sx={{ mb: 1, p: 1, bgcolor: 'error.dark', borderRadius: 1 }}>
-            <Typography variant="body2" color="error.light">
+          <Box sx={{ mb: 1, p: 1, bgcolor: `${P.error}1f`, borderRadius: 1 }}>
+            <Typography variant="body2" sx={{ color: P.error }}>
               {error}
             </Typography>
           </Box>
@@ -318,20 +320,20 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
           {/* Current step (in progress) - Show first so user doesn't need to scroll */}
           {(isValidating || validationResults.length === 0) && (
-            <Paper sx={{ 
-              p: 1.5, 
-              bgcolor: 'info.dark', 
-              border: '2px solid', 
-              borderColor: 'info.main',
+            <Paper sx={{
+              p: 1.5,
+              bgcolor: `${P.accent}1f`,
+              border: '2px solid',
+              borderColor: P.accent,
               borderRadius: 1
             }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                <CircularProgress size={16} sx={{ color: 'info.light' }} />
+                <CircularProgress size={16} sx={{ color: P.accentText }} />
                 <Typography variant="body2" sx={{ fontWeight: 'bold' }}>
                   Step {Math.max(1, (progress.current || 0) + 1)} - IN PROGRESS
                 </Typography>
               </Box>
-              <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', color: 'info.light', ml: 3 }}>
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', display: 'block', color: P.accentText, ml: 3 }}>
                 {truncate(currentStep || 'Validating...', 70)}
               </Typography>
             </Paper>

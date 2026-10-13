@@ -34,13 +34,15 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { AGENT_CHAT_PALETTE, useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../../../frontend/src/components/common/PageChrome';
 import { useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 
 import PairQrDialog from './PairQrDialog';
 
 import { getEnv } from '../../../frontend/src/config/constants';
-import { useProfile } from '../../../frontend/src/hooks/auth/useProfile';
+import { usePermissions } from '../../../frontend/src/hooks/auth/usePermissions';
 import {
   buildAppDownloadQrValue,
   useMobileApp,
@@ -52,12 +54,13 @@ import {
 const EMPTY_STATE_TEXT =
   'No host has phone slots. Add DEVICEn_MODEL=phone_agent to a host .env — see docs.';
 
+// Module-level: palette is static so the dot reads the same on both themes.
 const STATE_DOT_COLOR: Record<PhoneSlotState, string> = {
-  connected: '#4caf50',
-  pending: '#ff9800',
-  free: '#9e9e9e',
-  offline: '#9e9e9e',
-  unknown: '#9e9e9e',
+  connected: AGENT_CHAT_PALETTE.success,
+  pending: AGENT_CHAT_PALETTE.warning,
+  free: AGENT_CHAT_PALETTE.textMuted,
+  offline: AGENT_CHAT_PALETTE.textMuted,
+  unknown: AGENT_CHAT_PALETTE.textMuted,
 };
 
 const STATE_LABEL: Record<PhoneSlotState, string> = {
@@ -93,7 +96,9 @@ const phoneLabel = (slot: PhoneSlot): string => {
 };
 
 export default function MobileAppPage() {
-  const { isAdmin } = useProfile();
+  const P = useAgentChatPalette();
+  const { canAccess } = usePermissions();
+  const canPair = canAccess('device_control:pair');
   const { hosts, loading, error, refresh, createPairing, deletePairing } = useMobileApp();
   const [hostName, setHostName] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -194,8 +199,8 @@ export default function MobileAppPage() {
   }
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Typography variant="h6">Mobile app & phones</Typography>
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, ...(pageSurfaceSx(P) as object) }}>
+      <Typography component="h1" sx={PAGE_TITLE_SX}>Mobile app & phones</Typography>
 
       {error && <Alert severity="error">{error}</Alert>}
       {actionError && (
@@ -215,7 +220,7 @@ export default function MobileAppPage() {
               <Typography variant="body2">
                 {apkUrl ? (
                   <>
-                    <a href={bustedApkUrl} target="_blank" rel="noreferrer">
+                    <a href={bustedApkUrl} target="_blank" rel="noreferrer" style={{ color: P.accentText }}>
                       Install the VirtualPyTest app
                     </a>
                     {apkDetails && (
@@ -247,7 +252,7 @@ export default function MobileAppPage() {
         </Typography>
       </Paper>
 
-      {isAdmin && (
+      {canPair && (
         <>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
             <Typography variant="subtitle2">Phone slots</Typography>
@@ -340,7 +345,7 @@ export default function MobileAppPage() {
                 <Box
                   component="span"
                   onClick={() => setPairingHelpExpanded((v) => !v)}
-                  sx={{ color: 'primary.main', cursor: 'pointer', textDecoration: 'underline' }}
+                  sx={{ color: P.accentText, cursor: 'pointer', textDecoration: 'underline' }}
                 >
                   {pairingHelpExpanded ? 'Less info' : 'More info'}
                 </Box>

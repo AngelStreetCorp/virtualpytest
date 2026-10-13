@@ -128,7 +128,7 @@ Colibri + GLM-5.2                    Ubuntu 24.04
 
 - **VM 100** runs [Colibri](https://www.alphamatch.ai/blog/colibri-ai-engine-glm-5-2-25gb-ram-2026) (CPU path), a CPU-only inference engine that serves GLM-5.2 (744 B parameters, mixture of experts) from about 25 GB of RAM by streaming experts from NVMe. The NVMe passthrough is not optional: the engine's speed is the disk's speed. Expect on the order of 1 token per second at best, so it suits batch jobs, not interactive chat.
 - **VM 101** is a coding-agent box. OpenCode and Aider talk to VM 100 over its OpenAI-compatible API.
-- **VirtualPyTest uses it too.** In Settings → AI, fill *Local model server* with the base URL (`http://10.10.10.10:8000/v1`) and the model name, then pick **Local** as the provider for the agent, vision or text tasks. Same thing in the server `.env`: `AI_PROVIDER=local`, `LOCAL_AI_BASE_URL`, `LOCAL_AI_MODEL`. Any OpenAI-compatible server works: Ollama, vLLM, llama.cpp, LM Studio, Colibri.
+- **VirtualPyTest uses it too.** In Settings → AI → **Endpoints**, add an endpoint with the *OpenAI-compatible* preset and base URL `http://10.10.10.10:8000/v1` (no key; *reach* = server if the VirtualPyTest server can reach it, host if only the hosts can), press **Test** to list its models, create a **Profile** with the model name, then in **Routing** point the use cases you want at it (all agents, all vision, or single ones such as the channel banner), ideally with a cloud profile as fallback. Nothing goes in `.env`. Any OpenAI-compatible server works: Ollama, vLLM, llama.cpp, LM Studio, Colibri. See [AI routing](../agent/ai/AI_ROUTING.md).
 
 ---
 
@@ -169,7 +169,7 @@ Any Linux x86 box with USB 3 ports works the same way
 
 | Item | Use | Price |
 |---|---|---|
-| **USB IR transmitter** (`lirc`-compatible: USB IR Toy, or any `ir-ctl` device) | set-top boxes and TVs with an IR remote; declared as `DEVICEn_IR_PATH=/dev/lircN` | ~15–30 € |
+| **USB IR transmitter** (`lirc`-compatible: USB IR Toy, or any `ir-ctl` device) | set-top boxes and TVs with an IR remote; declared as `DEVICEn_IR_PATH=/dev/lircN` on a Pi, or `DEVICEn_IR_SERIAL=/dev/irtoy` on a non-Pi host | ~15–30 € |
 | **IRTrans LAN box** | one networked IR box driving up to 16 STBs by LED output; declared with `DEVICEn_IR_IP` / `_IR_LED` | ~250 € |
 | **Bluetooth adapter** | Bluetooth remote emulation (Pi 5 built-in works; on x86 a plain USB BLE dongle) | ~10 € |
 | **Smart plug** (Tapo P100/P110) | power-cycle a device from a test (`DEVICEn_POWER_*`) | ~10 € |

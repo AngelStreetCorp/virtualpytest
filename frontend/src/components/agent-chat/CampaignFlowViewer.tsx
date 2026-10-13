@@ -18,8 +18,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { useTheme } from '@mui/material/styles';
-import { AGENT_CHAT_PALETTE as PALETTE } from '../../constants/agentChatTheme';
+import { AGENT_CHAT_PALETTE as PALETTE, useAgentChatPalette } from '../../constants/agentChatTheme';
 
 // Import campaign contexts and hooks
 import { CampaignBuilderProvider, useCampaignBuilder } from '../../contexts/campaign/CampaignBuilderContext';
@@ -60,18 +59,20 @@ const edgeTypes = {
 };
 
 // Default edge options - matching CampaignBuilder
+// Static palette import: this constant is consumed at module load by ReactFlow,
+// outside any React component, so we read AGENT_CHAT_PALETTE directly.
 const defaultEdgeOptions = {
   type: 'success',
   animated: false,
   style: {
-    stroke: '#94a3b8',
+    stroke: PALETTE.borderColor,
     strokeWidth: 2,
   },
   markerEnd: {
     type: MarkerType.ArrowClosed,
     width: 20,
     height: 20,
-    color: '#94a3b8',
+    color: PALETTE.borderColor,
   },
 };
 
@@ -94,8 +95,7 @@ const CampaignFlowViewerContent: React.FC<CampaignFlowViewerProps> = ({
   readOnly = true,
   selectedUserInterface,
 }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
+  const P = useAgentChatPalette();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -201,20 +201,20 @@ const CampaignFlowViewerContent: React.FC<CampaignFlowViewerProps> = ({
   // MiniMap node color
   const miniMapNodeColor = useCallback((node: any) => {
     switch (node.type) {
-      case 'start': return '#22c55e';
-      case 'success': return '#22c55e';
-      case 'failure': return '#ef4444';
-      case 'testcase': return '#3b82f6';
-      case 'script': return '#8b5cf6';
-      default: return '#6b7280';
+      case 'start': return P.success;
+      case 'success': return P.success;
+      case 'failure': return P.error;
+      case 'testcase': return P.accent;
+      case 'script': return P.series[2];
+      default: return P.textMuted;
     }
-  }, []);
+  }, [P]);
 
   const miniMapStyle = useMemo(() => ({
-    backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
-    border: `1px solid ${isDarkMode ? '#374151' : '#e5e7eb'}`,
+    backgroundColor: P.surface,
+    border: `1px solid ${P.borderColor}`,
     borderRadius: '4px',
-  }), [isDarkMode]);
+  }), [P]);
 
   if (isLoading) {
     return (
@@ -333,7 +333,7 @@ const CampaignFlowViewerContent: React.FC<CampaignFlowViewerProps> = ({
         <MiniMap
           style={miniMapStyle}
           nodeColor={miniMapNodeColor}
-          maskColor="rgba(255, 255, 255, 0.2)"
+          maskColor={`${P.textPrimary}33`}
           pannable
           zoomable
           position="bottom-right"

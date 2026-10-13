@@ -13,6 +13,7 @@ Clean, scalable REST endpoints without monolithic JSONB operations.
 
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
+from backend_server.src.lib.auth_middleware import require_user_auth
 from shared.src.lib.database.navigation_trees_db import (
     # Tree metadata operations
     get_all_trees, get_tree_metadata, save_tree_metadata, delete_tree,
@@ -22,6 +23,8 @@ from shared.src.lib.database.navigation_trees_db import (
     get_tree_edges, get_edge_by_id, save_edge, delete_edge,
     # Batch operations
     save_tree_data, get_full_tree,
+    # Materialized view (what hosts read)
+    refresh_navigation_mv, get_mv_tree_summary,
     # Interface operations
     get_root_tree_for_interface,
     # Nested tree operations
@@ -74,22 +77,8 @@ def set_cached_tree(tree_id: str, team_id: str, data):
         }
         print(f"[@cache] SET: Tree {tree_id} (total cached: {len(_tree_cache)})")
 
-def invalidate_cached_tree(tree_id: str, team_id: str, propagate_to_hosts: bool = True):
-    """Invalidate cached tree when it's modified.
-
-    Always clears the local server caches (`_tree_cache` HTTP response cache +
-    shared `invalidate_navigation_cache_for_tree`).
-
-    When ``propagate_to_hosts`` is True (default), also wipes the host-side
-    unified NetworkX graph on every host. That wipe is fine for structural
-    changes (create/delete/restore/bulk save) but **destructive** for value
-    edits: the frontend follows up with `/cache/update-node` /
-    `/cache/update-edge` to patch the graph in place, and `update_*_in_cache`
-    bails when the cache is empty — which loses the patch and leaves the host
-    with an empty graph until the next take-control. Pass ``False`` for
-    update endpoints that already have a granular incremental update.
-    """
-    # Clear SERVER cache
+def _clear_server_tree_caches(tree_id: str, team_id: str):
+    """Clear every server-side cache that holds this tree."""
     with _cache_lock:
         cache_key = f"{team_id}:{tree_id}"
         if cache_key in _tree_cache:
@@ -105,8 +94,44 @@ def invalidate_cached_tree(tree_id: str, team_id: str, propagate_to_hosts: bool 
     from shared.src.lib.database.navigation_trees_db import invalidate_navigation_cache_for_tree
     invalidate_navigation_cache_for_tree(tree_id, team_id)
 
-    if not propagate_to_hosts:
-        return
+
+def clear_tree_cache_on_hosts(tree_id: str, team_id: str) -> list:
+    """Clear this tree's unified graph + preview cache on every registered host,
+    synchronously. Each host rebuilds lazily from the DB on next use.
+
+    Returns [{'host', 'success', 'error'}] — one entry per host, error None on
+    success. A per-host failure never raises.
+    """
+    from backend_server.src.lib.utils.server_utils import get_host_manager
+    from backend_server.src.lib.utils.route_utils import proxy_to_host_direct
+
+    results = []
+    # get_all_hosts() returns {host_name: host_info}; proxy_to_host_direct needs
+    # the host_info dict, not the name.
+    for host_info in get_host_manager().get_all_hosts().values():
+        host_name = host_info.get('host_name')
+        try:
+            result, status_code = proxy_to_host_direct(
+                host_info,
+                f'/host/navigation/cache/clear/{tree_id}?team_id={team_id}',
+                'POST',
+            )
+            ok = bool(result and result.get('success'))
+            error = None if ok else ((result or {}).get('error') or f'HTTP {status_code}')
+        except Exception as e:
+            ok, error = False, str(e)
+        results.append({'host': host_name, 'success': ok, 'error': error})
+    return results
+
+
+def invalidate_cached_tree(tree_id: str, team_id: str):
+    """Invalidate cached tree when it's modified.
+
+    Clears the local server caches (`_tree_cache` HTTP response cache + shared
+    `invalidate_navigation_cache_for_tree`) and, in the background, the unified
+    graph on every host, which rebuilds lazily from the DB on next use.
+    """
+    _clear_server_tree_caches(tree_id, team_id)
 
     # Propagate to ALL HOST VMs in the background — clears unified graph + preview cache.
     # Run async so the API response isn't blocked on N synchronous host HTTP calls.
@@ -114,23 +139,7 @@ def invalidate_cached_tree(tree_id: str, team_id: str, propagate_to_hosts: bool 
     # cooperates with the request loop instead of forking an OS thread.
     def _propagate_host_cache_clear():
         try:
-            from backend_server.src.lib.utils.server_utils import get_host_manager
-            from backend_server.src.lib.utils.route_utils import proxy_to_host_direct
-
-            host_manager = get_host_manager()
-            hosts = host_manager.get_all_hosts()
-            cleared = []
-            for host_info in hosts.values():
-                try:
-                    result, _ = proxy_to_host_direct(
-                        host_info,
-                        f'/host/navigation/cache/clear/{tree_id}?team_id={team_id}',
-                        'POST',
-                    )
-                    if result and result.get('success'):
-                        cleared.append(host_info.get('host_name'))
-                except Exception:
-                    pass  # Per-host failure is non-fatal
+            cleared = [r['host'] for r in clear_tree_cache_on_hosts(tree_id, team_id) if r['success']]
             if cleared:
                 print(f"[@cache] INVALIDATE HOST: Tree {tree_id} — cache cleared on {', '.join(cleared)}")
             else:
@@ -142,56 +151,38 @@ def invalidate_cached_tree(tree_id: str, team_id: str, propagate_to_hosts: bool 
     threading.Thread(target=_propagate_host_cache_clear, daemon=True).start()
 
 
-def _fetch_tree_metrics(tree_id: str, team_id: str, variant: str = None):
+def _fetch_tree_metrics(tree_id: str, team_id: str, variant: str, nodes: list, edges: list):
     """
     Internal helper to fetch metrics for a tree (used by combined endpoint).
-    Uses optimized Supabase function that reads from pre-aggregated metrics tables.
-    Returns metrics data or None on error.
+    Reads the pre-aggregated node_metrics / edge_metrics tables for the tree's
+    nodes and edges through the same builder as GET /server/metrics/tree, so
+    the combined endpoint and the standalone endpoint emit one shape.
 
-    Performance: ~5ms (reads from node_metrics and edge_metrics tables)
-
-    `variant` is the run scope filter: NULL = base-only, otherwise the lowercase
+    `variant` is the run scope filter: None = base-only, otherwise the lowercase
     variant name. The aggregate tables key per scope so each variant gets its
-    own averages — base runs never average together with variant runs.
+    own averages - base runs never average together with variant runs.
     """
-    from shared.src.lib.utils.supabase_utils import get_supabase_client
+    from backend_server.src.lib.utils.tree_metrics_payload import build_tree_metrics_payload
 
-    supabase = get_supabase_client()
+    node_ids = [n['node_id'] for n in (nodes or []) if n.get('node_id')]
+    edge_ids = [e['edge_id'] for e in (edges or []) if e.get('edge_id')]
 
-    # Call optimized Supabase function (reads from pre-aggregated metrics tables)
-    # This is MUCH faster than computing from execution_results
-    result = supabase.rpc(
-        'get_tree_metrics_optimized',
-        {'p_tree_id': tree_id, 'p_team_id': team_id, 'p_variant': variant}
-    ).execute()
+    payload = build_tree_metrics_payload(team_id, node_ids, edge_ids, variant)
+    print(f"[@metrics] Fetched pre-aggregated metrics for tree {tree_id} (variant={variant or 'base'}): "
+          f"{len(payload['nodes'])} nodes, {len(payload['edges'])} edge directions")
 
-    if result.data:
-        metrics_data = result.data[0] if isinstance(result.data, list) else result.data
-        print(f"[@metrics] ⚡ Fetched pre-aggregated metrics for tree {tree_id} (variant={variant or 'base'})")
-
-        return {
-            'nodes': metrics_data.get('nodes', {}),
-            'edges': metrics_data.get('edges', {}),
-            'variant': variant,
-            'global_confidence': metrics_data.get('global_confidence', 0.0),
-            'confidence_distribution': metrics_data.get('confidence_distribution', {
-                'high': 0, 'medium': 0, 'low': 0, 'untested': 0
-            }),
-            'hierarchy_info': {
-                'total_trees': 1,
-                'max_depth': 0,
-                'has_nested_trees': False,
-                'trees': [{
-                    'tree_id': tree_id,
-                    'name': 'Navigation Tree',
-                    'depth': 0,
-                    'is_root': True
-                }]
-            }
-        }
-    else:
-        print(f"[@metrics] No metrics data returned for tree {tree_id} (variant={variant or 'base'})")
-        return None
+    payload['hierarchy_info'] = {
+        'total_trees': 1,
+        'max_depth': 0,
+        'has_nested_trees': False,
+        'trees': [{
+            'tree_id': tree_id,
+            'name': 'Navigation Tree',
+            'depth': 0,
+            'is_root': True
+        }]
+    }
+    return payload
 
 
 # ============================================================================
@@ -301,12 +292,26 @@ def _compose_scope_overrides(scope_bundle, trees):
     )
 
 
-def _compute_kpi_action_sets(userinterface_name: str, team_id: str, variant: Optional[str] = None):
+def _compute_kpi_action_sets(userinterface_name: str, team_id: str, variant: Optional[str] = None,
+                             kpi_only: bool = True):
     """Resolve userinterface → root tree → hierarchy, then filter every
     action_set across the hierarchy down to those that can produce a KPI
     measurement. An action_set qualifies if:
       - kpi_references is a non-empty list, OR
-      - use_verifications_for_kpi is True AND the target node has verifications.
+      - use_verifications_for_kpi is True AND the target node has verifications
+        or a fingerprint (the runtime's fingerprint fallback,
+        navigation_executor._resolve_kpi_references).
+
+    Every row also reports the REVERSE direction of the same edge: whether it
+    has actions (`reverse_has_actions` — without them the runtime graph builds
+    no reverse edge, so goto can't take it) and whether it can be measured
+    (`reverse_kpi`), plus its `reverse_label`. standby_measurement picks an
+    into-standby edge but times its reverse (the wake), so its picker needs
+    the reverse status, not the forward one.
+
+    `kpi_only=False` keeps action_sets that don't qualify themselves (reason
+    'none') — the standby picker lists every into-standby edge and greys out
+    the ones whose wake can't be measured.
 
     Variant scope (`variant=None` = base) is applied via the same resolvers
     the runtime uses: `resolve_node_variant` / `resolve_edge_variant`. Rows
@@ -363,6 +368,7 @@ def _compute_kpi_action_sets(userinterface_name: str, team_id: str, variant: Opt
             node_lookup[node_id] = {
                 'label': resolved_node.get('label', ''),
                 'has_verifications': len(verifs) > 0,
+                'has_fingerprint': bool((resolved_node.get('__fingerprint') or {}).get('dhash')),
             }
 
     # Conditional-sibling KPI intent: forward action_sets that actually OWN
@@ -381,6 +387,24 @@ def _compute_kpi_action_sets(userinterface_name: str, team_id: str, variant: Opt
                 main_use_verif[(re_edge.get('source_node_id'), asets[0]['id'])] = (
                     asets[0].get('use_verifications_for_kpi') is True
                 )
+
+    def _kpi_reason(action_set, i, source_id, dest_info):
+        """Why this action_set can be measured, or None. Same rule the
+        runtime applies when queueing a KPI (_resolve_kpi_references)."""
+        if action_set.get('kpi_references'):
+            return 'kpi_references'
+        uses_target = action_set.get('use_verifications_for_kpi') is True
+        # Conditional sibling (forward, empty actions, shares owner's id):
+        # inherit the owner's measurement intent so it surfaces too.
+        if i == 0 and not action_set.get('actions'):
+            uses_target = uses_target or main_use_verif.get((source_id, action_set.get('id')), False)
+        if not uses_target:
+            return None
+        if dest_info['has_verifications']:
+            return 'target_verifications'
+        if dest_info['has_fingerprint']:
+            return 'target_fingerprint'
+        return None
 
     # Dedup key is (action_set_id, dest_id), NOT action_set_id alone: conditional
     # siblings SHARE the owner's action_set_id but reach distinct destinations, so
@@ -415,19 +439,21 @@ def _compute_kpi_action_sets(userinterface_name: str, team_id: str, variant: Opt
                 if not dest_info:
                     continue
 
-                has_kpi_refs = bool(action_set.get('kpi_references'))
-                uses_target = action_set.get('use_verifications_for_kpi') is True
-                # Conditional sibling (forward, empty actions, shares owner's id):
-                # inherit the owner's measurement intent so it surfaces too.
-                if i == 0 and not action_set.get('actions'):
-                    uses_target = uses_target or main_use_verif.get((source_id, aset_id), False)
+                reason = _kpi_reason(action_set, i, source_id, dest_info)
+                if not reason:
+                    if kpi_only:
+                        continue
+                    reason = 'none'
 
-                if has_kpi_refs:
-                    reason = 'kpi_references'
-                elif uses_target and dest_info['has_verifications']:
-                    reason = 'target_verifications'
-                else:
-                    continue
+                # The other direction of this edge: index 1 measures the source,
+                # index 0 the target — mirror of the dest_id/orig_id swap above.
+                rev_i = 1 - i
+                rev_set = action_sets[rev_i] if rev_i < len(action_sets) else None
+                rev_dest = node_lookup.get(orig_id)
+                rev_reason = (
+                    _kpi_reason(rev_set, rev_i, source_id, rev_dest)
+                    if rev_set and rev_set.get('id') and rev_dest else None
+                )
 
                 seen.add((aset_id, dest_id))
                 out.append({
@@ -442,6 +468,9 @@ def _compute_kpi_action_sets(userinterface_name: str, team_id: str, variant: Opt
                     'from_label': node_lookup.get(orig_id, {}).get('label', ''),
                     'to_label': dest_info['label'],
                     'reason': reason,
+                    'reverse_has_actions': bool((rev_set or {}).get('actions')),
+                    'reverse_kpi': bool(rev_reason),
+                    'reverse_label': (rev_set or {}).get('label', ''),
                 })
 
     out.sort(key=lambda x: x['label'])
@@ -569,6 +598,53 @@ def get_all_navigation_trees():
             'message': result['error']
         }), status_code
         
+@server_navigation_trees_bp.route('/navigationTrees/<tree_id>/refresh', methods=['POST'])
+@handle_route_exceptions('navigation_trees:refresh_tree_api')
+def refresh_tree_api(tree_id):
+    """Make a tree write visible to the hosts now, and say whether it is.
+
+    Hosts build their graph from mv_full_navigation_trees, which the live
+    databases refresh once a minute (pg_cron), so a write used to need a ~90 s
+    wait before navigation saw it. This refreshes the view, reads the tree's
+    row back, clears the server caches, and clears the tree on every host
+    synchronously (each rebuilds from the fresh view on next use).
+
+    Response: {success, tree_id, mv_present, node_count, edge_count,
+               last_refreshed, hosts: [{host, success, error}]}
+    """
+    team_id = request.args.get('team_id')
+    if not team_id:
+        return jsonify({'success': False, 'error': 'team_id is required'}), 400
+
+    refresh = refresh_navigation_mv()
+    if not refresh.get('success'):
+        return jsonify({
+            'success': False,
+            'error': f"materialized view refresh failed: {refresh.get('error')} "
+                     f"(is migration 20261003a_refresh_navigation_trees_mv applied?)",
+        }), 500
+
+    summary = get_mv_tree_summary(tree_id, team_id)
+    if not summary.get('success'):
+        return jsonify({
+            'success': False,
+            'error': f"materialized view read failed: {summary.get('error')}",
+        }), 500
+
+    _clear_server_tree_caches(tree_id, team_id)
+    hosts = clear_tree_cache_on_hosts(tree_id, team_id)
+
+    return jsonify({
+        'success': True,
+        'tree_id': tree_id,
+        'mv_present': summary['mv_present'],
+        'node_count': summary['node_count'],
+        'edge_count': summary['edge_count'],
+        'last_refreshed': summary['last_refreshed'],
+        'hosts': hosts,
+    })
+
+
 @server_navigation_trees_bp.route('/navigationTrees/<tree_id>', methods=['GET'])
 @handle_route_exceptions('navigation_trees:get_tree_metadata_api')
 def get_tree_metadata_api(tree_id):
@@ -732,10 +808,11 @@ def create_node_api(tree_id):
     result = save_node(tree_id, node_data, team_id)
 
     if result['success']:
-        # Local tree-cache only — frontend follows up with `/server/cache/update-node`
-        # which `add_node`s into the host graph (handles new nodes natively).
-        # Wiping the host cache here would race that patch and leave it empty.
-        invalidate_cached_tree(tree_id, team_id, propagate_to_hosts=False)
+        # The host's /cache/update-node|edge stopped patching in place: they only
+        # invalidate, so clearing every host here races nothing. Without it a write
+        # through this REST route (MCP, agents, scripts — not the editor) left the
+        # hosts on the old graph until a manual cache clear (TASK-40).
+        invalidate_cached_tree(tree_id, team_id)
 
         # Invalidate user interfaces cache (first node creation makes tree visible)
         from backend_server.src.routes.server_userinterface_routes import _invalidate_interfaces_cache
@@ -840,11 +917,11 @@ def update_node_api(tree_id, node_id):
     result = save_node(tree_id, node_data, team_id)
 
     if result['success']:
-        # Invalidate ONLY the local tree-response cache. The frontend follows
-        # up with `/server/cache/update-node` to patch the host's unified
-        # graph in place; clearing the host cache here would race that patch
-        # and leave the graph empty (cache miss → 0/0 on next edge run).
-        invalidate_cached_tree(tree_id, team_id, propagate_to_hosts=False)
+        # The host's /cache/update-node|edge stopped patching in place: they only
+        # invalidate, so clearing every host here races nothing. Without it a write
+        # through this REST route (MCP, agents, scripts — not the editor) left the
+        # hosts on the old graph until a manual cache clear (TASK-40).
+        invalidate_cached_tree(tree_id, team_id)
 
         # No need to invalidate interfaces cache for node updates (doesn't affect visibility)
         
@@ -908,6 +985,9 @@ def get_kpi_action_sets_api():
     # Canonicalize (sorted, '+'-joined) so a composition selection hits the
     # same cache entry regardless of the order the user picked variants in.
     variant = canonical_variant_name(request.args.get('variant'))
+    # kpi_only=false also returns action_sets that can't be measured themselves
+    # (reason 'none') — the standby picker needs every into-standby edge.
+    kpi_only = request.args.get('kpi_only', 'true').lower() != 'false'
     if not team_id or not userinterface_name:
         return jsonify({
             'success': False,
@@ -915,7 +995,7 @@ def get_kpi_action_sets_api():
         }), 400
 
     variant_key = _variant_cache_key(variant)
-    cache_key = (team_id, userinterface_name, variant_key)
+    cache_key = (team_id, userinterface_name, variant_key, kpi_only)
     with _kpi_cache_lock:
         cached = _kpi_action_sets_cache.get(cache_key)
         if cached and (time.time() - cached['timestamp']) < CACHE_CONFIG['MEDIUM_TTL']:
@@ -924,7 +1004,7 @@ def get_kpi_action_sets_api():
         if cached:
             del _kpi_action_sets_cache[cache_key]
 
-    result, error = _compute_kpi_action_sets(userinterface_name, team_id, variant)
+    result, error = _compute_kpi_action_sets(userinterface_name, team_id, variant, kpi_only)
     if error:
         return jsonify({'success': False, 'message': error}), 404
 
@@ -1124,10 +1204,11 @@ def create_edge_api(tree_id):
     result = save_edge(tree_id, edge_data, team_id)
 
     if result['success']:
-        # Local tree-cache only — frontend follows up with `/server/cache/update-edge`.
-        # `update_edge_in_cache` requires both endpoint nodes to already be in the
-        # host graph; wiping here would force a cache rebuild via take-control.
-        invalidate_cached_tree(tree_id, team_id, propagate_to_hosts=False)
+        # The host's /cache/update-node|edge stopped patching in place: they only
+        # invalidate, so clearing every host here races nothing. Without it a write
+        # through this REST route (MCP, agents, scripts — not the editor) left the
+        # hosts on the old graph until a manual cache clear (TASK-40).
+        invalidate_cached_tree(tree_id, team_id)
         return jsonify(result)
     else:
         return jsonify(result), 400
@@ -1165,11 +1246,11 @@ def update_edge_api(tree_id, edge_id):
     result = save_edge(tree_id, edge_data, team_id)
 
     if result['success']:
-        # Invalidate ONLY the local tree-response cache. The frontend follows
-        # up with `/server/cache/update-edge` to patch the host graph in place;
-        # clearing the host cache here would race that patch and leave the
-        # graph empty (cache miss → 0/0 on next edge run).
-        invalidate_cached_tree(tree_id, team_id, propagate_to_hosts=False)
+        # The host's /cache/update-node|edge stopped patching in place: they only
+        # invalidate, so clearing every host here races nothing. Without it a write
+        # through this REST route (MCP, agents, scripts — not the editor) left the
+        # hosts on the old graph until a manual cache clear (TASK-40).
+        invalidate_cached_tree(tree_id, team_id)
         return jsonify(result)
     else:
         return jsonify(result), 400
@@ -1495,7 +1576,9 @@ def get_tree_by_userinterface_id(userinterface_id):
         if cached_result:
             if include_metrics:
                 print(f"[@cache] HIT: Tree {tree_id}, fetching metrics (variant={variant or 'base'})...")
-                metrics_data = _fetch_tree_metrics(tree_id, team_id, variant)
+                cached_meta = (cached_result.get('tree') or {}).get('metadata') or {}
+                metrics_data = _fetch_tree_metrics(tree_id, team_id, variant,
+                                                   cached_meta.get('nodes'), cached_meta.get('edges'))
                 # Build a response copy so the cached entry never mutates per-variant.
                 response_copy = dict(cached_result)
                 if metrics_data:
@@ -1532,7 +1615,8 @@ def get_tree_by_userinterface_id(userinterface_id):
             # Fetch metrics if requested (combines 2 API calls into 1)
             if include_metrics:
                 print(f"[@cache] Including metrics for tree {tree_id} (variant={variant or 'base'})")
-                metrics_data = _fetch_tree_metrics(tree_id, team_id, variant)
+                metrics_data = _fetch_tree_metrics(tree_id, team_id, variant,
+                                                   result.get('nodes'), result.get('edges'))
                 if metrics_data:
                     response_data = dict(response_data)
                     response_data['metrics'] = metrics_data
@@ -1707,3 +1791,45 @@ def dom_report():
     from backend_server.src.services.dom_report import build_dom_report
     html_doc = build_dom_report(ui_name, team_id)
     return html_doc, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
+@server_navigation_trees_bp.route('/userinterface/domReport/url', methods=['GET'])
+@require_user_auth
+@handle_route_exceptions('navigation_trees:dom_report_url')
+def dom_report_url():
+    """Return a signed URL for the cached DOM report HTML of a userinterface.
+
+    Mirrors the script-reports / openR2Url pattern: the report HTML lives in R2
+    (built + persisted by build_dom_report), the signed URL is generated against
+    MINIO_PRESIGN_ENDPOINT (the public proxy that fronts R2), and the new-tab
+    navigation carries the signature as its credential. No Authorization header,
+    no vpt_jwt cookie, no cross-origin issue when the selected server is a
+    sibling of the frontend (e.g. rpitest.angelstreet.io opened from
+    virtualpytest.angelstreet.io) — BUG-0459 / BUG-0057 follow-up.
+
+    The build is idempotent: rebuilds only when the content signature
+    (DOM versions + screenshot timestamps + variant mtimes) changes; otherwise
+    re-signs the existing R2 artifact.
+    """
+    import re
+    from shared.src.lib.database.userinterface_db import get_userinterface_by_name
+    from shared.src.lib.utils.cloudflare_utils import get_cloudflare_utils
+
+    ui_name = request.args.get('userinterface')
+    team_id = request.args.get('team_id')
+    if not ui_name or not team_id:
+        return jsonify({'success': False, 'message': 'userinterface and team_id are required'}), 400
+
+    if not get_userinterface_by_name(ui_name, team_id):
+        return jsonify({'success': False, 'message': f"userinterface '{ui_name}' not found"}), 404
+
+    from backend_server.src.services.dom_report import build_dom_report
+    # Ensure the artifact exists in R2 (no-op on cache hit).
+    build_dom_report(ui_name, team_id)
+
+    safe = re.sub(r'[^A-Za-z0-9_.-]', '_', ui_name)
+    report_key = f"navigation/{safe}/dom_report.html"
+    signed_url = get_cloudflare_utils().get_url_for_report_asset(report_key)
+    if not signed_url:
+        return jsonify({'success': False, 'message': 'failed to generate signed URL'}), 500
+    return jsonify({'success': True, 'url': signed_url})

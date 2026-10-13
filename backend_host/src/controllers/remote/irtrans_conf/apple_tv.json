@@ -1,0 +1,21 @@
+{
+  "POWER": "POWER",
+  "MENU": "MENU",
+  "HOME": "HOME",
+  "LEFT": "LEFT",
+  "UP": "UP",
+  "RIGHT": "RIGHT",
+  "DOWN": "DOWN",
+  "OK": "OK",
+  "PAUSE": "PAUSE",
+  "PLAY": "PLAY",
+  "REWIND": "REWIND",
+  "FORWARD": "FORWARD",
+  "STOP": "STOP",
+  "VOLUME_UP": "VOLUME_UP",
+  "VOLUME_DOWN": "VOLUME_DOWN",
+  "CHANNEL_UP": "CHANNEL_UP",
+  "CHANNEL_DOWN": "CHANNEL_DOWN",
+  "MUTE": "MUTE",
+  "BACK": "BACK"
+}

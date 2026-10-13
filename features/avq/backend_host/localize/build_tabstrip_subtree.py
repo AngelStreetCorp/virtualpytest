@@ -31,6 +31,7 @@ push_autobuild_to_db.py. See docs/agent/INTERFACE_EXPLORATION_AI.md § "Tab-stri
 import argparse
 import importlib.util
 import json
+import os
 import re
 from pathlib import Path
 
@@ -78,8 +79,10 @@ def main():
     ap.add_argument("--device-name", default="blestbv1")
     ap.add_argument("--ui", default="example_tv", help="userinterface to goto-home with")
     ap.add_argument("--mcp-config", default=".mcp.json")
-    ap.add_argument("--mcp-url", default="https://rpitest.angelstreet.io/server/mcp")
+    ap.add_argument("--mcp-url", default=os.getenv("VPT_MCP_URL"))
     args = ap.parse_args()
+    if not args.mcp_url:
+        ap.error("--mcp-url or the VPT_MCP_URL environment variable is required (e.g. https://<server>/server/mcp)")
 
     tabs = [t.strip() for t in args.tabs.split(",") if t.strip()]
     want_title = (args.title_match or args.root_label).lower()

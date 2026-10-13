@@ -514,7 +514,7 @@ class ExplorationEngine:
         # web → 'web' (Playwright)
         device_model = getattr(context, 'device_model', 'stb')
         
-        if device_model in ['stb', 'fire_tv']:
+        if device_model in ['stb', 'fire_tv_fireos']:
             action_type = 'remote'
         elif device_model in ['android_mobile', 'android_tv']:
             action_type = 'adb'

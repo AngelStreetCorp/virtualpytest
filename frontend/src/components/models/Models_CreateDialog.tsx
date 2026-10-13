@@ -26,6 +26,8 @@ interface CreateModelDialogProps {
   onClose: () => void;
   onSubmit: (model: ModelCreateData) => void;
   error?: string | null;
+  // Names a host can run that this team has no row for yet
+  availableNames: string[];
 }
 
 const modelTypes = [
@@ -40,6 +42,8 @@ const modelTypes = [
   'STB',
   'Linux',
   'Windows',
+  'Desktop',
+  'Camera',
   'Tizen TV',
   'LG TV',
 ];
@@ -55,18 +59,17 @@ const MenuProps = {
   },
 };
 
-const CreateModelDialog: React.FC<CreateModelDialogProps> = ({ open, onClose, onSubmit }) => {
+const CreateModelDialog: React.FC<CreateModelDialogProps> = ({
+  open,
+  onClose,
+  onSubmit,
+  availableNames,
+}) => {
   const [formData, setFormData] = useState<ModelCreateData>({
     name: '',
     types: [],
     version: '',
     description: '',
-    controllers: {
-      remote: '',
-      av: '',
-      network: '',
-      power: '',
-    },
   });
 
   const handleClose = () => {
@@ -75,12 +78,6 @@ const CreateModelDialog: React.FC<CreateModelDialogProps> = ({ open, onClose, on
       types: [],
       version: '',
       description: '',
-      controllers: {
-        remote: '',
-        av: '',
-        network: '',
-        power: '',
-      },
     });
     onClose();
   };
@@ -110,19 +107,31 @@ const CreateModelDialog: React.FC<CreateModelDialogProps> = ({ open, onClose, on
       <DialogTitle sx={{ pb: 1 }}>Add New Device Model</DialogTitle>
       <DialogContent sx={{ pt: 1 }}>
         <Box sx={{ pt: 0.5 }}>
-          <TextField
-            autoFocus
-            margin="dense"
-            label="Name"
-            fullWidth
-            variant="outlined"
-            value={formData.name}
-            onChange={handleInputChange('name')}
-            sx={{ mb: 1.5 }}
-            size="small"
-            placeholder="e.g., Samsung Galaxy S21"
-            required
-          />
+          {/* The name is what a host's DEVICE{i}_MODEL must say, so only models a host can run */}
+          <FormControl fullWidth margin="dense" sx={{ mb: 1.5 }} required>
+            <InputLabel size="small">Name</InputLabel>
+            <Select
+              size="small"
+              value={formData.name}
+              onChange={(event: SelectChangeEvent<string>) =>
+                setFormData({ ...formData, name: event.target.value })
+              }
+              input={<OutlinedInput label="Name" />}
+              MenuProps={MenuProps}
+            >
+              {availableNames.length === 0 ? (
+                <MenuItem disabled value="">
+                  Every model a host can run is already listed
+                </MenuItem>
+              ) : (
+                availableNames.map((name) => (
+                  <MenuItem key={name} value={name}>
+                    {name}
+                  </MenuItem>
+                ))
+              )}
+            </Select>
+          </FormControl>
 
           <FormControl fullWidth margin="dense" sx={{ mb: 1.5 }}>
             <InputLabel size="small">Types *</InputLabel>
@@ -178,7 +187,12 @@ const CreateModelDialog: React.FC<CreateModelDialogProps> = ({ open, onClose, on
         <Button onClick={handleClose} size="small">
           Cancel
         </Button>
-        <Button onClick={handleSubmit} variant="contained" size="small">
+        <Button
+          onClick={handleSubmit}
+          variant="contained"
+          size="small"
+          disabled={!formData.name || formData.types.length === 0}
+        >
           Add Model
         </Button>
       </DialogActions>

@@ -11,6 +11,42 @@ from datetime import datetime
 host_transcript_bp = Blueprint('host_transcript', __name__, url_prefix='/host/transcript')
 
 
+@host_transcript_bp.route('/status', methods=['GET'])
+@route_exception_handler()
+def transcript_status():
+    """Transcript of a device for a window + why it is empty (service off, transcription
+    disabled, no audio, silence, no speech, or a real failure). Window: ``minutes`` (default 10,
+    max 120) back from now, or ``hour`` [+ ``chunk_index``] = its most recent occurrence.
+    See backend_host/src/lib/utils/transcript_status.py for the status/reason table."""
+    from backend_host.src.lib.utils.transcript_status import read_transcript_status, resolve_window
+    from shared.src.lib.utils.storage_path_utils import get_capture_folder_from_device_id
+
+    device_id = request.args.get('device_id')
+    if not device_id:
+        return jsonify({'success': False, 'error': 'device_id is required'}), 400
+
+    def _int(name, lo, hi):
+        raw = request.args.get(name)
+        if raw in (None, ''):
+            return None
+        value = int(raw)
+        if not lo <= value <= hi:
+            raise ValueError(f'{name} must be between {lo} and {hi}')
+        return value
+
+    try:
+        minutes = _int('minutes', 1, 120)
+        hour = _int('hour', 0, 23)
+        chunk_index = _int('chunk_index', 0, 5)
+        capture_folder = get_capture_folder_from_device_id(device_id)
+    except ValueError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+
+    now = datetime.now()
+    start, end = resolve_window(now, minutes, hour, chunk_index)
+    return jsonify(read_transcript_status(device_id, capture_folder, start, end, now=now))
+
+
 @host_transcript_bp.route('/translate-chunk', methods=['POST'])
 @route_exception_handler()
 def translate_chunk():

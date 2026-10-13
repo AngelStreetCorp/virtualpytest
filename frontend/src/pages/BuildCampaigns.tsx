@@ -29,6 +29,18 @@ import {
   invalidateCampaignExecutableListCache,
 } from '../utils/executionListCache';
 import { getCampaignBadge } from '../config/constants';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+
+/** "1 · Details" — numbered step label for the campaign form, with an optional hint. */
+const SectionLabel: React.FC<{ n: number; label: string; hint?: string; P: ReturnType<typeof useAgentChatPalette> }> = ({ n, label, hint, P }) => (
+  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: n > 1 ? 0.75 : 0 }}>
+    <Box sx={{ width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: P.accentText, bgcolor: `${P.accent}26` }}>
+      {n}
+    </Box>
+    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600 }}>{label}</Typography>
+    {hint && <Typography sx={{ fontSize: '0.75rem', color: P.textMuted }}>{hint}</Typography>}
+  </Box>
+);
 
 interface CampaignExecutableListItem {
   id: string;
@@ -38,6 +50,7 @@ interface CampaignExecutableListItem {
 }
 
 const BuildCampaigns: React.FC = () => {
+  const P = useAgentChatPalette();
   const { isMobile, isTablet } = useResponsiveMode();
   const isCompact = isMobile || isTablet;
   const { showSuccess, showError } = useToast();
@@ -411,14 +424,16 @@ const BuildCampaigns: React.FC = () => {
     <Box sx={{ p: isMobile ? 0.25 : isTablet ? 0.75 : 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: isCompact ? 'flex-start' : 'center', mb: 2, gap: 1, flexDirection: isCompact ? 'column' : 'row' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography variant="h4">Build Campaign</Typography>
+          <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>Build Campaign</Typography>
           {editingCampaignId ? (
-            <Chip size="small" label="Editing" color="warning" icon={<EditIcon />} />
+            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 999, fontSize: '0.75rem', fontWeight: 600, color: P.accentText, bgcolor: `${P.accent}26`, border: `1px solid ${P.accent}66` }}>
+              <EditIcon sx={{ fontSize: 14 }} /> Editing {campaignConfig.name || ''}
+            </Box>
           ) : null}
         </Box>
         {editingCampaignId ? (
           <Stack direction="row" spacing={1}>
-            <Button size="small" variant="outlined" onClick={loadCampaignVersions}>
+            <Button size="small" variant="outlined" onClick={loadCampaignVersions} sx={{ textTransform: 'none' }}>
               Versions
             </Button>
             <Button
@@ -428,11 +443,12 @@ const BuildCampaigns: React.FC = () => {
               startIcon={<DeleteIcon />}
               onClick={handleDeleteCampaign}
               disabled={deletingCampaign}
+              sx={{ textTransform: 'none' }}
             >
               {deletingCampaign ? 'Deleting...' : 'Delete'}
             </Button>
-            <Button size="small" startIcon={<AddIcon />} onClick={handleNewCampaign} variant="outlined">
-              New
+            <Button size="small" startIcon={<AddIcon />} onClick={handleNewCampaign} variant="outlined" sx={{ textTransform: 'none', borderColor: P.accent, color: P.accentText, '&:hover': { borderColor: P.accent, bgcolor: `${P.accent}1a` } }}>
+              New campaign
             </Button>
           </Stack>
         ) : null}
@@ -444,11 +460,18 @@ const BuildCampaigns: React.FC = () => {
         </Alert>
       ) : null}
 
-      <Grid container spacing={2}>
+      <Grid
+        container
+        spacing={2}
+        sx={{
+          '& .MuiCard-root': { borderRadius: 3, border: `1px solid ${P.borderColor}`, boxShadow: 'none' },
+        }}
+      >
         <Grid item xs={12}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+                <SectionLabel n={1} label="Details" P={P} />
                 <Box sx={{ display: 'flex', gap: 1, flexDirection: isCompact ? 'column' : 'row', alignItems: isCompact ? 'stretch' : 'flex-start' }}>
                   <TextField
                     size="small"
@@ -495,7 +518,8 @@ const BuildCampaigns: React.FC = () => {
                   />
                 </Box>
 
-                <Box sx={{ p: 1.25, bgcolor: 'action.hover', borderRadius: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <SectionLabel n={2} label="Add tests" hint="Click a test to add it to the campaign" P={P} />
+                <Box sx={{ p: 1.25, bgcolor: P.hoverBg, borderRadius: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
                   <UnifiedExecutableSelector
                     value={null}
                     onChange={() => {}}
@@ -552,10 +576,17 @@ const BuildCampaigns: React.FC = () => {
                   <Box sx={{ display: 'flex', gap: 1, width: isCompact ? '100%' : 'auto' }}>
                     <Button
                       variant="contained"
+                      disableElevation
                       startIcon={<SaveIcon />}
                       onClick={handleSave}
                       disabled={!canSave || savingCampaign}
                       fullWidth={isCompact}
+                      sx={{
+                        px: 2.5, fontWeight: 600, textTransform: 'none',
+                        bgcolor: P.accent, color: '#1a1a1a',
+                        '&:hover': { bgcolor: P.accentHover },
+                        '&.Mui-disabled': { bgcolor: P.hoverBg, color: P.textMuted },
+                      }}
                     >
                       {savingCampaign ? 'Saving...' : editingCampaignId ? 'Update' : 'Save'}
                     </Button>
@@ -570,7 +601,12 @@ const BuildCampaigns: React.FC = () => {
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, gap: 1, flexDirection: isCompact ? 'column' : 'row' }}>
-                <Typography variant="subtitle1">Existing Campaigns</Typography>
+                <Typography sx={{ fontSize: '1rem', fontWeight: 600 }}>
+                  Existing campaigns
+                  <Box component="span" sx={{ ml: 1, fontSize: '0.72rem', fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: P.textSecondary, bgcolor: P.hoverBg }}>
+                    {filteredExistingCampaigns.length}
+                  </Box>
+                </Typography>
                 <ExecutableTypeToggle
                   value={existingCampaignFilter}
                   onChange={(value) => setExistingCampaignFilter(value as 'db' | 'file')}
@@ -595,9 +631,12 @@ const BuildCampaigns: React.FC = () => {
                         key={`${item.source}-${item.id}`}
                         variant="outlined"
                         sx={{
-                          px: 1,
+                          px: 1.25,
                           py: 0.75,
-                          borderColor: editingCampaignId === item.id ? 'warning.main' : undefined,
+                          borderRadius: 2,
+                          borderColor: editingCampaignId === item.id ? P.accent : P.borderColor,
+                          bgcolor: editingCampaignId === item.id ? `${P.accent}14` : 'transparent',
+                          '&:hover': { bgcolor: editingCampaignId === item.id ? `${P.accent}14` : P.hoverBg },
                         }}
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, width: '100%', minWidth: 0 }}>
@@ -637,11 +676,15 @@ const BuildCampaigns: React.FC = () => {
                           {item.source === 'db' ? (
                             <Button
                               size="small"
-                              variant={editingCampaignId === item.id ? 'contained' : 'outlined'}
-                              color="warning"
+                              variant="outlined"
                               onClick={() => loadCampaignForEditing(item)}
                               disabled={loadingCampaign === item.id}
-                              sx={{ py: 0, px: 0.75, minWidth: 48, fontSize: '0.7rem', flexShrink: 0 }}
+                              sx={{
+                                py: 0, px: 1, minWidth: 52, fontSize: '0.72rem', flexShrink: 0, textTransform: 'none',
+                                borderColor: P.accent, color: editingCampaignId === item.id ? '#1a1a1a' : P.accentText,
+                                bgcolor: editingCampaignId === item.id ? P.accent : 'transparent',
+                                '&:hover': { borderColor: P.accent, bgcolor: editingCampaignId === item.id ? P.accentHover : `${P.accent}1a` },
+                              }}
                             >
                               {loadingCampaign === item.id ? '...' : editingCampaignId === item.id ? 'Editing' : 'Load'}
                             </Button>

@@ -1,0 +1,23 @@
+{
+  "id": "music",
+  "category": "music",
+  "hints": "a concert, music video or music programme: artists performing, a stage, a video clip",
+  "entity": [
+    "title",
+    "season",
+    "episode"
+  ],
+  "identify_interval_s": 120,
+  "track": {
+    "type": "time_window"
+  },
+  "render": "title",
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "performers": "list of the artists performing",
+      "synopsis": "what this programme is, one sentence",
+      "network": "original channel or platform"
+    }
+  }
+}

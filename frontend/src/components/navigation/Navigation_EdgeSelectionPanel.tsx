@@ -10,6 +10,7 @@ import { Host } from '../../types/common/Host_Types';
 import { UINavigationEdge, EdgeForm } from '../../types/pages/Navigation_Types';
 import { EdgeMetricData } from '../../types/navigation/Metrics_Types';
 import { getZIndex } from '../../utils/zIndexUtils';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { computeConditionalEdgeIds, findSiblingWithActions, getConditionalRole } from '../../utils/conditionalEdgeUtils';
 
 // Per-action execution meta the executor honours: `iterator` (repeat count,
@@ -198,6 +199,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
     treeId,
   }) => {
     const { getEdges } = useReactFlow();
+    const P = useAgentChatPalette();
     // Subscribe to the live nodes (useNodes is reactive; getNodes() is a
     // non-reactive snapshot) so the direction labels below re-derive the moment
     // a node is renamed — no need to reselect the edge.
@@ -394,31 +396,31 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
       //   threshold > 0 + has data + KPI ≤ threshold → green (under budget)
       //   threshold > 0 + has data + KPI > threshold → red (over budget)
       //   threshold = 0 OR no data                   → neutral grey/white
-      let kpiBorderColor = '#666';
-      let kpiTextColor = '#666';
+      let kpiBorderColor = P.textMuted;
+      let kpiTextColor = P.textMuted;
       if (kpiHasData) {
         if (kpiThresholdMs > 0) {
           if (kpiMs <= kpiThresholdMs) {
-            kpiBorderColor = '#22c55e';
-            kpiTextColor = '#22c55e';
+            kpiBorderColor = P.success;
+            kpiTextColor = P.success;
           } else {
-            kpiBorderColor = '#ef4444';
-            kpiTextColor = '#ef4444';
+            kpiBorderColor = P.error;
+            kpiTextColor = P.error;
           }
         } else {
           // Has data but no threshold defined — neutral white-ish.
-          kpiBorderColor = '#bbb';
-          kpiTextColor = '#bbb';
+          kpiBorderColor = P.borderColor;
+          kpiTextColor = P.borderColor;
         }
       }
 
       return {
         successRateText: noData ? 'No data' : `${successRatePercent}%`,
         successRateColor: noData || volume === 0
-          ? '#666'
-          : (successRatePercent >= 90 ? '#22c55e' : successRatePercent >= 70 ? '#f59e0b' : '#ef4444'),
+          ? P.textMuted
+          : (successRatePercent >= 90 ? P.success : successRatePercent >= 70 ? P.warning : P.error),
         confidenceScore,
-        confidenceColor: noData ? '#666' : edgeColors.stroke,
+        confidenceColor: noData ? P.textMuted : edgeColors.stroke,
         volumeText: `${volume}`,
         timeText,
         kpiText,
@@ -483,7 +485,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
           zIndex: getZIndex('NAVIGATION_EDGE_PANEL'),
           // Variant edge → blue outline so the panel is unmistakably a variant's
           // (matches the canvas "v" badge colour). Base → thin white outline.
-          border: isVariantEdge ? '2px solid #1976d2' : '1px solid white',
+          border: isVariantEdge ? `2px solid ${P.accent}` : `1px solid ${P.surface}`,
           borderLeft: `4px solid ${edgeColors.stroke}`, // Show confidence color as left border
         }}
         onClick={(e) => e.stopPropagation()}
@@ -502,7 +504,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                     fontSize: '0.75rem',
                     fontWeight: 'bold',
                     color: '#fff',
-                    backgroundColor: '#1976d2',
+                    backgroundColor: P.accent,
                     padding: '2px 7px',
                     borderRadius: '4px',
                     lineHeight: 1.2,
@@ -532,7 +534,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                 sx={{
                   fontSize: '0.75rem',
                   fontWeight: 'bold',
-                  color: '#666',
+                  color: P.textMuted,
                   padding: '2px 6px',
                   borderRadius: '4px',
                   backgroundColor: 'rgba(255,255,255,0.1)',
@@ -548,7 +550,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                 sx={{
                   fontSize: '0.75rem',
                   fontWeight: 'bold',
-                  color: '#666',
+                  color: P.textMuted,
                   padding: '2px 6px',
                   borderRadius: '4px',
                   backgroundColor: 'rgba(255,255,255,0.1)',
@@ -637,7 +639,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               sx={{
                 fontSize: '0.8rem',
                 fontWeight: 'bold',
-                color: '#1976d2',
+                color: P.accentText,
                 minWidth: 0,
                 flex: '1 1 0',
                 overflow: 'hidden',
@@ -656,7 +658,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               sx={{
                 fontSize: '0.8rem',
                 fontWeight: 'bold',
-                color: '#4caf50',
+                color: P.success,
                 minWidth: 0,
                 flex: '1 1 0',
                 overflow: 'hidden',
@@ -850,7 +852,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                   href={edgeHook.runReportUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: '#1976d2', textDecoration: 'underline', fontWeight: 'bold' }}
+                  style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
                 >
                   🔍 View verification report
                 </a>

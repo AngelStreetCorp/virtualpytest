@@ -48,6 +48,7 @@ import { buildServerUrl } from '../utils/buildUrlUtils';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { discoverServerIdentity, getAccessTokenForServer } from '../lib/serverIdentity';
 import { unauthenticatedFetch } from '../utils/pristineFetch';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 interface Request {
   id: string;
@@ -92,6 +93,7 @@ const emptyEnvironment = (): RunnerEnvironment => ({
 });
 
 const UserApiWorkspaceDetail: React.FC = () => {
+  const P = useAgentChatPalette();
   const { workspaceId } = useParams<{ workspaceId: string }>();
   const navigate = useNavigate();
   
@@ -660,7 +662,8 @@ const UserApiWorkspaceDetail: React.FC = () => {
           <DialogContent dividers sx={{ p: 0 }}>
             {testResult?.results && (
               <TableContainer sx={{ maxHeight: '60vh' }}>
-                <Table size="small" stickyHeader>
+                <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', minWidth: 760, '& .MuiTableCell-root': { overflowWrap: 'anywhere' }, }}>
+<colgroup><col style={{ width: 80 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 70 }} /><col style={{ width: 90 }} /><col style={{ width: 220 }} /></colgroup>
                   <TableHead>
                     <TableRow>
                       <TableCell>Method</TableCell>
@@ -777,7 +780,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
               sx={{
                 m: 0,
                 p: 2,
-                bgcolor: 'grey.900',
+                bgcolor: P.surface,
                 color: 'common.white',
                 borderRadius: 1,
                 overflow: 'auto',

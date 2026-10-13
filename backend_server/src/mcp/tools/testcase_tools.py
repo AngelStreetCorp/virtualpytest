@@ -4,10 +4,16 @@ TestCase Tools - Test case operations
 Execute, save, load, and list test cases.
 """
 
-import time
 from typing import Dict, Any
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
+from ..utils.lock_ownership import caller_identity, holder, is_own_lock
+from ..utils.execution_status_constants import DONE_STATES, STATE_COMPLETED, STATE_RUNNING
+from ..utils.execution_status_formatter import (
+    build_status, started_response, status_response, transient_read_response, unknown_execution_response,
+)
+from ..utils.execution_status_mappers import KIND_TESTCASE, map_testcase_status
+from ..utils.execution_status_reader import clamp_wait_seconds, is_transient_read_failure, read_until_done
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
 
 class TestCaseTools:
@@ -19,37 +25,35 @@ class TestCaseTools:
     
     def execute_testcase(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Execute a test case by name (or graph for unsaved testcases)
-        
+        Start a test case by name (or graph for unsaved testcases) and return its execution_id at once
+
+        The run goes on on the host. This tool does NOT wait for the result: call
+        get_testcase_execution_status(execution_id, host_name) until `done` is true.
+
         ⚠️ CRITICAL: Host/Device Selection
         - If user explicitly specifies host_name/device_id: Use those values directly
         - Otherwise: Call get_compatible_hosts(userinterface_name='...') FIRST to find compatible hosts
         - DO NOT use default values blindly without checking compatibility
-        
+
         REUSES existing /server/testcase/execute endpoint (same as frontend)
-        Pattern from server_testcase_routes.py line 167
-        
-        Workflow (when host NOT specified by user):
-            1. Call get_compatible_hosts(userinterface_name='your_ui')
-            2. Use recommended host_name and device_id from response
-            3. Call execute_testcase with those values
-        
-        Workflow (when user specifies host):
-            1. User says "use host X with device Y"
-            2. Call execute_testcase directly with host_name='X', device_id='Y'
-        
+
+        Workflow:
+            1. get_compatible_hosts(userinterface_name='your_ui') unless the user named the host/device
+            2. execute_testcase(testcase_name, host_name, device_id) -> execution_id
+            3. get_testcase_execution_status(execution_id, host_name, device_id) until done is true
+
         Args:
             params: {
                 'testcase_name': str (REQUIRED) - Test case name like 'Login Flow Test',
-                'host_name': str (REQUIRED),
-                'device_id': str (REQUIRED),
-                'userinterface_name': str (REQUIRED),
+                'host_name': str (REQUIRED) - Host to run on, from get_compatible_hosts,
+                'device_id': str (REQUIRED) - Device to run on, from get_compatible_hosts,
+                'userinterface_name': str (OPTIONAL) - Interface override, defaults to the testcase's interface,
                 'graph_json': Dict (OPTIONAL) - For unsaved/temporary testcases only,
-                'team_id': str (OPTIONAL)
+                'team_id': str (OPTIONAL) - Team override
             }
-            
+
         Returns:
-            MCP-formatted response with execution results
+            MCP response with structuredContent {execution_id, host_name, device_id, status: 'running', done: false}
         """
         testcase_name = params.get('testcase_name')
         device_id = params.get('device_id')
@@ -145,51 +149,96 @@ class TestCaseTools:
         # Call EXISTING endpoint - SAME as server_testcase_routes.py line 167
         print(f"[@MCP:execute_testcase] Calling /server/testcase/execute for '{testcase_name}'")
         result = self.api.post('/server/testcase/execute', data=data, params=query_params)
+
+        # Run under the caller's own Take Control (the server makes it subordinate when the
+        # session matches) - never under someone else's (BUG-0402).
+        if (not result.get('success') and result.get('errorType') == 'device_locked'
+                and result.get('owner_type') == 'manual_control' and result.get('owner_session_id')):
+            sessions, caller_user = caller_identity(params, host_name, device_id)
+            if not is_own_lock(result, sessions, caller_user):
+                return {"content": [{"type": "text", "text": (
+                    f"❌ Device '{device_id}' on host '{host_name}' is in use by {holder(result)} "
+                    "(manual_control). Not taking it over - wait until they release it or ask them to.")}],
+                    "isError": True, "errorType": "device_locked"}
+            print(f"[@MCP:execute_testcase] {host_name}:{device_id} held by the caller — running under it")
+            data['session_id'] = result['owner_session_id']
+            result = self.api.post('/server/testcase/execute', data=data, params=query_params)
         
         # Check for errors
         if not result.get('success'):
             error_msg = result.get('error', 'Test case execution failed')
             return {"content": [{"type": "text", "text": f"❌ Execution failed: {error_msg}"}], "isError": True}
         
-        # Check if async (returns execution_id)
-        if result.get('execution_id'):
-            execution_id = result['execution_id']
+        execution_id = result.get('execution_id')
+        if execution_id:
             print(f"[@MCP:execute_testcase] Async execution started: {execution_id}")
-            
-            # POLL for completion - same pattern as navigation/actions
-            return self._poll_testcase_completion(execution_id, device_id, host_name, team_id, testcase_name)
-        
-        # Sync result - format similar to async completion for consistency
+            structured = build_status(execution_id, KIND_TESTCASE, STATE_RUNNING,
+                                      host_name=host_name, device_id=device_id, testcase_name=testcase_name)
+            return started_response(structured, testcase_name, 'get_testcase_execution_status')
+
+        # Sync result (no execution_id): the run is already over
         print(f"[@MCP:execute_testcase] Sync execution completed")
-        
-        # Extract execution details
-        result_success = result.get('success', False)
-        result_type = result.get('result_type', 'error')
-        execution_time_ms = result.get('execution_time_ms', 0)
-        execution_time_s = execution_time_ms / 1000
-        report_url = result.get('report_url', '')
-        logs_url = result.get('logs_url', '')
-        error_msg = result.get('error', '')
-        
-        # Format response similar to execute_script for consistency
-        if result_success:
-            response = f"✅ Test case '{testcase_name}' completed\n"
-            response += f"Result: PASSED ({execution_time_s:.1f}s)\n"
-            if report_url:
-                response += f"\n📄 Report: [View Report]({report_url})"
-            if logs_url:
-                response += f"\n📋 Logs: [View Logs]({logs_url})"
-            return {"content": [{"type": "text", "text": response}], "isError": False}
-        else:
-            response = f"✅ Test case '{testcase_name}' completed\n"
-            response += f"Result: FAILED ({execution_time_s:.1f}s)\n"
-            if error_msg:
-                response += f"Error: {error_msg}\n"
-            if report_url:
-                response += f"\n📄 Report: [View Report]({report_url})"
-            if logs_url:
-                response += f"\n📋 Logs: [View Logs]({logs_url})"
-            return {"content": [{"type": "text", "text": response}], "isError": True}
+        structured = build_status(
+            '', KIND_TESTCASE, STATE_COMPLETED,
+            passed=bool(result.get('success')),
+            report_url=result.get('report_url', ''),
+            logs_url=result.get('logs_url', ''),
+            execution_time_ms=result.get('execution_time_ms'),
+            error=result.get('error'),
+            host_name=host_name, device_id=device_id, testcase_name=testcase_name,
+        )
+        return status_response(structured, testcase_name)
+
+    def get_testcase_execution_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Read the state of a test case started by execute_testcase
+
+        Waits up to wait_seconds (default 20, max 50) for the run to end, then answers with its
+        current state. Call again while `done` is false. A test case that ran and FAILED is
+        `status: completed, passed: false` (not a tool error); isError is only set when the
+        execution_id is unknown.
+
+        REUSES existing /server/testcase/execution/<id>/status endpoint (same as frontend)
+
+        Args:
+            params: {
+                'execution_id': str (REQUIRED) - execution_id returned by execute_testcase,
+                'host_name': str (REQUIRED) - Host the test case runs on (same as given to execute_testcase),
+                'device_id': str (OPTIONAL) - Device the test case runs on,
+                'wait_seconds': int (OPTIONAL) - Seconds to wait for the run to end before answering: default 20, max 50, 0 answers at once,
+                'team_id': str (OPTIONAL) - Team override
+            }
+
+        Returns:
+            MCP response with structuredContent {execution_id, status: running|completed|failed|aborted|unknown, done, passed, report_url, logs_url, execution_time_ms, error, current_block_id}
+        """
+        execution_id = params.get('execution_id')
+        host_name = params.get('host_name')
+        device_id = params.get('device_id')
+        team_id = params.get('team_id', get_team_id())
+
+        if not execution_id:
+            return {"content": [{"type": "text", "text": "Error: execution_id is required"}], "isError": True}
+        if not host_name:
+            return {"content": [{"type": "text", "text": "Error: host_name is required"}], "isError": True}
+
+        query = {'host_name': host_name, 'team_id': team_id}
+        if device_id:
+            query['device_id'] = device_id
+
+        response = read_until_done(
+            lambda: self.api.get(f'/server/testcase/execution/{execution_id}/status', params=query),
+            lambda r: map_testcase_status(execution_id, r)['status'] in DONE_STATES,
+            clamp_wait_seconds(params.get('wait_seconds')),
+        )
+
+        if not response.get('success'):
+            error = response.get('error', 'Unknown error')
+            if is_transient_read_failure(response):
+                return transient_read_response(execution_id, KIND_TESTCASE, error)
+            return unknown_execution_response(execution_id, KIND_TESTCASE, error)
+
+        return status_response(map_testcase_status(execution_id, response))
     
     def execute_testcase_by_id(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -208,7 +257,7 @@ class TestCaseTools:
             }
             
         Returns:
-            MCP-formatted response with execution results
+            Same as execute_testcase: the execution_id at once; read the result with get_testcase_execution_status
         """
         testcase_id = params.get('testcase_id')
         device_id = params.get('device_id')
@@ -277,118 +326,6 @@ class TestCaseTools:
             'userinterface_name': userinterface_name
         })
     
-    def _poll_testcase_completion(self, execution_id: str, device_id: str, host_name: str, team_id: str, testcase_name: str, max_wait: int = 300) -> Dict[str, Any]:
-        """
-        Poll testcase execution until complete
-        
-        REUSES existing /server/testcase/execution/<id>/status API
-        """
-        poll_interval = 2  # 2 seconds for testcases (can be longer)
-        elapsed = 0
-        
-        print(f"[@MCP:poll_testcase] Polling for execution {execution_id} (max {max_wait}s)")
-        
-        while elapsed < max_wait:
-            # Poll status endpoint
-            status = self.api.get(
-                f'/server/testcase/execution/{execution_id}/status',
-                params={'device_id': device_id, 'host_name': host_name, 'team_id': team_id}
-            )
-            
-            # Check for API errors (execution not found, etc.)
-            if not status.get('success'):
-                error_msg = status.get('error', 'Unknown error')
-                print(f"[@MCP:poll_testcase] API error: {error_msg}")
-                return {"content": [{"type": "text", "text": f"❌ Status check failed: {error_msg}"}], "isError": True}
-            
-            # The response is: {'success': True, 'status': {nested execution object}}
-            # We need to extract the nested status object, then get its 'status' field
-            execution_status_obj = status.get('status', {})
-            current_status = execution_status_obj.get('status') if isinstance(execution_status_obj, dict) else None
-            
-            print(f"[@MCP:poll_testcase] current_status: {current_status}")
-            
-            if current_status == 'completed':
-                # Get result from the nested execution_status_obj, not top-level status
-                result = execution_status_obj.get('result', {})
-                result_success = result.get('success', True)  # Check if testcase execution succeeded
-                result_type = result.get('result_type', 'error')
-                execution_time_ms = result.get('execution_time_ms', 0)
-                execution_time_s = execution_time_ms / 1000
-                report_url = result.get('report_url', '')
-                logs_url = result.get('logs_url', '')
-                
-
-                
-                # Format response similar to execute_script for consistency
-                if result_success:
-                    print(f"[@MCP:poll_testcase] Test case completed successfully after {elapsed}s")
-                    response = f"✅ Test case '{testcase_name}' completed\n"
-                    response += f"Result: PASSED ({execution_time_s:.1f}s)\n"
-                    if report_url:
-                        response += f"\n📄 Report: [View Report]({report_url})"
-                    if logs_url:
-                        response += f"\n📋 Logs: [View Logs]({logs_url})"
-                    return {"content": [{"type": "text", "text": response}], "isError": False}
-                else:
-                    # Execution completed but testcase FAILED
-                    print(f"[@MCP:poll_testcase] Test case completed with FAILURES after {elapsed}s")
-                    error_msg = result.get('error', 'Test case execution failed')
-                    response = f"✅ Test case '{testcase_name}' completed\n"
-                    response += f"Result: FAILED ({execution_time_s:.1f}s)\n"
-                    if error_msg:
-                        response += f"Error: {error_msg}\n"
-                    if report_url:
-                        response += f"\n📄 Report: [View Report]({report_url})"
-                    if logs_url:
-                        response += f"\n📋 Logs: [View Logs]({logs_url})"
-                    return {"content": [{"type": "text", "text": response}], "isError": True}
-            
-            elif current_status in ['error', 'failed']:  # Check for BOTH 'error' and 'failed'
-                print(f"[@MCP:poll_testcase] Test case failed after {elapsed}s")
-                error = execution_status_obj.get('error', 'Test case execution failed')
-                result = execution_status_obj.get('result', {})
-                report_url = result.get('report_url', '')
-                logs_url = result.get('logs_url', '')
-                execution_time_ms = result.get('execution_time_ms', elapsed * 1000)
-                
-                # Publish execution event for analyzer
-                self._publish_execution_event(
-                    trigger_type=TriggerType.TESTCASE_COMPLETED,
-                    execution_id=execution_id,
-                    script_name=testcase_name,
-                    success=False,
-                    exit_code=1,
-                    execution_time_ms=execution_time_ms,
-                    report_url=report_url,
-                    logs_url=logs_url,
-                    host_name=host_name,
-                    device_id=device_id,
-                    team_id=team_id
-                )
-                
-                response = f"❌ Test case failed: {error}"
-                if report_url:
-                    response += f"\n📄 Report: [View Report]({report_url})"
-                if logs_url:
-                    response += f"\n📋 Logs: [View Logs]({logs_url})"
-                return {"content": [{"type": "text", "text": response}], "isError": True}
-            
-            elif current_status in ['pending', 'running']:
-                progress = status.get('progress', {})
-                current_block = progress.get('current_block')
-                if current_block:
-                    print(f"[@MCP:poll_testcase] Status: {current_status}, block: {current_block} - {elapsed}s elapsed")
-                else:
-                    print(f"[@MCP:poll_testcase] Status: {current_status} - {elapsed}s elapsed")
-            
-            # Sleep AFTER checking status
-            time.sleep(poll_interval)
-            elapsed += poll_interval
-        
-        print(f"[@MCP:poll_testcase] Test case timed out after {max_wait}s")
-        return {"content": [{"type": "text", "text": f"⏱️ Test case execution timed out after {max_wait}s"}], "isError": True}
-    
     def save_testcase(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Save a test case graph to the database
@@ -400,7 +337,7 @@ class TestCaseTools:
           "nodes": [
             {"id": "start", "type": "start", "data": {"label": "Start"}, "position": {"x": 250, "y": 50}},
             {"id": "nav-1", "type": "navigation", "data": {"action_type": "navigation", "label": "Navigate to home", "target_node_id": "<uuid>", "target_node_label": "home"}, "position": {"x": 250, "y": 150}},
-            {"id": "ver-1", "type": "verification", "data": {"action_type": "verification", "command": "waitForTextToAppear", "label": "Verify page loaded", "params": {"text": "Welcome", "timeout": 10}}, "position": {"x": 250, "y": 250}},
+            {"id": "ver-1", "type": "verification", "data": {"action_type": "verification", "command": "waitForTextToAppear", "label": "Verify page loaded", "params": {"text": "Welcome", "timeout": 10000}}, "position": {"x": 250, "y": 250}},
             {"id": "success", "type": "success", "data": {"label": "Success"}, "position": {"x": 250, "y": 350}},
             {"id": "failure", "type": "failure", "data": {"label": "Failure"}, "position": {"x": 450, "y": 350}}
           ],

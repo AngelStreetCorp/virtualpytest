@@ -962,15 +962,23 @@ def get_remote_controller_by_type(device_id: str, remote_type: str, quiet: bool 
     # so a missing entry manifests as "No remote controller found" in
     # the UI even though the controller is perfectly instantiated.
     # A remote_type may resolve to more than one controller class. 'ir_remote'
-    # covers both the local lirc transport (IRRemoteController) and the networked
-    # IRTrans box (IRTransRemoteController) — the frontend sends 'ir_remote' for
-    # both, and a device only ever has one of them, so this is unambiguous.
+    # covers the local lirc transport (IRRemoteController), the networked
+    # IRTrans box (IRTransRemoteController) and the USB IR Toy over CDC serial
+    # (IRToyRemoteController) — the frontend sends 'ir_remote' for all three, and a
+    # device only ever has one of them, so this is unambiguous.
     controller_class_patterns = {
         'android_tv': ('AndroidTVRemoteController',),
-        'ir_remote': ('IRRemoteController', 'IRTransRemoteController'),
+        'ir_remote': ('IRRemoteController', 'IRTransRemoteController', 'IRToyRemoteController'),
         'android_mobile': ('AndroidMobileRemoteController',),
         'appium': ('AppiumRemoteController',),
         'bluetooth_remote': ('BluetoothRemoteController',),
+        'vega': ('VegaRemoteController',),
+        # Tello drone (TASK-32). REMOTE_CONTROLLERS in controllers/__init__.py
+        # builds it from DEVICE{i}_TELLO_IP, but a controller that exists and a
+        # controller this lookup can find are two different things: without this
+        # key every /host/drone/tello/* route resolved to None and 404'd at the
+        # controller stage (found on vpt-pi4, 2026-10-12).
+        'tello': ('TelloRemoteController',),
     }
 
     target_pattern = controller_class_patterns.get(remote_type)

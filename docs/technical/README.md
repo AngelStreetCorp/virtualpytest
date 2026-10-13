@@ -100,7 +100,7 @@ VirtualPyTest's MCP integration provides AI-powered tools for test automation.
 
 **AI Services:**
 - **[AI Tools](../mcp/mcp_tools_ai.md)** - AI-powered analysis
-- **[Exploration Tools](../mcp/mcp_tools_exploration.md)** - AI exploration
+- **[Map Builder Tool](../mcp/mcp_tools_exploration.md)** - `auto_discover_screen`: rule-based screen mapping (vision model on TV/STB only), not an agent
 - **[Screenshot Tools](../mcp/mcp_tools_screenshot.md)** - Screenshot analysis
 
 ---

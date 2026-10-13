@@ -22,6 +22,7 @@ import cv2
 import numpy as np
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
+from shared.src.lib.utils import cv2_io
 
 # Optional imports for fallback text extraction
 try:
@@ -73,7 +74,7 @@ class VideoAIHelpers:
             # Type enforcement - must be numpy array (cv2 image), not string path
             import numpy as np
             if isinstance(image, str):
-                raise TypeError(f"VideoAI[{self.device_name}]: ❌ CRITICAL ERROR - Expected cv2 image array, got string path: {image}. Use cv2.imread() first!")
+                raise TypeError(f"VideoAI[{self.device_name}]: ❌ CRITICAL ERROR - Expected cv2 image array, got string path: {image}. Use cv2_io.imread() first!")
             
             if not isinstance(image, np.ndarray):
                 raise TypeError(f"VideoAI[{self.device_name}]: ❌ CRITICAL ERROR - Expected cv2 image array (numpy.ndarray), got: {type(image)}")
@@ -88,7 +89,7 @@ class VideoAIHelpers:
             prompt = "Quickly analyze this image for subtitles. Respond with JSON: {\"subtitles_detected\": true/false, \"extracted_text\": \"text or empty\", \"detected_language\": \"language or unknown\", \"confidence\": 0.0-1.0}"
             
             print(f"VideoAI[{self.device_name}]: Calling AI with prompt: {prompt[:100]}...")
-            result = call_vision_ai(prompt, image, max_tokens=300, temperature=0.0)
+            result = call_vision_ai(prompt, image, 'vision.subtitle', max_tokens=300, temperature=0.0)
             print(f"VideoAI[{self.device_name}]: AI call result: success={result.get('success')}, error={result.get('error', 'None')}")
             
             if result['success']:
@@ -182,7 +183,7 @@ class VideoAIHelpers:
                     continue
                 
                 try:
-                    img = cv2.imread(image_path)
+                    img = cv2_io.imread(image_path)
                     if img is None:
                         results.append({
                             'image_path': image_path,
@@ -360,7 +361,7 @@ class VideoAIHelpers:
                     continue
                 
                 try:
-                    img = cv2.imread(image_path)
+                    img = cv2_io.imread(image_path)
                     if img is None:
                         results.append({
                             'image_path': image_path,
@@ -493,7 +494,7 @@ class VideoAIHelpers:
     # Full Image Analysis with AI
     # =============================================================================
     
-    def analyze_full_image_with_ai(self, image_path: str, user_question: str) -> str:
+    def analyze_full_image_with_ai(self, image_path: str, user_question: str, team_id: Optional[str] = None) -> str:
         """
         Quickly analyze full image with AI using user's question.
         
@@ -543,7 +544,7 @@ Be specific about what you see on the device interface."""
             # Use centralized AI service
             from shared.src.lib.utils.ai_utils import call_vision_ai
             
-            result = call_vision_ai(prompt, image_path, max_tokens=200, temperature=0.0)
+            result = call_vision_ai(prompt, image_path, 'vision.ask', max_tokens=200, temperature=0.0, team_id=team_id)
             
             if result['success']:
                 ai_response = result['content'].strip()
@@ -564,7 +565,7 @@ Be specific about what you see on the device interface."""
             print(f"VideoAI[{self.device_name}]: AI image analysis error: {e}")
             return "Analysis error. Please try again."
 
-    def analyze_image_ai_wrapper(self, image_path: str, user_query: str) -> Dict[str, Any]:
+    def analyze_image_ai_wrapper(self, image_path: str, user_query: str, team_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Wrapper method for analyze_full_image_with_ai to match route expectations.
         
@@ -576,7 +577,7 @@ Be specific about what you see on the device interface."""
             Dictionary with success status and AI response
         """
         try:
-            response_text = self.analyze_full_image_with_ai(image_path, user_query)
+            response_text = self.analyze_full_image_with_ai(image_path, user_query, team_id=team_id)
             clean_response = (response_text or '').strip()
             is_error_text = clean_response.lower() in {
                 'image file not found.',
@@ -597,7 +598,8 @@ Be specific about what you see on the device interface."""
                 'error': str(e)
             }
 
-    def analyze_image_complete(self, image_path: str, extract_text: bool = True, include_description: bool = True) -> Dict[str, Any]:
+    def analyze_image_complete(self, image_path: str, extract_text: bool = True, include_description: bool = True,
+                               team_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Combined AI analysis: subtitles + description in single AI call.
         
@@ -631,7 +633,7 @@ Be specific about what you see on the device interface."""
 }"""
             
             print(f"VideoAI[{self.device_name}]: Single AI call with combined prompt")
-            result = call_vision_ai(prompt, image_path, max_tokens=400, temperature=0.0)
+            result = call_vision_ai(prompt, image_path, 'vision.describe', max_tokens=400, temperature=0.0, team_id=team_id)
             
             if result['success']:
                 try:
@@ -735,7 +737,8 @@ Be specific about what you see on the device interface."""
                 'description_analysis': None
             }
 
-    def analyze_image_batch_complete(self, image_paths: list, extract_text: bool = True, include_description: bool = True) -> Dict[str, Any]:
+    def analyze_image_batch_complete(self, image_paths: list, extract_text: bool = True, include_description: bool = True,
+                                     team_id: Optional[str] = None) -> Dict[str, Any]:
         """
         Batch AI analysis: subtitles + description for multiple images in single call.
         
@@ -782,7 +785,7 @@ Respond with JSON array where each element corresponds to one image:
 ]"""
             
             print(f"VideoAI[{self.device_name}]: Batch AI call for {len(image_paths)} images")
-            result = call_vision_ai_batch(prompt, image_paths)
+            result = call_vision_ai_batch(prompt, image_paths, 'vision.describe', team_id=team_id)
             
             if result['success']:
                 try:
@@ -920,7 +923,7 @@ Respond with JSON array where each element corresponds to one image:
     # Language/Subtitle Menu Analysis
     # =============================================================================
     
-    def analyze_language_menu_ai(self, image_path: str) -> Dict[str, Any]:
+    def analyze_language_menu_ai(self, image_path: str, team_id: Optional[str] = None) -> Dict[str, Any]:
         """
         AI-powered language/subtitle menu analysis using centralized AI utilities.
         
@@ -941,7 +944,7 @@ Respond with JSON array where each element corresponds to one image:
             # Use centralized AI utilities
             from shared.src.lib.utils.ai_utils import analyze_language_menu_ai
             
-            result = analyze_language_menu_ai(image_path, context_name=f"VideoAI[{self.device_name}]")
+            result = analyze_language_menu_ai(image_path, context_name=f"VideoAI[{self.device_name}]", team_id=team_id)
             
             if result['success']:
                 # Enhanced logging for debugging
@@ -1119,7 +1122,7 @@ Respond with JSON array where each element corresponds to one image:
         try:
             # Save processed image to temporary file for encoding
             with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tmp_file:
-                cv2.imwrite(tmp_file.name, img)
+                cv2_io.imwrite(tmp_file.name, img)
                 temp_path = tmp_file.name
             
             try:
@@ -1129,7 +1132,7 @@ Respond with JSON array where each element corresponds to one image:
                 # Use centralized AI service
                 from shared.src.lib.utils.ai_utils import call_vision_ai
                 
-                result = call_vision_ai(prompt, temp_path, max_tokens=400, temperature=0.0)
+                result = call_vision_ai(prompt, temp_path, 'vision.banner', max_tokens=400, temperature=0.0)
                 
                 print(f"VideoAI[{self.device_name}]: AI call result: success={result['success']}, provider={result.get('provider_used', 'unknown')} ({analysis_type})")
                 
@@ -1244,7 +1247,7 @@ Respond with JSON array where each element corresponds to one image:
             
             # Load and process the image
             try:
-                img = cv2.imread(image_path)
+                img = cv2_io.imread(image_path)
                 if img is None:
                     return {'success': False, 'error': 'Could not load image'}
                 
@@ -1348,7 +1351,7 @@ JSON ONLY - NO OTHER TEXT - ALWAYS RESPOND"""
             if not os.path.exists(image_path):
                 return False
             
-            img = cv2.imread(image_path)
+            img = cv2_io.imread(image_path)
             if img is None:
                 return False
             

@@ -1,5 +1,6 @@
 import { Box, Typography } from '@mui/material';
 import React from 'react';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 import { useHostControl } from '../../hooks/useHostManager';
 import { buildVerificationResultUrl } from '../../utils/buildUrlUtils';
@@ -39,6 +40,7 @@ export const VerificationTextComparisonDisplay: React.FC<
   focusThreshold,
   onSourceImageClick,
 }) => {
+  const P = useAgentChatPalette();
   // Use registration context to get selected host
   const { selectedHost } = useHostControl();
 
@@ -134,10 +136,10 @@ export const VerificationTextComparisonDisplay: React.FC<
         alignItems: 'flex-start',
         padding: '8px',
         border: `1px solid ${
-          resultType === 'PASS' ? '#4caf50' : resultType === 'ERROR' ? '#ff9800' : '#f44336'
+          resultType === 'PASS' ? P.success : resultType === 'ERROR' ? P.warning : P.error
         }`,
         borderRadius: 1,
-        backgroundColor: 'rgba(0,0,0,0.1)',
+        backgroundColor: P.hoverBg,
       }}
     >
       {sourceUrl && (
@@ -154,7 +156,7 @@ export const VerificationTextComparisonDisplay: React.FC<
               width: '100px',
               height: '100px',
               objectFit: 'contain',
-              border: '1px solid #666',
+              border: `1px solid ${P.borderColor}`,
               borderRadius: '4px',
               cursor: 'pointer',
             }}
@@ -172,7 +174,7 @@ export const VerificationTextComparisonDisplay: React.FC<
             sx={{
               fontSize: '0.7rem',
               display: 'block',
-              color: '#90caf9',
+              color: P.series[1],
               fontFamily: 'monospace',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
@@ -190,7 +192,7 @@ export const VerificationTextComparisonDisplay: React.FC<
             sx={{
               fontSize: '0.7rem',
               display: 'block',
-              color: resultType === 'PASS' ? '#4caf50' : '#f44336',
+              color: resultType === 'PASS' ? P.success : P.error,
               fontFamily: 'monospace',
               whiteSpace: 'pre-wrap',
               wordBreak: 'break-word',
@@ -206,7 +208,7 @@ export const VerificationTextComparisonDisplay: React.FC<
               variant="caption"
               sx={{
                 fontSize: '0.6rem',
-                color: '#ffb74d',
+                color: P.warning,
                 fontWeight: 500,
               }}
             >
@@ -216,7 +218,7 @@ export const VerificationTextComparisonDisplay: React.FC<
               variant="caption"
               sx={{
                 fontSize: '0.6rem',
-                color: '#81c784',
+                color: P.success,
                 fontWeight: 500,
               }}
             >
@@ -237,8 +239,8 @@ export const VerificationTextComparisonDisplay: React.FC<
                 fontWeight: 600,
                 color:
                   focusThreshold !== undefined && focusScore >= focusThreshold
-                    ? '#4caf50'
-                    : '#f44336',
+                    ? P.success
+                    : P.error,
               }}
             >
               {(focusScore * 100).toFixed(0)}%

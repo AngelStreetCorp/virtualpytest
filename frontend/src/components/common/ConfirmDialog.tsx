@@ -2,6 +2,7 @@ import { DialogTitle, DialogContent, DialogActions, Button, Typography } from '@
 import React from 'react';
 
 import { StyledDialog } from './StyledDialog';
+import { useI18n } from '../../i18n/useI18n';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -22,15 +23,16 @@ interface ConfirmDialogProps {
  */
 export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   open,
-  title = 'Confirm Action',
+  title,
   message,
-  confirmText = 'OK',
-  cancelText = 'Cancel',
+  confirmText,
+  cancelText,
   confirmColor = 'primary',
   onConfirm,
   onCancel,
   onDismiss,
 }) => {
+  const { t } = useI18n();
   return (
     <StyledDialog
       open={open}
@@ -38,21 +40,21 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       maxWidth="xs"
       fullWidth
     >
-      <DialogTitle sx={{ pb: 1 }}>{title}</DialogTitle>
+      <DialogTitle sx={{ pb: 1 }}>{title !== undefined ? t(title) : t('Confirm Action')}</DialogTitle>
       <DialogContent>
         <Typography sx={{ whiteSpace: 'pre-line' }}>{message}</Typography>
       </DialogContent>
       <DialogActions sx={{ pt: 1, pb: 2, px: 3, gap: 1 }}>
         {onDismiss && (
           <Button onClick={onDismiss} size="small">
-            Cancel
+            {t('Cancel')}
           </Button>
         )}
         <Button onClick={onCancel} size="small" variant="outlined">
-          {cancelText}
+          {cancelText !== undefined ? t(cancelText) : t('Cancel')}
         </Button>
         <Button onClick={onConfirm} variant="contained" color={confirmColor} size="small">
-          {confirmText}
+          {confirmText !== undefined ? t(confirmText) : t('OK')}
         </Button>
       </DialogActions>
     </StyledDialog>

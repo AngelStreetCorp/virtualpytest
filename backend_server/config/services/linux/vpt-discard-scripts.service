@@ -14,6 +14,8 @@ Group=vpt_user
 WorkingDirectory=/opt/virtualpytest/backend_server
 Environment=PYTHONPATH=/opt/virtualpytest:/opt/virtualpytest/backend_server/src
 Environment=PATH=/opt/virtualpytest/venv/bin:/usr/bin:/usr/local/bin
+# Without it print() is block-buffered under systemd: Sherlock lines reach the journal only at restart.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=/opt/virtualpytest/venv/bin/python scripts/discard_worker.py
 Restart=always
 RestartSec=10

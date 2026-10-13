@@ -2,6 +2,10 @@
  * Node and edge mapping utilities for navigation editor.
  * Converts between backend (API) format and frontend (ReactFlow) format.
  */
+// Conditional edges are a categorical kind; the colour must read on light + dark
+// backgrounds inside the React Flow SVG, so we use the static dark-palette
+// colour (no hooks in this .ts module).
+import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
 
 /** Backend node shape (from API) */
 export interface BackendNode {
@@ -53,9 +57,9 @@ export interface FrontendEdge {
   data: Record<string, unknown>;
 }
 
-const CONDITIONAL_STYLE = { stroke: '#2196f3', strokeWidth: 2 };
+const CONDITIONAL_STYLE = { stroke: AGENT_CHAT_PALETTE.series[1], strokeWidth: 2 };
 const DEFAULT_STYLE = { stroke: '#555', strokeWidth: 2 };
-const CONDITIONAL_MARKER = { type: 'arrowclosed' as const, color: '#2196f3' };
+const CONDITIONAL_MARKER = { type: 'arrowclosed' as const, color: AGENT_CHAT_PALETTE.series[1] };
 const DEFAULT_MARKER = { type: 'arrowclosed' as const, color: '#555' };
 
 /** Map backend node to frontend ReactFlow format */

@@ -1,0 +1,713 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "TASK-33: VirtualPyTest plays 2048 on a web host and an Android phone; score, max tile and speed per run (script game/game_2048).",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Every game_2048 run that recorded a score, quick checks included.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "title": "Runs",
+      "type": "stat",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Runs that played until no move was left (stop reason game_over, or game_over_not_confirmed when the end screen was not recognised).",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 0
+      },
+      "id": 2,
+      "title": "Full games",
+      "type": "stat",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT count(*) FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring}) AND sr.metadata->>'stop_reason' IN ('game_over', 'game_over_not_confirmed')",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "unit": "percent",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 0
+      },
+      "id": 3,
+      "title": "Pass rate",
+      "type": "stat",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT 100.0 * avg(CASE WHEN sr.success THEN 1 ELSE 0 END) FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Best score of a full game.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 0
+      },
+      "id": 4,
+      "title": "Best score",
+      "type": "stat",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT max((sr.metadata->>'final_score')::int) FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring}) AND sr.metadata->>'stop_reason' IN ('game_over', 'game_over_not_confirmed')",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Highest tile reached in a full game.",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 0
+      },
+      "id": 5,
+      "title": "Best tile",
+      "type": "stat",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT max((sr.metadata->>'max_tile')::int) FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring}) AND sr.metadata->>'stop_reason' IN ('game_over', 'game_over_not_confirmed')",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "",
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "unit": "none",
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "blue"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 20,
+        "y": 0
+      },
+      "id": 6,
+      "title": "LLM tokens",
+      "type": "stat",
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "center",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sum(COALESCE((sr.metadata->>'tokens_in')::int,0) + COALESCE((sr.metadata->>'tokens_out')::int,0)) FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "One point per game played to the end, split by platform (path) and player.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 8,
+            "lineWidth": 1,
+            "showPoints": "always",
+            "spanNulls": true,
+            "fillOpacity": 0
+          },
+          "unit": "none",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
+      "id": 7,
+      "title": "Final score per full game",
+      "type": "timeseries",
+      "options": {
+        "legend": {
+          "calcs": [
+            "max",
+            "mean",
+            "count"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT sr.started_at AS time, (sr.metadata->>'path') || ' / ' || (sr.metadata->>'player') AS metric, (sr.metadata->>'final_score')::int AS value FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring}) AND sr.metadata->>'stop_reason' IN ('game_over', 'game_over_not_confirmed') ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "description": "Average time from a move to a settled board read from the captured pixels (plus the LLM decision for llm runs). Phase-1 web runs, which read the DOM, are left out.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "points",
+            "pointSize": 8,
+            "lineWidth": 1,
+            "showPoints": "always",
+            "spanNulls": true,
+            "fillOpacity": 0
+          },
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
+      "id": 8,
+      "title": "Seconds per move",
+      "type": "timeseries",
+      "options": {
+        "legend": {
+          "calcs": [
+            "max",
+            "mean",
+            "count"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT sr.started_at AS time, sr.metadata->>'path' AS metric, (sr.metadata->>'avg_move_ms')::numeric / 1000 AS value FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring}) AND sr.metadata ? 'userinterface' ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 12
+      },
+      "id": 9,
+      "title": "Runs",
+      "type": "table",
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Report"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "markdown"
+                }
+              },
+              {
+                "id": "custom.align",
+                "value": "center"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Result"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-text"
+                }
+              },
+              {
+                "id": "mappings",
+                "value": [
+                  {
+                    "type": "value",
+                    "options": {
+                      "PASS": {
+                        "color": "green",
+                        "index": 0
+                      },
+                      "FAIL": {
+                        "color": "red",
+                        "index": 1
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT sr.started_at AS \"Started\", sr.host_name AS \"Host\", sr.device_name AS \"Device\", sr.metadata->>'path' AS \"Platform\", sr.metadata->>'player' AS \"Player\", (sr.metadata->>'final_score')::int AS \"Score\", (sr.metadata->>'max_tile')::int AS \"Max tile\", (sr.metadata->>'move_count')::int AS \"Moves\", (sr.metadata->>'board_resyncs')::int AS \"Resyncs\", sr.metadata->>'stop_reason' AS \"Stop reason\", CASE WHEN sr.success THEN 'PASS' ELSE 'FAIL' END AS \"Result\", COALESCE('<a href=\"' || sr.html_report_r2_url || '\" target=\"_blank\">report</a>', '') AS \"Report\" FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring}) ORDER BY sr.started_at DESC LIMIT 100",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 42,
+  "tags": [
+    "game",
+    "game_2048",
+    "showcase"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT sr.metadata->>'path' FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'path' ORDER BY 1",
+        "includeAll": true,
+        "label": "Platform",
+        "multi": true,
+        "name": "path",
+        "options": [],
+        "query": "SELECT DISTINCT sr.metadata->>'path' FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'path' ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT sr.metadata->>'player' FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'player' ORDER BY 1",
+        "includeAll": true,
+        "label": "Player",
+        "multi": true,
+        "name": "player",
+        "options": [],
+        "query": "SELECT DISTINCT sr.metadata->>'player' FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'player' ORDER BY 1",
+        "refresh": 2,
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "2048 Game",
+  "uid": "game-2048"
+}

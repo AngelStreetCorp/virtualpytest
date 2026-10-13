@@ -19,6 +19,12 @@ import tempfile
 import html
 import importlib.util
 from collections import defaultdict
+from pathlib import Path
+
+_REPO = Path(__file__).resolve().parents[4]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+from shared.src.lib.utils.report_theme import report_theme_head  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 _spec = importlib.util.spec_from_file_location(
@@ -130,19 +136,19 @@ def main():
     summary = (f'{len(paths)} images · <b class="ok">{n_ok} ok</b> · '
                f'<b class="warn">{n_nofocus} no-focus</b> · <b class="fail">{n_empty} empty</b> · '
                f'<b class="fail">{n_failed} failed</b> &nbsp;<small>(exporter v5)</small>')
-    doc = f'''<!doctype html><meta charset="utf-8"><title>DOM exporter report (v5)</title>
+    doc = f'''<!doctype html><meta charset="utf-8">{report_theme_head()}<title>DOM exporter report (v5)</title>
 <style>
-body{{font:13px -apple-system,Segoe UI,Arial;background:#111;color:#ddd;margin:0;padding:16px}}
-h1{{font-size:18px}} h3{{margin:28px 0 6px;border-top:1px solid #333;padding-top:14px}}
-small{{color:#888;font-weight:normal}} a{{color:#6cf;text-decoration:none}}
-table{{border-collapse:collapse;width:100%;font-size:12px}} td,th{{border:1px solid #333;padding:3px 6px;text-align:left;vertical-align:top}}
-tr.ok td:first-child{{border-left:3px solid #2c2}} tr.warn td:first-child{{border-left:3px solid #fb0}} tr.fail td:first-child{{border-left:3px solid #f44}}
-.ok{{color:#3d3}} .warn{{color:#fb0}} .fail,.bad{{color:#f66}}
+body{{font:13px -apple-system,Segoe UI,Arial;background:var(--vpt-page);color:var(--vpt-text);margin:0;padding:16px}}
+h1{{font-size:18px}} h3{{margin:28px 0 6px;border-top:1px solid var(--vpt-border);padding-top:14px}}
+small{{color:var(--vpt-muted);font-weight:normal}} a{{color:var(--vpt-accent-text);text-decoration:none}}
+table{{border-collapse:collapse;width:100%;font-size:12px}} td,th{{border:1px solid var(--vpt-border);padding:3px 6px;text-align:left;vertical-align:top}}
+tr.ok td:first-child{{border-left:3px solid var(--vpt-success)}} tr.warn td:first-child{{border-left:3px solid var(--vpt-warning)}} tr.fail td:first-child{{border-left:3px solid var(--vpt-error)}}
+.ok{{color:var(--vpt-success)}} .warn{{color:var(--vpt-warning)}} .fail,.bad{{color:var(--vpt-error)}}
 .grid{{display:grid;grid-template-columns:560px 1fr;gap:16px;align-items:start}}
-.grid img{{width:560px;border:1px solid #333;border-radius:4px}}
-.data h4{{margin:8px 0 2px;color:#9cf}} ul{{margin:0;padding-left:18px}} li.foc{{color:#f66;font-weight:bold}}
-.box{{color:#777;font-size:11px}} .graph div{{font-family:monospace;font-size:11px;color:#bbb}} .graph i{{color:#7a7}}
-.flag{{display:inline-block;background:#532;color:#fb0;border-radius:3px;padding:1px 6px;margin-left:6px;font-size:11px}}
+.grid img{{width:560px;border:1px solid var(--vpt-border);border-radius:4px}}
+.data h4{{margin:8px 0 2px;color:var(--vpt-steel)}} ul{{margin:0;padding-left:18px}} li.foc{{color:var(--vpt-error);font-weight:bold}}
+.box{{color:var(--vpt-muted);font-size:11px}} .graph div{{font-family:monospace;font-size:11px;color:var(--vpt-text-2)}} .graph i{{color:var(--vpt-success)}}
+.flag{{display:inline-block;background:var(--vpt-warning-tint);color:var(--vpt-warning);border-radius:3px;padding:1px 6px;margin-left:6px;font-size:11px}}
 </style>
 <h1>DOM exporter report &nbsp;<small>{summary}</small></h1>
 <table><tr><th>image</th><th>screen</th><th>#</th><th>types</th><th>focus</th><th>flags</th></tr>{''.join(rows)}</table>

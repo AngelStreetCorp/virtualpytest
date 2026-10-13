@@ -11,6 +11,18 @@ import { Alert } from '../../types/pages/Monitoring_Types';
 
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api, apiClient } from '../../utils/apiClient';
+export interface TriageStats {
+  success: boolean;
+  calls: number;
+  errors: number;
+  tokens_in: number;
+  tokens_out: number;
+  avoided: number;
+  screens: { expected: number; bad: number; unknown: number };
+  /** Set while the last triage model request failed: `reason` is its ai_calls error_type. */
+  unavailable: { reason: string; since: string } | null;
+}
+
 export const useAlerts = () => {
   /**
    * Get all alerts (optimized single query)
@@ -169,12 +181,26 @@ export const useAlerts = () => {
     [],
   );
 
+  const deleteAlert = useMemo(
+    () => async (alertId: string): Promise<void> => {
+      await api.delete(buildServerUrl(`/server/alerts/deleteAlert/${alertId}`));
+    },
+    [],
+  );
+
+  const getTriageStats = useMemo(
+    () => async (): Promise<TriageStats> => api.get(buildServerUrl('/server/alerts/triageStats')),
+    [],
+  );
+
   return {
+    getTriageStats,
     getAllAlerts,
     getActiveAlerts,
     getClosedAlerts,
     updateCheckedStatus,
     updateDiscardStatus,
     deleteAllAlerts,
+    deleteAlert,
   };
 };

@@ -10,10 +10,10 @@
  */
 
 import React, { useEffect } from 'react';
-import { Box, FormControl, InputLabel, Select, MenuItem, Typography, useTheme } from '@mui/material';
+import { Box, FormControl, InputLabel, Select, MenuItem, Tooltip, Typography } from '@mui/material';
 
-import { useKpiActionSets } from '../../hooks/script/useKpiActionSets';
-import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
+import { KpiActionSet, useKpiActionSets } from '../../hooks/script/useKpiActionSets';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface EdgeKpiSelectorProps {
   userinterfaceName?: string;
@@ -42,7 +42,34 @@ interface EdgeKpiSelectorProps {
    * Mirrors NavigationNodeSelector's allowNone.
    */
   allowNone?: boolean;
+  /**
+   * When true, judge each edge by its REVERSE direction instead of its own:
+   * every edge is listed, and those whose reverse has no actions or can't be
+   * measured are shown in red and can't be selected (tooltip says what to fix). Used by
+   * standby_measurement, which picks the into-standby edge but times the
+   * reverse wake (standby → live/home).
+   */
+  requireReverseKpi?: boolean;
 }
+
+/** Why the reverse direction of `a` can't be run and measured, or null. */
+const reverseKpiBlocker = (a: KpiActionSet): string | null => {
+  if (!a.reverse_label) {
+    return `"${a.label}" has no reverse direction, so the wake can't be timed.`;
+  }
+  if (!a.reverse_has_actions) {
+    return (
+      `The wake "${a.reverse_label}" has no actions, so it can't be run. In the ` +
+      `edge editor, add its actions (e.g. POWER) for this variant.`
+    );
+  }
+  if (a.reverse_kpi) return null;
+  return (
+    `The wake "${a.reverse_label}" has no KPI measurement. In the edge editor, ` +
+    `add KPI references to "${a.reverse_label}", or enable "Use target node ` +
+    `verifications" with a verification (or fingerprint) on "${a.from_label}".`
+  );
+};
 
 export const EdgeKpiSelector: React.FC<EdgeKpiSelectorProps> = ({
   userinterfaceName,
@@ -55,12 +82,15 @@ export const EdgeKpiSelector: React.FC<EdgeKpiSelectorProps> = ({
   fullWidth = true,
   toLabelEquals,
   allowNone = false,
+  requireReverseKpi = false,
 }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
-  const PALETTE = AGENT_CHAT_PALETTE;
+  const livePalette = useAgentChatPalette();
 
-  const { actionSets: allActionSets, loading } = useKpiActionSets(userinterfaceName, variant);
+  const { actionSets: allActionSets, loading } = useKpiActionSets(
+    userinterfaceName,
+    variant,
+    !requireReverseKpi,
+  );
 
   // Apply the optional target-node filter (exact to_label match). Keyed on the
   // normalized string so the memo (and the effects below) stay stable.
@@ -70,35 +100,45 @@ export const EdgeKpiSelector: React.FC<EdgeKpiSelectorProps> = ({
     return allActionSets.filter((a) => (a.to_label || '').trim().toLowerCase() === toLabelNeedle);
   }, [allActionSets, toLabelNeedle]);
 
+  const blockerFor = React.useCallback(
+    (a: KpiActionSet) => (requireReverseKpi ? reverseKpiBlocker(a) : null),
+    [requireReverseKpi],
+  );
+  const selectable = React.useMemo(
+    () => actionSets.filter((a) => !blockerFor(a)),
+    [actionSets, blockerFor],
+  );
+
   // Reset if the selected label is no longer in the list (e.g. user switched
   // userinterface, or it's now filtered out). Same defensive reset as VariantSelector.
   useEffect(() => {
-    if (value && actionSets.length > 0 && !actionSets.some((a) => a.label === value)) {
+    if (value && actionSets.length > 0 && !selectable.some((a) => a.label === value)) {
       onChange('');
     }
-  }, [actionSets, value, onChange]);
+  }, [actionSets, selectable, value, onChange]);
 
   // Preselect a default when the field is empty: prefer the ENTRY → home
   // action_set (present in every tree) and fall back to the first entry. With a
   // filter active, ENTRY → home is filtered out and the first match wins.
+  // Blocked (red) edges are never preselected.
   // Skipped entirely when allowNone: an empty closing edge is a valid choice.
   useEffect(() => {
-    if (allowNone || value || loading || actionSets.length === 0) return;
-    const entryToHome = actionSets.find(
+    if (allowNone || value || loading || selectable.length === 0) return;
+    const entryToHome = selectable.find(
       (a) =>
         a.from_label.toLowerCase() === 'entry' &&
         a.to_label.toLowerCase() === 'home',
     );
-    onChange((entryToHome ?? actionSets[0]).label);
-  }, [allowNone, actionSets, value, loading, onChange]);
+    onChange((entryToHome ?? selectable[0]).label);
+  }, [allowNone, selectable, value, loading, onChange]);
 
   const styles = {
     height: size === 'small' ? 32 : 40,
     fontSize: size === 'small' ? '0.85rem' : '0.875rem',
-    bgcolor: isDarkMode ? PALETTE.inputBg : '#fff',
+    bgcolor: livePalette.inputBg,
     borderRadius: 1.5,
     '& .MuiOutlinedInput-notchedOutline': {
-      borderColor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+      borderColor: livePalette.borderColor,
     },
   };
 
@@ -133,7 +173,13 @@ export const EdgeKpiSelector: React.FC<EdgeKpiSelectorProps> = ({
         value={value || ''}
         label={label}
         notched
-        onChange={(e) => onChange((e.target.value as string) || '')}
+        onChange={(e) => {
+          const next = (e.target.value as string) || '';
+          // Blocked rows stay clickable so their tooltip shows; ignore the pick.
+          const picked = actionSets.find((a) => a.label === next);
+          if (picked && blockerFor(picked)) return;
+          onChange(next);
+        }}
         sx={styles}
         renderValue={(v) => (v ? displayForValue(v as string) : placeholder)}
         displayEmpty
@@ -143,10 +189,19 @@ export const EdgeKpiSelector: React.FC<EdgeKpiSelectorProps> = ({
             <em>(none)</em>
           </MenuItem>
         )}
-        {actionSets.map((a) => (
+        {actionSets.map((a) => {
+          const blocker = blockerFor(a);
           // Key on label, not action_set_id: conditional siblings share the
           // owner's action_set_id (distinct labels), so id alone collides.
-          <MenuItem key={a.label} value={a.label}>
+          // Not `disabled`: MUI drops pointer events on disabled items, which
+          // would also kill the tooltip. onChange ignores blocked picks instead.
+          const item = (
+          <MenuItem
+            key={a.label}
+            value={a.label}
+            aria-disabled={blocker ? true : undefined}
+            sx={blocker ? { color: 'error.main', cursor: 'not-allowed' } : undefined}
+          >
             {a.kpi_name ? (
               // Friendly name as the primary label, raw edge name as subtext.
               <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
@@ -159,7 +214,15 @@ export const EdgeKpiSelector: React.FC<EdgeKpiSelectorProps> = ({
               a.label
             )}
           </MenuItem>
-        ))}
+          );
+          return blocker ? (
+            <Tooltip key={a.label} title={blocker} placement="left" arrow>
+              {item}
+            </Tooltip>
+          ) : (
+            item
+          );
+        })}
       </Select>
     </FormControl>
   );

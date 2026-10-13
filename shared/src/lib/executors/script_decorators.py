@@ -6,7 +6,8 @@ Ultra-simple decorator-based script execution
 import functools
 from typing import Callable, Any
 from .script_executor import ScriptExecutor, handle_keyboard_interrupt, handle_unexpected_error
-from .cli_arg_utils import str_to_bool
+import sys
+from .cli_arg_utils import str_to_bool, normalize_argv, unknown_args_message, split_unknown_args
 
 # Global context for current script execution
 _current_context = None
@@ -99,15 +100,25 @@ def script(name: str, description: str, default_device: str = "host", capture_ar
                         parser.add_argument(arg_name, type=str_to_bool, default=default_bool,
                                            help=f'{arg_name.replace("--", "").replace("_", " ").title()} (default: {default_value})')
             
-            args, unknown_args = parser.parse_known_args()
-            if unknown_args:
-                print(f"[script_decorator] Ignoring unknown arguments: {' '.join(unknown_args)}")
+            argv, alias_warnings = normalize_argv(sys.argv[1:])
+            for warning in alias_warnings:
+                print(f"[script_decorator] {warning}")
+            args, unknown_args = parser.parse_known_args(argv)
+            tolerated_args, rejected_args = split_unknown_args(unknown_args)
+            if tolerated_args:
+                print(f"[script_decorator] Launcher flags (consumed by the executor): {' '.join(tolerated_args)}")
+            if rejected_args:
+                # Fail loudly: an ignored flag silently keeps a default and fails
+                # later with a misleading error (--userinterface_name used to end
+                # in "User interface 'example_mobile' not found").
+                print(f"❌ [script_decorator] {unknown_args_message(name, rejected_args, parser)}")
+                sys.exit(2)
             print(f"[script_decorator] Parsed args: {vars(args)}")
             
             context = executor.setup_execution_context(args, enable_db_tracking=True)
             
             if context.error_message:
-                userinterface = getattr(args, 'userinterface_name', None)
+                userinterface = getattr(args, 'userinterface', None)
                 executor.cleanup_and_exit(context, userinterface)
                 return
             
@@ -115,6 +126,9 @@ def script(name: str, description: str, default_device: str = "host", capture_ar
             _current_context = context
             _current_executor = executor
             context.args = args
+            # Report translations declared in the source (`main._i18n`, set after decoration like
+            # _script_args); merged over `<script>.i18n.json`. Virtual scripts have only this.
+            context.i18n_strings = getattr(func, '_i18n', None) or getattr(wrapper, '_i18n', None)
             
             try:
                 result = func()
@@ -129,7 +143,7 @@ def script(name: str, description: str, default_device: str = "host", capture_ar
             except Exception as e:
                 handle_unexpected_error(name, e)
             finally:
-                userinterface = getattr(args, 'userinterface_name', None)
+                userinterface = getattr(args, 'userinterface', None)
                 executor.cleanup_and_exit(context, userinterface)
                 _current_context = None
                 _current_executor = None

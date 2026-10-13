@@ -98,7 +98,11 @@ def _first_publish(dev_ui: Dict, team_id: str, published_by: Optional[str]) -> D
     # 1) Prod UI row: same name as dev (mode disambiguates), linked + versioned.
     #    Inserted directly (create_userinterface doesn't know the mode columns).
     prod_id = str(uuid4())
-    supabase.table('userinterfaces').insert({
+    # Snapshot metadata: the prod row carries the same name / models /
+    # version range as its dev source. `company` is metadata an editor types
+    # in once and never changes, so the prod snapshot inherits it — a
+    # published prod is a frozen fingerprint of the dev row's metadata.
+    insert_payload = {
         'id': prod_id,
         'name': dev_ui['name'],
         'models': dev_ui.get('models', []),
@@ -111,7 +115,12 @@ def _first_publish(dev_ui: Dict, team_id: str, published_by: Optional[str]) -> D
         'published_version': 1,
         'created_at': now,
         'updated_at': now,
-    }).execute()
+    }
+    # company is a free-text label; a NULL dev row produces a NULL prod row
+    # (the safe default — same behaviour as a row that pre-dates the column).
+    if dev_ui.get('company'):
+        insert_payload['company'] = dev_ui['company']
+    supabase.table('userinterfaces').insert(insert_payload).execute()
 
     # 2) Kill the after_userinterface_insert trigger's default `<name>_navigation`
     #    tree — the prod UI must contain ONLY the published hierarchy.
@@ -333,6 +342,10 @@ def _republish(dev_ui: Dict, prod_ui: Dict, team_id: str, published_by: Optional
         'min_version': dev_ui.get('min_version', ''),
         'max_version': dev_ui.get('max_version', ''),
         'updated_at': now,
+        # Propagate `company` on republish: a publish reflects the current dev
+        # metadata. NULL here is the safe default; an editor clearing the dev
+        # company clears the prod company too.
+        'company': dev_ui.get('company'),
     }).eq('id', prod_ui['id']).eq('team_id', team_id).execute()
 
     counts = {

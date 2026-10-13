@@ -16,6 +16,10 @@
 #     sudo systemctl restart vpt-transcript.service
 #
 #   Equivalent one-off: transcript_accumulator.py --transcript true
+#
+#   LLM spelling/grammar correction of the live lines (needs transcription on):
+#   TRANSCRIPT_AUTOCORRECT=true in backend_host/src/.env, then restart this service.
+#   Model: Settings > AI routing > "Transcript correction" (text.transcript_correction).
 
 [Unit]
 Description=VirtualPyTest Transcript Accumulator - Audio Detection & Transcription

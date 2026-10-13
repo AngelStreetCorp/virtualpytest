@@ -2,12 +2,11 @@
 Slack Sync Service
 Listens to AI agent conversation events and posts to Slack channel
 
-Configuration stored in: config/integrations/slack_config.json (like JIRA)
+Configuration stored in: ~/.config/virtualpytest/slack_config.json (like JIRA; see integration_state.py)
 """
 import os
 import sys
 import json
-from pathlib import Path
 from datetime import datetime
 from typing import Dict, Optional
 
@@ -27,9 +26,10 @@ except ImportError:
     print("[slack_sync] ⚠️  slack-sdk not installed. Run: pip install slack-sdk")
     SLACK_SDK_AVAILABLE = False
 
+from backend_server.src.lib.utils.integration_state import state_path
+
 # Config paths
-BACKEND_SERVER_ROOT = Path(__file__).parent.parent.parent
-CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_config.json'
+CONFIG_PATH = state_path('slack_config.json')
 
 
 def verify_slack_signature(raw_body: bytes, timestamp: str, signature: str) -> tuple:
@@ -79,7 +79,7 @@ def verify_slack_signature(raw_body: bytes, timestamp: str, signature: str) -> t
     if not hmac.compare_digest(expected, signature):
         return False, 'signature mismatch'
     return True, 'ok'
-THREADS_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_threads.json'
+THREADS_PATH = state_path('slack_threads.json')
 
 
 class SlackSyncService:

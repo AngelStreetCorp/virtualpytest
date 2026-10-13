@@ -2,7 +2,7 @@
 AI-test feature - backend_host part (docs/technical/FEATURES.md).
 
 Registered by shared/src/lib/utils/features.py when the feature is enabled:
-  /host/testprompt/execute  run a Test Prompt on a device (host_testprompt_routes)
+  /host/testprompt/runningLog  keep running.log in step with an exploration run (host_testprompt_routes)
   /host/crawl/app           BFS app crawl, web + Android (host_crawl_routes + app_crawler)
 Runner hosts (HOST_TYPE=runner_*) only serve script execution, like routes/registry.py.
 """

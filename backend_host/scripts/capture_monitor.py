@@ -56,6 +56,7 @@ sys.path.insert(0, project_root)
 
 from shared.src.lib.utils.storage_path_utils import (
     get_capture_base_directories, 
+    parse_active_captures_conf,
     get_capture_storage_path, 
     get_capture_folder, 
     get_device_info_from_capture_folder,
@@ -69,6 +70,13 @@ from shared.src.lib.utils.storage_path_utils import (
 from shared.src.lib.utils.audio_transcription_utils import check_audio_continuous
 from shared.src.lib.utils.zapping_detector_utils import detect_and_record_zapping
 from detector import detect_issues
+import cv2
+# OpenCV's own thread pool (pthreads backend, NOT governed by OMP_NUM_THREADS
+# above) defaults to one worker per CPU. On 320x180 thumbnails each parallel_for
+# costs more in pool wake/spin than it saves: on an 8-thread host the 7 pool
+# workers burned ~half of the monitor's CPU (OPTIMIZATION.md §6). Parallelism
+# here comes from the per-device threads instead (cv2 releases the GIL).
+cv2.setNumThreads(0)
 from incident_manager import IncidentManager
 from monitor_localize import MonitorLocalizer
 
@@ -143,6 +151,10 @@ def log_memory_usage():
         _last_memory_log = current_time
     except Exception as e:
         logger.warning(f"Failed to log memory usage: {e}")
+
+# audio_status.json is rewritten every 5-10 s by vpt-transcript's audio check.
+AUDIO_STATUS_MAX_AGE_S = 60
+
 
 def _format_volume_db(volume) -> str:
     """Render a mean volume for logs. None means the device captures no audio at all;
@@ -261,67 +273,20 @@ class FrameMonitor:
         # route fails at 3s, so 5s is the smallest threshold that won't fire on
         # normal fps jitter but still catches real stalls before they compound.
         self.stall_warn_threshold_s = 5.0
-        
-        for capture_dir in capture_dirs:
-            # Use centralized path utilities (handles both hot and cold storage)
-            capture_folder = get_capture_folder(capture_dir)
-            
-            # Get parent directory (device base path)
-            if '/hot/' in capture_dir:
-                # Hot storage: /var/www/html/stream/capture1/hot/captures
-                # Parent is /var/www/html/stream/capture1
-                parent_dir = '/'.join(capture_dir.split('/')[:-2])
-            else:
-                # Cold storage: /var/www/html/stream/capture1/captures
-                # Parent is /var/www/html/stream/capture1
-                parent_dir = os.path.dirname(capture_dir)
-            
-            self.dir_to_info[capture_dir] = {
-                'capture_dir': parent_dir,
-                'capture_folder': capture_folder
-            }
-            
-            if os.path.exists(capture_dir):
-                if IS_LINUX:
-                    self.inotify.add_watch(capture_dir)
-                # macOS watchdog scheduling happens in run() after all dirs are registered
-                logger.info(f"Watching: {capture_dir} -> {capture_folder}")
-            else:
-                logger.warning(f"Directory not found: {capture_dir}")
-            
-            # LIFO queue (stack) - process newest frames first to avoid stale analysis
-            work_queue = LifoQueue(maxsize=1000)
-            self.device_queues[capture_folder] = work_queue
-            
-            # Initialize lock for this device (one lock per device)
-            self.zapping_locks[capture_folder] = threading.Lock()
-            
-            worker = threading.Thread(
-                target=self._device_worker,
-                args=(capture_folder, work_queue),
-                daemon=True,
-                name=f"worker-{capture_folder}"
-            )
-            worker.start()
-            self.device_workers[capture_folder] = worker
-            logger.info(f"Started worker thread: {capture_folder}")
 
-            # Dedicated incident worker (R2 upload + Supabase create/resolve).
-            # Bounded queue + coalescing drain in _incident_worker keeps it
-            # near-empty in steady state; the cap only matters if Supabase/R2
-            # is unreachable, in which case we drop (state machine recovers).
-            incident_queue = queue.Queue(maxsize=200)
-            self.incident_queues[capture_folder] = incident_queue
-            incident_worker = threading.Thread(
-                target=self._incident_worker,
-                args=(capture_folder, incident_queue),
-                daemon=True,
-                name=f"incident-{capture_folder}"
-            )
-            incident_worker.start()
-            self.incident_workers[capture_folder] = incident_worker
-            logger.info(f"Started incident worker thread: {capture_folder}")
-        
+        # Capture dirs that have a live file watch. A registered dir can lack one when it
+        # did not exist yet at startup; _rescan_capture_dirs retries it.
+        self._watched_dirs = set()
+        self._missing_logged = set()
+        self._watchdog_handler = None  # macOS: set in _run_watchdog, then watches are scheduled
+        # active_captures.conf is re-read this often so a grabber that run_ffmpeg.sh
+        # appended after we started is still picked up (BUG-0220).
+        self.dir_rescan_interval_s = 10.0
+        self._last_dir_rescan = time.monotonic()
+
+        for capture_dir in capture_dirs:
+            self._register_capture_dir(capture_dir)
+
         # Single background localize worker for all devices (~1/sec each). Kept off
         # the per-frame workers so the title-layer OCR/translate spike on a screen
         # change never delays freeze/blackscreen processing.
@@ -335,6 +300,114 @@ class FrameMonitor:
 
         self.process_existing_frames(capture_dirs)
 
+    def _register_capture_dir(self, capture_dir):
+        """Watch one capture dir and start its frame + incident workers."""
+        # Use centralized path utilities (handles both hot and cold storage)
+        capture_folder = get_capture_folder(capture_dir)
+        
+        # Get parent directory (device base path)
+        if '/hot/' in capture_dir:
+            # Hot storage: /var/www/html/stream/capture1/hot/captures
+            # Parent is /var/www/html/stream/capture1
+            parent_dir = '/'.join(capture_dir.split('/')[:-2])
+        else:
+            # Cold storage: /var/www/html/stream/capture1/captures
+            # Parent is /var/www/html/stream/capture1
+            parent_dir = os.path.dirname(capture_dir)
+        
+        self.dir_to_info[capture_dir] = {
+            'capture_dir': parent_dir,
+            'capture_folder': capture_folder
+        }
+        
+        # LIFO queue (stack) - process newest frames first to avoid stale analysis
+        work_queue = LifoQueue(maxsize=1000)
+        self.device_queues[capture_folder] = work_queue
+        
+        # Initialize lock for this device (one lock per device)
+        self.zapping_locks[capture_folder] = threading.Lock()
+        
+        worker = threading.Thread(
+            target=self._device_worker,
+            args=(capture_folder, work_queue),
+            daemon=True,
+            name=f"worker-{capture_folder}"
+        )
+        worker.start()
+        self.device_workers[capture_folder] = worker
+        logger.info(f"Started worker thread: {capture_folder}")
+
+        # Dedicated incident worker (R2 upload + Supabase create/resolve).
+        # Bounded queue + coalescing drain in _incident_worker keeps it
+        # near-empty in steady state; the cap only matters if Supabase/R2
+        # is unreachable, in which case we drop (state machine recovers).
+        incident_queue = queue.Queue(maxsize=200)
+        self.incident_queues[capture_folder] = incident_queue
+        incident_worker = threading.Thread(
+            target=self._incident_worker,
+            args=(capture_folder, incident_queue),
+            daemon=True,
+            name=f"incident-{capture_folder}"
+        )
+        incident_worker.start()
+        self.incident_workers[capture_folder] = incident_worker
+        logger.info(f"Started incident worker thread: {capture_folder}")
+
+        # Last: the watch may deliver events at once (watchdog calls back on its own
+        # thread), and _handle_file_event needs this dir's queue to exist.
+        self._add_watch(capture_dir)
+
+    def _add_watch(self, capture_dir):
+        """Start watching capture_dir if it exists. Returns True when watched."""
+        if capture_dir in self._watched_dirs:
+            return True
+        if not os.path.exists(capture_dir):
+            if capture_dir not in self._missing_logged:
+                self._missing_logged.add(capture_dir)
+                logger.warning(f"Directory not found: {capture_dir} (retried every "
+                               f"{self.dir_rescan_interval_s:.0f}s)")
+            return False
+        if IS_LINUX:
+            self.inotify.add_watch(capture_dir)
+        elif self._watchdog_handler is not None:
+            self.observer.schedule(self._watchdog_handler, capture_dir, recursive=False)
+        else:
+            return False  # macOS: _run_watchdog schedules every registered dir on start
+        self._watched_dirs.add(capture_dir)
+        self._missing_logged.discard(capture_dir)
+        logger.info(f"Watching: {capture_dir} -> {self.dir_to_info[capture_dir]['capture_folder']}")
+        return True
+
+    def _maybe_rescan_capture_dirs(self):
+        """Pick up capture dirs added to active_captures.conf after startup.
+
+        run_ffmpeg.sh rewrites active_captures.conf one grabber at a time while
+        vpt-monitor may already be starting (a cascaded restart starts them within
+        seconds). The list read in main() can therefore miss the last grabbers, and
+        nothing else would ever add them: that device's frames were then never
+        analysed while ffmpeg, the stall watcher and systemd all looked healthy
+        (BUG-0220). Re-reading the conf is a small file read every ~10s; dirs are
+        only ever added here, never removed.
+        """
+        now = time.monotonic()
+        if now - self._last_dir_rescan < self.dir_rescan_interval_s:
+            return
+        self._last_dir_rescan = now
+        try:
+            for capture in parse_active_captures_conf():
+                base_dir = capture['directory']
+                if not os.path.isdir(base_dir):
+                    continue
+                capture_dir = get_captures_path(os.path.basename(base_dir))
+                if capture_dir not in self.dir_to_info:
+                    logger.warning(f"🆕 Capture dir added after startup, now monitoring: {capture_dir}")
+                    self._register_capture_dir(capture_dir)
+            for capture_dir in list(self.dir_to_info):
+                if capture_dir not in self._watched_dirs:
+                    self._add_watch(capture_dir)
+        except Exception as e:
+            logger.error(f"[dir_rescan] failed: {e}")
+
     def _localize_worker(self):
         """Compute Localize for each device ~1/sec from its newest captured frame.
 
@@ -343,12 +416,20 @@ class FrameMonitor:
         detection. Best-effort: any failure is logged and skipped; the overlay simply
         keeps the last result. localize_frame returns None for devices with no
         DEVICE{N}_USERINTERFACE, which we never cache (overlay hides the line).
+
+        The motion dict is the one _fuse_motion_state already attached to
+        analysis_data and stashed in `_last_motion` (so the gate sees the fused
+        state, not just the raw shape). On a sustained live/motion stretch the
+        gate short-circuits to a cached verdict; on the motion→static transition
+        tail it forces a fresh matcher call so a settled screen is recognised
+        within ~1.5 s.
         """
         while True:
             try:
                 for device_id, frame_path in list(self._latest_frame.items()):
                     try:
-                        result = self.localizer.localize_frame(device_id, frame_path)
+                        motion = self._last_motion.get(device_id)
+                        result = self.localizer.localize_frame(device_id, frame_path, motion=motion)
                         if result is not None:
                             self._last_localize[device_id] = result
                     except Exception as e:
@@ -1644,7 +1725,10 @@ class FrameMonitor:
                 action_info=action_info,
                 audio_info=audio_info,  # Pass audio dropout analysis to zapping record
                 transition_images=transition_images,  # ✅ NEW: Pass transition images
-                transition_type=event_type  # 'freeze' | 'blackscreen' — the actual transition type
+                transition_type=event_type,  # 'freeze' | 'blackscreen' — the actual transition type
+                # Numeric zaps (zap_digit) stamp params['channel']; CHANNEL_UP/DOWN carry none.
+                # Only labels the banner training sample (TASK-27), never detection.
+                expected_channel=(str((action_info.get('action_params') or {}).get('channel') or '') or None)
             )
             
             # Log result regardless of success/failure for debugging
@@ -2354,6 +2438,11 @@ class FrameMonitor:
                         audio_status = json.load(f)
                     new_audio = audio_status.get('audio', False)
                     new_volume = audio_status.get('mean_volume_db', -100)
+                    # A stopped or stuck vpt-transcript leaves this file frozen. Past
+                    # AUDIO_STATUS_MAX_AGE_S the reading says nothing about now: report
+                    # unknown (as for a device without audio) instead of repeating it.
+                    if time.time() - os.path.getmtime(audio_status_path) > AUDIO_STATUS_MAX_AGE_S:
+                        new_audio, new_volume = None, None
                     
                     # Update cache if changed
                     if capture_folder not in self.audio_cache:
@@ -2798,7 +2887,12 @@ class FrameMonitor:
     def _run_inotify(self):
         """Linux inotify event loop"""
         try:
-            for event in self.inotify.event_gen(yield_nones=False):
+            # yield_nones=True: a None every idle second so the dir rescan still runs
+            # on a host whose only capture dirs were the ones missed at startup.
+            for event in self.inotify.event_gen(yield_nones=True):
+                self._maybe_rescan_capture_dirs()
+                if event is None:
+                    continue
                 (_, type_names, path, filename) = event
                 
                 # IN_MOVED_TO = atomic file move (FFmpeg atomic_writing)
@@ -2813,7 +2907,7 @@ class FrameMonitor:
                 self._flush_dirty_chunks()
             except Exception as e:
                 logger.error(f"Final chunk flush failed: {e}")
-            for path in self.dir_to_info.keys():
+            for path in self._watched_dirs:
                 try:
                     self.inotify.remove_watch(path)
                 except:
@@ -2854,13 +2948,11 @@ class FrameMonitor:
                     time.sleep(0.05)
                     monitor._handle_file_event(path, filename)
         
-        event_handler = CaptureEventHandler()
-        
-        # Schedule watches for all capture directories
-        for path in self.dir_to_info.keys():
-            if os.path.exists(path):
-                self.observer.schedule(event_handler, path, recursive=False)
-                logger.info(f"Watchdog watching: {path}")
+        self._watchdog_handler = CaptureEventHandler()
+
+        # Schedule watches for all capture directories registered so far
+        for path in list(self.dir_to_info):
+            self._add_watch(path)
         
         try:
             self.observer.start()
@@ -2869,6 +2961,7 @@ class FrameMonitor:
             # Keep running until interrupted
             while True:
                 time.sleep(1)
+                self._maybe_rescan_capture_dirs()
                 
         except KeyboardInterrupt:
             logger.info("Shutting down...")

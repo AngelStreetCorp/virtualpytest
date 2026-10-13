@@ -37,6 +37,7 @@ import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 
 import { useScript } from '../hooks/script/useScript';
 import { useToast } from '../hooks/useToast';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { useRun } from '../hooks/useRun';
 import { useDeployment } from '../hooks/useDeployment';
 import { useRunExecutions } from '../contexts/RunExecutionsContext';
@@ -76,6 +77,7 @@ import { CronHelper } from '../components/common/CronHelper';
 import { ExecutionHistoryRow } from '../components/common/ExecutionHistoryTable';
 import ExecutionHistorySection from '../components/common/ExecutionHistorySection';
 import { CampaignScriptLike, mapCampaignScriptsToHistoryRows } from '../utils/executionHistoryUtils';
+import { useUserSession } from '../hooks/useUserSession';
 
 const RUN_VERSION_SELECTOR_ENABLED = isRunVersionSelectorEnabled();
 
@@ -312,6 +314,7 @@ const RunTests: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const { isMobile, isTablet } = useResponsiveMode();
   const isCompact = isMobile || isTablet;
+  const P = useAgentChatPalette();
   /**
    * The per-device target chip in a parameter row.
    *
@@ -337,6 +340,12 @@ const RunTests: React.FC = () => {
     { key: 'rerun', initialWidth: 70, minWidth: 50 },
   ]);
   const { executeMultipleScripts, isExecuting, executingIds } = useScript();
+  const { userId: sessionUserId } = useUserSession();
+  // One Run click = one launch. Without this, a second click (or double-click)
+  // while the first is still checking locks saw the first run's lock and queued
+  // a one-shot copy that waited behind it — a phantom "running forever" row.
+  const runLaunchingRef = useRef(false);
+  const [isRunLaunching, setIsRunLaunching] = useState(false);
   const { executeCampaign } = useCampaign();
   const { createDeployment, runDeploymentNow } = useDeployment();
   const {
@@ -2216,7 +2225,15 @@ const RunTests: React.FC = () => {
     }
   };
 
-  const splitDevicesByLockState = async <T extends { hostName: string; deviceId: string }>(devices: T[]) => {
+  // `allowOwnManualLock`: a device under the current user's own Take Control is
+  // runnable, not blocked — /server/script/execute runs the script under that
+  // lock (same-user subordinate). Queueing it instead made a one-shot job that
+  // could never acquire the lock while the user held it. Script runs only: the
+  // testcase route has no same-user rule, so it keeps queueing.
+  const splitDevicesByLockState = async <T extends { hostName: string; deviceId: string }>(
+    devices: T[],
+    { allowOwnManualLock = false }: { allowOwnManualLock?: boolean } = {},
+  ) => {
     const lockChecks = await Promise.all(
       devices.map(async (device) => {
         try {
@@ -2247,7 +2264,12 @@ const RunTests: React.FC = () => {
     const runnable: T[] = [];
     const blocked: Array<{ device: T; lockInfo: any }> = [];
     lockChecks.forEach((entry) => {
-      if (entry.locked) {
+      const ownManualLock =
+        allowOwnManualLock &&
+        Boolean(sessionUserId) &&
+        entry.lockInfo?.owner_type === 'manual_control' &&
+        entry.lockInfo?.owner_user_id === sessionUserId;
+      if (entry.locked && !ownManualLock) {
         blocked.push({ device: entry.device, lockInfo: entry.lockInfo });
       } else {
         runnable.push(entry.device);
@@ -2769,7 +2791,7 @@ const RunTests: React.FC = () => {
       return;
     }
 
-    const lockSplit = await splitDevicesByLockState(allDevices);
+    const lockSplit = await splitDevicesByLockState(allDevices, { allowOwnManualLock: true });
 
     // Queue locked devices via deployment scheduler (same mechanism as multi-script runs)
     if (lockSplit.blocked.length > 0) {
@@ -3604,6 +3626,18 @@ const RunTests: React.FC = () => {
   };
 
   const handleRunAction = async () => {
+    if (runLaunchingRef.current) return;
+    runLaunchingRef.current = true;
+    setIsRunLaunching(true);
+    try {
+      await launchRun();
+    } finally {
+      runLaunchingRef.current = false;
+      setIsRunLaunching(false);
+    }
+  };
+
+  const launchRun = async () => {
     if (scheduleModeLabel !== 'Now') {
       await createScheduledRuns();
       return;
@@ -4000,7 +4034,17 @@ const RunTests: React.FC = () => {
       size="small"
       value={historyResultFilter}
       onChange={(_e, v) => v !== null && setHistoryResultFilter(v)}
-      sx={{ '& .MuiToggleButton-root': { py: 0.25, px: 1, fontSize: '0.72rem', textTransform: 'none' } }}
+      sx={{
+        bgcolor: P.hoverBg, p: 0.25, borderRadius: 2, gap: 0.25,
+        '& .MuiToggleButton-root': {
+          border: '1px solid transparent !important', borderRadius: '6px !important',
+          py: 0.25, px: 1.25, fontSize: '0.72rem', textTransform: 'none', color: P.textSecondary,
+        },
+        '& .MuiToggleButton-root.Mui-selected': {
+          bgcolor: P.surface, color: P.accentText, fontWeight: 600,
+          borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
+        },
+      }}
     >
       <ToggleButton value="all">All</ToggleButton>
       <ToggleButton value="success" disabled={!hasSuccessfulExecution}>Success</ToggleButton>
@@ -4011,25 +4055,29 @@ const RunTests: React.FC = () => {
   return (
     <Box sx={{ px: isMobile ? 0.25 : isTablet ? 0.75 : 1, pt: isMobile ? 0.25 : 0.5, pb: isMobile ? 0.25 : isTablet ? 0.75 : 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
-        <Typography variant="h4">
+        <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
           Run Tests
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Chip
-            label="Tests"
-            clickable
-            color={browserTab === 'tests' ? 'primary' : 'default'}
-            variant={browserTab === 'tests' ? 'filled' : 'outlined'}
-            onClick={() => handleBrowserTabChange('tests')}
-          />
-          <Chip
-            label="Campaigns"
-            clickable
-            color={browserTab === 'campaigns' ? 'primary' : 'default'}
-            variant={browserTab === 'campaigns' ? 'filled' : 'outlined'}
-            onClick={() => handleBrowserTabChange('campaigns')}
-          />
-        </Box>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={browserTab}
+          onChange={(_e, v) => v && handleBrowserTabChange(v)}
+          sx={{
+              bgcolor: P.hoverBg, p: 0.375, borderRadius: 2, gap: 0.375,
+              '& .MuiToggleButton-root': {
+                border: '1px solid transparent !important', borderRadius: '6px !important',
+                textTransform: 'none', fontSize: 13, fontWeight: 500, color: P.textSecondary, py: 0.4, px: 2,
+              },
+              '& .MuiToggleButton-root.Mui-selected': {
+                bgcolor: P.surface, color: P.accentText, fontWeight: 600,
+                borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
+              },
+            }}
+        >
+          <ToggleButton value="tests">Tests</ToggleButton>
+          <ToggleButton value="campaigns">Campaigns</ToggleButton>
+        </ToggleButtonGroup>
       </Box>
       {isCompact ? (
         <Card variant="outlined" sx={{ mb: 1 }}>
@@ -4043,7 +4091,15 @@ const RunTests: React.FC = () => {
         </Card>
       ) : null}
 
-      <Grid container spacing={2}>
+      <Grid
+        container
+        spacing={2}
+        sx={{
+          // One card look for the whole page: hairline border, no shadow, rounder corners.
+          '& .MuiCard-root': { borderRadius: 3, border: `1px solid ${P.borderColor}`, boxShadow: 'none' },
+          '& .MuiCard-root .MuiTypography-h6': { fontSize: '1rem', fontWeight: 600 },
+        }}
+      >
         <Grid item xs={12}>
           <Card sx={{ '& .MuiCardContent-root': { p: 2, '&:last-child': { pb: 2 } } }}>
             <CardContent>
@@ -4219,9 +4275,17 @@ const RunTests: React.FC = () => {
                 {/* Run + Abort */}
                 <Button
                   variant="contained"
+                  disableElevation
                   startIcon={<ScriptIcon />}
                   onClick={handleRunAction}
+                  sx={{
+                    px: 2.5, fontWeight: 600, textTransform: 'none',
+                    bgcolor: P.accent, color: '#1a1a1a',
+                    '&:hover': { bgcolor: P.accentHover },
+                    '&.Mui-disabled': { bgcolor: P.hoverBg, color: P.textMuted },
+                  }}
                   disabled={
+                    isRunLaunching ||
                     selectedRunnableTargetKeys.length === 0 ||
                     (browserTab === 'tests'
                       // Gate on "an executable is selected", not "a script is
@@ -4240,7 +4304,9 @@ const RunTests: React.FC = () => {
                 {!isCompact && (
                   <Button
                     variant="outlined"
+                    color="error"
                     onClick={handleAbortRunningTargets}
+                    sx={{ textTransform: 'none' }}
                     disabled={browserTab === 'campaigns' || runningTargetKeys.size === 0}
                   >
                     Abort

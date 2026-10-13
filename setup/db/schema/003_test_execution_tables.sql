@@ -190,10 +190,14 @@ CREATE INDEX idx_execution_results_device_name ON execution_results(device_name)
 CREATE INDEX idx_execution_results_kpi_query ON execution_results(team_id, device_name, executed_at) WHERE kpi_measurement_ms IS NOT NULL;
 CREATE INDEX idx_execution_results_kpi_success ON execution_results(kpi_measurement_success) WHERE kpi_measurement_success IS NOT NULL;
 CREATE INDEX idx_execution_results_kpi_ms ON execution_results(kpi_measurement_ms) WHERE kpi_measurement_ms IS NOT NULL;
-CREATE INDEX idx_execution_results_kpi_report ON execution_results(kpi_report_url) WHERE kpi_report_url IS NOT NULL;
 CREATE INDEX idx_execution_results_variant ON execution_results(team_id, tree_id, variant);
 CREATE INDEX idx_execution_results_kpi_variant ON execution_results(team_id, tree_id, variant) WHERE kpi_measurement_ms IS NOT NULL;
-CREATE INDEX idx_execution_results_kpi_edge_lookup ON execution_results(team_id, edge_id, action_set_id, variant, executed_at DESC) WHERE kpi_report_url IS NOT NULL;
+-- Serves the per-edge latest-kpi_report_url probe in get_tree_metrics_optimized().
+-- The scope is indexed as COALESCE(variant,'') so all four equality columns sit
+-- AHEAD of executed_at DESC and the subquery's LIMIT 1 stops at the first row:
+-- with `variant` in the key but compared via IS NOT DISTINCT FROM it degraded to a
+-- post-scan Filter and the probe read the edge's whole KPI history (BUG-0189).
+CREATE INDEX idx_execution_results_kpi_edge_scope ON execution_results(team_id, edge_id, action_set_id, (COALESCE(variant, '')), executed_at DESC) WHERE kpi_report_url IS NOT NULL;
 CREATE INDEX idx_script_results_team_id ON script_results(team_id);
 CREATE INDEX idx_script_results_script_name ON script_results(script_name);
 CREATE INDEX idx_script_results_host_name ON script_results(host_name);

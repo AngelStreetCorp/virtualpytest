@@ -1,0 +1,19 @@
+{
+  "id": "debate",
+  "category": "debate",
+  "hints": "people discussing a topic in a studio: talk show, panel, political debate, sport talk show, or an interview (a presenter with one guest at length, also on a news channel)",
+  "entity": [
+    "title"
+  ],
+  "identify_interval_s": 60,
+  "track": {
+    "type": "transcript_window",
+    "digest": "debate",
+    "interval_s": 120,
+    "window_s": 300
+  },
+  "captions": {
+    "interval_s": 6
+  },
+  "render": "debate"
+}

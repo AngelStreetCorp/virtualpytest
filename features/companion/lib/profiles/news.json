@@ -1,0 +1,19 @@
+{
+  "id": "news",
+  "category": "news",
+  "hints": "a news bulletin: a presenter introducing several reports, reporters on location, headline straps, a ticker",
+  "entity": [
+    "title"
+  ],
+  "identify_interval_s": 60,
+  "track": {
+    "type": "transcript_window",
+    "interval_s": 120,
+    "window_s": 300,
+    "digest": "news"
+  },
+  "captions": {
+    "interval_s": 6
+  },
+  "render": "summary"
+}

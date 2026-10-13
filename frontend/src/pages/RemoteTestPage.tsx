@@ -1,6 +1,7 @@
 import { Box, Typography, Paper, Grid, Switch, FormControlLabel } from '@mui/material';
 import { useState, useMemo } from 'react';
 
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { RemotePanel } from '../components/controller/remote/RemotePanel';
 import { DEFAULT_DEVICE_RESOLUTION } from '../config/deviceResolutions';
 import { Host } from '../types/common/Host_Types';
@@ -303,7 +304,7 @@ const mockHosts: TestHost[] = [
           av: 'hdmi_stream',
           remote: 'ir_remote',
         },
-        ir_type: 'firetv',
+        ir_type: 'fire_tv',
       },
     ],
     device_count: 1,
@@ -324,7 +325,7 @@ const mockHosts: TestHost[] = [
         implementation: 'ir_remote',
         type: 'ir_remote',
         parameters: {
-          ir_type: 'firetv',
+          ir_type: 'fire_tv',
         },
       },
       av: {
@@ -382,6 +383,7 @@ const mockHosts: TestHost[] = [
 ];
 
 export default function RemoteTestPage() {
+  const P = useAgentChatPalette();
   const [selectedHost, setSelectedHost] = useState<TestHost>(mockHosts[0]);
   const [useModalLayout, setUseModalLayout] = useState<boolean>(false);
   const [showRemote, setShowRemote] = useState<boolean>(true);
@@ -456,21 +458,18 @@ export default function RemoteTestPage() {
                   p: 2,
                   border: '2px solid',
                   borderColor:
-                    selectedHost.host_name === host.host_name ? 'primary.main' : 'divider',
+                    selectedHost.host_name === host.host_name ? P.accent : P.borderColor,
                   borderRadius: 1,
                   backgroundColor:
                     selectedHost.host_name === host.host_name
-                      ? 'primary.light'
-                      : 'background.paper',
-                  color:
-                    selectedHost.host_name === host.host_name
-                      ? 'primary.contrastText'
-                      : 'text.primary',
+                      ? `${P.accent}26`
+                      : P.surface,
+                  color: P.textPrimary,
                   cursor: 'pointer',
                   transition: 'all 0.2s',
                   '&:hover': {
-                    borderColor: 'primary.main',
-                    backgroundColor: 'primary.light',
+                    borderColor: P.accent,
+                    backgroundColor: `${P.accent}26`,
                   },
                 }}
               >
@@ -487,7 +486,7 @@ export default function RemoteTestPage() {
       </Paper>
 
       {/* Modal Layout Toggle */}
-      <Paper sx={{ p: 2, mb: 3, backgroundColor: 'warning.light' }}>
+      <Paper sx={{ p: 2, mb: 3, bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderLeft: `3px solid ${P.warning}` }}>
         <FormControlLabel
           control={
             <Switch
@@ -509,7 +508,7 @@ export default function RemoteTestPage() {
       </Paper>
 
       {/* Remote Toggle */}
-      <Paper sx={{ p: 2, mb: 3, backgroundColor: 'info.light' }}>
+      <Paper sx={{ p: 2, mb: 3, bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderLeft: `3px solid ${P.accent}` }}>
         <FormControlLabel
           control={
             <Switch
@@ -527,7 +526,7 @@ export default function RemoteTestPage() {
       </Paper>
 
       {/* Fire TV + Android TV Stacked Test */}
-      <Paper sx={{ p: 2, mb: 3, backgroundColor: 'secondary.light' }}>
+      <Paper sx={{ p: 2, mb: 3, bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderLeft: `3px solid ${P.series[1]}` }}>
         <FormControlLabel
           control={
             <Switch
@@ -548,7 +547,7 @@ export default function RemoteTestPage() {
       </Paper>
 
       {/* Current Selection Info */}
-      <Paper sx={{ p: 2, mb: 3, backgroundColor: 'info.light' }}>
+      <Paper sx={{ p: 2, mb: 3, bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderLeft: `3px solid ${P.series[2]}` }}>
         <Typography variant="h6" gutterBottom>
           Currently Testing: {selectedHost.host_name}
         </Typography>
@@ -583,7 +582,7 @@ export default function RemoteTestPage() {
       </Paper>
 
       {/* Instructions */}
-      <Paper sx={{ p: 2, mb: 3, backgroundColor: 'success.light' }}>
+      <Paper sx={{ p: 2, mb: 3, bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderLeft: `3px solid ${P.success}` }}>
         <Typography variant="body2" gutterBottom>
           <strong>Testing Instructions:</strong>
         </Typography>
@@ -621,7 +620,7 @@ export default function RemoteTestPage() {
             sx={{
               px: 2,
               py: 1,
-              backgroundColor: 'grey.800',
+              backgroundColor: P.surface,
               color: 'white',
               display: 'flex',
               justifyContent: 'space-between',
@@ -734,7 +733,7 @@ export default function RemoteTestPage() {
             sx={{
               px: 2,
               py: 1,
-              backgroundColor: 'grey.800',
+              backgroundColor: P.surface,
               color: 'white',
               display: 'flex',
               justifyContent: 'space-between',

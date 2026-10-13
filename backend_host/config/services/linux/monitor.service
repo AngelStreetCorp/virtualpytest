@@ -16,6 +16,10 @@ WorkingDirectory=%PROJECT_ROOT%/backend_host/scripts
 EnvironmentFile=-%PROJECT_ROOT%/.env
 Environment=PYTHONPATH=%PROJECT_ROOT%/shared/lib:%PROJECT_ROOT%/backend_host/src
 Environment=PATH=%PROJECT_ROOT%/venv/bin:/usr/bin:/usr/local/bin
+# glibc gives each thread its own malloc arena and keeps the freed memory: on vpt-pi1 the
+# monitor held 101 MB in 11 arenas, vpt-kpi 198 MB in 26 (TASK-83). Two arenas are enough
+# for Python (the GIL serialises most allocation).
+Environment=MALLOC_ARENA_MAX=2
 ExecStart=%PROJECT_ROOT%/venv/bin/python %PROJECT_ROOT%/backend_host/scripts/capture_monitor.py
 TimeoutStopSec=10
 Restart=always

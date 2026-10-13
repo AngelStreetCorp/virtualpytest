@@ -3,12 +3,14 @@ import {
   AccordionSummary,
   AccordionDetails,
   Box,
+  Button,
   Collapse,
   Typography,
 } from '@mui/material';
 import {
   ExpandMore,
   AutoAwesomeOutlined,
+  PictureAsPdfOutlined,
   BugReportOutlined,
   LockOutlined,
   RocketLaunchOutlined,
@@ -18,6 +20,8 @@ import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
 import { createDocsMarkdownComponents, createInlineDocsMarkdownComponents } from './markdownComponents';
+import { exportMarkdownPdf } from './exportMarkdownPdf';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface Subsection {
   heading: string;
@@ -176,7 +180,9 @@ const parseBullet = (text: string): ParsedBullet => {
 };
 
 /** A new optional feature is a new folder on every host, not one more line in a list of twenty. */
-const NewFeatureBadge: React.FC<{ name: string }> = ({ name }) => (
+const NewFeatureBadge: React.FC<{ name: string }> = ({ name }) => {
+  const P = useAgentChatPalette();
+  return (
   <Box
     component="span"
     sx={{
@@ -185,8 +191,8 @@ const NewFeatureBadge: React.FC<{ name: string }> = ({ name }) => (
       py: 0.1,
       borderRadius: 0.75,
       border: 1,
-      borderColor: 'primary.main',
-      color: 'primary.main',
+      borderColor: P.accent,
+      color: P.accentText,
       fontSize: '0.68rem',
       fontWeight: 700,
       whiteSpace: 'nowrap',
@@ -195,9 +201,12 @@ const NewFeatureBadge: React.FC<{ name: string }> = ({ name }) => (
   >
     🧩 new feature · {name}
   </Box>
-);
+  );
+};
 
-const Badge: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+const Badge: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const P = useAgentChatPalette();
+  return (
   <Box
     component="span"
     sx={{
@@ -206,8 +215,8 @@ const Badge: React.FC<{ children: React.ReactNode }> = ({ children }) => (
       py: 0.05,
       borderRadius: 0.75,
       border: 1,
-      borderColor: 'divider',
-      color: 'text.secondary',
+      borderColor: P.borderColor,
+      color: P.textSecondary,
       fontSize: '0.68rem',
       fontWeight: 600,
       whiteSpace: 'nowrap',
@@ -216,9 +225,11 @@ const Badge: React.FC<{ children: React.ReactNode }> = ({ children }) => (
   >
     {children}
   </Box>
-);
+  );
+};
 
 const CollapsibleBullet: React.FC<{ text: string; components: Record<string, any> }> = ({ text, components }) => {
+  const P = useAgentChatPalette();
   const [expanded, setExpanded] = useState(false);
   const { bug, commit, task, migration, summary, details } = parseBullet(text);
   const newFeature = summary.match(/^New optional feature `([^`]+)`\s*[—-]\s*(.*)$/);
@@ -253,7 +264,7 @@ const CollapsibleBullet: React.FC<{ text: string; components: Record<string, any
           cursor: details ? 'pointer' : 'default',
           '& .rn-chevron': { opacity: 0.45, transition: 'opacity .15s, transform .15s' },
           '&:hover .rn-chevron': { opacity: 1 },
-          '&:focus-visible': { outline: '1px solid', outlineColor: 'primary.main', outlineOffset: 2, borderRadius: 0.5 },
+          '&:focus-visible': { outline: '1px solid', outlineColor: P.accent, outlineOffset: 2, borderRadius: 0.5 },
         }}
       >
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} urlTransform={urlTransform} components={components}>
@@ -336,9 +347,10 @@ const ReleaseNotesView: React.FC<{ markdown: string; getCurrentDocPath: () => st
   getCurrentDocPath,
   page,
 }) => {
+  const P = useAgentChatPalette();
   const { intro, sections } = useMemo(() => parseReleaseNotes(markdown), [markdown]);
-  const blockComponents = useMemo(() => createDocsMarkdownComponents(getCurrentDocPath, page), [getCurrentDocPath, page]);
-  const inlineComponents = useMemo(() => createInlineDocsMarkdownComponents(getCurrentDocPath, page), [getCurrentDocPath, page]);
+  const blockComponents = useMemo(() => createDocsMarkdownComponents(getCurrentDocPath, page, P), [getCurrentDocPath, page, P]);
+  const inlineComponents = useMemo(() => createInlineDocsMarkdownComponents(getCurrentDocPath, page, P), [getCurrentDocPath, page, P]);
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set([0]));
 
   const toggleSection = (idx: number) => {
@@ -350,8 +362,25 @@ const ReleaseNotesView: React.FC<{ markdown: string; getCurrentDocPath: () => st
     });
   };
 
+  const downloadPdf = () => {
+    // The page's own H1 ("🚀 Release Notes") names the file, minus the emoji.
+    const h1 = markdown.match(/^#\s+(.*)$/m)?.[1].replace(/[^\p{L}\p{N}\s-]/gu, '').trim() || 'Release Notes';
+    exportMarkdownPdf(markdown, `VirtualPyTest ${h1} ${new Date().toISOString().slice(0, 10)}`);
+  };
+
   return (
-    <Box>
+    <Box sx={{ position: 'relative' }}>
+      {/* The full document, every build and entry expanded — not just what is open on screen. */}
+      <Button
+        size="small"
+        variant="outlined"
+        startIcon={<PictureAsPdfOutlined />}
+        onClick={downloadPdf}
+        title="Download the full document as PDF (choose “Save as PDF” in the print dialog)"
+        sx={{ position: 'absolute', top: 4, right: 0, textTransform: 'none' }}
+      >
+        Download PDF
+      </Button>
       {intro && (
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} urlTransform={urlTransform} components={blockComponents}>
           {intro}

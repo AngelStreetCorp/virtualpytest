@@ -3,6 +3,7 @@ import { usePermissionContext } from './auth/PermissionContext';
 import { Socket } from 'socket.io-client';
 import { createServerSocket } from '../utils/serverSocket';
 import { getServerBaseUrl, buildServerUrl } from '../utils/buildUrlUtils';
+import { getBrowserSessionId } from '../hooks/useUserSession';
 
 // Event handler registered by consumers (AIContext, useAgentChat)
 type AgentEventHandler = (event: any) => void;
@@ -288,6 +289,9 @@ export const SocketProvider: React.FC<{ children: React.ReactNode }> = ({ childr
       session_id: sid,
       message,
       agent_id: agentId,
+      // The tab's Take Control session: Atlas device tools may drive a device this tab holds,
+      // never one another session holds (BUG-0402).
+      browser_session_id: getBrowserSessionId(),
       ...(context || {}),
     });
     return true;

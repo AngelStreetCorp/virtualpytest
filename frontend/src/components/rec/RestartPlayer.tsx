@@ -4,6 +4,7 @@ import React, { useRef, useState, useMemo } from 'react';
 
 import { useRestart } from '../../hooks/pages/useRestart';
 import { Host, Device } from '../../types/common/Host_Types';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 import { RestartSettingsPanel } from './RestartSettingsPanel';
 import { RestartSubtitleOverlay } from './RestartSubtitleOverlay';
@@ -20,21 +21,22 @@ interface AnalysisProgressProps {
 }
 
 const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ progress }) => {
+  const P = useAgentChatPalette();
   const getIcon = (state: string) => {
     switch (state) {
       case 'completed': return '✓';
       case 'error': return '✗';
-      case 'loading': return <CircularProgress size={12} sx={{ color: 'white' }} />;
+      case 'loading': return <CircularProgress size={12} sx={{ color: P.textPrimary }} />;
       default: return '○';
     }
   };
 
   const getColor = (state: string) => {
     switch (state) {
-      case 'completed': return '#4CAF50';
-      case 'error': return '#f44336';
-      case 'loading': return '#2196F3';
-      default: return 'rgba(255, 255, 255, 0.5)';
+      case 'completed': return P.success;
+      case 'error': return P.error;
+      case 'loading': return P.accentText;
+      default: return P.textMuted;
     }
   };
 
@@ -49,7 +51,7 @@ const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ progress }) => {
         borderRadius: 2,
         padding: 1.5,
         minWidth: 120,
-        border: '1px solid rgba(255, 255, 255, 0.2)',
+        border: `1px solid ${P.borderColor}`,
       }}
     >
       {[
@@ -84,7 +86,8 @@ interface RestartPlayerProps {
 }
 
 export const RestartPlayer: React.FC<RestartPlayerProps> = ({ host, device, includeAudioAnalysis }) => {
-  
+
+  const P = useAgentChatPalette();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   
@@ -132,7 +135,7 @@ export const RestartPlayer: React.FC<RestartPlayerProps> = ({ host, device, incl
         position: 'relative',
         width: '100%',
         height: '100%',
-        backgroundColor: '#000000',
+        backgroundColor: P.background,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -153,11 +156,11 @@ export const RestartPlayer: React.FC<RestartPlayerProps> = ({ host, device, incl
             alignItems: 'center',
             justifyContent: 'center',
             height: '100%',
-            color: 'white',
+            color: P.textPrimary,
             gap: 2,
           }}
         >
-          <CircularProgress sx={{ color: 'white' }} />
+          <CircularProgress sx={{ color: P.textPrimary }} />
           <Typography>Generating restart video...</Typography>
         </Box>
       )}
@@ -171,14 +174,14 @@ export const RestartPlayer: React.FC<RestartPlayerProps> = ({ host, device, incl
             alignItems: 'center',
             justifyContent: 'center',
             height: '100%',
-            color: 'white',
+            color: P.textPrimary,
             gap: 2,
             p: 3,
           }}
         >
-          <Alert severity="error" sx={{ backgroundColor: 'rgba(211, 47, 47, 0.1)' }}>
-            <Typography color="white">Failed to generate restart video</Typography>
-            <Typography variant="caption" color="white" sx={{ opacity: 0.8 }}>
+          <Alert severity="error" sx={{ backgroundColor: `${P.error}1f` }}>
+            <Typography sx={{ color: P.textPrimary }}>Failed to generate restart video</Typography>
+            <Typography variant="caption" sx={{ color: P.textPrimary, opacity: 0.8 }}>
               {error}
             </Typography>
           </Alert>
@@ -237,20 +240,20 @@ export const RestartPlayer: React.FC<RestartPlayerProps> = ({ host, device, incl
               disabled={!reportUrl}
               sx={{
                 backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                color: '#ffffff',
+                color: P.textPrimary,
                 '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.9)' },
               }}
             >
               <ReportIcon />
             </IconButton>
           </Tooltip>
-          
+
           <Tooltip title="Settings" placement="left">
             <IconButton
               onClick={() => setSettingsOpen(true)}
               sx={{
                 backgroundColor: 'rgba(0, 0, 0, 0.7)',
-                color: '#ffffff',
+                color: P.textPrimary,
                 '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.9)' },
               }}
             >

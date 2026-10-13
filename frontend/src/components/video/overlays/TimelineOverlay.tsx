@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Box, Slider, Typography, IconButton } from '@mui/material';
 import { PlayArrow, Pause } from '@mui/icons-material';
 import { ArchiveMetadata } from '../EnhancedHLSPlayer.types';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { getZIndex } from '../../../utils/zIndexUtils';
 
 interface TimelineOverlayProps {
@@ -73,10 +74,6 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
   currentManifestIndex,
   containerRef: _containerRef,
 }) => {
-  if (!show || duration <= 0) {
-    return null;
-  }
-
   const min = isLiveMode ? 0 : 0;
   const max = isLiveMode ? 150 : 86400;
 
@@ -87,6 +84,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
     const roundedNow = getRoundedNow();
     return clockTimeToPosition(globalCurrentTime, roundedNow);
   }, [isLiveMode, archiveMetadata, globalCurrentTime]);
+  const P = useAgentChatPalette();
 
   const archiveRailGradient = useMemo(() => {
     if (isLiveMode || !archiveMetadata || archiveMetadata.manifests.length === 0) {
@@ -145,6 +143,13 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
     const gradientParts = colorStops.map(stop => `${stop.color} ${stop.percent.toFixed(2)}%`);
     return `linear-gradient(to right, ${gradientParts.join(', ')})`;
   }, [isLiveMode, archiveMetadata, errorChunkIndices]);
+
+  // Below the hooks, not above them: both memos already no-op in live mode or
+  // without archive metadata, so running them while hidden costs nothing, and an
+  // early return above them is a conditional hook call.
+  if (!show || duration <= 0) {
+    return null;
+  }
 
   const isTimeAvailable = (timeSeconds: number): boolean => {
     if (!archiveMetadata || archiveMetadata.manifests.length === 0) return false;
@@ -293,7 +298,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
             }}
             marks={!isLiveMode ? hourMarks : []}
             sx={{
-              color: isLiveMode ? 'error.main' : 'primary.main',
+              color: isLiveMode ? P.error : P.accent,
               flex: 1,
               '& .MuiSlider-thumb': {
                 width: 16,

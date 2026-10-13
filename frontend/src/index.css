@@ -113,17 +113,11 @@ body {
   border-radius: 6px !important;
 }
 
-.MuiTableHead-root {
-  background-color: #f8f9fa !important;
-}
-
-.MuiTableHead-root .MuiTableCell-root {
-  font-weight: 600 !important;
-  color: #495057 !important;
-}
-
-.MuiTableRow-root:hover {
-  background-color: #f8f9fa !important;
+/* No hover highlight on any table row — it flashed near-white in the dark theme. Covers rows
+   with MUI's `hover` prop too. Cells are left alone so colour-coded cells keep their colour. */
+.MuiTableRow-root:hover,
+.MuiTableRow-root.MuiTableRow-hover:hover {
+  background-color: transparent !important;
 }
 
 /* Form styles */

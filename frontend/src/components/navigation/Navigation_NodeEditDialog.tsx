@@ -43,7 +43,7 @@ import { getZIndex } from '../../utils/zIndexUtils';
 import { VerificationsList } from '../verification/VerificationsList';
 import LocalizeCheckFooter from '../verification/LocalizeCheckFooter';
 import FingerprintBadge from './Navigation_FingerprintBadge';
-import { buildServerUrl } from '../../utils/buildUrlUtils';
+import { buildServerUrl, openHostUrl } from '../../utils/buildUrlUtils';
 import { useR2Url } from '../../hooks/storage';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -57,7 +57,22 @@ import {
 const deepClone = <T,>(value: T): T =>
   value === undefined || value === null ? value : (JSON.parse(JSON.stringify(value)) as T);
 
-export const NodeEditDialog: React.FC<NodeEditDialogProps> = ({
+/**
+ * The three conditions under which there is no dialog to show. Checked in the
+ * wrapper below, so `NodeEditDialogBody` only ever mounts with a non-null
+ * `nodeForm` and `selectedHost` — which is what `useNodeEdit` and the variant
+ * plumbing require, and what lets every hook in the body run unconditionally.
+ *
+ * These were three early returns at the top of the body. All three guard props the
+ * hooks immediately below them depend on, so they could not simply move down; the
+ * branch has to happen before the hooks exist, i.e. in a parent.
+ */
+type NodeEditDialogBodyProps = Omit<NodeEditDialogProps, 'nodeForm' | 'selectedHost'> & {
+  nodeForm: NonNullable<NodeEditDialogProps['nodeForm']>;
+  selectedHost: NonNullable<NodeEditDialogProps['selectedHost']>;
+};
+
+const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
   isOpen,
   nodeForm,
   nodes,
@@ -72,21 +87,6 @@ export const NodeEditDialog: React.FC<NodeEditDialogProps> = ({
   initialVariantScope = null,
   sx,
 }) => {
-  // Early return if nodeForm is null or undefined
-  if (!nodeForm) {
-    return null;
-  }
-
-  // Early return if this is an entry node - entry nodes should not be editable
-  if ((nodeForm.type as string) === 'entry') {
-    return null;
-  }
-
-  // Early return if selectedHost is invalid - don't show dialog at all
-  if (!selectedHost) {
-    return null;
-  }
-
   // Use the focused node edit hook
   const nodeEdit = useNodeEdit({
     isOpen,
@@ -1040,7 +1040,7 @@ export const NodeEditDialog: React.FC<NodeEditDialogProps> = ({
                 <IconButton
                   size="small"
                   disabled={!screenshotUrl}
-                  onClick={() => screenshotUrl && window.open(screenshotUrl, '_blank')}
+                  onClick={() => screenshotUrl && void openHostUrl(screenshotUrl)}
                 >
                   <ImageIcon fontSize="small" />
                 </IconButton>
@@ -1280,6 +1280,38 @@ export const NodeEditDialog: React.FC<NodeEditDialogProps> = ({
           );
         })()}
 
+        {/* A run that produced NO results — a timeout, or a host that could not
+            run it at all — used to leave nothing here: the spinner stopped, the
+            panel stayed empty and the only explanation was a toast that faded.
+            The cause now renders where the results would have been. */}
+        {nodeEdit.verification.error &&
+          !(nodeEdit.verification.testResults && nodeEdit.verification.testResults.length > 0) && (
+            <Box
+              sx={{
+                p: 1,
+                mt: 1,
+                bgcolor: 'error.light',
+                borderRadius: 1,
+                maxHeight: 200,
+                overflow: 'auto',
+                border: '1px solid rgba(0, 0, 0, 0.12)',
+              }}
+            >
+              <Typography
+                variant="caption"
+                sx={{
+                  fontFamily: 'monospace',
+                  fontSize: '0.7rem',
+                  lineHeight: 1.2,
+                  display: 'block',
+                  whiteSpace: 'pre-line',
+                }}
+              >
+                {`❌ ${nodeEdit.verification.error}`}
+              </Typography>
+            </Box>
+          )}
+
         {/* Independent Localize cross-check (true/false/unknown that the live
             screen is on this node) — surfaced under the verification result. */}
         <LocalizeCheckFooter check={nodeEdit.verification.localizeCheck} />
@@ -1377,4 +1409,16 @@ export const NodeEditDialog: React.FC<NodeEditDialogProps> = ({
       />
     </StyledDialog>
   );
+};
+
+export const NodeEditDialog: React.FC<NodeEditDialogProps> = (props) => {
+  const { nodeForm, selectedHost } = props;
+
+  // No form, an entry node (not editable), or no host yet: nothing to render, and
+  // none of the body's hooks should run.
+  if (!nodeForm || (nodeForm.type as string) === 'entry' || !selectedHost) {
+    return null;
+  }
+
+  return <NodeEditDialogBody {...props} nodeForm={nodeForm} selectedHost={selectedHost} />;
 };

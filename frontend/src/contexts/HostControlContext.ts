@@ -23,6 +23,9 @@ export interface HostControlContextType {
     device_id?: string,
     sessionId?: string,
     tree_id?: string,
+    id_type?: 'tree_id' | 'userinterface_id',
+    // Warm the navigation cache for this scope (BUG-0202).
+    variant?: string | null,
   ) => Promise<{
     success: boolean;
     error?: string;

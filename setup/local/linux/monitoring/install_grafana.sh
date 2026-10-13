@@ -329,8 +329,8 @@ providers: []
 EOF
     
     # Update configuration for local use (keep port 3000 as default)
-    # Grafana is served directly on :3000 at this machine's address (SERVER_URL host from .env)
-    PUB_HOST="$(echo "${SERVER_URL:-}" | sed -E 's|.*://([^:/]+).*|\1|')"
+    # Grafana is served directly on :3000 at this machine's address (SERVER_PUBLIC_URL host from .env, else SERVER_URL)
+    PUB_HOST="$(echo "${SERVER_PUBLIC_URL:-${SERVER_URL:-}}" | sed -E 's|.*://([^:/]+).*|\1|')"
     grafana_ini_set server domain "${PUB_HOST:-localhost}"
     grafana_ini_set server root_url '%(protocol)s://%(domain)s:%(http_port)s/'
     grafana_ini_set server serve_from_sub_path false

@@ -1,11 +1,14 @@
 import React, { createContext, useContext, useMemo } from 'react';
 import { useAuthContext } from './AuthContext';
 import { isAuthEnabled } from '../../lib/supabase';
-import { Permission, Role, ROLE_PERMISSIONS, ADMIN_ALL_PERMISSIONS } from '../../types/auth';
+import { Permission, Role, computeEffectivePermissions } from '../../types/auth';
+import { useRoles } from '../../hooks/pages/useRoles';
 
 interface PermissionContextType {
   role: Role | null;
   permissions: Permission[];
+  // True while the caller's role defaults are still loading; gates must wait rather than deny.
+  isLoading: boolean;
   hasRole: (requiredRole: Role | Role[]) => boolean;
   hasPermission: (permission: Permission) => boolean;
   canAccess: (permission: Permission | Permission[]) => boolean;
@@ -28,37 +31,29 @@ interface PermissionProviderProps {
 export const PermissionProvider: React.FC<PermissionProviderProps> = ({ children }) => {
   const { profile, isAuthenticated } = useAuthContext();
 
+  // Role defaults come from the server (editable on the Roles page). Admin needs none.
+  const needsRoleDefaults = isAuthEnabled && isAuthenticated && !!profile && profile.role !== 'admin';
+  const { roles, isLoading: rolesLoading } = useRoles({ enabled: needsRoleDefaults });
+  const isLoading = needsRoleDefaults && rolesLoading;
+
   // Effective permissions resolution:
-  //   ROLE_DEFAULTS ∪ team_permissions ∪ profile.permissions − profile.denied_permissions
+  //   (role defaults ∪ profile.permissions − profile.denied_permissions) ∩ team ceiling
   const { role, permissions } = useMemo(() => {
     if (!isAuthenticated || !profile) {
       return { role: null, permissions: [] as Permission[] };
     }
 
-    const userRole = profile.role;
-    const rolePerms = ROLE_PERMISSIONS[userRole];
-
-    // Admin gets all permissions (no denial override — admins always have full access)
-    if (Array.isArray(rolePerms) && rolePerms.length === 1 && rolePerms[0] === '*') {
-      return { role: userRole, permissions: ADMIN_ALL_PERMISSIONS };
-    }
-
-    const denied = new Set<Permission>(profile.denied_permissions || []);
-
-    // Union: role defaults + team permissions + individual grants, minus denials
-    const effective = new Set<Permission>();
-    for (const p of rolePerms as Permission[]) {
-      if (!denied.has(p)) effective.add(p);
-    }
-    for (const p of (profile.team_permissions || []) as Permission[]) {
-      if (!denied.has(p)) effective.add(p);
-    }
-    for (const p of (profile.permissions || []) as Permission[]) {
-      if (!denied.has(p)) effective.add(p);
-    }
-
-    return { role: userRole, permissions: Array.from(effective) };
-  }, [profile, isAuthenticated]);
+    return {
+      role: profile.role,
+      permissions: computeEffectivePermissions(
+        profile.role,
+        roles?.[profile.role] || [],
+        profile.team_ceiling ?? null,
+        profile.permissions || [],
+        profile.denied_permissions || [],
+      ),
+    };
+  }, [profile, isAuthenticated, roles]);
 
   const hasRole = (requiredRole: Role | Role[]): boolean => {
     // OPEN_MODE: no auth configured platform-wide → everyone is effectively admin
@@ -83,7 +78,7 @@ export const PermissionProvider: React.FC<PermissionProviderProps> = ({ children
   };
 
   return (
-    <PermissionContext.Provider value={{ role, permissions, hasRole, hasPermission, canAccess }}>
+    <PermissionContext.Provider value={{ role, permissions, isLoading, hasRole, hasPermission, canAccess }}>
       {children}
     </PermissionContext.Provider>
   );

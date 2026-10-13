@@ -1042,6 +1042,108 @@ def get_cloudflare_utils() -> CloudflareUtils:
     """Get the singleton instance of CloudflareUtils."""
     return CloudflareUtils()
 
+
+def training_storage_configured() -> bool:
+    """True when a training bucket is configured: all four MINIO_TRAINING_* vars,
+    or the three CLOUDFLARE_R2_* credentials plus R2_TRAINING_BUCKET."""
+    minio = all(os.environ.get(k, '').strip() for k in (
+        'MINIO_TRAINING_ENDPOINT', 'MINIO_TRAINING_ACCESS_KEY',
+        'MINIO_TRAINING_SECRET_KEY', 'MINIO_TRAINING_BUCKET'))
+    r2 = all(os.environ.get(k, '').strip() for k in (
+        'CLOUDFLARE_R2_ENDPOINT', 'CLOUDFLARE_R2_ACCESS_KEY_ID',
+        'CLOUDFLARE_R2_SECRET_ACCESS_KEY', 'R2_TRAINING_BUCKET'))
+    return minio or r2
+
+
+class TrainingStorage(CloudflareUtils):
+    """Second storage client, bound to the AI training bucket (TASK-27).
+
+    Its own singleton, separate from ``CloudflareUtils``: the default client and
+    its bucket are untouched. A dedicated MinIO instance (all MINIO_TRAINING_*
+    set) wins; otherwise the R2 credentials with R2_TRAINING_BUCKET. The training
+    bucket must never get a lifecycle (expiry) rule.
+    """
+
+    _instance = None
+    _initialized = False
+
+    def _init_s3_client(self):
+        minio_endpoint = os.environ.get('MINIO_TRAINING_ENDPOINT', '').strip()
+        minio_access_key = os.environ.get('MINIO_TRAINING_ACCESS_KEY', '').strip()
+        minio_secret_key = os.environ.get('MINIO_TRAINING_SECRET_KEY', '').strip()
+        minio_bucket = os.environ.get('MINIO_TRAINING_BUCKET', '').strip()
+        if all([minio_endpoint, minio_access_key, minio_secret_key, minio_bucket]):
+            endpoint_url, access_key, secret_key = minio_endpoint, minio_access_key, minio_secret_key
+            region, bucket_name = 'us-east-1', minio_bucket
+        else:
+            r2_bucket = os.environ.get('R2_TRAINING_BUCKET', '').strip()
+            endpoint_url = os.environ.get('CLOUDFLARE_R2_ENDPOINT')
+            access_key = os.environ.get('CLOUDFLARE_R2_ACCESS_KEY_ID')
+            secret_key = os.environ.get('CLOUDFLARE_R2_SECRET_ACCESS_KEY')
+            if not all([endpoint_url, access_key, secret_key, r2_bucket]):
+                raise RuntimeError('Training storage not configured: set all MINIO_TRAINING_* '
+                                   'or the CLOUDFLARE_R2_* credentials plus R2_TRAINING_BUCKET')
+            region, bucket_name = 'auto', r2_bucket
+        logger.info(f"Initializing training storage client: endpoint={endpoint_url} bucket={bucket_name}")
+        config = Config(
+            signature_version='s3v4',
+            connect_timeout=10,
+            read_timeout=60,
+            retries={'max_attempts': 2, 'mode': 'standard'},
+        )
+        client = boto3.client(
+            's3',
+            endpoint_url=endpoint_url,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name=region,
+            config=config,
+        )
+        return client, bucket_name
+
+    def _init_presign_client(self):
+        """Presign client on MINIO_TRAINING_PRESIGN_ENDPOINT, with the training keys.
+
+        Browsers cannot reach the training MinIO's internal endpoint, so review-page
+        image URLs are signed for the public host (Cloudflare -> nginx -> MinIO, Host
+        passed through). Only for the dedicated MinIO: R2 URLs are already public.
+        Unset -> None, and URLs are signed with the upload client.
+        """
+        presign_endpoint = os.environ.get('MINIO_TRAINING_PRESIGN_ENDPOINT', '').strip()
+        if not presign_endpoint:
+            return None
+        access_key = os.environ.get('MINIO_TRAINING_ACCESS_KEY', '').strip()
+        secret_key = os.environ.get('MINIO_TRAINING_SECRET_KEY', '').strip()
+        minio = all(os.environ.get(k, '').strip() for k in (
+            'MINIO_TRAINING_ENDPOINT', 'MINIO_TRAINING_BUCKET')) and access_key and secret_key
+        if not minio:
+            return None
+        logger.info(f"Initializing training presign client for: {presign_endpoint}")
+        config = Config(
+            signature_version='s3v4',
+            connect_timeout=2,
+            read_timeout=5,
+            retries={'max_attempts': 1, 'mode': 'standard'},
+        )
+        return boto3.client(
+            's3',
+            endpoint_url=presign_endpoint,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            region_name='us-east-1',
+            config=config,
+        )
+
+    def upload_bytes(self, data: bytes, remote_path: str, content_type: str = 'image/jpeg') -> None:
+        """Single PUT of an in-memory object. Raises on failure."""
+        self.s3_client.put_object(Bucket=self.bucket_name, Key=remote_path,
+                                  Body=data, ContentType=content_type)
+
+
+def get_training_storage() -> TrainingStorage:
+    """Get the singleton client for the AI training bucket (never the default bucket)."""
+    return TrainingStorage()
+
 def delete_userinterface_storage(userinterface_id: str, userinterface_name: str = None) -> Dict:
     """Remove every bucket object owned by a userinterface.
 

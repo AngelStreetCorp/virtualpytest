@@ -17,8 +17,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { useTheme } from '@mui/material/styles';
-import { AGENT_CHAT_PALETTE as PALETTE } from '../../constants/agentChatTheme';
+import { AGENT_CHAT_PALETTE as PALETTE, useAgentChatPalette } from '../../constants/agentChatTheme';
 
 // Import execution components
 import { RunButton } from '../testcase/builder/RunButton';
@@ -93,14 +92,14 @@ const defaultEdgeOptions = {
   type: 'success',
   animated: false,
   style: {
-    stroke: '#94a3b8',
+    stroke: PALETTE.borderColor,
     strokeWidth: 2,
   },
   markerEnd: {
     type: MarkerType.ArrowClosed,
     width: 20,
     height: 20,
-    color: '#94a3b8',
+    color: PALETTE.borderColor,
   },
 };
 
@@ -121,8 +120,7 @@ const TestCaseFlowViewerContent: React.FC<TestCaseFlowViewerProps> = ({
   testcaseId,
   readOnly = true,
 }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
+  const P = useAgentChatPalette();
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const reactFlowWrapper = useRef<HTMLDivElement>(null);
@@ -255,23 +253,23 @@ const TestCaseFlowViewerContent: React.FC<TestCaseFlowViewerProps> = ({
   // MiniMap node color
   const miniMapNodeColor = useCallback((node: any) => {
     switch (node.type) {
-      case 'start': return '#22c55e';
-      case 'success': return '#22c55e';
-      case 'failure': return '#ef4444';
-      case 'action': return '#3b82f6';
-      case 'verification': return '#8b5cf6';
-      case 'navigation': return '#f59e0b';
-      case 'condition': return '#ec4899';
-      case 'loop': return '#06b6d4';
-      default: return '#6b7280';
+      case 'start': return P.success;
+      case 'success': return P.success;
+      case 'failure': return P.error;
+      case 'action': return P.accent;
+      case 'verification': return P.series[1];
+      case 'navigation': return P.series[2];
+      case 'condition': return P.series[3];
+      case 'loop': return P.series[4];
+      default: return P.textMuted;
     }
-  }, []);
+  }, [P]);
 
   const miniMapStyle = useMemo(() => ({
-    backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
-    border: `1px solid ${isDarkMode ? '#374151' : '#e5e7eb'}`,
+    backgroundColor: P.surface,
+    border: `1px solid ${P.borderColor}`,
     borderRadius: '4px',
-  }), [isDarkMode]);
+  }), [P]);
 
   if (isLoading) {
     return (
@@ -386,7 +384,7 @@ const TestCaseFlowViewerContent: React.FC<TestCaseFlowViewerProps> = ({
         <MiniMap
           style={miniMapStyle}
           nodeColor={miniMapNodeColor}
-          maskColor="rgba(255, 255, 255, 0.2)"
+          maskColor={`${P.textPrimary}33`}
           pannable
           zoomable
           position="bottom-right"

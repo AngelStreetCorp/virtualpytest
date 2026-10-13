@@ -6,7 +6,7 @@ Provides access to systemd service logs via journalctl and host log files.
 
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from backend_server.src.lib.auth_middleware import require_user_auth, require_role
+from backend_server.src.lib.auth_middleware import require_permission, require_user_auth
 import subprocess
 
 # Create blueprint
@@ -41,7 +41,7 @@ HOST_FILE_LOGS = {
 
 @logs_bp.route('/view', methods=['POST'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.logs:view')
 @handle_route_exceptions('logs:view_logs')
 def view_logs():
     """
@@ -195,7 +195,7 @@ def view_logs():
     
 @logs_bp.route('/services', methods=['GET'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.logs:view')
 @handle_route_exceptions('logs:list_services')
 def list_services():
     """List available VirtualPyTest services"""
@@ -229,7 +229,7 @@ def list_services():
 
 @logs_bp.route('/agent', methods=['GET'])
 @require_user_auth
-@require_role('admin')
+@require_permission('settings.logs:view')
 @handle_route_exceptions('logs:agent_history')
 def agent_history():
     """Return bounded, structured agent execution history for this server team.

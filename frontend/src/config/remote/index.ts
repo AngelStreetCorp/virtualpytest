@@ -10,4 +10,5 @@ export * from './appleTvRemote';
 export * from './appiumRemote';
 export * from './bluetoothRemote';
 export * from './infraredRemote';
+export * from './nintendoSwitchRemote';
 export * from './remotePanelLayout';

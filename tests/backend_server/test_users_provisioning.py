@@ -63,13 +63,13 @@ def test_edit_without_a_password_leaves_the_password_alone(base_url, api_headers
 
         edited = requests.put(
             f"{base_url}/server/users/{CI_EMAIL}",
-            json={"full_name": "CI After", "provider_type": "dmacp"},
+            json={"full_name": "CI After", "provider_type": "idp"},
             headers=api_headers, timeout=request_timeout, verify=verify_ssl,
         )
         assert edited.status_code == 200, edited.text
         platform = edited.json()["platform"]
         assert platform["full_name"] == "CI After"
-        assert platform["provider_type"] == "dmacp"
+        assert platform["provider_type"] == "idp"
     finally:
         _delete(base_url, api_headers, verify_ssl, request_timeout, CI_EMAIL)
 

@@ -1,6 +1,6 @@
 """Provisioning defaults in shared/src/lib/database/users_db.upsert_user().
 
-Two defaults an external system (dmacp, …) relies on, asserted on the exact payloads
+Two defaults an external system (idp, …) relies on, asserted on the exact payloads
 written to `profiles` and `auth.users` — no network, no Supabase:
 
 - `full_name` falls back to the email's local part, is never allowed to overwrite a name
@@ -39,6 +39,13 @@ class _FakeTable:
         return self
 
     def select(self, *_a, **_kw):
+        return self
+
+    def delete(self):
+        self._payload = "DELETE"
+        return self
+
+    def neq(self, *_a, **_kw):
         return self
 
     def eq(self, *_a, **_kw):
@@ -172,9 +179,9 @@ def test_create_defaults_provider_type_to_virtualpytest(admin, monkeypatch):
 def test_create_records_the_calling_platform(admin, monkeypatch):
     _absent(monkeypatch)
     result = users_db.upsert_user(email=EMAIL, password="a strong password",
-                                  provider_type="dmacp")
-    assert _profile_write(admin)["provider_type"] == "dmacp"
-    assert result["provider_type"] == "dmacp"
+                                  provider_type="idp")
+    assert _profile_write(admin)["provider_type"] == "idp"
+    assert result["provider_type"] == "idp"
 
 
 # ------------------------------------------------------------------------- update
@@ -194,17 +201,17 @@ def test_reset_never_overwrites_a_chosen_name(admin, monkeypatch):
 
 
 def test_reset_leaves_provider_type_alone_when_not_sent(admin, monkeypatch):
-    _existing(monkeypatch, full_name="Marie D.", provider_type="dmacp")
+    _existing(monkeypatch, full_name="Marie D.", provider_type="idp")
     result = users_db.upsert_user(email=EMAIL, password="the new password")
-    assert result["provider_type"] == "dmacp"
+    assert result["provider_type"] == "idp"
 
 
 def test_reset_reassigns_provider_type_when_sent(admin, monkeypatch):
     _existing(monkeypatch, full_name="Marie D.", provider_type="virtualpytest")
     result = users_db.upsert_user(email=EMAIL, password="the new password",
-                                  provider_type="dmacp")
-    assert _profile_write(admin)["provider_type"] == "dmacp"
-    assert result["provider_type"] == "dmacp"
+                                  provider_type="idp")
+    assert _profile_write(admin)["provider_type"] == "idp"
+    assert result["provider_type"] == "idp"
 
 
 def test_create_reports_the_default_team_it_landed_in(admin, monkeypatch):
@@ -224,3 +231,45 @@ def test_blank_provider_type_is_rejected(admin, monkeypatch):
     _absent(monkeypatch)
     with pytest.raises(ValueError):
         users_db.upsert_user(email=EMAIL, password="a strong password", provider_type="   ")
+
+
+# --------------------------------------------------------------- role / team (TASK-31)
+
+def test_create_sets_the_given_role(admin, monkeypatch):
+    _absent(monkeypatch)
+    users_db.upsert_user(EMAIL, password="pw123456", role="developer")
+    assert _profile_write(admin)["role"] == "developer"
+
+
+def test_create_without_role_uses_the_default(admin, monkeypatch):
+    _absent(monkeypatch)
+    users_db.upsert_user(EMAIL, password="pw123456", default_role="viewer")
+    assert _profile_write(admin)["role"] == "viewer"
+
+
+def test_update_sets_the_role_when_sent(admin, monkeypatch):
+    _existing(monkeypatch, full_name="Marie")
+    result = users_db.upsert_user(EMAIL, role="manager")
+    assert _profile_write(admin) == {"role": "manager"}
+    assert result["role"] == "manager"
+
+
+def test_update_leaves_the_role_alone_when_not_sent(admin, monkeypatch):
+    _existing(monkeypatch, full_name="Marie")
+    result = users_db.upsert_user(EMAIL, password="new-password")
+    assert not [p for t, p in admin.writes if t == "profiles"]
+    assert result["role"] == "tester"
+
+
+def test_replace_teams_removes_every_other_membership(admin, monkeypatch):
+    _existing(monkeypatch, full_name="Marie")
+    monkeypatch.setattr(users_db, "_ensure_team", lambda *_a, **_kw: "team-qa")
+    users_db.upsert_user(EMAIL, group="QA Team", replace_teams=True)
+    assert ("team_members", "DELETE") in admin.writes
+
+
+def test_group_alone_keeps_other_memberships(admin, monkeypatch):
+    _existing(monkeypatch, full_name="Marie")
+    monkeypatch.setattr(users_db, "_ensure_team", lambda *_a, **_kw: "team-qa")
+    users_db.upsert_user(EMAIL, group="QA Team")
+    assert ("team_members", "DELETE") not in admin.writes

@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { MonitoringAnalysis } from '../../types/pages/Monitoring_Types';
+import { formatTimeWithMs } from '../../utils/dateUtils';
 
 interface ActionHistoryProps {
   monitoringAnalysis?: MonitoringAnalysis | null;
@@ -130,7 +131,7 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
     <Box
       sx={{
         position: 'absolute',
-        bottom: 16,
+        bottom: 64, // clear the owner badge / bottom strip under the video
         right: 16,
         zIndex: 30,
         display: 'flex',
@@ -155,9 +156,11 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
                   : 'rgba(147, 51, 234, 0.9)' // Purple for automatic zapping
                 : 'rgba(0, 191, 255, 0.8)',   // Blue for regular actions
               // Zap cards use a fixed width so every event renders identically;
-              // each line is forced to a single line (ellipsis) so content never wraps.
-              width: isZapping ? 300 : undefined,
-              minWidth: isZapping ? undefined : index === 0 ? 150 : 120,
+              // regular action cards also use a fixed width to keep the box stable
+              // between frames (no grow/shrink as keys change) and to ensure the
+              // "<command>: <key>" line and the timestamp stay on TWO lines without
+              // wrapping. Each line is forced to a single line (ellipsis).
+              width: isZapping ? 300 : 240,
               transition: 'all 0.3s ease',
               opacity: index === 0 ? 1 : 0.7,
               '& .MuiTypography-root': {
@@ -169,6 +172,8 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
               },
             }}
           >
+            {/* Line 1: command + key (e.g. "press_key: CHANNEL_UP"). For zapping events
+                we still render the dedicated multi-line layout below. */}
             <Typography
               variant="caption"
               sx={{
@@ -178,8 +183,9 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
               }}
             >
               {action.command}
+              {!isZapping && action.params?.key && `: ${action.params.key}`}
             </Typography>
-            
+
             {/* Show detailed info for zapping events - CLEAN 2-LINE FORMAT */}
             {isZapping && (
               <>
@@ -198,7 +204,7 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
                     {action.params.program_name}
                   </Typography>
                 )}
-                
+
                 {/* Line 1: Program time - WHITE, single line with labels (show if available) */}
                 {(action.params?.program_start_time || action.params?.program_end_time) && (
                   <Typography
@@ -215,7 +221,7 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
                     {action.params.program_end_time && `end: ${action.params.program_end_time}`}
                   </Typography>
                 )}
-                
+
                 {/* Line 2: Durations - WHITE, single line with explicit labels (backend calculated) */}
                 {action.params?.total_zap_duration_ms && (
                   <Typography
@@ -244,21 +250,9 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
                 )}
               </>
             )}
-            
-            {/* Show key for regular actions */}
-            {!isZapping && action.params?.key && (
-              <Typography
-                variant="caption"
-                sx={{
-                  color: '#ffffff',
-                  display: 'block',
-                  fontSize: index === 0 ? '0.75rem' : '0.7rem',
-                }}
-              >
-                Key: {action.params.key}
-              </Typography>
-            )}
-            
+
+            {/* Line 2 (regular actions): timestamp — dimmer and slightly smaller so it
+                reads as metadata under the "<command>: <key>" header. */}
             <Typography
               variant="caption"
               sx={{
@@ -267,12 +261,7 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
                 fontSize: index === 0 ? '0.7rem' : '0.65rem',
               }}
             >
-              {new Date(action.timestamp * 1000).toLocaleTimeString('en-US', {
-                hour12: false,
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-              })}
+              {formatTimeWithMs(action.timestamp)}
             </Typography>
 
             {/* Clickable report link (overlay is pointerEvents:none, so re-enable here) */}

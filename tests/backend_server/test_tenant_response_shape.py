@@ -63,7 +63,9 @@ def _build_user_dict(**overrides):
         "teams": ["Test Team"],
         "permissions": [],
         "denied_permissions": [],
-        "team_permissions": [],
+        "team_ceiling": None,
+        "team_device_ceiling": None,
+        "allowed_devices": None,
         "created_at": "2026-01-01T00:00:00+00:00",
         "updated_at": "2026-01-01T00:00:00+00:00",
     }
@@ -145,7 +147,7 @@ def test_users_db_response_keys_do_not_leak_tenant_info():
     # And these are the existing fields — should never disappear.
     for expected in ("id", "email", "role", "team_id", "team",
                      "teams", "permissions", "denied_permissions",
-                     "team_permissions", "provider_type"):
+                     "team_ceiling", "provider_type"):
         assert expected in user, f"user response lost a field: {expected}"
 
 

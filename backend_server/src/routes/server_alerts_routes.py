@@ -7,20 +7,26 @@ This module contains the alerts management API endpoints for:
 - Alert filtering
 """
 
+import logging
+
 from flask import Blueprint, jsonify, request
 
 from shared.src.lib.database.alerts_db import (
+    get_alert_by_id,
     get_all_alerts,
     get_active_alerts,
     get_closed_alerts,
     update_alert_checked_status,
     update_alert_discard_status,
-    delete_all_alerts
+    delete_all_alerts,
+    delete_alert
 )
 from shared.src.lib.utils.app_utils import check_supabase
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 
 server_alerts_bp = Blueprint('server_alerts', __name__, url_prefix='/server/alerts')
+
+logger = logging.getLogger(__name__)
 
 
 def _alerts_error_payload(e):
@@ -109,8 +115,69 @@ def update_alert_discard_status_route(alert_id):
     check_type = data.get('check_type', 'manual')
     success = update_alert_discard_status(alert_id, discard, discard_comment, check_type)
     if success:
+        _label_alert_training_samples(alert_id, discard, check_type, request.args.get('team_id'))
+        _teach_screen_memory(alert_id, discard, check_type)
         return jsonify({'status': 'success'})
     return jsonify({'error': 'Alert not found or failed to update'}), 404
+
+
+@server_alerts_bp.route('/triageStats', methods=['GET'])
+@handle_route_exceptions('server_alerts:triageStats')
+def triage_stats_route():
+    """Today's alert-triage calls, failures, tokens, discards by screen memory and known screens."""
+    err = check_supabase()
+    if err:
+        return err
+    from shared.src.lib.database.alerts_db import get_triage_stats
+    stats = get_triage_stats()
+    return jsonify(stats), (200 if stats.get('success') else 500)
+
+
+def _teach_screen_memory(alert_id, discard, check_type):
+    """TASK-84: a person's Discard/Keep on an alert the host stamped with a screen id becomes that screen's
+    verdict (expected / bad), source human. Best effort, never raises, never changes the route's response."""
+    try:
+        if check_type != 'manual':
+            return
+        alert = get_alert_by_id(alert_id)
+        screen_id = ((alert or {}).get('metadata') or {}).get('screen_id')
+        if screen_id:
+            from shared.src.lib.database import screen_fingerprints_db
+            screen_fingerprints_db.set_human_verdict(screen_id, bool(discard), alert_id)
+    except Exception as e:
+        logger.warning(f"[screen-memory] teaching from alert {alert_id} failed: {e}")
+
+
+def _label_alert_training_samples(alert_id, discard, check_type, team_id):
+    """TASK-27 step 3a: turn a human discard/confirm into the label of the alert's
+    ``av-fault`` training samples (recorded by the host at alert creation).
+
+    discard=true: the detector was wrong, ``incident_type`` None. discard=false with a
+    manual check: confirmed, the alert's own type. Best effort, never raises, and never
+    changes the route's response.
+    """
+    try:
+        if not team_id or not (discard or check_type == 'manual'):
+            return
+        from shared.src.lib.ai import training_samples
+        from shared.src.lib.database import ai_training_samples_db as samples_db
+        if not training_samples.enabled():
+            return
+        samples = samples_db.get_samples_by_source_ref(team_id, 'alert_id', alert_id)
+        if not samples:
+            return
+        if discard:
+            ground_truth = {'incident_type': None}
+        else:
+            alert = get_alert_by_id(alert_id)
+            if not alert or not alert.get('incident_type'):
+                logger.warning(f"[training] alert {alert_id} not found, samples left unlabelled")
+                return
+            ground_truth = {'incident_type': alert['incident_type']}
+        for sample in samples:
+            training_samples.attach_ground_truth(sample['id'], team_id, ground_truth, 'human')
+    except Exception as e:
+        logger.warning(f"[training] labelling samples of alert {alert_id} failed: {e}")
 
 
 @server_alerts_bp.route('/deleteAllAlerts', methods=['DELETE'])
@@ -128,3 +195,17 @@ def delete_all_alerts_route():
             'message': result['message']
         })
     return jsonify({'success': False, 'error': result['error'], 'deleted_count': 0}), 500
+
+
+@server_alerts_bp.route('/deleteAlert/<alert_id>', methods=['DELETE'])
+@handle_route_exceptions('server_alerts:deleteAlert')
+def delete_alert_route(alert_id):
+    """Delete a single alert"""
+    err = check_supabase()
+    if err:
+        return err
+    result = delete_alert(alert_id)
+    if result['success']:
+        return jsonify({'success': True, 'deleted_count': result['deleted_count']})
+    status = 404 if result['error'] == 'Alert not found' else 500
+    return jsonify({'success': False, 'error': result['error']}), status

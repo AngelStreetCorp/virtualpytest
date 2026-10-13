@@ -1,0 +1,21 @@
+{
+ "id": "cwL_e0j0hGY",
+ "title": "Create and run a test campaign in seconds, no scripting",
+ "description": "Build a test campaign in seconds: give it a name, pick the tests, save. Run it, and the tests start straight away. When it's done, every result is there, and one report covers the whole campaign.\n\nOpen source and free.\n\nChapters\n00:00 Intro\n00:04 Create the campaign\n00:15 Run it\n00:22 All green\n00:31 The report\n00:38 Each test, its own report\n00:44 Its log\n00:48 End",
+ "tags": [
+  "test campaign",
+  "test automation",
+  "regression testing",
+  "smoke tests",
+  "real device testing",
+  "QA automation",
+  "test reports",
+  "test orchestration",
+  "no-code testing",
+  "open source",
+  "VirtualPyTest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

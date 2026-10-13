@@ -1,0 +1,7 @@
+[
+  {"name": "dashboard", "route": "/"},
+  {"name": "logs", "route": "/configuration/logs"},
+  {"name": "models", "route": "/configuration/models", "steps": [{"clickText": "Add Model", "shot": "add"}, {"press": "Escape"}]},
+  {"name": "nav-editor", "route": "/navigation-editor/stb_tv", "wait": 9000, "steps": [{"clickText": "live", "exact": true, "wait": 1500, "shot": "node"}]},
+  {"name": "quick-test", "route": "/builder/quick-test", "wait": 5000}
+]

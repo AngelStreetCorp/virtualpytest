@@ -7,6 +7,7 @@ import {
   Typography,
 } from '@mui/material';
 import React, { useMemo } from 'react';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 import { useR2Url } from '../../hooks/storage/useR2Url';
 import { StyledDialog } from '../common/StyledDialog';
@@ -44,16 +45,17 @@ export const VerificationImageComparisonDialog: React.FC<
   getCacheBustedUrl = (url) => `${url}${url.includes('?') ? '&' : '?'}cache=${Date.now()}`,
   onClose,
 }) => {
+  const P = useAgentChatPalette();
   const getResultColor = () => {
     switch (resultType) {
       case 'PASS':
-        return '#4caf50';
+        return P.success;
       case 'FAIL':
-        return '#f44336';
+        return P.error;
       case 'ERROR':
-        return '#ff9800';
+        return P.warning;
       default:
-        return '#757575';
+        return P.textMuted;
     }
   };
 
@@ -121,7 +123,7 @@ export const VerificationImageComparisonDialog: React.FC<
               <Typography
                 variant="subtitle1"
                 sx={{
-                  color: '#2196f3',
+                  color: P.accentText,
                   fontWeight: 'bold',
                   padding: '4px 8px',
                   backgroundColor: 'transparent',
@@ -138,7 +140,7 @@ export const VerificationImageComparisonDialog: React.FC<
               <Typography
                 variant="subtitle1"
                 sx={{
-                  color: '#ab47bc',
+                  color: P.series[2],
                   fontWeight: 'bold',
                   padding: '4px 8px',
                   backgroundColor: 'transparent',
@@ -169,9 +171,9 @@ export const VerificationImageComparisonDialog: React.FC<
               <Typography
                 variant="caption"
                 sx={{
-                  color: '#666',
+                  color: P.textMuted,
                   padding: '2px 6px',
-                  backgroundColor: '#f5f5f5',
+                  backgroundColor: P.hoverBg,
                   borderRadius: 1,
                 }}
               >
@@ -201,7 +203,7 @@ export const VerificationImageComparisonDialog: React.FC<
                 minHeight: '300px',
                 overflow: 'hidden',
                 backgroundColor: 'transparent',
-                border: '2px solid #ddd',
+                border: `2px solid ${P.borderColor}`,
                 borderRadius: 1,
                 padding: 1,
               }}
@@ -242,7 +244,7 @@ export const VerificationImageComparisonDialog: React.FC<
                 minHeight: '300px',
                 overflow: 'hidden',
                 backgroundColor: 'transparent',
-                border: '2px solid #ddd',
+                border: `2px solid ${P.borderColor}`,
                 borderRadius: 1,
                 padding: 1,
               }}
@@ -284,7 +286,7 @@ export const VerificationImageComparisonDialog: React.FC<
                   minHeight: '300px',
                   overflow: 'hidden',
                   backgroundColor: 'transparent',
-                  border: '2px solid #ddd',
+                  border: `2px solid ${P.borderColor}`,
                   borderRadius: 1,
                   padding: 1,
                 }}
@@ -325,13 +327,13 @@ export const VerificationImageComparisonDialog: React.FC<
                   alignItems: 'center',
                   justifyContent: 'center',
                   minHeight: '300px',
-                  backgroundColor: '#f9f9f9',
-                  border: '2px dashed #ccc',
+                  backgroundColor: P.hoverBg,
+                  border: `2px dashed ${P.borderColor}`,
                   borderRadius: 1,
                   padding: 2,
                 }}
               >
-                <Typography variant="body2" sx={{ color: '#666', textAlign: 'center' }}>
+                <Typography variant="body2" sx={{ color: P.textMuted, textAlign: 'center' }}>
                   No overlay image available
                 </Typography>
               </Box>

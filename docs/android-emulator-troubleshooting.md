@@ -12,8 +12,9 @@
 | Stream is black but frames are fresh and services healthy | Emulator booted with the display composing nothing | SLEEP+WAKEUP the guest display (§9) |
 | No stream, `latest.png` fresh, ffmpeg restarts ~every minute, log says `Invalid pts (1) <= last (1)` | Capture timestamps collide (BUG-0165) | Deploy the fixed `run_ffmpeg.sh` — a restart does not help (§10) |
 | Tile plays after a restart, black ~17 min later; segments fresh with a picture, `<video>` stuck at `readyState 1` | JPEG outputs on the synthetic clock starve the audio input (BUG-0169) | Check segment A/V `start_time`, deploy the all-wall-clock fix (§11) |
-| Stream black, `latest.png` fresh but all black, `mWakefulness=Asleep` | Emulator screen timed out (old 30-min default) | Set `screen_off_timeout 2147483647` and wake it (§12) |
+| Stream black, `latest.png` fresh but all black, `mWakefulness=Asleep` | Emulator screen timed out (old 30-min default, BUG-0176) | Set `screen_off_timeout 2147483647` and wake it (§12) |
 | "Host is not online" on devices page | Host not registered with backend server | `sudo systemctl restart vpt-host` |
+| Host VM powered on but unreachable — `ssh` says `No route to host`, ARP fails, logs full of `device 'emulator-5554' not found` | `vpt-emulator-fifo` inline loop with no `sleep` — ~423 forks/s, hung kernel | Stop + disable the unit, power-cycle (§13) |
 
 ## Service Overview
 
@@ -498,6 +499,100 @@ $A input keyevent KEYCODE_WAKEUP
 `labox-mobile` slept this way; the TV AVD already had `2147483647`.
 
 Separate from §9: there the display is awake but composes nothing; here the display is off.
+
+Full write-up: [BUG-0176](bugs/BUG-0176-2026-09-27-emulator-screen-sleeps-stream-black.md).
+
+### 13. Host VM Unreachable but Powered On (`vpt-emulator-fifo` fork storm)
+
+**Symptoms:**
+- `qm list` shows the VM `running`, but `ssh` returns `No route to host` and the guest never answers ARP
+- The VM has been up for hours (not the first minutes of a boot)
+- The last log lines before the silence are a wall of `error: device 'emulator-5554' not found`
+- The host's own metrics look healthy right up to the moment it dies (CPU ~30%, RAM ~17%, disk ~65%)
+
+**Do not start with disk or RAM.** Check them so you can rule them out — but a powered-on,
+ARP-dead guest is a **hung kernel**, not exhaustion. Verified 2026-10-11 on `labox-web`
+(VM 136): guest disks 28G/47G and 7.8G/32G, host 334G free, `dmesg` with zero OOM kills and
+`journalctl -b -1 -g "oom-kill|Out of memory"` empty — and none of it was relevant.
+
+**Confirm the guest is wedged rather than dead.** One vCPU pinned near 100% while the rest idle
+is the signature; a healthy VM shows all vCPUs near 0%:
+```bash
+ps -o pid,stat,etime,time,%cpu -p $(pgrep -f "kvm -id <vmid>")
+top -H -b -n1 -p <qemu-pid>        # one "CPU 0/KVM" at 99.9%, the others idle = hung kernel
+```
+
+Look at the guest screen without logging in — a **live login prompt** means the kernel and console
+are fine and only networking is dead:
+```bash
+printf "screendump /tmp/vptdiag/<vmid>.ppm\n" | sudo qm monitor <vmid>
+```
+(`sudo` on Proxmox is NOPASSWD only for an allowlist — `qm`, `pvesh`, `cat`, `tee`, `mkdir`,
+`chmod`, `ls`. `sudo cp`/`sudo chmod` on an arbitrary path fails with "a terminal is required to
+read the password", so write the screendump straight into a dir you `chmod 666`.)
+
+**Root cause:** `vpt-emulator-fifo` runs `emulator_screencap.sh`, whose loop body is one
+`adb … exec-out screencap`. If the deployed unit is hand-edited into an **inline** loop with
+**no `sleep`** (the repo script sleeps 0.2 s), each iteration forks an `adb` that fails
+instantly, so it re-forks as fast as the CPU allows — measured **~423 processes/second** on
+`labox-web`. After ~23 hours that starves the guest kernel's networking and the VM goes dark
+while still powered on. Worst on a host with **no emulator at all**: the loop can never succeed,
+so it forks forever for nothing.
+
+**Diagnose:**
+```bash
+# How bad? A healthy host logs a handful; the storm logs hundreds of thousands.
+# grep "bash\[" keeps the real adb errors and drops the sudo audit lines, which
+# otherwise self-match (a plain -g "not found" counts your own command as a hit).
+sudo journalctl -b -1 --no-pager -g "emulator-5554" | grep -c "bash\["     # 253,877 in the final 10 min
+sudo journalctl -b -1 --no-pager -g "oom-kill|Out of memory"      # "No entries" = RAM was NOT the cause
+
+# Who owns the loop — a unit-spawned loop rather than the script file?
+ps -ef --forest | grep -iE "adb|emulator-5554" | grep -v grep
+cat /proc/<pid>/cgroup            # /system.slice/vpt-emulator-fifo.service
+
+# Is the deployed unit still the repo one? This one-liner is the tell:
+sudo grep -c "while true; do" /etc/systemd/system/vpt-emulator-fifo.service
+#   0 = runs backend_host/scripts/emulator_screencap.sh (has `sleep 0.2`) — correct
+#   1 = hand-edited inline loop, no sleep — the storm
+```
+
+A **stale output file is the clearest proof the unit is pointless**: if
+`/var/www/html/stream/emulator_frames/latest.png` has not been rewritten in days, nothing
+consumes it and the loop has been failing the whole time (on `labox-web` it was stale since
+2026-03-10 — 7 months).
+
+**Fix — the storm survives reboots while the unit is enabled, so stop AND disable:**
+```bash
+sudo systemctl stop    vpt-emulator-fifo.service
+sudo systemctl disable vpt-emulator-fifo.service
+
+# Confirm: a fresh window must be 0
+sleep 20 && sudo journalctl -b 0 --since "-20s" --no-pager -g "emulator-5554" | grep -c "bash\["
+```
+
+Then power-cycle the VM (it still answers ACPI shutdown even while hung):
+```bash
+sudo /usr/sbin/qm stop <vmid> --timeout 15
+sudo /usr/sbin/qm start <vmid>
+```
+
+**`vpt-emulator-fifo` is only legitimate when `HOST_TYPE` contains `android`.** On a `host_vnc`
+host the capture comes from the VNC display and there is no `DEVICEn_VIDEO` at all, so the unit
+must stay stopped and disabled:
+```bash
+grep -E "^(HOST_TYPE|HOST_VIDEO_SOURCE|DEVICE[0-9]+_VIDEO)=" /opt/virtualpytest/backend_host/src/.env
+```
+`HOST_TYPE` may be absent from `.env` entirely — `host_utils.py` then defaults it to `host_vnc`,
+which is exactly the case where the unit must be off. `labox-web` is that case
+(`HOST_VIDEO_SOURCE=:1`, zero `DEVICEn_VIDEO` entries) and had the unit enabled.
+`labox-dongle` / `labox-mobile` / `labox-tablet` are legitimate and use the repo script.
+Compare any host's deployed unit against `backend_host/config/services/linux/emulator-fifo.service`
+before blaming hardware.
+
+Note: on `labox-web`, `vpt-host` binds `192.168.0.136:6109` (not `0.0.0.0`), so
+`curl localhost:6109/host/health` returns `000` even when healthy — check `ss -tlnp` or hit the
+LAN IP.
 
 ## Template for Cloning
 

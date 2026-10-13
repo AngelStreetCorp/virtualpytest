@@ -16,6 +16,7 @@ import {
   Typography,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { useAgentChatPalette, AGENT_CHAT_PALETTE } from '../../../constants/agentChatTheme';
 
 interface ToolboxAccordionProps {
   /** Unique identifier for this accordion */
@@ -46,6 +47,8 @@ export const ToolboxAccordion: React.FC<ToolboxAccordionProps> = ({
   children,
   forceExpanded = false,
 }) => {
+  const P = useAgentChatPalette();
+  void P; // kept for symmetry with sibling components — categorical colours are on TOOLBOX_TAB_COLORS
   const isExpanded = forceExpanded || expanded;
 
   return (
@@ -112,19 +115,21 @@ export const ToolboxAccordion: React.FC<ToolboxAccordionProps> = ({
   );
 };
 
-/** Default tab colors used across builder toolboxes */
+/** Default tab colors used across builder toolboxes.
+ * Static (dark) — these are categorical colour marks for toolbox category
+ * headers, read on both themes. Hooks aren't possible at module scope. */
 export const TOOLBOX_TAB_COLORS: Record<string, string> = {
   // Common colors
-  standard: '#64748b',      // slate - neutral for standard operations
-  
+  standard: AGENT_CHAT_PALETTE.textMuted,
+
   // TestCase Builder specific
-  navigation: '#7c3aed',    // violet - navigation
-  actions: '#ea580c',       // orange - actions (muted)
-  verifications: '#2563eb', // blue - verifications (muted)
-  api: '#0891b2',           // cyan - API blocks
-  
+  navigation: AGENT_CHAT_PALETTE.series[2],
+  actions: AGENT_CHAT_PALETTE.warning,
+  verifications: AGENT_CHAT_PALETTE.series[1],
+  api: AGENT_CHAT_PALETTE.series[3],
+
   // Campaign Builder specific
-  testcases: '#9c27b0',     // purple - testcase blocks
-  scripts: '#f97316',       // orange - script blocks
+  testcases: AGENT_CHAT_PALETTE.series[2],
+  scripts: AGENT_CHAT_PALETTE.warning,
 };
 

@@ -4,6 +4,7 @@ import {
   EdgeProps,
   getBezierPath,
 } from 'reactflow';
+import { AGENT_CHAT_PALETTE } from '../../../constants/agentChatTheme';
 
 /**
  * Failure Edge - Animated connection showing execution flow
@@ -47,12 +48,12 @@ export const FailureEdge: React.FC<EdgeProps & {
     switch (executionState) {
       case 'active':
         return {
-          stroke: '#3b82f6', // Blue
+          stroke: AGENT_CHAT_PALETTE.accent, // gold = running
           strokeWidth: 4,
           opacity: 1,
           animation: 'edgePulse 1.5s ease-in-out infinite, flowDots 1s linear infinite',
           strokeDasharray: '8, 4',
-          filter: 'drop-shadow(0 0 6px #3b82f6)',
+          filter: `drop-shadow(0 0 6px ${AGENT_CHAT_PALETTE.accent})`,
         };
       case 'success':
         return {
@@ -72,7 +73,7 @@ export const FailureEdge: React.FC<EdgeProps & {
         };
       default: // idle
         return {
-          stroke: selected ? '#64748b' : '#94a3b8',
+          stroke: selected ? AGENT_CHAT_PALETTE.accent : AGENT_CHAT_PALETTE.textSecondary,
           strokeWidth: selected ? 2.5 : 2,
           opacity: 0.6,
           strokeDasharray: undefined,

@@ -119,76 +119,102 @@ Load saved test case by ID.
 
 #### execute_testcase
 
-Execute test case graph on device.
-
-**⚠️ PREREQUISITE:** `take_control()` must be called first.
+Start a test case (saved, by name, or an unsaved graph) and return its `execution_id` at once. The
+tool does **not** wait for the run to end: read the result with `get_testcase_execution_status`.
 
 **Parameters:**
 ```json
 {
-  "graph_json": {                        // REQUIRED - from generate_test_graph or load_testcase
+  "testcase_name": "My Test",            // REQUIRED - saved testcase name (or a label when graph_json is given)
+  "host_name": "host1",                  // REQUIRED - from get_compatible_hosts
+  "device_id": "device1",                // REQUIRED - from get_compatible_hosts
+  "graph_json": {                        // Optional - unsaved graph from generate_test_graph
     "nodes": [...],
     "edges": [...],
     "scriptConfig": {...}
   },
-  "device_id": "device1",                // Optional (defaults to 'device1')
-  "host_name": "host1",              // Optional (defaults to 'host1')
-  "userinterface_name": "example_mobile",  // Optional
-  "testcase_name": "My Test",            // Optional - for logging
-  "team_id": "team_1"                    // Optional (defaults to 'team_1')
+  "userinterface_name": "example_mobile",  // Optional - defaults to the testcase's interface
+  "team_id": "team_1"                    // Optional
 }
 ```
 
-**Returns:** Execution results after async completion (max 5 minutes).
+**Returns:** `structuredContent` `{execution_id, kind: "testcase", status: "running", done: false, host_name, device_id, testcase_name}`.
+
+---
+
+#### get_testcase_execution_status
+
+Read the state of a test case started by `execute_testcase` / `execute_testcase_by_id`. Waits up
+to `wait_seconds` for the run to end, then answers. Call again while `done` is false.
+
+REUSES `GET /server/testcase/execution/<id>/status` (same as the frontend).
+
+**Parameters:**
+```json
+{
+  "execution_id": "ex-123",              // REQUIRED - from execute_testcase
+  "host_name": "host1",                  // REQUIRED - same host as execute_testcase
+  "device_id": "device1",                // Optional
+  "wait_seconds": 20,                    // Optional - default 20, max 50, 0 answers at once
+  "team_id": "team_1"                    // Optional
+}
+```
+
+**Returns:** the status shape below, plus `current_block_id` while running.
+
+**Status shape** (`structuredContent`, same for both status tools):
+```json
+{
+  "execution_id": "ex-123",
+  "kind": "testcase",            // or "script"
+  "status": "running",           // running | completed | failed | aborted | unknown
+  "done": false,                 // true once status is completed, failed or aborted
+  "passed": null,                // true/false once done; completed + false = the test ran and failed
+  "report_url": null,
+  "logs_url": null,
+  "execution_time_ms": null,
+  "error": null
+}
+```
+- `unknown` means the status read itself timed out or got a 5xx. The run goes on: read again.
+- `isError` is set only when the execution_id is unknown to the server (404). A test that ran and
+  FAILED is a result (`completed`, `passed: false`), not a tool error.
+- Each status call answers within `wait_seconds` (default 20, max 50), so no MCP request stays open
+  longer than a proxy allows (a proxy such as Cloudflare answers 524 after 100 s).
 
 **Example:**
 ```python
-# Generate graph from prompt
-graph = generate_test_graph({
-    "prompt": "Navigate to home and verify Replay button",
-    "userinterface_name": "example_mobile"
+run = execute_testcase({
+    "testcase_name": "Home Verification",
+    "host_name": "host1",
+    "device_id": "device1"
 })
+execution_id = run["structuredContent"]["execution_id"]
 
-# Execute the generated graph
-execute_testcase({
-    "graph_json": graph['graph'],
-    "testcase_name": "Home Verification"
-})
-# MCP waits until execution completes
-# Returns: ✅ Execution completed: SUCCESS (2.3s)
+status = get_testcase_execution_status({"execution_id": execution_id, "host_name": "host1"})
+while not status["structuredContent"]["done"]:
+    status = get_testcase_execution_status({"execution_id": execution_id, "host_name": "host1"})
+# status["structuredContent"]["passed"] -> True / False
 ```
 
 ---
 
 #### execute_testcase_by_id
 
-MCP convenience wrapper to load and execute saved test case by ID in one call.
-
-**⚠️ PREREQUISITE:** `take_control()` must be called first.
+Deprecated wrapper: loads a saved test case by ID and starts it like `execute_testcase`.
 
 **Parameters:**
 ```json
 {
   "testcase_id": "tc-abc-123",           // REQUIRED
-  "device_id": "device1",                // Optional (defaults to 'device1')
-  "host_name": "host1",              // REQUIRED
+  "host_name": "host1",                  // REQUIRED
+  "device_id": "device1",                // Optional
   "userinterface_name": "example_mobile",  // Optional - overrides testcase's interface
-  "team_id": "team_1"                    // Optional (defaults to 'team_1')
+  "team_id": "team_1"                    // Optional
 }
 ```
 
-**Returns:** Execution results after async completion.
-
-**Example:**
-```python
-# Execute saved test case in one call
-execute_testcase_by_id({
-    "testcase_id": "tc-abc-123",
-    "host_name": "host1"
-})
-# Automatically loads + executes + waits for completion
-# Returns: ✅ Execution completed: SUCCESS
-```
+**Returns:** same as `execute_testcase` (the `execution_id` at once).
 
 ---
 

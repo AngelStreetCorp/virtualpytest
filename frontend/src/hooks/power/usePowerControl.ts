@@ -12,6 +12,7 @@ import {
   PowerStatusResponse,
 } from '../../types/power';
 import { Host } from '../../types/common/Host_Types';
+import { useModGate } from '../../mods/core/components/ModsProvider';
 
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
@@ -49,6 +50,9 @@ export const usePowerControl = ({
   const [isExecutingCommand, setIsExecutingCommand] = useState(false);
   const [commandError, setCommandError] = useState<string | null>(null);
 
+  // Mods may stop a command before it is sent (Blast Radius asks to confirm power off / reboot).
+  const askMods = useModGate();
+
   // Get power status
   const getPowerStatus = useCallback(async () => {
     if (!host || !device_id) return;
@@ -81,6 +85,15 @@ export const usePowerControl = ({
   const executePowerCommand = useCallback(
     async (command: PowerCommand): Promise<boolean> => {
       if (!host || !device_id) return false;
+
+      const verdict = await askMods('device.command', {
+        hostName: host.host_name,
+        deviceId: device_id,
+        command,
+        source: 'power',
+      });
+      // A refusal is the user's or a mod's choice, not an error: nothing is sent, nothing is shown.
+      if (!verdict.allow) return false;
 
       setIsExecutingCommand(true);
       setCommandError(null);
@@ -116,7 +129,7 @@ export const usePowerControl = ({
         setIsExecutingCommand(false);
       }
     },
-    [host, device_id],
+    [host, device_id, askMods],
   );
 
   // Clear errors

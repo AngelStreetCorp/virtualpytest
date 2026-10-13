@@ -1,0 +1,36 @@
+# NOTE: This is a template file for reference only.
+# Live twin of vpt-fleet-health.service: same passive probes every 10 minutes, no AI and
+# no report upload. Rows land in fleet_health with run_kind=live (pruned after 24h) and
+# feed the "Live" row of the Fleet Health Grafana dashboard; the nightly run stays the history.
+#
+# One-time install on the server VM:
+#   sudo cp vpt-fleet-health-live.{service,timer} /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now vpt-fleet-health-live.timer
+
+[Unit]
+Description=VirtualPyTest Live Fleet Health Check (every 10 min)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=oneshot
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=/opt/virtualpytest
+EnvironmentFile=/opt/virtualpytest/.env
+Environment=PYTHONPATH=/opt/virtualpytest
+Environment=PATH=/opt/virtualpytest/venv/bin:/usr/bin:/usr/local/bin
+ExecStartPre=/usr/bin/mkdir -p /opt/virtualpytest/reports/fleet-health
+ExecStart=/opt/virtualpytest/venv/bin/python scripts/fleet_health_report.py \
+    --live \
+    --output /opt/virtualpytest/reports/fleet-health/
+TimeoutStartSec=300
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vpt-fleet-health-live
+
+# Security
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

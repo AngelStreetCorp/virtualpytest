@@ -95,13 +95,21 @@ subagents: []
 available_skills:
   # Core operations
   - device-control        # device-control.yaml
+  - control-device-group  # control-device-group/SKILL.md — one key to N same-model, same-remote devices (TASK-76)
   - script-management     # script-management.yaml
   - testcase-management   # testcase-management.yaml
   - check-system-health   # check-system-health/SKILL.md
+  - system-ops            # system-ops/SKILL.md        (TASK-74: get info, troubleshoot, restart, storage)
   - search-docs           # search-docs/SKILL.md
+
+  # Atlas builds a Grafana dashboard from the analytics catalog (TASK-43 phase 10)
+  - grafana-dashboard     # grafana-dashboard/SKILL.md
 
   # AI-learned UI knowledge base (DB-backed; distinct from production userinterfaces table)
   - ai-userinterface      # ai-userinterface/SKILL.md
+
+  # Build an app's navigation tree from the device (TASK-40; web and stb not checked yet)
+  - build-tree-mobile     # build-tree-mobile/SKILL.md
 
   # Test Prompt (AI-driven test execution from free-text prompt + acceptance criteria)
   - test-prompt-web

@@ -15,6 +15,24 @@ import { APP_CONFIG } from '../../config/constants';
 // 5-minute cache for user interfaces (now that we only cache valid non-empty results)
 const USER_INTERFACE_TTL = 300 * 1000; // 5 minutes
 
+/**
+ * A name lookup that legitimately found nothing: no row exists for that name in
+ * that mode. An interface only has a prod row once it has been published, so
+ * `mode: 'prod'` returning nothing is an answer, not a failure — callers that
+ * just want to know whether a prod snapshot exists should use getProdSnapshot()
+ * rather than driving control flow from a catch.
+ */
+export class UserInterfaceNotFoundError extends Error {
+  constructor(name: string, mode: 'dev' | 'prod') {
+    super(
+      mode === 'prod'
+        ? `No prod snapshot published for "${name}" — it exists in dev only`
+        : `User interface "${name}" not found`,
+    );
+    this.name = 'UserInterfaceNotFoundError';
+  }
+}
+
 const userInterfaceCache = new Map<string, {data: Promise<UserInterface>, timestamp: number}>();
 const allInterfacesCache: {data: UserInterface[] | null, timestamp: number} = {data: null, timestamp: 0};
 const compatibleInterfacesCache = new Map<string, {data: UserInterface[], timestamp: number}>();
@@ -32,6 +50,10 @@ function getCachedInterface(name: string) {
 
 function setCachedInterface(name: string, data: Promise<UserInterface>) {
   userInterfaceCache.set(name, {data, timestamp: Date.now()});
+}
+
+function clearCachedInterface(name: string) {
+  userInterfaceCache.delete(name);
 }
 
 function getCachedCompatibleInterfaces(deviceModel: string, teamId: string) {
@@ -208,7 +230,7 @@ export const useUserInterface = () => {
         const cached = getCachedInterface(cacheKey);
         if (cached) {
           console.log(
-            `[@hook:useUserInterface:getUserInterfaceByName] Using 1h cached user interface for name: ${name} (${mode})`,
+            `[@hook:useUserInterface:getUserInterfaceByName] Using cached user interface for name: ${name} (${mode})`,
           );
           return cached;
         }
@@ -223,7 +245,7 @@ export const useUserInterface = () => {
             const response = await apiClient(buildServerUrl(`/server/userinterface/getUserInterfaceByName/${name}?mode=${mode}`));
             if (!response.ok) {
               if (response.status === 404) {
-                throw new Error('User interface not found');
+                throw new UserInterfaceNotFoundError(name, mode);
               }
               throw new Error(
                 `Failed to fetch user interface: ${response.status} ${response.statusText}`,
@@ -236,19 +258,49 @@ export const useUserInterface = () => {
             );
             return userInterface;
           } catch (error) {
-            console.error(
-              `[@hook:useUserInterface:getUserInterfaceByName] Error fetching user interface by name ${name}:`,
-              error,
-            );
+            if (error instanceof UserInterfaceNotFoundError) {
+              // Not a failure — the row does not exist in that mode. Logged as
+              // info so an unpublished interface stops reading as a red error.
+              console.info(`[@hook:useUserInterface:getUserInterfaceByName] ${error.message}`);
+            } else {
+              console.error(
+                `[@hook:useUserInterface:getUserInterfaceByName] Error fetching user interface by name ${name}:`,
+                error,
+              );
+            }
             throw error;
           }
         })();
 
-        // Cache for 1 hour
+        // Cache the promise so concurrent callers share one request, but drop the
+        // entry if it rejects: caching a rejected promise meant a single "not
+        // published yet" answer kept being replayed from cache for the whole TTL,
+        // long after a publish had made it wrong.
         setCachedInterface(cacheKey, fetchPromise);
+        fetchPromise.catch(() => clearCachedInterface(cacheKey));
         return fetchPromise;
       },
     [],
+  );
+
+  /**
+   * The prod snapshot of an interface, or null when it has never been published.
+   * Existence as a value instead of an exception: the dev/prod toggle only needs
+   * to know whether a snapshot exists, and a missing one is a normal state.
+   */
+  const getProdSnapshot = useMemo(
+    () =>
+      async (name: string): Promise<UserInterface | null> => {
+        try {
+          return await getUserInterfaceByName(name, 'prod');
+        } catch (error) {
+          if (error instanceof UserInterfaceNotFoundError) {
+            return null;
+          }
+          throw error;
+        }
+      },
+    [getUserInterfaceByName],
   );
 
   /**
@@ -740,6 +792,7 @@ export const useUserInterface = () => {
     getAllUserInterfaces,
     getUserInterface,
     getUserInterfaceByName,
+    getProdSnapshot,
     createUserInterface,
     createUserInterfaceWithValidation,
     updateUserInterface,

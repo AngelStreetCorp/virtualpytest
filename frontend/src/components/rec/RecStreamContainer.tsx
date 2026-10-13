@@ -5,7 +5,10 @@ import { Host, Device } from '../../types/common/Host_Types';
 import { MonitoringAnalysis, SubtitleAnalysis, LanguageMenuAnalysis } from '../../types/pages/Monitoring_Types';
 import { EnhancedHLSPlayer } from '../video/EnhancedHLSPlayer';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
+import { LiveStreamSwitch } from '../common/LiveStream/LiveStreamSwitch';
+import type { LiveStreamTransport, WhepStatus } from '../../types/controller/WebRTC_Types';
 import { MonitoringOverlay } from '../monitoring/MonitoringOverlay';
+import { StreamStatsOverlay } from '../monitoring/StreamStatsOverlay';
 import { buildStreamUrl, withVncCacheBust } from '../../utils/buildUrlUtils';
 import { useHostSession } from '../../hooks/useHostSession';
 import { useVncPassword } from '../../hooks/controller/useVncPassword';
@@ -41,6 +44,10 @@ interface RecStreamContainerProps {
   currentQuality: 'low' | 'sd' | 'hd' | 'hd_plus';
   isQualitySwitching: boolean;
   shouldPausePlayer: boolean;
+
+  // Live transport (HLS / WebRTC toggle)
+  streamTransport: LiveStreamTransport;
+  onWebRTCFailed: () => void;
   
   // Audio state
   isMuted: boolean;
@@ -78,6 +85,16 @@ interface RecStreamContainerProps {
   // that position overlays on top of the video (e.g. the Android mobile tap/element
   // overlay) can use the actual box instead of the pre-render size estimate.
   onMeasuredAreaChange?: (rect: { width: number; height: number; x: number; y: number }) => void;
+
+  /**
+   * When true, the HLS player's latency-debug overlay is on (in addition to the
+   * `?latency_debug=1` URL trigger). Wired through to HLSVideoPlayer so the
+   * rec header can show its own "Latency" toggle without the user editing the URL.
+   */
+  latencyDebug?: boolean;
+  persistentStream?: boolean;
+  onPersistentStreamTargetChange?: (target: HTMLElement | null) => void;
+  persistentWebRtcStatus?: WhepStatus;
 }
 
 export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
@@ -93,6 +110,8 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
   currentQuality,
   isQualitySwitching,
   shouldPausePlayer,
+  streamTransport,
+  onWebRTCFailed,
   isMuted,
   isMobileModel,
   showRemote,
@@ -112,10 +131,54 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
   analysisTimestamp,
   isAIAnalyzing,
   onMeasuredAreaChange,
+  latencyDebug,
+  persistentStream = false,
+  onPersistentStreamTargetChange,
+  persistentWebRtcStatus,
 }) => {
+  // Latest WHEP status reported up from LiveStreamSwitch. We track it locally so we can
+  // show the content-area loading overlay while WebRTC is connecting (mirrors the
+  // LOW/SD/HD quality-switch overlay — keeps the WEB toggle button clean).
+  const [whepStatus, setWhepStatus] = useState<WhepStatus>('idle');
+  // Surface the overlay only while the operator is in WEB mode AND the WHEP session is
+  // still handshaking. After 'playing' the WebRTC <video> takes over; on 'failed' the
+  // parent flips transport back to HLS and this branch becomes unreachable.
+  const isWebRtcConnecting =
+    streamTransport === 'webrtc' && isLiveMode && (persistentWebRtcStatus ?? whepStatus) === 'connecting';
+
   // VNC archive mode: override streamUrl to use HLS (same as screenshot logic)
   const isVncDevice = device?.device_model === 'host_vnc';
   const audioSupported = !isVncDevice;
+
+  // Monitoring cards + host stats over a player that has no built-in overlay: the VNC
+  // iframe and the WebRTC <video> (EnhancedHLSPlayer draws its own). No live FPS/latency
+  // row here — neither path has the HLS <video> it is measured from.
+  const monitoringLayer = monitoringMode ? (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        pointerEvents: 'none',
+        zIndex: 1300, // monitoring cards stay on top of player bars and badges
+      }}
+    >
+      <MonitoringOverlay
+        monitoringAnalysis={monitoringAnalysis || undefined}
+        subtitleAnalysis={subtitleAnalysis}
+        languageMenuAnalysis={languageMenuAnalysis}
+        consecutiveErrorCounts={errorTrendData || undefined}
+        audioSupported={audioSupported}
+        showSubtitles={!!subtitleAnalysis}
+        showLanguageMenu={!!languageMenuAnalysis}
+        analysisTimestamp={analysisTimestamp || undefined}
+        isAIAnalyzing={isAIAnalyzing}
+      />
+      <StreamStatsOverlay host={host} />
+    </Box>
+  ) : null;
   const archiveStreamBuild = useMemo(() => {
     if (!isVncDevice || isLiveMode) {
       return { url: undefined as string | undefined, error: null as string | null };
@@ -231,8 +294,10 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
         backgroundColor: 'black',
       }}
     >
-      {/* Quality transition overlay - solid black to hide corrupted frames during FFmpeg restart */}
-      {isQualitySwitching && (
+      {/* Stream transition overlay - solid black to hide corrupted/blank frames during
+          a quality switch OR a WebRTC hand-off. The toolbar stays clean: the LOW/SD/HD
+          and WEB toggle buttons don't carry inline spinners, the loading lives here. */}
+      {(isQualitySwitching || isWebRtcConnecting) && (
           <Box
             sx={{
               position: 'absolute',
@@ -250,7 +315,9 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
           >
             <CircularProgress size={60} sx={{ color: 'warning.main' }} />
             <Typography variant="h6" sx={{ color: 'white', mt: 2 }}>
-              Loading {currentQuality.toUpperCase()} quality stream...
+              {isQualitySwitching
+                ? `Loading ${currentQuality.toUpperCase()} quality stream...`
+                : 'Loading WebRTC stream...'}
             </Typography>
             <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.7)', mt: 1 }}>
               Waiting for stable stream
@@ -259,7 +326,15 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
         )}
       
       {/* Content based on mode */}
-      {restartMode && isControlActive ? (
+      {persistentStream ? (
+        <Box
+          ref={onPersistentStreamTargetChange}
+          data-persistent-stream-slot
+          sx={{ position: 'absolute', inset: 0, backgroundColor: 'black' }}
+        >
+          {monitoringLayer}
+        </Box>
+      ) : restartMode && isControlActive ? (
         <RestartPlayer host={host} device={device!} includeAudioAnalysis={true} />
       ) : effectiveStreamUrl ? (
         // VNC device in LIVE mode: use iframe for live desktop stream
@@ -320,39 +395,29 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
                   isStreamActive={true}
                   muted={isMuted}
                   isArchiveMode={false}
+                  latencyDebug={latencyDebug}
                   sx={{ width: '1px', height: '1px' }}
                 />
               </Box>
             )}
             
             {/* Monitoring overlay for VNC - same as HLS */}
-            {monitoringMode && (
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  pointerEvents: 'none',
-                  zIndex: 100,
-                }}
-              >
-                <MonitoringOverlay
-                  monitoringAnalysis={monitoringAnalysis || undefined}
-                  subtitleAnalysis={subtitleAnalysis}
-                  languageMenuAnalysis={languageMenuAnalysis}
-                  consecutiveErrorCounts={errorTrendData || undefined}
-                  audioSupported={audioSupported}
-                  showSubtitles={!!subtitleAnalysis}
-                  showLanguageMenu={!!languageMenuAnalysis}
-                  analysisTimestamp={analysisTimestamp || undefined}
-                  isAIAnalyzing={isAIAnalyzing}
-                />
-              </Box>
-            )}
+            {monitoringLayer}
           </Box>
         ) : (
+          // Live + RTC toggle on: WebRTC replaces the HLS player once it shows a frame,
+          // with the same monitoring layer on top (the transcript rail stays HLS-only).
+          // Archive is always HLS.
+          <LiveStreamSwitch
+            streamUrl={effectiveStreamUrl}
+            webrtcEnabled={isLiveMode && streamTransport === 'webrtc'}
+            muted={isMuted}
+            webrtcOverlay={monitoringLayer}
+            reconnectKey={currentQuality}
+            onStatusChange={setWhepStatus}
+            onWebRTCFailed={onWebRTCFailed}
+            sx={{ height: streamAreaHeight }}
+          >
           <EnhancedHLSPlayer
             deviceId={device?.device_id || 'device1'}
             hostName={host.host_name}
@@ -381,6 +446,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
             analysisTimestamp={analysisTimestamp}
             isAIAnalyzing={isAIAnalyzing}
           />
+          </LiveStreamSwitch>
         )
       ) : (
         <Box

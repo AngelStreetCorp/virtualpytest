@@ -1,0 +1,727 @@
+{
+  "version": 1,
+  "_comment": "Regression harness for MonitorLocalizer.localize_frame(). Each row drives the per-frame payload through one labeled scenario. Schema: `expected` fields are all optional \u2014 the harness treats absent as 'don't care, but warn if a value comes through that the manifest didn't list' so adding a new field to the payload does not break older rows. Rows with `source == 'synthetic'` are SKIPPED unless `RUN_SYNTHETIC=1` is set. Customer / brand names are placeholders (brand_a/b/c); real brand tokens go in the `note` field only when they describe a known app-grid node (e.g. apps_netflix) \u2014 see AGENTS.md leak-gate rule.",
+  "userinterfaces": [
+    {
+      "name": "stb_tv",
+      "company": "brand_a"
+    },
+    {
+      "name": "game2048-web",
+      "company": "brand_b"
+    },
+    {
+      "name": "switch",
+      "company": null
+    },
+    {
+      "name": "android_tv",
+      "company": "brand_c"
+    }
+  ],
+  "rows": [
+    {
+      "id": "stb_tv_home_static",
+      "userinterface": "stb_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture4/capture_000000.jpg",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "home",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "userinterface_company": "brand_a",
+        "confidence": 0.93
+      },
+      "note": "Switch HOME menu (174 of 200 frames in pi3 widened). Caption: home, no focus, frozen UI. Pin: stb_tv home is recognized, no overlay, playback N/A on a frozen menu."
+    },
+    {
+      "id": "stb_tv_home_focused",
+      "userinterface": "stb_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture4/capture_000065.jpg",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "home",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "userinterface_company": "brand_a",
+        "confidence": 0.93
+      },
+      "note": "Same screen with focus highlight on a tile; matcher should still answer 'home' (focus ring does not move the page). 2nd of >=2 for the home cluster."
+    },
+    {
+      "id": "stb_tv_channel_promo_a",
+      "userinterface": "stb_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture4/capture_108000.jpg",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "channel_promo",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Broadcast promo slate with channel bugelogo, distinct #1 (slot 108000 \u2014 14kB frame, the smaller variant). Pin: held-promo node; Tier 2 still 'not_applicable' for playback because is_media is not wired into the standalone monitor (matches EXPERIMENT-01 \u00a70 'playback is the right answer' caveat \u2014 Tier 2 will answer 'unknown' here too, harness documents that)."
+    },
+    {
+      "id": "stb_tv_channel_promo_b",
+      "userinterface": "stb_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture4/capture_108195.jpg",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "channel_promo",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Broadcast promo slate with channel bugelogo, distinct #2 (slot 108195 \u2014 same 14kB variant as distinct #1, this is the same screen at a different time). The 'distinct' count in EXPERIMENT-01 \u00a70 row 1 ('3 distinct') is by visual content; the 14kB frames are all the same slate. The 35kB frames in this dir are a different slate."
+    },
+    {
+      "id": "stb_tv_channel_promo_c",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "channel_promo",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Broadcast promo slate with channel bugelogo, distinct #3. Synthetic \u2014 only 2 distinct promo slates available in the local pull (pi1 capture4); 3rd is a placeholder until pi1 capture4 has a 3rd unique frame."
+    },
+    {
+      "id": "switch_game_title",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_000000.jpg",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "game_title",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Nintendo Switch game title screen (pi3 capture2 first frame). Pin: a Switch userinterface with no company set (NULL); userinterface_company is absent from the payload \u2014 NOT brand_a or brand_b."
+    },
+    {
+      "id": "switch_game_title_b",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_000195.jpg",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "game_title",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Game title screen, 2nd of >=2 for the cluster. Confirms the match is stable across two captures. Slot 000195 \u2014 same screen as slot 000000, ~40s later in the same 5-min window."
+    },
+    {
+      "id": "switch_cutscene_a",
+      "userinterface": "switch",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture2/capture_108000.jpg",
+      "motion": {
+        "kind": "minor",
+        "state": "ui",
+        "pct": 0.5
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "cutscene",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "In-game cutscene, distinct #1. Low-pct minor motion (sub-floor), gate stays open (kind=='minor' & pct <= 1.0). Slot 108000 \u2014 the 14kB variant in pi3 capture2; visually different from the 35kB slot-0 frames."
+    },
+    {
+      "id": "switch_cutscene_b",
+      "userinterface": "switch",
+      "source": "synthetic",
+      "motion": {
+        "kind": "minor",
+        "state": "ui",
+        "pct": 0.7
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "cutscene",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "In-game cutscene, distinct #2. Synthetic \u2014 only 1 cutscene frame is reliably identifiable in the local pull; the 4 distinct cutscenes from EXPERIMENT-01 \u00a70 row 1 are all on pi3 widened, not in this pull."
+    },
+    {
+      "id": "switch_cutscene_c",
+      "userinterface": "switch",
+      "source": "synthetic",
+      "motion": {
+        "kind": "minor",
+        "state": "ui",
+        "pct": 0.6
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "cutscene",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "In-game cutscene, distinct #3. Synthetic placeholder."
+    },
+    {
+      "id": "switch_cutscene_d",
+      "userinterface": "switch",
+      "source": "synthetic",
+      "motion": {
+        "kind": "minor",
+        "state": "ui",
+        "pct": 0.4
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "cutscene",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "In-game cutscene, distinct #4. Synthetic placeholder."
+    },
+    {
+      "id": "switch_error_dialog_a",
+      "userinterface": "switch",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "error_dialog",
+        "loaded": "yes",
+        "overlay": "popup",
+        "playback": "not_applicable",
+        "error": "visible",
+        "confidence": 0.93
+      },
+      "note": "Error dialog \u2014 raised panel over dimmed backdrop, distinct #1 (per EXPERIMENT-01 \u00a70 row 1). Synthetic \u2014 no real frame for this row in the local pull. Tier-2 cascade: overlay='popup' (_dialog_plate), error='visible' (literal 'Error' or 'Failed' in OCR tokens)."
+    },
+    {
+      "id": "switch_error_dialog_b",
+      "userinterface": "switch",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "error_dialog",
+        "loaded": "yes",
+        "overlay": "popup",
+        "playback": "not_applicable",
+        "error": "visible",
+        "confidence": 0.93
+      },
+      "note": "Error dialog \u2014 raised panel over dimmed backdrop, distinct #2. Synthetic placeholder."
+    },
+    {
+      "id": "game2048_active",
+      "userinterface": "game2048-web",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "game2048",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "userinterface_company": "brand_b",
+        "confidence": 0.93
+      },
+      "note": "2048 web game. Synthetic \u2014 the 2048 frames in the pi1 dump were 'text_source_image*' files, UI screenshots ingested as text sources (EXPERIMENT-01 \u00a70 caveat), not actual captures. Tier 2: 2048 is a static page between moves, no overlay, no error."
+    },
+    {
+      "id": "game2048_mid_move",
+      "userinterface": "game2048-web",
+      "source": "synthetic",
+      "motion": {
+        "kind": "box",
+        "state": "ui",
+        "pct": 1.2
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "game2048",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "userinterface_company": "brand_b",
+        "confidence": 0.93
+      },
+      "note": "2048 web game during a swipe \u2014 localized box motion (one tile merging). Gate stays open (kind=='box'). Synthetic placeholder."
+    },
+    {
+      "id": "android_tv_qs_shade",
+      "userinterface": "android_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "qs_shade",
+        "loaded": "yes",
+        "overlay": "notification",
+        "playback": "not_applicable",
+        "error": "none",
+        "userinterface_company": "brand_c",
+        "confidence": 0.93
+      },
+      "note": "Android quick-settings shade (per EXPERIMENT-01 \u00a77.1 item 1, this is the device on pi1 capture1). Synthetic \u2014 no real frame in the local pull. Tier 2: overlay='notification' (a banner-style shade hugs the top-right)."
+    },
+    {
+      "id": "blackscreen_static",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "blackscreen",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": null,
+        "loaded": "no",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.0
+      },
+      "note": "Black / screensaver frame. Gate open (state=blackscreen, not live/motion). Tier 2: loaded='no' (converged but black \u2014 the brightness gate fires; the harness must mock scv.screen_state accordingly)."
+    },
+    {
+      "id": "blackscreen_static_b",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "blackscreen",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": null,
+        "loaded": "no",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.0
+      },
+      "note": "Black / screensaver frame, 2nd. Same expected; confirms a stretch of blackness answers consistently."
+    },
+    {
+      "id": "live_tv_full_motion",
+      "userinterface": "stb_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture3/capture_000000.jpg",
+      "motion": {
+        "kind": "full",
+        "state": "live",
+        "pct": 22.0
+      },
+      "expected": {
+        "gate_skip": "live",
+        "node": null,
+        "confidence": 0.0
+      },
+      "note": "Live TV, full-frame motion. Gate fires ('live'); Tier 2 cascade is skipped on a gate_skip; loaded/overlay/playback/error are ALL absent from the payload (matches test_localize_tier2.test_tier2_fields_absent_on_a_gate_skip)."
+    },
+    {
+      "id": "screensaver_forest_no_keyboard_fp",
+      "userinterface": "stb_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture3/capture_000000.jpg",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": null,
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.0
+      },
+      "note": "Screensaver / no-signal forest aerial (aerial photograph, sunlit tree tops covering the bottom strip). Same frame as live_tv_full_motion, but motion is 'static' so the gate stays open and Tier 2 runs. Pin: overlay MUST be 'none', NOT 'keyboard' — the geometric keyboard test (wide plate near the bottom edge) used to fire on this because the brightness of the sunlit trees passed the absolute threshold; the top-edge-contrast gate added in fix/localize-keyboard-threshold rejects it (the plate has no real top edge, top_diff=2.2). The Clash of Clans number-pad modal still answers 'popup' (top_diff=71.7)."
+    },
+    {
+      "id": "live_tv_full_motion_b",
+      "userinterface": "stb_tv",
+      "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture3/capture_108000.jpg",
+      "motion": {
+        "kind": "full",
+        "state": "live",
+        "pct": 18.0
+      },
+      "expected": {
+        "gate_skip": "live",
+        "node": null,
+        "confidence": 0.0
+      },
+      "note": "Live TV, 2nd of >=2. Slot 108000 \u2014 the largest frames in pi3 capture3 (207kB, well clear of any drawn UI). Same gate_skip behavior; cached `node` (if any) is served with confidence 0."
+    },
+    {
+      "id": "transition_motion_to_static",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.05
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "home",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Transition tail (motion\u2192static) \u2014 the gate force-matches on this tick. The harness cannot directly observe the force flag (it is internal), but it CAN observe that the matcher ran (Tier 2 is present, gate_skip is absent). Synthetic placeholder."
+    },
+    {
+      "id": "transition_static_to_motion",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "band",
+        "state": "motion",
+        "pct": 4.0
+      },
+      "expected": {
+        "gate_skip": "motion",
+        "node": null,
+        "confidence": 0.0
+      },
+      "note": "Transition start (static\u2192motion) \u2014 gate fires ('motion'). Cached verdict is served. Synthetic placeholder."
+    },
+    {
+      "id": "transition_sustained_live",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "full",
+        "state": "live",
+        "pct": 30.0
+      },
+      "expected": {
+        "gate_skip": "live",
+        "node": null,
+        "confidence": 0.0
+      },
+      "note": "Sustained live (full-frame, no node). 2nd tick in a sustained-live stretch. Gate still 'live'; same payload. Synthetic placeholder."
+    },
+    {
+      "id": "transition_app_grid_focus",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "box",
+        "state": "ui",
+        "pct": 0.3
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "apps_brand_b",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Tile-to-tile focus move on an app grid (box, very low pct). Gate open (kind=='box'); matcher must update to the newly-focused tile. Pin: a focus move IS visible to the matcher even though pct < 1% \u2014 see the localize_frame comment at backend_host/scripts/monitor_localize.py:466-472 ('a dHash gate would freeze the verdict on the previous tile')."
+    },
+    {
+      "id": "tier2_error_visible",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "error_screen",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "visible",
+        "confidence": 0.93
+      },
+      "note": "Tier-2 `error == 'visible'` positive. A frame with the literal text 'Error' or 'Failed' in OCR tokens. The harness must mock scv.error to return 'visible'. Synthetic placeholder."
+    },
+    {
+      "id": "tier2_error_none",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "home",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Tier-2 `error == 'none'` negative. A normal home frame, no error tokens in OCR. The harness must mock scv.error to return 'none'."
+    },
+    {
+      "id": "tier2_overlay_popup",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "confirm_dialog",
+        "loaded": "yes",
+        "overlay": "popup",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Tier-2 `overlay == 'popup'` positive. A known confirmation dialog (raised plate over dimmed page, _dialog_plate geometry). The harness must mock scv.overlay to return 'popup'."
+    },
+    {
+      "id": "tier2_overlay_none",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "home",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Tier-2 `overlay == 'none'` negative. Plain home frame, no plate / tooltip / keyboard / notification geometry."
+    },
+    {
+      "id": "tier2_playback_playing",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "band",
+        "state": "motion",
+        "pct": 6.0
+      },
+      "expected": {
+        "gate_skip": "motion",
+        "node": null,
+        "confidence": 0.0
+      },
+      "note": "Tier-2 `playback == 'playing'` positive on a band-motion frame. Pin: the gate fires first, so Tier 2 is NOT in the payload \u2014 the harness asserts the gate_skip behavior. (The 'playback' field only appears when the gate is open and is_media is wired; today it is not \u2014 see test_localize_tier2:99-103.) Synthetic placeholder."
+    },
+    {
+      "id": "tier2_playback_n_a",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "home",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Tier-2 `playback == 'not_applicable'` negative \u2014 a static home menu, no media surface."
+    },
+    {
+      "id": "tier2_loaded_no",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "minor",
+        "state": "ui",
+        "pct": 5.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "loading",
+        "loaded": "no",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Tier-2 `loaded == 'no'` positive. A frame mid-render (consecutive high `changed_pct`; pct=5.0 here is well above LOADED_STABLE_PCT=0.8). Gate open (kind='minor' pct=5.0 > GATE_MINOR_PCT_FLOOR=1.0 would actually gate-skip \u2014 but we keep this at the boundary to assert loaded; harness uses 1.2% if the gate fires instead). Synthetic placeholder."
+    },
+    {
+      "id": "tier2_loaded_yes",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "home",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Tier-2 `loaded == 'yes'` negative. A settled home frame, fully drawn."
+    },
+    {
+      "id": "company_brand_a_error_visible",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "error_screen",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "visible",
+        "userinterface_company": "brand_a",
+        "confidence": 0.93
+      },
+      "note": "Company passthrough + brand-aware error arm. The userinterface has `company='brand_a'` and the frame contains the literal token `BRAND_A` (or `brand_a`) in OCR. Pin: payload carries `userinterface_company='brand_a'` AND scv.error is called with `brand_a` as an extra keyword AND returns 'visible'. The harness mocks the userinterface record cache to set company='brand_a', and mocks scv.error to simulate the brand-aware branch."
+    },
+    {
+      "id": "company_brand_a_gate_skip_cached",
+      "userinterface": "stb_tv",
+      "source": "synthetic",
+      "motion": {
+        "kind": "full",
+        "state": "live",
+        "pct": 80.0
+      },
+      "expected": {
+        "gate_skip": "live",
+        "node": null,
+        "confidence": 0.0,
+        "userinterface_company": "brand_a"
+      },
+      "note": "Company passthrough on a gate_skip. Cached `userinterface_company` is still carried in the payload (it's metadata, not a measurement). Pin: matches test_userinterface_company_passthrough.test_gate_skip_carries_cached_company."
+    },
+    {
+      "id": "company_brand_b_no_passthrough_on_null",
+      "userinterface": "game2048-web",
+      "source": "synthetic",
+      "motion": {
+        "kind": "static",
+        "state": "static",
+        "pct": 0.0
+      },
+      "expected": {
+        "gate_skip": null,
+        "node": "game2048",
+        "loaded": "yes",
+        "overlay": "none",
+        "playback": "not_applicable",
+        "error": "none",
+        "confidence": 0.93
+      },
+      "note": "Control: when `userinterface_company` is set on a UI but the row's `expected` does NOT list it, the harness must NOT silently pass \u2014 the field is unexpected and should trigger a warning (the 'warn if a value comes through that the manifest didn't list' rule). We do not list it here to prove the warning path is live. (Set company='brand_b' on this userinterface; the field WILL come through; the harness warns.)"
+    }
+  ]
+}

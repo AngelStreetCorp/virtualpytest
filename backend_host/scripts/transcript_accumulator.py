@@ -23,11 +23,12 @@ Audio detection ALWAYS runs (lightweight, critical for incident system)
 # CRITICAL: Limit CPU threads BEFORE importing PyTorch/Whisper
 # PyTorch/NumPy/OpenBLAS create 40+ threads by default, killing performance
 import os
-os.environ['OMP_NUM_THREADS'] = '2'          # OpenMP
-os.environ['MKL_NUM_THREADS'] = '2'          # Intel MKL
-os.environ['OPENBLAS_NUM_THREADS'] = '2'     # OpenBLAS
-os.environ['NUMEXPR_NUM_THREADS'] = '2'      # NumExpr
-os.environ['VECLIB_MAXIMUM_THREADS'] = '2'   # macOS Accelerate
+# 1, matching faster-whisper's cpu_threads=1 (audio_transcription_utils.get_whisper_model).
+os.environ['OMP_NUM_THREADS'] = '1'          # OpenMP
+os.environ['MKL_NUM_THREADS'] = '1'          # Intel MKL
+os.environ['OPENBLAS_NUM_THREADS'] = '1'     # OpenBLAS
+os.environ['NUMEXPR_NUM_THREADS'] = '1'      # NumExpr
+os.environ['VECLIB_MAXIMUM_THREADS'] = '1'   # macOS Accelerate
 # os.environ['TORCH_NUM_THREADS'] = '2'      # PyTorch - REMOVED (torch no longer used)
 
 import sys
@@ -38,7 +39,7 @@ import queue
 from queue import LifoQueue
 import threading
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 from pathlib import Path
 import argparse
@@ -926,7 +927,6 @@ class TranscriptMonitor:
         self.scan_queue = queue.Queue(maxsize=10)    # Backlog/history (max 10)
         self.audio_workers = {}
         self.transcription_workers_threads = []
-        self.incident_manager = None
         self.device_inflight = defaultdict(int)
         self.device_inflight_lock = threading.Lock()
         self.pending_item_keys = set()
@@ -938,6 +938,12 @@ class TranscriptMonitor:
         self.last_capture_json_write = {}
         self.latest_capture_json_cache = {}
         self.latest_capture_json_cache_time = {}
+        # LLM spelling/grammar pass over live segments (opt-in per host with
+        # TRANSCRIPT_AUTOCORRECT in .env). Raw text is merged first and shown at once.
+        self.corrector = None
+        if self.enable_transcription and os.getenv('TRANSCRIPT_AUTOCORRECT', '').strip().lower() in ('1', 'true', 'yes', 'on'):
+            from backend_host.src.lib.utils.transcript_correction import TranscriptCorrector
+            self.corrector = TranscriptCorrector()
         
         # Audio detection ALWAYS runs (critical for incident system)
         self._start_audio_workers()
@@ -1273,6 +1279,8 @@ class TranscriptMonitor:
                                 'segments': segments
                             }
                             merge_minute_to_chunk(device_folder, hour, chunk_index, minute_data, has_mp3=False)
+                            if self.corrector:
+                                self.corrector.submit(device_folder, hour, chunk_index)
                             
                             # NOTE: AI translation now on-demand via /host/transcript/translate-chunk endpoint
                             # No automatic 1-minute translation to reduce CPU load
@@ -1280,6 +1288,15 @@ class TranscriptMonitor:
                             #     enhance_and_dub_1min(device_folder, hour, chunk_index, slot, transcript, result.get('language', 'unknown'))
                         else:
                             logger.info(f"[{device_folder}] ⏭️  1min MP3 returned no segments (Whisper detected silence)")
+                            # Record the minute as processed-without-speech so readers can tell
+                            # "no speech" from "never transcribed" (/host/transcript/status).
+                            merge_minute_to_chunk(device_folder, hour, chunk_index, {
+                                'minute_offset': minute_offset,
+                                'language': 'unknown',
+                                'transcript': '',
+                                'segments': [],
+                                'skip_reason': 'no_speech',
+                            }, has_mp3=False)
                     else:
                         logger.warning(f"[{device_folder}] ⚠️  1min MP3 not found (may have been archived): {mp3_path}")
                 
@@ -1312,16 +1329,6 @@ class TranscriptMonitor:
     def _start_audio_workers(self):
         """Start audio detection workers (5s interval per device)"""
         logger.info("Starting audio detection workers...")
-        
-        try:
-            from backend_host.scripts.incident_manager import IncidentManager
-            # Don't resolve stale incidents - that's capture_monitor's job
-            # We only report audio detection results, not manage incident lifecycle
-            self.incident_manager = IncidentManager(skip_startup_cleanup=True)
-            logger.info("✓ IncidentManager initialized (audio reporting only)")
-        except Exception as e:
-            logger.warning(f"⚠️  Failed to initialize IncidentManager: {e} (audio detection will continue without incident tracking)")
-            self.incident_manager = None
         
         for device_info in self.monitored_devices:
             device_folder = device_info['device_folder']
@@ -1407,48 +1414,6 @@ class TranscriptMonitor:
         self.latest_capture_json_cache_time[device_folder] = now_ts
         return latest_json
 
-    def _update_audio_loss_frame_state(self, device_folder: str, latest_json_filename: str, has_audio: bool):
-        """
-        Persist audio_loss start/end frame references in device_state so IncidentManager
-        can upload start/closure captures using the same lifecycle as visual incidents.
-        """
-        if not self.incident_manager or not latest_json_filename:
-            return
-
-        from shared.src.lib.utils.storage_path_utils import get_thumbnails_path, copy_to_cold_storage
-
-        thumbnail_filename = latest_json_filename.replace('.jpg', '_thumbnail.jpg')
-        thumbnail_path = os.path.join(get_thumbnails_path(device_folder), thumbnail_filename)
-        if not os.path.exists(thumbnail_path):
-            logger.warning(f"[AUDIO:{device_folder}] Thumbnail not found for audio_loss: {thumbnail_path}")
-            return
-
-        device_state = self.incident_manager.get_device_state(device_folder)
-        active_incidents = device_state.get('active_incidents', {})
-        pending_incidents = device_state.get('pending_incidents', {})
-        has_audio_loss_context = (
-            'audio_loss' in active_incidents
-            or 'audio_loss' in pending_incidents
-            or bool(device_state.get('audio_loss_start_thumbnail_cold'))
-        )
-
-        if not has_audio:
-            # Store the first frame once per audio-loss window.
-            if not device_state.get('audio_loss_start_thumbnail_cold'):
-                start_thumbnail_cold = copy_to_cold_storage(thumbnail_path)
-                if start_thumbnail_cold:
-                    device_state['audio_loss_start_thumbnail_cold'] = start_thumbnail_cold
-                    device_state['audio_loss_start_filename'] = latest_json_filename
-                    logger.info(f"[AUDIO:{device_folder}] Stored audio_loss START thumbnail: {start_thumbnail_cold}")
-        else:
-            # When audio returns, prepare closure frame for IncidentManager resolve flow.
-            if has_audio_loss_context:
-                closure_thumbnail_cold = copy_to_cold_storage(thumbnail_path)
-                if closure_thumbnail_cold:
-                    device_state['audio_loss_closure_frame'] = closure_thumbnail_cold
-                    device_state['audio_loss_closure_filename'] = latest_json_filename
-                    logger.info(f"[AUDIO:{device_folder}] Stored audio_loss END thumbnail: {closure_thumbnail_cold}")
-    
     def _audio_detection_worker(self, device_folder):
         """Worker thread: Check audio every 5s by scanning segments directory with dynamic load adjustment"""
         BLUE = '\033[94m'
@@ -1534,7 +1499,10 @@ class TranscriptMonitor:
                             '-hide_banner',
                             '-loglevel', 'info',  # Need 'info' level for volumedetect output (NOT 'error'!)
                             '-i', segment_path,
-                            '-t', '0.5',
+                            # Whole segment (0.4-1 s), not its first 0.5 s: a source whose sound
+                            # comes in bursts (Apple bipbop beeps once a cycle) drifts against the
+                            # segment boundary, and a half-second window then lands in the gap
+                            # and reads -91 dB while the segment as a whole is at -21 dB.
                             '-vn',  # Skip video decode — only need audio for volumedetect
                             '-af', 'volumedetect',
                             '-f', 'null',
@@ -1544,13 +1512,19 @@ class TranscriptMonitor:
                         result = subprocess.run(cmd, capture_output=True, text=True, timeout=adaptive_timeout)
                         
                         mean_volume = None
+                        max_volume = None
                         for line in result.stderr.split('\n'):
-                            if 'mean_volume:' in line:
-                                try:
-                                    mean_volume = float(line.split('mean_volume:')[1].split('dB')[0].strip())
-                                    break
-                                except Exception as e:
-                                    logger.error(f"{BLUE}[AUDIO:{device_folder}] Failed to parse volume: {line} (error: {e}){RESET}")
+                            for key in ('mean_volume:', 'max_volume:'):
+                                if key in line:
+                                    try:
+                                        value = float(line.split(key)[1].split('dB')[0].strip())
+                                    except Exception as e:
+                                        logger.error(f"{BLUE}[AUDIO:{device_folder}] Failed to parse volume: {line} (error: {e}){RESET}")
+                                        continue
+                                    if key == 'mean_volume:':
+                                        mean_volume = value
+                                    else:
+                                        max_volume = value
 
                         if mean_volume is None:
                             # volumedetect produced no reading: the segment has no audio
@@ -1559,7 +1533,10 @@ class TranscriptMonitor:
                             # audio-loss (False) — the UI shows "N/A", not red "No".
                             has_audio = None
                         else:
-                            has_audio = mean_volume > -50.0
+                            # Presence is decided on the PEAK, not the mean: quiet film scenes
+                            # average -50..-70 dB yet peak at -25..-45 dB. Lost audio is digital
+                            # silence (-91 dB on both). mean_volume stays the reported level.
+                            has_audio = (max_volume if max_volume is not None else mean_volume) > -60.0
                         processing_time = time.time() - processing_start
                         self.last_audio_probe_segment[device_folder] = (segment_path, latest_mtime, has_audio, mean_volume)
                         
@@ -1572,11 +1549,14 @@ class TranscriptMonitor:
                         consecutive_successes += 1
                         
                     except subprocess.TimeoutExpired:
-                        # Handle timeout - system is overloaded
+                        # Handle timeout - system is overloaded. A probe that did not finish
+                        # measured nothing: keep the device's last measured state instead of
+                        # reporting an audio loss (a loaded host flipped devices to "No").
                         processing_time = adaptive_timeout
-                        has_audio = False
-                        mean_volume = -100.0
-                        
+                        previous = self.last_audio_probe_segment.get(device_folder)
+                        has_audio = previous[2] if previous else None
+                        mean_volume = previous[3] if previous else None
+
                         consecutive_timeouts += 1
                         consecutive_successes = 0
                         
@@ -1658,7 +1638,10 @@ class TranscriptMonitor:
                             'audio': has_audio,
                             'mean_volume_db': mean_volume,
                             'timestamp': detection_result['timestamp'],
-                            'segment_file': segment_filename
+                            'segment_file': segment_filename,
+                            # Service mode, so /host/transcript/status can tell "transcription
+                            # disabled" from "nothing to transcribe" (rewritten every <=30 s).
+                            'transcription': self.enable_transcription
                         }
                         with open(audio_status_path + '.tmp', 'w') as f:
                             json.dump(audio_status_data, f, separators=(',', ':'))
@@ -1719,18 +1702,10 @@ class TranscriptMonitor:
                 if latest_json_filename:
                     detection_result['filename'] = latest_json_filename
 
-                # Audio-loss incidents only apply to devices that actually capture audio.
-                # When has_audio is None (no audio stream), skip incident tracking entirely
-                # so a video-only capture never raises a bogus audio_loss.
-                if has_audio is not None:
-                    # Track start/end audio_loss frame references for IncidentManager uploads.
-                    self._update_audio_loss_frame_state(device_folder, latest_json_filename, has_audio)
+                # No incident reporting here: vpt-monitor owns the audio_loss lifecycle. It reads
+                # the audio_status.json written above and stores the alert's frame; opening the
+                # incident here too made a second, image-less audio_loss alert (BUG-0427).
 
-                    # Report to incident manager for tracking only (no lifecycle management)
-                    if self.incident_manager:
-                        host_name = os.getenv('HOST_NAME', 'unknown')
-                        self.incident_manager.process_detection(device_folder, detection_result, host_name)
-                
             except Exception as e:
                 import traceback
                 logger.error(f"{BLUE}[AUDIO:{device_folder}] Error: {e}{RESET}")
@@ -1752,10 +1727,16 @@ class TranscriptMonitor:
             if device_folder:
                 mp3_path = os.path.join(path, filename)
                 
-                # Slot-based naming (1min_0.mp3 through 1min_9.mp3) - use current time for chunk location
+                # Slot N is the minute it was recorded in (minute % 10 == N, BUG-0277): the latest
+                # such minute up to now. The MP3 lands after the minute ends, so for slot 9 the
+                # clock is often already in the next chunk.
                 from shared.src.lib.utils.storage_path_utils import calculate_chunk_location
                 now = datetime.now()
-                hour, chunk_index = calculate_chunk_location(now)
+                slot = Path(filename).stem.replace('1min_', '')
+                if not slot.isdigit():  # dubbed 1min_<slot>_<lang>.mp3
+                    return False
+                slot = int(slot)
+                hour, chunk_index = calculate_chunk_location(now - timedelta(minutes=(now.minute - slot) % 10))
                 
                 queued = self._queue_item(self.file_event_queue, (device_folder, mp3_path, hour, chunk_index))
                 if queued:

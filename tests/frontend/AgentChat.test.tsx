@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
@@ -61,9 +61,18 @@ vi.mock('../../frontend/src/hooks/aiagent/useToolExecutionTiming', () => {
   };
 });
 
+const serverState = vi.hoisted(() => ({ selectedServer: 'main' }));
+const mkHost = (host_name: string) => ({ host_name, devices: [{ device_id: 'device1', device_name: 'Dev', hostName: host_name }] });
+const mockHosts = vi.hoisted(() => [] as any[]);
+const mockServers = vi.hoisted(() => [] as any[]);
+
+vi.mock('../../frontend/src/hooks/useServerManager', () => ({
+  useServerManager: () => ({ selectedServer: serverState.selectedServer, serverHostsData: mockServers }),
+}));
+
 vi.mock('../../frontend/src/hooks/useHostManager', () => {
-  const getAllHosts = () => [] as any[];
-  const getAllDevices = () => [] as any[];
+  const getAllHosts = () => mockHosts;
+  const getAllDevices = () => mockHosts.flatMap((h: any) => h.devices);
   const handleDeviceSelect = () => {};
   return {
     useHostData: () => ({ getAllHosts, getAllDevices }),
@@ -157,5 +166,44 @@ describe('AgentChat page', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'AI Agent', level: 5 })).toBeInTheDocument();
+  });
+
+  it('landing view shows the reconnecting / error notice (BUG-0360)', async () => {
+    sessionStorage.setItem('agentchat_visited', 'true');
+    const prev = mockAgentChatContextValue.error;
+    (mockAgentChatContextValue as any).error = 'Reconnecting to the server… your message will be sent as soon as it is back.';
+    try {
+      render(
+        <BrowserRouter>
+          <AgentChat />
+        </BrowserRouter>,
+      );
+      expect(await screen.findByRole('heading', { name: 'AI Agent', level: 5 })).toBeInTheDocument();
+      expect(screen.getByTestId('agent-chat-error')).toHaveTextContent('Reconnecting to the server');
+    } finally {
+      (mockAgentChatContextValue as any).error = prev;
+    }
+  });
+
+  it('drops a Target that is not on the newly selected server (BUG-0313)', async () => {
+    sessionStorage.setItem('agentchat_visited', 'true');
+    mockHosts.splice(0, mockHosts.length, mkHost('host-clone-1'), mkHost('rpi1-host'));
+    mockServers.splice(0, mockServers.length,
+      { server_info: { server_url: 'main', server_name: 'Awesomation' }, hosts: [{ host_name: 'host-clone-1' }] },
+      { server_info: { server_url: 'rpi1', server_name: 'RPI1-server' }, hosts: [{ host_name: 'rpi1-host' }] },
+    );
+    serverState.selectedServer = 'main';
+    const ui = (
+      <BrowserRouter>
+        <AgentChat />
+      </BrowserRouter>
+    );
+    const { rerender, container } = render(ui);
+    const target = () => (Array.from(container.querySelectorAll('input.MuiSelect-nativeInput')) as HTMLInputElement[]).map((i) => i.value).find((v) => v.includes(':device1'));
+    await waitFor(() => expect(target()).toBe('host-clone-1:device1'));
+
+    serverState.selectedServer = 'rpi1';
+    rerender(<BrowserRouter><AgentChat /></BrowserRouter>);
+    await waitFor(() => expect(target()).toBe('rpi1-host:device1'));
   });
 });

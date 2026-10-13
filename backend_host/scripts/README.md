@@ -202,8 +202,10 @@ TZ="Europe/Zurich"        # Used by analysis scripts
 # System packages
 sudo apt install ffmpeg inotify-tools imagemagick alsa-utils
 # alsa-utils provides arecord — run_ffmpeg.sh's audio probe; without it all
-# devices silently start video-only. Optional (Intel/AMD only): VAAPI HW encode
-# needs `intel-media-va-driver-non-free vainfo` (Debian: enable non-free).
+# devices silently start video-only. Optional (Intel/AMD only): VAAPI HW decode/encode
+# needs `intel-media-va-driver-non-free vainfo` (Intel) or
+# `firmware-amd-graphics mesa-va-drivers vainfo` (AMD); Debian: enable non-free(-firmware).
+# See OPTIMIZATION.md §2d.
 
 # Python packages (in virtual environment)
 pip install opencv-python numpy pytesseract python-dotenv

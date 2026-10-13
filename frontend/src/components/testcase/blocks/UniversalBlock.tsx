@@ -6,6 +6,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import CloseIcon from '@mui/icons-material/Close';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useToastContext } from '../../../contexts/ToastContext';
 import { useDeviceData } from '../../../contexts/device/DeviceDataContext';
 import { useTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
@@ -44,6 +45,7 @@ export const UniversalBlock: React.FC<NodeProps & {
   // Extract executionState from data (passed by TestCaseBuilder)
   const executionState = data.executionState as BlockExecutionState | undefined;
   const { actualMode } = useTheme();
+  const P = useAgentChatPalette();
   const { showSuccess, showError } = useToastContext();
   const { currentHost, currentDeviceId } = useDeviceData();
   const { updateBlock, userinterfaceName, unifiedExecution, scriptInputs, scriptVariables, scriptOutputs, scriptMetadata, nodes } = useTestCaseBuilder();
@@ -122,11 +124,11 @@ export const UniversalBlock: React.FC<NodeProps & {
   } else if (type === 'action') {
     color = '#ea580c'; // orange (muted)
   } else if (type === 'verification') {
-    color = '#2563eb'; // blue (muted)
+    color = P.series[1]; // steel (muted)
   } else if (['sleep', 'get_current_time', 'condition', 'set_variable', 'set_variable_io', 'set_metadata', 'loop', 'custom_code', 'common_operation', 'evaluate_condition'].includes(type as string)) {
-    color = '#64748b'; // slate (muted)
+    color = P.textMuted;
   } else {
-    color = '#64748b'; // default
+    color = P.textMuted;
   }
   
   const categoryLabel = data.label || data.command || type;
@@ -629,15 +631,15 @@ export const UniversalBlock: React.FC<NodeProps & {
     switch (state.status) {
       case 'executing':
         return {
-          border: '3px solid #3b82f6',
-          boxShadow: '0 0 20px rgba(59, 130, 246, 0.6), 0 0 40px rgba(59, 130, 246, 0.3)',
+          border: `3px solid ${P.accent}`,
+          boxShadow: `0 0 20px ${P.accent}99, 0 0 40px ${P.accent}4d`,
           animation: 'executePulse 1.5s ease-in-out infinite',
           '@keyframes executePulse': {
             '0%, 100%': { 
-              boxShadow: '0 0 20px rgba(59, 130, 246, 0.6), 0 0 40px rgba(59, 130, 246, 0.3)',
+              boxShadow: `0 0 20px ${P.accent}99, 0 0 40px ${P.accent}4d`,
             },
             '50%': { 
-              boxShadow: '0 0 30px rgba(59, 130, 246, 0.8), 0 0 60px rgba(59, 130, 246, 0.4)',
+              boxShadow: `0 0 30px ${P.accent}cc, 0 0 60px ${P.accent}66`,
             },
           },
         };
@@ -683,11 +685,11 @@ export const UniversalBlock: React.FC<NodeProps & {
           : 'clamp(280px, 24vw, 340px)', // Keeps blocks readable across browser zoom and autofit
         minHeight: 120,  // Fixed minimum height
         maxHeight: isInlineConfigured ? 460 : 320, // taller for the inline form
-        border: selected ? '2px solid #fbbf24' : `1px solid ${actualMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+        border: selected ? `2px solid ${P.accent}` : `1px solid ${P.borderColor}`,
         borderLeft: `3px solid ${color}`, // Left accent bar for type indication
         ...getExecutionStyling(), // Apply execution styling
         borderRadius: 1.5,
-        background: actualMode === 'dark' ? '#1e293b' : '#ffffff',
+        background: P.surface,
         boxShadow: actualMode === 'dark' 
           ? '0 2px 8px rgba(0,0,0,0.3)' 
           : '0 2px 8px rgba(0,0,0,0.08)',

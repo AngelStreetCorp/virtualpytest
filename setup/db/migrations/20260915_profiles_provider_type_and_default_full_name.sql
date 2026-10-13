@@ -4,7 +4,7 @@
 --
 -- 1. provider_type — which platform the account came from. 'virtualpytest' for
 --    anyone created here (UI signup, admin, our own tooling); an external system
---    provisioning over /server/users sends its own name (e.g. 'dmacp') so a row
+--    provisioning over /server/users sends its own name (e.g. 'idp') so a row
 --    says where the person is administered from. NOT NULL + DEFAULT, so every
 --    existing row is backfilled to 'virtualpytest' by the ALTER itself.
 --

@@ -15,21 +15,29 @@ import {
   Logout as LogoutIcon,
   Groups as TeamsIcon,
   People as UsersIcon,
+  AdminPanelSettings as RolesIcon,
   WorkspacesOutlined as WorkspacesIcon,
   Apartment as TenantIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/auth/useAuth';
+import { usePermissions } from '../../hooks/auth/usePermissions';
 import { useProfile } from '../../hooks/auth/useProfile';
+import { useRoles } from '../../hooks/pages/useRoles';
 import { useNavigate } from 'react-router-dom';
 import { isAuthEnabled } from '../../lib/supabase';
+import { useI18n } from '../../i18n/useI18n';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export const UserMenu: React.FC = () => {
+  const P = useAgentChatPalette();
   const { user, signOut } = useAuth();
   const { profile, isPlatformAdmin } = useProfile();
   const navigate = useNavigate();
+  const { t } = useI18n();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
 
-  const isAdmin = profile?.role === 'admin';
+  const { canAccess } = usePermissions();
+  const { roleLabel } = useRoles();
 
   const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
     setAnchorEl(event.currentTarget);
@@ -54,6 +62,11 @@ export const UserMenu: React.FC = () => {
     navigate('/users');
   };
 
+  const handleRoles = () => {
+    handleMenuClose();
+    navigate('/roles');
+  };
+
   const handleWorkspaces = () => {
     handleMenuClose();
     navigate('/workspaces');
@@ -73,7 +86,7 @@ export const UserMenu: React.FC = () => {
     return null;
   }
 
-  const displayName = profile?.full_name || user.email?.split('@')[0] || 'User';
+  const displayName = profile?.full_name || user.email?.split('@')[0] || t('User');
   const avatarUrl = profile?.avatar_url || user.user_metadata?.avatar_url;
 
   return (
@@ -85,7 +98,7 @@ export const UserMenu: React.FC = () => {
           sx={{
             width: 32,
             height: 32,
-            bgcolor: 'primary.main',
+            bgcolor: P.accent,
           }}
         >
           {displayName.charAt(0).toUpperCase()}
@@ -112,9 +125,9 @@ export const UserMenu: React.FC = () => {
           </Typography>
           {profile?.role && (
             <Chip
-              label={profile.role.toUpperCase()}
+              label={roleLabel(profile.role)}
               size="small"
-              color={profile.role === 'admin' ? 'error' : profile.role === 'tester' ? 'primary' : 'default'}
+              color={profile.role === 'admin' ? 'error' : profile.role === 'viewer' ? 'default' : 'primary'}
               sx={{ mt: 1 }}
             />
           )}
@@ -129,34 +142,43 @@ export const UserMenu: React.FC = () => {
             <ListItemIcon>
               <TenantIcon fontSize="small" />
             </ListItemIcon>
-            <ListItemText>Tenants</ListItemText>
+            <ListItemText>{t('Tenants')}</ListItemText>
           </MenuItem>
         )}
 
-        {isAdmin && (
+        {canAccess('org.teams:view') && (
           <MenuItem onClick={handleTeams}>
             <ListItemIcon>
               <TeamsIcon fontSize="small" />
             </ListItemIcon>
-            <ListItemText>Teams</ListItemText>
+            <ListItemText>{t('Teams')}</ListItemText>
           </MenuItem>
         )}
 
-        {isAdmin && (
+        {canAccess('org.users:view') && (
           <MenuItem onClick={handleUsers}>
             <ListItemIcon>
               <UsersIcon fontSize="small" />
             </ListItemIcon>
-            <ListItemText>Users</ListItemText>
+            <ListItemText>{t('Users')}</ListItemText>
           </MenuItem>
         )}
 
-        {isAdmin && (
+        {canAccess('org.roles:view') && (
+          <MenuItem onClick={handleRoles}>
+            <ListItemIcon>
+              <RolesIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>{t('Roles')}</ListItemText>
+          </MenuItem>
+        )}
+
+        {canAccess('org.workspaces:view') && (
           <MenuItem onClick={handleWorkspaces}>
             <ListItemIcon>
               <WorkspacesIcon fontSize="small" />
             </ListItemIcon>
-            <ListItemText>Workspaces</ListItemText>
+            <ListItemText>{t('Workspaces')}</ListItemText>
           </MenuItem>
         )}
 
@@ -166,7 +188,7 @@ export const UserMenu: React.FC = () => {
           <ListItemIcon>
             <LogoutIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Logout</ListItemText>
+          <ListItemText>{t('Logout')}</ListItemText>
         </MenuItem>
       </Menu>
     </Box>

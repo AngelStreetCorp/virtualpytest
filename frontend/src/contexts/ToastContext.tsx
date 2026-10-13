@@ -1,13 +1,8 @@
 import React, { createContext, useContext, ReactNode, useEffect, useCallback } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 // Toast configuration with predefined colors
-const TOAST_COLORS = {
-  error: '#ef4444', // Red
-  warning: '#f97316', // Orange
-  success: '#22c55e', // Green
-  info: '#3b82f6', // Blue
-} as const;
 
 // Toast context interface
 interface ToastContextType {
@@ -37,22 +32,26 @@ const getBaseToastStyle = () => ({
 
 // Toast provider component
 export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  // Toasts follow the theme: card surface with a light tint and border of the status colour
+  // (info = gold, never blue).
+  const P = useAgentChatPalette();
+  const tint = useCallback((c: string) => `color-mix(in srgb, ${c} 10%, ${P.surface})`, [P]);
   const showError = useCallback((message: string, options?: { duration?: number; id?: string }) => {
     toast.error(message, {
       id: options?.id,
       duration: options?.duration || 4000,
       style: {
         ...getBaseToastStyle(),
-        background: '#fef2f2',
-        color: TOAST_COLORS.error,
-        border: `1px solid ${TOAST_COLORS.error}`,
+        background: tint(P.error),
+        color: P.error,
+        border: `1px solid ${P.error}`,
       },
       iconTheme: {
-        primary: TOAST_COLORS.error,
-        secondary: '#fef2f2',
+        primary: P.error,
+        secondary: tint(P.error),
       },
     });
-  }, []);
+  }, [P, tint]);
 
   const showWarning = useCallback((message: string, options?: { duration?: number; id?: string }) => {
     toast(message, {
@@ -61,12 +60,12 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       icon: '⚠️',
       style: {
         ...getBaseToastStyle(),
-        background: '#fffbeb',
-        color: TOAST_COLORS.warning,
-        border: `1px solid ${TOAST_COLORS.warning}`,
+        background: tint(P.warning),
+        color: P.warning,
+        border: `1px solid ${P.warning}`,
       },
     });
-  }, []);
+  }, [P, tint]);
 
   const showSuccess = useCallback((message: string, options?: { duration?: number; id?: string }) => {
     toast.success(message, {
@@ -74,16 +73,16 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       duration: options?.duration || 3000,
       style: {
         ...getBaseToastStyle(),
-        background: '#f0fdf4',
-        color: TOAST_COLORS.success,
-        border: `1px solid ${TOAST_COLORS.success}`,
+        background: tint(P.success),
+        color: P.success,
+        border: `1px solid ${P.success}`,
       },
       iconTheme: {
-        primary: TOAST_COLORS.success,
-        secondary: '#f0fdf4',
+        primary: P.success,
+        secondary: tint(P.success),
       },
     });
-  }, []);
+  }, [P, tint]);
 
   const showInfo = useCallback((message: string, options?: { duration?: number; id?: string }) => {
     toast(message, {
@@ -92,12 +91,12 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       icon: 'ℹ️',
       style: {
         ...getBaseToastStyle(),
-        background: '#eff6ff',
-        color: TOAST_COLORS.info,
-        border: `1px solid ${TOAST_COLORS.info}`,
+        background: tint(P.accentText),
+        color: P.accentText,
+        border: `1px solid ${P.accentText}`,
       },
     });
-  }, []);
+  }, [P, tint]);
 
   // Generic show function for AI integration
   const showToast = useCallback((message: string, severity: 'info' | 'success' | 'warning' | 'error') => {
@@ -141,8 +140,9 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           duration: 4000,
           style: {
             ...getBaseToastStyle(),
-            background: '#fff',
-            color: '#363636',
+            background: P.surface,
+            color: P.textPrimary,
+            border: `1px solid ${P.borderColor}`,
           },
         }}
       />

@@ -424,6 +424,18 @@ export const useAction = () => {
           actionResult.iterator_count ??
           actionResult.iterations.length;
         actionResult.iterations.forEach((iteration: any) => {
+          // Repeat-until rows carry the press → wait → check cycle; the icon is
+          // the CHECK outcome, not just "the key press was sent".
+          if (typeof iteration.condition_met === 'boolean') {
+            const checkIcon = iteration.condition_met ? '✅' : '❌';
+            const press = iteration.success ? 'press ✓' : `press ✗ ${iteration.message}`;
+            const check = iteration.condition_met ? 'check met' : 'check not met';
+            const verifyMsg = iteration.verify_message ? ` - ${iteration.verify_message}` : '';
+            lines.push(
+              `   ${checkIcon} Iteration ${iteration.iteration}/${max}: ${press} (${iteration.press_ms}ms) · wait ${iteration.wait_ms}ms · ${check} (${iteration.verify_ms}ms)${verifyMsg}`,
+            );
+            return;
+          }
           const iterationIcon = iteration.success ? '✅' : '❌';
           lines.push(
             `   ${iterationIcon} Iteration ${iteration.iteration}/${max}: ${iteration.message} (${iteration.execution_time_ms}ms)`,

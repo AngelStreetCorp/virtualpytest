@@ -56,8 +56,24 @@ sudo apt-get install -y lsof net-tools psmisc
 
 #### **📡 IR Remote Control (for Apple TV, Samsung TV, etc.)**
 ```bash
-sudo apt-get install -y lirc lirc-tools ir-keytable
+sudo apt-get install -y lirc lirc-tools linux-input-utils
 ```
+
+`linux-input-utils` provides `ir-ctl`, which is what the host actually shells out to.
+There is **no `ir-keytable` package on current Debian/Ubuntu** — that tool was renamed to
+`ir-ctl`, so a line asking for `ir-keytable` fails on a fresh Debian 12/13 host.
+
+Which of these you actually need depends on the host (see
+[docs/agent/devices/INFRARED.md](../../../docs/agent/devices/INFRARED.md)):
+
+| Host | Requires | Selected by |
+|---|---|---|
+| Raspberry Pi (kernel publishes `/dev/lirc*`) | `lirc`, `ir-ctl` | `DEVICE{n}_IR_PATH=/dev/lirc0` |
+| x86 miniserver + `04d8:fd08` dongle | `lirc`, `ir-ctl`; **no** kernel module | `DEVICE{n}_IR_SERIAL=/dev/irtoy` |
+
+On a non-Pi host the stock kernel ships no `CONFIG_IR_TOY`, so the USB IR Toy is a plain
+CDC serial port and VPT drives it directly — lirc is not in the transmit path at all.
+`install_host.sh` detects the platform and installs the `/dev/irtoy` udev rule for you.
 
 ## 🎯 **Hardware-Specific Requirements**
 
@@ -83,7 +99,7 @@ sudo apt-get update && sudo apt-get install -y \
     # Try chromium first (Debian 12+), fallback to chromium-browser for older versions
     chromium || chromium-browser \
     inotify-tools lsof net-tools psmisc \
-    lirc lirc-tools ir-keytable
+    lirc lirc-tools linux-input-utils
 ```
 
 ## 🔍 **Verification**

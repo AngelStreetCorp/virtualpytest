@@ -30,6 +30,7 @@ import { useNode } from '../../hooks/navigation/useNode';
 import { useValidationColors } from '../../hooks/validation/useValidationColors';
 import type { EdgeMetricData, NodeMetricData } from '../../types/navigation/Metrics_Types';
 import { UINavigationNode } from '../../types/pages/Navigation_Types';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import type { VerificationMode } from '../../utils/navigationExecutionUtils';
 import { getZIndex } from '../../utils/zIndexUtils';
 
@@ -63,11 +64,11 @@ function getActionDisplayText(action: any): string {
 // Per-action execution meta the executor honours: `iterator` (repeat count,
 // default 1) and the post-action settle `wait_time` (ms), which the host
 // resolves from params.wait_time or the action top-level. Returned split so
-// each renders in its own fixed column ("x2" | "wait:2000").
+// each renders in its own fixed column ("x2" | "wait:2000ms").
 function getActionMeta(action: any): { iter: string; wait: string } {
   const rawWait = action?.params?.wait_time ?? action?.wait_time ?? 0;
   const waitMs = Number(rawWait) > 0 ? Number(rawWait) : 0;
-  const wait = waitMs > 0 ? `wait:${waitMs}` : '';
+  const wait = waitMs > 0 ? `wait:${waitMs}ms` : '';
   // "Repeat until" actions have no meaningful fixed count — show "repeat"
   // instead of "x1" so the preview reads truthfully without extra clutter.
   // The condition can be node-based (target_node_id) or verification-based
@@ -202,6 +203,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
   nodeMetrics,
   onGotoArrived,
 }) => {
+  const P = useAgentChatPalette();
   // Verification mode for this goto. Persisted to localStorage so the user's
   // choice sticks across sessions; the dropdown next to the Goto button lets
   // them flip it before clicking.
@@ -496,7 +498,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
             sx={{
               fontSize: '0.7rem',
               fontWeight: 'bold',
-              color: '#666',
+              color: P.textMuted,
               padding: '2px 6px',
               borderRadius: '4px',
               backgroundColor: 'rgba(255,255,255,0.1)',
@@ -520,7 +522,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
           sx={{
             mb: 0.5,
             border: '1px solid',
-            borderColor: 'grey.300',
+            borderColor: P.borderColor,
             borderRadius: 1,
             p: 1,
           }}
@@ -591,9 +593,14 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                             <Chip
                               label="recovered"
                               size="small"
-                              color="info"
                               variant="outlined"
-                              sx={{ height: 18, fontSize: '0.6rem', '& .MuiChip-label': { px: 0.5 } }}
+                              sx={{
+                                height: 18,
+                                fontSize: '0.6rem',
+                                color: P.textSecondary,
+                                borderColor: P.borderColor,
+                                '& .MuiChip-label': { px: 0.5 }
+                              }}
                             />
                           </Tooltip>
                         )}
@@ -636,7 +643,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
         <Box
           sx={{
             border: '1px solid',
-            borderColor: 'grey.300',
+            borderColor: P.borderColor,
             borderRadius: 1,
             p: 1,
           }}
@@ -669,13 +676,13 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                       >
                         {index + 1}. {verification.command || 'Unnamed Verification'}
                         {value && (
-                          <span style={{ color: '#1976d2', marginLeft: '6px' }}>
+                          <span style={{ color: P.accentText, marginLeft: '6px' }}>
                             {value}
                           </span>
                         )}
                         <span
                           style={{
-                            color: timeoutMs > 0 ? '#888' : '#d32f2f',
+                            color: timeoutMs > 0 ? P.textMuted : P.error,
                             marginLeft: '8px',
                             fontWeight: 'normal',
                           }}
@@ -775,7 +782,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                         href={r.debug_report_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ color: '#1976d2', textDecoration: 'underline', fontWeight: 'bold' }}
+                        style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
                       >
                         🔍 View {r.kind === 'sibling' ? 'sibling' : 'target'} report
                         {r.label ? ` — ${r.label}` : ''}
@@ -790,7 +797,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                     href={nodeHook.debugReportUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={{ color: '#1976d2', textDecoration: 'underline', fontWeight: 'bold' }}
+                    style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
                   >
                     🔍 View Debug Report
                   </a>

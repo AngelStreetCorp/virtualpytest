@@ -14,13 +14,18 @@ import {
   Add as AddIcon,
   ArrowDownward as DownIcon,
   ArrowUpward as UpIcon,
-  Delete as DeleteIcon,
   Loop as LoopIcon,
   PlayArrow as RunIcon,
   UnfoldLess as UngroupIcon,
+  AltRoute as GotoIcon,
+  TouchApp as ActionIcon,
+  FactCheckOutlined as VerifyIcon,
+  HourglassEmpty as WaitIcon,
+  AutoAwesome as SparkleIcon,
+  Search as SearchIcon,
+  DeleteOutline as DeleteOutlineIcon,
 } from '@mui/icons-material';
 import {
-  alpha,
   Alert,
   Box,
   Button,
@@ -30,11 +35,8 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  InputBase,
   ListSubheader,
-  List,
-  ListItem,
-  ListItemButton,
-  ListItemText,
   MenuItem,
   Paper,
   Snackbar,
@@ -51,13 +53,14 @@ import { DeviceControlPanels } from '../../../frontend/src/components/common/Dev
 import { ExecutionProgressOverlay } from '../../../frontend/src/components/common/ExecutionProgressOverlay';
 import { VariantSelector } from '../../../frontend/src/components/common/VariantSelector';
 import { QuickTestInputsBar } from './components/QuickTestInputsBar';
+import { AIEditPreview } from '../../../frontend/src/components/testcase/ai/AIEditPreview';
 import { RunWithInputsDialog } from '../../../frontend/src/components/testcase/RunWithInputsDialog';
 import { TestCaseBuilderHeader } from '../../../frontend/src/components/testcase/builder/TestCaseBuilderHeader';
 import { InlineActionConfig } from '../../../frontend/src/components/testcase/blocks/InlineActionConfig';
 import { InlineVerificationConfig } from '../../../frontend/src/components/testcase/blocks/InlineVerificationConfig';
 import { DeviceDataProvider } from '../../../frontend/src/contexts/device/DeviceDataContext';
 import { NavigationConfigProvider } from '../../../frontend/src/contexts/navigation/NavigationConfigContext';
-import { useTheme } from '../../../frontend/src/contexts/ThemeContext';
+import { VNCStateProvider } from '../../../frontend/src/contexts/VNCStateContext';
 import { useQuickTestBuilder } from './hooks/useQuickTestBuilder';
 import {
   LoopBreak,
@@ -72,6 +75,7 @@ import {
 } from './types/QuickTest_Types';
 import { ActionBlockData, VerificationBlockData } from '../../../frontend/src/types/testcase/TestCase_Types';
 import { asPlaceholder, placeholderName } from '../../../frontend/src/utils/testcase/scriptInputUtils';
+import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
 
 const STEP_TYPES: QuickStepType[] = ['goto', 'action', 'verification', 'wait'];
 
@@ -94,18 +98,44 @@ const stepLabel = (step: QuickTestStep): string => {
   }
 };
 
-// Execution accent per block status: blue while running, green on pass, red on fail.
-const STEP_ACCENT: Record<string, string> = {
-  executing: 'primary.main',
-  pending: 'primary.light',
-  success: 'success.main',
-  failure: 'error.main',
-  error: 'error.main',
+const STEP_ICONS: Record<QuickStepType, React.ElementType> = {
+  goto: GotoIcon,
+  action: ActionIcon,
+  verification: VerifyIcon,
+  wait: WaitIcon,
+};
+
+type Palette = ReturnType<typeof useAgentChatPalette>;
+
+// Execution accent per block status: gold while running, green on pass, red on fail.
+const stepAccent = (status: string | undefined, P: Palette): string | undefined => {
+  switch (status) {
+    case 'executing': return P.accent;
+    case 'pending': return P.textMuted;
+    case 'success': return P.success;
+    case 'failure':
+    case 'error': return P.error;
+    default: return undefined;
+  }
 };
 
 const QuickTestBuilderContent: React.FC = () => {
   const h = useQuickTestBuilder();
-  const { actualMode } = useTheme();
+  const P = useAgentChatPalette();
+  const [search, setSearch] = React.useState('');
+  const visibleTests = React.useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return h.testcaseList;
+    return h.testcaseList.filter((tc) =>
+      [tc.testcase_name, tc.userinterface_name, tc.variant].some((v) => (v || '').toLowerCase().includes(q)),
+    );
+  }, [h.testcaseList, search]);
+
+  // Shared look for the compact selects in a step row (Type / On fail).
+  const compactSelectSx = {
+    '& .MuiInputBase-root': { fontSize: '0.8rem', borderRadius: 1.5 },
+    '& .MuiOutlinedInput-notchedOutline': { borderColor: P.borderColor },
+  };
 
   const exec = h.unifiedExecution.state;
 
@@ -138,7 +168,7 @@ const QuickTestBuilderContent: React.FC = () => {
               <MenuItem
                 key={v.name}
                 value={asPlaceholder(v.name)}
-                sx={{ fontStyle: 'italic', color: 'secondary.main' }}
+                sx={{ fontStyle: 'italic', color: P.textMuted }}
               >
                 {asPlaceholder(v.name)}
               </MenuItem>
@@ -219,7 +249,7 @@ const QuickTestBuilderContent: React.FC = () => {
                   <MenuItem
                     key={v.name}
                     value={asPlaceholder(v.name)}
-                    sx={{ fontStyle: 'italic', color: 'secondary.main' }}
+                    sx={{ fontStyle: 'italic', color: P.textMuted }}
                   >
                     {asPlaceholder(v.name)}
                   </MenuItem>
@@ -259,7 +289,7 @@ const QuickTestBuilderContent: React.FC = () => {
     if (!isInlineType(step.type)) return null;
     if (!h.areActionsLoaded) {
       return (
-        <Typography variant="caption" color="text.secondary" sx={{ pl: 5, display: 'block' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ pt: 0.75, display: 'block' }}>
           Take control of a device to configure this {step.type}.
         </Typography>
       );
@@ -267,7 +297,7 @@ const QuickTestBuilderContent: React.FC = () => {
     const onUpdate = (partial: any) =>
       h.updateStep(step.id, { data: { ...(step.data as any), ...partial } });
     return (
-      <Box sx={{ pl: 5, pt: 1 }}>
+      <Box sx={{ pt: 1 }}>
         {step.type === 'action' ? (
           <InlineActionConfig data={(step.data as ActionBlockData) || { actions: [] }} onUpdate={onUpdate} />
         ) : (
@@ -288,6 +318,8 @@ const QuickTestBuilderContent: React.FC = () => {
     step: QuickTestStep,
     opts: {
       numberLabel: string;
+      /** Loop children print their number in the card; top-level rows get it in the timeline dot. */
+      showNumber?: boolean;
       inLoop: boolean;
       onUp: () => void;
       onDown: () => void;
@@ -296,53 +328,70 @@ const QuickTestBuilderContent: React.FC = () => {
     },
   ) => {
     const blockState = exec.blockStates.get(`node-${step.id}`);
-    const accent = blockState ? STEP_ACCENT[blockState.status] : undefined;
+    const accent = stepAccent(blockState?.status, P);
     return (
-      <Paper
+      <Box
         key={step.id}
-        variant="outlined"
         sx={{
-          p: 1.5,
-          transition: 'border-color 0.2s, background-color 0.2s',
-          ...(accent
-            ? {
-                borderColor: accent,
-                borderWidth: 2,
-                backgroundColor: (theme) => alpha(theme.palette.text.primary, 0.02),
-              }
-            : {}),
+          px: 1.5,
+          py: 1,
+          borderRadius: 2,
+          bgcolor: P.surface,
+          border: `1px solid ${accent || P.borderColor}`,
+          boxShadow: accent ? `0 0 0 1px ${accent}` : 'none',
+          transition: 'border-color 0.2s, box-shadow 0.2s',
+          '&:hover .qt-row-actions': { opacity: 1 },
         }}
       >
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-          <Typography variant="caption" sx={{ width: 28, textAlign: 'right', opacity: 0.6 }}>
-            {opts.numberLabel}
-          </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          {opts.showNumber && (
+            <Typography sx={{ fontSize: '0.72rem', color: P.textMuted, minWidth: 24, fontVariantNumeric: 'tabular-nums' }}>
+              {opts.numberLabel}
+            </Typography>
+          )}
 
           <TextField
             select
             size="small"
-            label="Type"
             value={step.type}
             onChange={(e) => h.changeStepType(step.id, e.target.value as QuickStepType)}
-            sx={{ width: 150 }}
+            inputProps={{ 'aria-label': 'Type' }}
+            SelectProps={{
+              renderValue: (v) => {
+                const Icon = STEP_ICONS[v as QuickStepType];
+                return (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, fontWeight: 600 }}>
+                    <Icon sx={{ fontSize: 16, color: P.accentText }} />
+                    {QUICK_STEP_TYPE_LABELS[v as QuickStepType]}
+                  </Box>
+                );
+              },
+            }}
+            sx={{ width: 160, ...compactSelectSx, '& .MuiInputBase-root': { ...compactSelectSx['& .MuiInputBase-root'], bgcolor: P.hoverBg } }}
           >
-            {STEP_TYPES.map((t) => (
-              <MenuItem key={t} value={t}>
-                {QUICK_STEP_TYPE_LABELS[t]}
-              </MenuItem>
-            ))}
+            {STEP_TYPES.map((t) => {
+              const Icon = STEP_ICONS[t];
+              return (
+                <MenuItem key={t} value={t} sx={{ gap: 1 }}>
+                  <Icon sx={{ fontSize: 16, color: P.accentText }} />
+                  {QUICK_STEP_TYPE_LABELS[t]}
+                </MenuItem>
+              );
+            })}
           </TextField>
 
           {renderStepConfig(step)}
+
+          <Box sx={{ flex: 1 }} />
 
           {opts.inLoop ? (
             <TextField
               select
               size="small"
-              label="On fail"
               value={step.loopBreak ?? 'onFailure'}
               onChange={(e) => h.updateStep(step.id, { loopBreak: e.target.value as LoopBreak })}
-              sx={{ width: 160 }}
+              inputProps={{ 'aria-label': 'On fail' }}
+              sx={{ width: 150, ...compactSelectSx }}
             >
               {(['onFailure', 'continue', 'onSuccess'] as LoopBreak[]).map((v) => (
                 <MenuItem key={v} value={v}>
@@ -354,10 +403,10 @@ const QuickTestBuilderContent: React.FC = () => {
             <TextField
               select
               size="small"
-              label="On fail"
               value={step.onFail}
               onChange={(e) => h.updateStep(step.id, { onFail: e.target.value as QuickStepOnFail })}
-              sx={{ width: 160 }}
+              inputProps={{ 'aria-label': 'On fail' }}
+              sx={{ width: 150, ...compactSelectSx }}
             >
               {(['stop', 'continue'] as QuickStepOnFail[]).map((v) => (
                 <MenuItem key={v} value={v}>
@@ -367,29 +416,32 @@ const QuickTestBuilderContent: React.FC = () => {
             </TextField>
           )}
 
-          <Box sx={{ flex: 1 }} />
-
-          <IconButton
-            size="small"
-            color="success"
-            title="Run this step"
-            disabled={!h.isControlActive || exec.isExecuting}
-            onClick={() => h.handleRunStep(step)}
-          >
-            <RunIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" disabled={opts.upDisabled} onClick={opts.onUp}>
-            <UpIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" disabled={opts.downDisabled} onClick={opts.onDown}>
-            <DownIcon fontSize="small" />
-          </IconButton>
-          <IconButton size="small" color="error" onClick={() => h.removeStep(step.id)}>
-            <DeleteIcon fontSize="small" />
-          </IconButton>
+          <Box className="qt-row-actions" sx={{ display: 'flex', alignItems: 'center', opacity: 0.35, transition: 'opacity 0.15s' }}>
+            <Tooltip title="Run this step">
+              <span>
+                <IconButton
+                  size="small"
+                  disabled={!h.isControlActive || exec.isExecuting}
+                  onClick={() => h.handleRunStep(step)}
+                  sx={{ color: P.accentText }}
+                >
+                  <RunIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+            <IconButton size="small" disabled={opts.upDisabled} onClick={opts.onUp} aria-label="Move up">
+              <UpIcon fontSize="small" />
+            </IconButton>
+            <IconButton size="small" disabled={opts.downDisabled} onClick={opts.onDown} aria-label="Move down">
+              <DownIcon fontSize="small" />
+            </IconButton>
+            <IconButton size="small" onClick={() => h.removeStep(step.id)} aria-label="Delete step" sx={{ '&:hover': { color: P.error } }}>
+              <DeleteOutlineIcon fontSize="small" />
+            </IconButton>
+          </Box>
         </Stack>
         {renderInlineConfig(step)}
-      </Paper>
+      </Box>
     );
   };
 
@@ -437,7 +489,7 @@ const QuickTestBuilderContent: React.FC = () => {
           <TextField
             select
             size="small"
-            label="Repeat"
+            inputProps={{ 'aria-label': 'Repeat' }}
             value={loop.iterations}
             onChange={(e) => h.updateLoop(loop.id, { iterations: e.target.value })}
             sx={{ width: 150 }}
@@ -446,7 +498,7 @@ const QuickTestBuilderContent: React.FC = () => {
               <MenuItem
                 key={v.name}
                 value={asPlaceholder(v.name)}
-                sx={{ fontStyle: 'italic', color: 'secondary.main' }}
+                sx={{ fontStyle: 'italic', color: P.textMuted }}
               >
                 {asPlaceholder(v.name)}
               </MenuItem>
@@ -466,10 +518,9 @@ const QuickTestBuilderContent: React.FC = () => {
         <TextField
           size="small"
           type="number"
-          label="Repeat"
           value={loop.iterations}
           onChange={(e) => h.updateLoop(loop.id, { iterations: Math.max(1, Number(e.target.value)) })}
-          inputProps={{ min: 1 }}
+          inputProps={{ min: 1, 'aria-label': 'Repeat' }}
           sx={{ width: 90 }}
         />
         {toggle}
@@ -480,28 +531,21 @@ const QuickTestBuilderContent: React.FC = () => {
   // ---- a loop container: header (repeat N + ungroup) + indented child rows --
   const renderLoop = (loop: QuickTestLoop, index: number) => {
     const loopState = exec.blockStates.get(`loop-${loop.id}`);
-    const accent = loopState ? STEP_ACCENT[loopState.status] : undefined;
+    const accent = stepAccent(loopState?.status, P);
     return (
-      <Paper
+      <Box
         key={loop.id}
-        variant="outlined"
         sx={{
           p: 1.5,
-          borderLeft: 4,
-          borderLeftColor: accent || 'primary.main',
-          backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.04),
-          ...(accent ? { borderColor: accent, borderWidth: 2, borderLeftWidth: 4 } : {}),
+          borderRadius: 2,
+          border: `1px solid ${accent || `${P.accent}99`}`,
+          bgcolor: `${P.accent}0f`,
         }}
       >
-        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-          <LoopIcon fontSize="small" color="primary" />
-          <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-            Loop {index + 1}
-          </Typography>
+        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+          <Typography sx={{ fontSize: '0.85rem', fontWeight: 600 }}>Repeat</Typography>
           {renderIterationsField(loop)}
-          <Typography variant="caption" color="text.secondary">
-            times
-          </Typography>
+          <Typography sx={{ fontSize: '0.85rem', color: P.textSecondary }}>times</Typography>
 
           <Box sx={{ flex: 1 }} />
 
@@ -511,34 +555,28 @@ const QuickTestBuilderContent: React.FC = () => {
             startIcon={<UngroupIcon fontSize="small" />}
             onClick={() => h.removeLoop(loop.id)}
             title="Ungroup — move these steps back out of the loop"
+            sx={{ textTransform: 'none', color: P.textSecondary }}
           >
             Ungroup
           </Button>
-          <IconButton size="small" disabled={index === 0} onClick={() => h.moveLoop(loop.id, -1)}>
+          <IconButton size="small" disabled={index === 0} onClick={() => h.moveLoop(loop.id, -1)} aria-label="Move loop up">
             <UpIcon fontSize="small" />
           </IconButton>
           <IconButton
             size="small"
             disabled={index === h.units.length - 1}
             onClick={() => h.moveLoop(loop.id, 1)}
+            aria-label="Move loop down"
           >
             <DownIcon fontSize="small" />
           </IconButton>
         </Stack>
 
-        <Stack
-          spacing={1}
-          sx={{
-            mt: 1,
-            pl: 2,
-            ml: 1,
-            borderLeft: '2px dashed',
-            borderLeftColor: 'divider',
-          }}
-        >
+        <Stack spacing={1} sx={{ mt: 1.25 }}>
           {loop.steps.map((child, ci) =>
             renderStepRow(child, {
               numberLabel: `${index + 1}.${ci + 1}`,
+              showNumber: true,
               inLoop: true,
               onUp: () => h.moveStep(child.id, -1),
               onDown: () => h.moveStep(child.id, 1),
@@ -553,24 +591,49 @@ const QuickTestBuilderContent: React.FC = () => {
             </Typography>
           )}
 
-          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', pt: 0.5 }}>
-            {STEP_TYPES.map((t) => (
-              <Button
-                key={t}
-                size="small"
-                variant="text"
-                startIcon={<AddIcon />}
-                disabled={!h.isControlActive}
-                onClick={() => h.addStepInLoop(loop.id, t)}
-              >
-                {QUICK_STEP_TYPE_LABELS[t]}
-              </Button>
-            ))}
-          </Stack>
+          {renderAddRow((t) => h.addStepInLoop(loop.id, t), false)}
         </Stack>
-      </Paper>
+      </Box>
     );
   };
+
+  // ---- "Add" row: one dashed strip with every step type (+ Loop at top level) --
+  const renderAddRow = (onAdd: (t: QuickStepType) => void, withLoop: boolean) => (
+    <Box
+      sx={{
+        display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 0.25,
+        px: 0.75, py: 0.5, borderRadius: 2, border: `1px dashed ${P.borderColor}`,
+      }}
+    >
+      <Typography sx={{ fontSize: '0.72rem', color: P.textMuted, px: 0.75 }}>Add</Typography>
+      {STEP_TYPES.map((t) => {
+        const Icon = STEP_ICONS[t];
+        return (
+          <Button
+            key={t}
+            size="small"
+            startIcon={<Icon sx={{ fontSize: '16px !important' }} />}
+            disabled={!h.isControlActive}
+            onClick={() => onAdd(t)}
+            sx={{ textTransform: 'none', fontSize: '0.78rem', color: P.textSecondary, '&:hover': { color: P.accentText, bgcolor: P.hoverBg } }}
+          >
+            {QUICK_STEP_TYPE_LABELS[t]}
+          </Button>
+        );
+      })}
+      {withLoop && (
+        <Button
+          size="small"
+          startIcon={<LoopIcon sx={{ fontSize: '16px !important' }} />}
+          onClick={h.addLoop}
+          title="Add a loop, then add steps inside it to repeat them"
+          sx={{ textTransform: 'none', fontSize: '0.78rem', color: P.accentText, '&:hover': { bgcolor: `${P.accent}1a` } }}
+        >
+          Loop
+        </Button>
+      )}
+    </Box>
+  );
 
   return (
     <BuilderPageLayout>
@@ -578,7 +641,6 @@ const QuickTestBuilderContent: React.FC = () => {
           (uniform look & feel across builders). QuickTest has no AI mode,
           undo/redo or Versions, so those slots are simply omitted. */}
       <TestCaseBuilderHeader
-        actualMode={actualMode}
         builderType="QuickTest"
         selectedHost={h.selectedHost}
         selectedDeviceId={h.selectedDeviceId}
@@ -620,69 +682,122 @@ const QuickTestBuilderContent: React.FC = () => {
         handleExecute={h.handleExecute}
         isExecuting={exec.isExecuting}
         isExecutable={h.isExecutable}
+        runButtonSx={{
+          px: 2, fontWeight: 600, textTransform: 'none', boxShadow: 'none',
+          backgroundColor: P.accent, color: '#1a1a1a',
+          '&:hover': { backgroundColor: P.accentHover, boxShadow: 'none' },
+          '&:disabled': { backgroundColor: P.hoverBg, color: P.textMuted },
+        }}
       />
 
       {/* Saved quick tests rail + step list — same "rail beside editor" layout as Virtual Scripts. */}
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', gap: 1, p: 1, overflow: 'hidden' }}>
-        <Paper sx={{ width: 230, display: 'flex', flexDirection: 'column' }}>
-          <Box sx={{ p: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-            <Typography variant="subtitle2">Saved tests</Typography>
-            {h.isLoadingTestCases && <CircularProgress size={14} />}
+        <Paper variant="outlined" sx={{ width: 230, display: 'flex', flexDirection: 'column', borderRadius: 2, borderColor: P.borderColor, bgcolor: P.sidebarBg }}>
+          {/* Search + New on one row; the page header already names the builder. */}
+          <Box sx={{ px: 1.5, pt: 1.25, pb: 1, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <InputBase
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search tests"
+              startAdornment={<SearchIcon sx={{ fontSize: 16, color: P.textMuted, mr: 0.75 }} />}
+              endAdornment={
+                h.isLoadingTestCases && !h.testcaseList.length ? (
+                  <CircularProgress size={12} sx={{ color: P.accent, ml: 0.5 }} />
+                ) : undefined
+              }
+              sx={{
+                flex: 1, minWidth: 0, height: 30, px: 1, fontSize: '0.8rem',
+                bgcolor: P.inputBg, border: `1px solid ${P.borderColor}`, borderRadius: 1.5,
+                '&.Mui-focused': { borderColor: P.accent },
+              }}
+            />
+            <Tooltip title="New quick test">
+              <IconButton size="small" onClick={h.handleNew} sx={{ flexShrink: 0, color: P.accentText, border: `1px solid ${P.borderColor}`, borderRadius: 1.5, p: 0.5 }}>
+                <AddIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Tooltip>
           </Box>
-          <Divider />
-          <List dense disablePadding sx={{ overflow: 'auto', flex: 1 }}>
-            {h.testcaseList.map((tc) => (
-              <ListItem
-                key={tc.testcase_id}
-                disablePadding
-                secondaryAction={
-                  <IconButton
-                    edge="end"
-                    size="small"
-                    color="error"
-                    onClick={() => h.handleDelete(tc.testcase_id)}
-                  >
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                }
-              >
-                <Tooltip title={tc.testcase_name} placement="right" enterDelay={400}>
-                  <ListItemButton
-                    selected={tc.testcase_id === h.currentTestcaseId}
-                    onClick={() => h.handleLoad(tc.testcase_id)}
-                  >
-                    <ListItemText
-                      primary={tc.testcase_name}
-                      secondary={[tc.userinterface_name, tc.variant].filter(Boolean).join(' · ') || undefined}
-                      primaryTypographyProps={{ noWrap: true }}
-                      secondaryTypographyProps={{ noWrap: true }}
-                    />
-                  </ListItemButton>
-                </Tooltip>
-              </ListItem>
-            ))}
+          <Box sx={{ overflow: 'auto', flex: 1, px: 1, pb: 1 }}>
+            {visibleTests.map((tc) => {
+              const selected = tc.testcase_id === h.currentTestcaseId;
+              const meta = [tc.userinterface_name, tc.variant].filter(Boolean).join(' · ');
+              return (
+                <Box
+                  key={tc.testcase_id}
+                  title={tc.testcase_name}
+                  onClick={() => h.handleLoad(tc.testcase_id)}
+                  sx={{
+                    display: 'flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.75, mb: 0.25, borderRadius: 1.5, cursor: 'pointer',
+                    bgcolor: selected ? `${P.accent}26` : 'transparent',
+                    '&:hover': { bgcolor: selected ? `${P.accent}26` : P.hoverBg },
+                    '&:hover .qt-delete': { opacity: 1 },
+                  }}
+                >
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography noWrap sx={{ fontSize: '0.82rem', lineHeight: 1.35, fontWeight: selected ? 600 : 400, color: selected ? P.accentText : P.textPrimary }}>
+                      {tc.testcase_name}
+                    </Typography>
+                    {meta && (
+                      <Typography noWrap sx={{ fontSize: '0.68rem', lineHeight: 1.3, color: P.textMuted }}>{meta}</Typography>
+                    )}
+                  </Box>
+                  <Tooltip title="Delete quick test">
+                    <IconButton
+                      className="qt-delete"
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        h.handleDelete(tc.testcase_id);
+                      }}
+                      sx={{ p: 0.25, opacity: selected ? 1 : 0, transition: 'opacity 0.15s', color: P.textMuted, '&:hover': { color: P.error } }}
+                    >
+                      <DeleteOutlineIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              );
+            })}
             {!h.isLoadingTestCases && h.testcaseList.length === 0 && (
               <Typography variant="caption" sx={{ p: 2, display: 'block', color: 'text.secondary' }}>
                 No saved quick tests yet.
               </Typography>
             )}
-          </List>
+            {h.testcaseList.length > 0 && visibleTests.length === 0 && (
+              <Typography variant="caption" sx={{ p: 2, display: 'block', color: 'text.secondary' }}>
+                No test matches.
+              </Typography>
+            )}
+          </Box>
         </Paper>
 
-        <Box sx={{ flex: 1, overflow: 'auto' }}>
-        <Box sx={{ maxWidth: 1000, mx: 'auto', p: 2 }}>
-          <TextField
-            variant="standard"
-            fullWidth
-            placeholder="Untitled quick test"
-            value={h.testcaseName}
-            onChange={(e) => h.setTestcaseName(e.target.value)}
-            InputProps={{ disableUnderline: false, sx: { fontSize: '1.25rem', fontWeight: 500 } }}
-            sx={{ mb: 2 }}
-          />
+        <Box sx={{ flex: 1, overflow: 'auto', bgcolor: P.background, border: `1px solid ${P.borderColor}`, borderRadius: 2, p: 2 }}>
+        {/* The test on the page-tone area: a header card (title + variables) and a steps card. */}
+        <Box sx={{ maxWidth: 1000, mx: 'auto' }}>
+          <Box sx={{ bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderRadius: 3, p: 2, mb: 2 }}>
+          <Box sx={{ mb: 1.5 }}>
+            <InputBase
+              fullWidth
+              placeholder="Untitled quick test"
+              value={h.testcaseName}
+              onChange={(e) => h.setTestcaseName(e.target.value)}
+              inputProps={{ 'aria-label': 'Test name' }}
+              sx={{ fontSize: '1.3rem', fontWeight: 600, borderRadius: 1, px: 0.5, mx: -0.5, '&:hover, &.Mui-focused': { bgcolor: P.hoverBg } }}
+            />
+            <Typography sx={{ fontSize: '0.75rem', color: P.textMuted }}>
+              {[
+                h.userinterfaceName || 'No interface selected',
+                h.userinterfaceName && h.variant ? h.variant : '',
+                `${h.allSteps.length} step${h.allSteps.length === 1 ? '' : 's'}`,
+                h.units.filter(isQuickLoop).length ? `${h.units.filter(isQuickLoop).length} loop${h.units.filter(isQuickLoop).length === 1 ? '' : 's'}` : '',
+                h.inputs.length ? `${h.inputs.length} variable${h.inputs.length === 1 ? '' : 's'}` : '',
+              ].filter(Boolean).join(' · ')}
+            </Typography>
+          </Box>
 
           {/* Input variables — make the test a reusable template. Also auto-
               populated when a step references an unknown {name}. */}
+          {/* Variables on a soft inset so the header card reads as title + variables */}
+          <Box sx={{ bgcolor: P.hoverBg, borderRadius: 2, px: 1.5, py: 1, '& > *': { mb: '0 !important' } }}>
           <QuickTestInputsBar
             inputs={h.inputs}
             referencedNames={h.referencedNames}
@@ -692,53 +807,107 @@ const QuickTestBuilderContent: React.FC = () => {
             onRemove={h.removeInput}
             disabled={!h.isControlActive}
           />
+          </Box>
+          </Box>
 
-          <Stack spacing={1.5}>
-            {h.units.map((unit, index) =>
-              isQuickLoop(unit)
-                ? renderLoop(unit, index)
-                : renderStepRow(unit, {
-                    numberLabel: String(index + 1),
-                    inLoop: false,
-                    onUp: () => h.moveStep(unit.id, -1),
-                    onDown: () => h.moveStep(unit.id, 1),
-                    upDisabled: index === 0,
-                    downDisabled: index === h.units.length - 1,
-                  }),
-            )}
-          </Stack>
-
-          {/* Add step — enabled only once a device is under control */}
-          <Stack direction="row" spacing={1} sx={{ mt: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-            {STEP_TYPES.map((t) => (
-              <Button
-                key={t}
-                size="small"
-                variant="outlined"
-                startIcon={<AddIcon />}
-                disabled={!h.isControlActive}
-                onClick={() => h.addStep(t)}
-              >
-                {QUICK_STEP_TYPE_LABELS[t]}
-              </Button>
-            ))}
-            <Box sx={{ flex: 1 }} />
+          {/* AI edit: describe a change, review the proposed steps, Apply (TASK-36 §3). */}
+          <Box
+            sx={{
+              display: 'flex', alignItems: 'center', gap: 1, mb: 2, pl: 1.25, pr: 0.5, py: 0.5,
+              borderRadius: 2, border: `1px solid ${P.borderColor}`, bgcolor: P.sidebarBg,
+              '&:focus-within': { borderColor: P.accent },
+              opacity: h.isControlActive ? 1 : 0.7,
+            }}
+          >
+            <SparkleIcon sx={{ fontSize: 18, color: P.accentText }} />
+            <InputBase
+              fullWidth
+              placeholder={
+                h.isControlActive
+                  ? 'Ask AI to change the steps, e.g. "add a check that the cart icon is shown"'
+                  : 'Take control of a device to edit the steps with AI'
+              }
+              value={h.aiEditPrompt}
+              onChange={(e) => h.setAiEditPrompt(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && h.aiEditPrompt.trim() && !h.aiEdit.isEditing) h.aiEdit.proposeEdit(h.aiEditPrompt, h.graph);
+              }}
+              disabled={!h.isControlActive || h.aiEdit.isEditing}
+              sx={{ fontSize: '0.85rem' }}
+            />
             <Button
               size="small"
               variant="outlined"
-              color="primary"
-              startIcon={<LoopIcon />}
-              onClick={h.addLoop}
-              title="Add a loop, then add steps inside it to repeat them"
+              onClick={() => h.aiEdit.proposeEdit(h.aiEditPrompt, h.graph)}
+              disabled={!h.isControlActive || !h.aiEditPrompt.trim() || h.aiEdit.isEditing}
+              startIcon={h.aiEdit.isEditing ? <CircularProgress size={14} /> : undefined}
+              sx={{ textTransform: 'none', borderColor: P.accent, color: P.accentText, '&:hover': { borderColor: P.accent, bgcolor: `${P.accent}1a` } }}
             >
-              Loop
+              Edit
             </Button>
-            {!h.isControlActive && (
-              <Typography variant="caption" color="text.secondary" sx={{ ml: 1, width: '100%' }}>
-                Select a user interface and take control to add steps
-              </Typography>
-            )}
-          </Stack>
+          </Box>
+          {h.aiEdit.error && (
+            <Alert severity="warning" onClose={h.aiEdit.clear} sx={{ mb: 1.5 }}>
+              {h.aiEdit.error}
+            </Alert>
+          )}
+          {h.aiEdit.proposal && (
+            <Box sx={{ mb: 1.5 }}>
+              <AIEditPreview proposal={h.aiEdit.proposal} onApply={h.applyAIEdit} onCancel={h.aiEdit.clear} />
+            </Box>
+          )}
+
+          <Box sx={{ bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderRadius: 3, p: 2 }}>
+          {/* Steps as a numbered timeline: a dot per unit on a rail, the add strip at the end */}
+          <Box sx={{ position: 'relative' }}>
+            <Box sx={{ position: 'absolute', left: 13, top: 14, bottom: 14, width: '1px', bgcolor: P.borderColor }} />
+            <Stack spacing={1.25}>
+              {h.units.map((unit, index) => {
+                const loop = isQuickLoop(unit);
+                const state = exec.blockStates.get(loop ? `loop-${unit.id}` : `node-${unit.id}`);
+                const accent = stepAccent(state?.status, P);
+                return (
+                  <Box key={unit.id} sx={{ display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr)', gap: 1.25, alignItems: 'start' }}>
+                    <Box
+                      sx={{
+                        mt: 1.1, width: 26, height: 26, borderRadius: '50%', zIndex: 1,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '0.72rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                        bgcolor: accent ? accent : loop ? `${P.accent}26` : P.surface,
+                        color: accent ? '#fff' : loop ? P.accentText : P.textSecondary,
+                        border: `1px solid ${accent || (loop ? P.accent : P.borderColor)}`,
+                      }}
+                    >
+                      {loop ? <LoopIcon sx={{ fontSize: 15 }} /> : index + 1}
+                    </Box>
+                    {loop
+                      ? renderLoop(unit, index)
+                      : renderStepRow(unit, {
+                          numberLabel: String(index + 1),
+                          inLoop: false,
+                          onUp: () => h.moveStep(unit.id, -1),
+                          onDown: () => h.moveStep(unit.id, 1),
+                          upDisabled: index === 0,
+                          downDisabled: index === h.units.length - 1,
+                        })}
+                  </Box>
+                );
+              })}
+
+              <Box sx={{ display: 'grid', gridTemplateColumns: '28px minmax(0, 1fr)', gap: 1.25, alignItems: 'center' }}>
+                <Box sx={{ width: 26, height: 26, borderRadius: '50%', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: P.background, border: `1px dashed ${P.borderColor}`, color: P.textMuted }}>
+                  <AddIcon sx={{ fontSize: 15 }} />
+                </Box>
+                {renderAddRow(h.addStep, true)}
+              </Box>
+            </Stack>
+          </Box>
+          {!h.isControlActive && (
+            <Typography variant="caption" sx={{ display: 'block', mt: 1, ml: 4.75, color: P.textMuted }}>
+              Select a user interface and take control to add steps
+            </Typography>
+          )}
+          </Box>
         </Box>
         </Box>
       </Box>
@@ -856,10 +1025,14 @@ const QuickTestBuilderContent: React.FC = () => {
   );
 };
 
+// VNCStateProvider: a web device's player (VNCStream, PlaywrightWebTerminal) reads it once control
+// is taken; without it the page crashed on any host_vnc target (BUG-0192).
 const QuickTestBuilder: React.FC = () => (
   <NavigationConfigProvider>
     <DeviceDataProvider>
-      <QuickTestBuilderContent />
+      <VNCStateProvider>
+        <QuickTestBuilderContent />
+      </VNCStateProvider>
     </DeviceDataProvider>
   </NavigationConfigProvider>
 );

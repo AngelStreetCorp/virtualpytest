@@ -1,4 +1,5 @@
 import React from 'react';
+import { AGENT_CHAT_PALETTE, AGENT_CHAT_PALETTE_LIGHT } from '../../../constants/agentChatTheme';
 import { Box, IconButton } from '@mui/material';
 import { ChevronRight as ChevronRightIcon } from '@mui/icons-material';
 
@@ -8,7 +9,7 @@ import { ChevronRight as ChevronRightIcon } from '@mui/icons-material';
  * CONTAINER ONLY - styling matches TestCaseBuilder exactly.
  * Content is passed as children (toolbox, AI panel, etc.).
  * 
- * Styling: width: 280px, background: dark #0f172a / light #f8f9fa
+ * Styling: width: 280px, background: palette sidebarBg
  */
 
 interface BuilderSidebarContainerProps {
@@ -24,6 +25,7 @@ export const BuilderSidebarContainer: React.FC<BuilderSidebarContainerProps> = (
   onToggle,
   children,
 }) => {
+  const P = actualMode === 'dark' ? AGENT_CHAT_PALETTE : AGENT_CHAT_PALETTE_LIGHT;
   return (
     <>
       {/* Sidebar Container */}
@@ -40,7 +42,7 @@ export const BuilderSidebarContainer: React.FC<BuilderSidebarContainerProps> = (
           borderColor: 'divider',
           display: 'flex',
           flexDirection: 'column',
-          background: actualMode === 'dark' ? '#0f172a' : '#f8f9fa',
+          background: P.sidebarBg,
           zIndex: 5,
         }}
       >
@@ -61,12 +63,12 @@ export const BuilderSidebarContainer: React.FC<BuilderSidebarContainerProps> = (
             onClick={onToggle}
             sx={{
               borderRadius: '0 8px 8px 0',
-              background: actualMode === 'dark' ? '#1e293b' : '#ffffff',
+              background: P.surface,
               border: 1,
               borderLeft: 0,
               borderColor: 'divider',
               '&:hover': {
-                background: actualMode === 'dark' ? '#334155' : '#f1f5f9',
+                background: P.hoverBg,
               },
             }}
           >

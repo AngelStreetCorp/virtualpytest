@@ -12,7 +12,7 @@ NO legacy code, NO backward compatibility - Pure, efficient implementation.
 |---------|--------|-------|
 | Context Loading (24h cache) | ✅ **Implemented** | In-memory cache per device |
 | **Graph Caching (mandatory)** | ✅ **Implemented** | Database-backed, fingerprint-based |
-| AI Generation | ✅ **Implemented** | OpenRouter API integration |
+| AI Generation | ✅ **Implemented** | AI router, usage `text.plan` (model set in Settings → AI) |
 | Post-processing (labels) | ✅ **Implemented** | Enforces naming conventions |
 | Pre-fetch Transitions | ✅ **Implemented** | Embeds navigation paths |
 | Frontend UI | ✅ **Implemented** | Result panel + reopen button |
@@ -798,7 +798,7 @@ def _resolve_script_outputs_and_metadata(graph, context):
    5.4  Build AI Prompt (if no exact match)
         ├─ Use filtered context (not all 100 nodes)
         ├─ Include structure hints from intent parser
-        └─ Call OpenRouter API
+        └─ Call the AI router (usage text.plan → server gateway)
         
    5.5  Parse AI Response
         └─ Extract JSON graph from response
@@ -966,7 +966,7 @@ Both use cases share the SAME infrastructure:
 ## Architecture Overview
 
 ```
-Frontend → Server (proxy) → Host → AIGraphBuilder → OpenRouter AI → Graph
+Frontend → Server (proxy) → Host → AIGraphBuilder → server AI gateway (text.plan route) → Graph
                                          ↓
                                    Device Services
                                    (navigation, testcase)
@@ -1311,8 +1311,9 @@ Build AI prompt with:
 - Output format + examples
 - Label naming rules
 
-Call OpenRouter API:
-- Model: microsoft/phi-3-mini-128k-instruct
+Call the AI router (call_text_ai, usage "text.plan"):
+- Model: whatever the text.plan route resolves to in Settings → AI
+  (inherits the "text" root unless overridden; TASK-30 — no hardcoded model)
 - Max tokens: 2000
 - Temperature: 0.0
 

@@ -4,16 +4,18 @@ What was wrong with the `vpt-stream` (`run_ffmpeg.sh`) and `vpt-monitor`
 (`capture_monitor.py`) pipelines, what was changed, and why — so it is
 understood later and not "re-optimized" in the wrong place.
 
-Investigated & fixed 2026-05-19. Re-profile any time with
-**[../../scripts/PROFILING.md](../../scripts/PROFILING.md)**
-(`scripts/profile_remote_monitor.sh <host>`).
+Investigated & fixed 2026-05-19; OpenCV thread pool fix (§6) 2026-10-04.
+Re-profile any time with **`scripts/profile_remote_monitor.sh <host>`**
+(usage in the script header; caveats in §6 "Reading a py-spy profile").
 
 > **TL;DR ordering rule:** these symptoms cascade —
 > *broken watchdog → constant ffmpeg restarts → counter resets → frontend
 > "stuck" + fake freezes + unbounded monitor chunk*. If stream/monitor
 > misbehave, diagnose in this order and read this doc first. The CPU-heavy
 > part of the monitor was **JSON chunk I/O, not the CV detection** — do not
-> "optimize" `detector.py`; it is ~10–35% and legitimate.
+> "optimize" `detector.py`; it is ~10–35% and legitimate. The second big
+> waste (2026-10) was **OpenCV's own thread pool spinning** (§6) — invisible
+> to py-spy, visible only in `top -H`.
 
 ---
 
@@ -142,13 +144,37 @@ Hard-won details:
   encode fault kills the capture mjpeg too (→ the §2b desync). Watch
   `journalctl -t stream` for `error 24` under sustained N-device load — the
   iGPU's concurrent-encode-session limit is the next ceiling to validate.
-- Host prep (Intel example, Debian needs `non-free`):
-  `apt install intel-media-va-driver-non-free vainfo`. libva auto-selects
+- **Network sources (rtsp / hls / videofile) also decode on the GPU.** Their input is
+  H.264/HEVC, and that decode costs more than the small LOW-tier encode, so this branch adds
+  `-hwaccel vaapi -hwaccel_device <node>` (no `-hwaccel_output_format`: decoded frames come
+  back to system memory, so the split and the `[cap]`/`[thm]` mjpeg branches are unchanged)
+  plus the same `hwupload` + `h264_vaapi -g $input_fps` stream encode. A codec/profile the GPU
+  cannot decode logs `Failed setup for format vaapi: hwaccel initialisation returned error`
+  once and ffmpeg falls back to software decode by itself. That is not a fault.
+  Measured on a Ryzen 7 3750H / Vega host (radeonsi), one stream, CPU time over 20 s:
+
+  | Source → tier | libx264 + SW decode | VAAPI encode only | VAAPI decode + encode |
+  |---|---|---|---|
+  | 640×360 → LOW 320×180 | 14 % | 14 % | 13 % |
+  | 1280×720p60 → HD 720p | 59 % | 41 % | 24 % |
+
+  With 10 small live sources, ffmpeg went from 133 % to 99 % in total. The gain grows with
+  source resolution and quality tier.
+- Host prep, Intel (Debian needs `non-free`):
+  `apt install intel-media-va-driver-non-free vainfo`. AMD: `apt install firmware-amd-graphics
+  mesa-va-drivers vainfo`. **Without `firmware-amd-graphics` the `amdgpu` module loads but
+  never brings the GPU up, so there is no `/dev/dri` at all.** Reload with
+  `modprobe -r amdgpu && modprobe amdgpu` (no reboot needed). libva auto-selects
   iHD/radeonsi from the PCI id — we do **not** force `LIBVA_DRIVER_NAME`.
   `vainfo` is **not** in the host installer, so VAAPI never auto-activates
-  on a host until someone installs the driver+vainfo there.
+  on a host until someone installs the driver+vainfo there. Check as `vpt_user`
+  (it needs the `render` group):
+  `sudo -u vpt_user vainfo --display drm --device /dev/dri/renderD128 | grep EncSlice`.
 - To force the software path without redeploy: `> /tmp/vpt_vaapi_render_node`
-  then restart. To re-probe after install: `rm` that file then restart.
+  then restart. To re-probe after install: `rm` that file then **restart `vpt-stream`**. The
+  host's HD+ capability flag (`system_info_utils.py::has_vaapi_h264_encode`) reads the same
+  file, so HD+ is hidden until the restart rewrites it. `update_core.sh` does not restart
+  `vpt-stream`.
 
 ### 2e. Audio probe needs `arecord` (alsa-utils)
 
@@ -246,6 +272,80 @@ yields ~1/s ≈ 600/day) — is what kept the flush `O(N)` expensive.
 **Fix:** resume an existing chunk only when its last timestamp is the
 current date; otherwise start fresh. Restores the intended per-slot
 rotation, bounds `N` to ~600, **no path/reader changes**.
+
+### 6. OpenCV thread pool off — `cv2.setNumThreads(0)` (2026-10-04)
+
+Load test on vpt-nipogi (Ryzen 7 3750H, 4C/8T): 10 HLS devices, 5 fps
+captures, monitor at **77–91 % of a core** (~8–9 %/stream) and on track to be
+the first host limit at ~12–14 streams. py-spy blamed CV (`detect_issues`
+~61 %, mostly the full-res `cv2.imread` at detector.py:609) and "inotify"
+(~18 %). Neither was the story. `top -H -p <monitor pid>` showed **7 threads at
+~6.5 % each (~46 % of a core)** that py-spy does not list: OpenCV's
+**pthreads parallel_for pool** (`cv2.getNumThreads()` = 8 = one per CPU). The
+`OMP_NUM_THREADS=2` at the top of `capture_monitor.py` does **not** govern
+it — the pip `opencv` wheel uses the pthreads backend. Every `Canny` /
+`absdiff` on a 320x180 thumbnail woke the pool, and the wake/spin cost far
+more than the parallelism saved.
+
+**Fix:** `cv2.setNumThreads(0)` right after the detector import (one line).
+OpenCV runs each call sequentially in the calling thread; parallelism comes
+from the per-device threads, since cv2 releases the GIL. Detection output is
+unchanged (same functions, same inputs).
+
+| vpt-nipogi, 10 HLS devices, 90 s steady state | Before | **After** |
+|---|---|---|
+| monitor CPU (cgroup) | 77.5 % core | **38.5 %** |
+| frames analyzed | 46.6/s | 46.8/s |
+| CPU per analyzed frame | 16.6 ms | **8.2 ms** |
+| process threads | 33 | 26 |
+| RSS | 252 MB | **192 MB** |
+| GIL held (py-spy `--gil`) | — | 14 % of wall time |
+| queue sizes logged | all 0 | all 0 |
+| json/min per device | ~290–300 | ~280–300 (unchanged; one source at ~100 upstream) |
+
+Freeze, blackscreen, audio-loss incidents and alert DB inserts verified in
+the journal after the change.
+
+**Projection.** ~4 % of a core per 5 fps stream, ~2/3 of it GIL-free native
+cv2 work, GIL ~1.4 %/stream. At 20 streams: ~80 % of a core CPU, ~30 % GIL,
+so the single process is **no longer the first limit**. Heat/whole-box CPU
+is, at ~18–20 streams. Multiprocessing / `vpt-monitor@.service` shards were
+weighed and **not done**: they'd add shared-state hazards (incident manager,
+chunk cache, audio/zapping caches, localize worker, shutdown flush) and
+per-process RSS (~150 MB each, too much for the 4 GB host-clone VMs) to fix a
+ceiling that now sits past the box's own limit. Revisit only if the GIL share
+passes ~60 % (check with `py-spy record --gil`).
+
+**Small hosts:** pure win. A Pi 5 has 3 pool workers instead of 7, so less
+saved, but no new processes or memory, and the same behaviour.
+
+**Shipped 2026-10-04 — reduced decode for blackscreen:** detector.py now reads
+the capture with `cv2.IMREAD_REDUCED_GRAYSCALE_4` and checks every pixel of that
+320x180 image. Validated on 380 real STB frames (vpt-pi1 stb3: normal content, a
+static promo, dark live-TV UI) and on generated clips played through the real
+capture pipeline on vpt-pi4 (pure black, 97.6 % black + logo, 94 % black, luma
+noise straddling the <=10 threshold): **0 verdict flips**, dark-% within 0.4
+points, BLACKSCREEN incidents still fire live. Decode+check 2.59 → 1.21 ms/frame
+(Pi 5). The note below is kept as history.
+
+**(History) next lever** — detector.py:609 decoded the full
+1280x720 capture only to sample every 4th pixel for blackscreen.
+`cv2.IMREAD_REDUCED_GRAYSCALE_4` decodes at 320x180 via libjpeg DCT scaling:
+2.6 → 0.9 ms/frame (~20 % of what's left). 495 test frames had 0 blackscreen
+verdict flips, but the dark-% shifts up to 2.3 points (block average versus
+point sample) near the tuned 95 % threshold. Re-validate on dark content
+before changing it.
+
+#### Reading a py-spy profile of the monitor
+
+- py-spy only sees **Python** threads. Native pools (OpenCV, BLAS) are
+  invisible to it. Always check `top -H -p <pid>` next to it.
+- The "inotify" bucket (`event_gen`, `adapters.py:210`) is the main thread
+  **blocked in `epoll_wait`** through ctypes, which py-spy counts as active. It
+  is idle (~3 % in `top -H`). Same for threads sitting in a GIL-releasing cv2
+  call: samples overstate CPU (2646 samples in 30 s at 120 Hz ≈ 73 % "active" while the
+  process really used 38.5 %).
+- `py-spy record --gil` measures what limits a single process: the GIL share.
 
 ---
 

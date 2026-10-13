@@ -10,6 +10,7 @@ import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { getErrorMessage } from '../../utils/testcase/testCaseHelpers';
 import { waitForExecutionSocketEvent } from '../../utils/executionSocketWait';
+import { useUserSession } from '../useUserSession';
 
 export interface TestCaseExecutionResult {
   success: boolean;
@@ -59,6 +60,8 @@ export interface ExecutionStatus {
 }
 
 export const useTestCaseExecution = () => {
+  // Lets the server run under this user's Take Control instead of refusing it.
+  const { userId } = useUserSession();
   /**
    * Execute a test case directly from graph with async execution updates
    */
@@ -79,6 +82,7 @@ export const useTestCaseExecution = () => {
         graph_json: graph,
         device_id: deviceId,
         host_name: hostName,
+        user_id: userId,
         userinterface_name: userinterfaceName || '',
         testcase_name: testcaseName || 'unsaved_testcase',  // 🆕 NEW: Send test case name
         execution_metadata: executionMetadata || {},
@@ -107,7 +111,7 @@ export const useTestCaseExecution = () => {
         error: getErrorMessage(error),
       };
     }
-  }, []);
+  }, [userId]);
 
   /**
    * Wait execution completion from socket updates (no polling)

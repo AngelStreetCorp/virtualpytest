@@ -12,6 +12,9 @@ import { InfoOutlined as InfoIcon } from '@mui/icons-material';
 import { Box, Tooltip, Typography } from '@mui/material';
 import React from 'react';
 
+import { useI18n } from '../../i18n/useI18n';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+
 interface Props {
   info?: Record<string, string> | null;
   gatewayInfo?: Record<string, string> | null;
@@ -46,6 +49,8 @@ export const DeviceInfoTooltipIcon: React.FC<Props> = ({
   hostName,
   fontSize = 16,
 }) => {
+  const P = useAgentChatPalette();
+  const { t } = useI18n();
   const deviceEntries = info ? Object.entries(info) : [];
   const gatewayEntries = gatewayInfo ? Object.entries(gatewayInfo) : [];
   if (deviceEntries.length === 0 && gatewayEntries.length === 0) return null;
@@ -63,8 +68,8 @@ export const DeviceInfoTooltipIcon: React.FC<Props> = ({
 
   const title = (
     <Box>
-      {deviceEntries.length > 0 && <Section heading="Device Info" entries={deviceEntries} />}
-      {gatewayEntries.length > 0 && <Section heading="GW Info" entries={gatewayEntries} />}
+      {deviceEntries.length > 0 && <Section heading={t('Device Info')} entries={deviceEntries} />}
+      {gatewayEntries.length > 0 && <Section heading={t('GW Info')} entries={gatewayEntries} />}
     </Box>
   );
 
@@ -107,7 +112,7 @@ export const DeviceInfoTooltipIcon: React.FC<Props> = ({
           color: 'text.secondary',
           cursor: 'pointer',
           flexShrink: 0,
-          '&:hover': { color: 'primary.main' },
+          '&:hover': { color: P.accentText },
         }}
         onClick={openEditor}
       />

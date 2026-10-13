@@ -43,6 +43,6 @@ describe('Coverage page', () => {
 
     // No page-level <h1> — the sticky health strip is the stable content.
     expect(screen.getByText('Requirements')).toBeInTheDocument();
-    expect(screen.getByText(/No requirements found/i)).toBeInTheDocument();
+    expect(screen.getByText(/No requirements match\. Change the search or the filter\./i)).toBeInTheDocument();
   });
 });

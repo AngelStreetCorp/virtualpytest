@@ -177,7 +177,7 @@ class ActionValidator:
             'android_tv': 'device3',
             'web': 'host',
             'host_vnc': 'host',
-            'fire_tv': 'device3',
+            'fire_tv_fireos': 'device3',
             'stb': 'device1',
         }
         return model_to_device.get(device_model, 'device1')

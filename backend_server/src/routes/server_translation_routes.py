@@ -56,24 +56,6 @@ def translate_single_text():
             'error': f'Host translation failed: {status_code}'
         }), status_code
     
-@server_translation_bp.route('/batch', methods=['POST'])
-@handle_route_exceptions('translation:translate_batch_segments')
-def translate_batch_segments():
-    """Translate multiple text segments"""
-    data = request.get_json() or {}
-    segments = data.get('segments', [])
-    source_language = data.get('source_language', 'en')
-    target_language = data.get('target_language', 'en')
-    
-    if not segments:
-        return jsonify({
-            'success': False,
-            'error': 'No segments provided'
-        }), 400
-    
-    result = batch_translate_segments(segments, source_language, target_language)
-    return jsonify(result)
-    
 @server_translation_bp.route('/restart-batch', methods=['POST'])
 @handle_route_exceptions('translation:translate_restart_batch')
 def translate_restart_batch():

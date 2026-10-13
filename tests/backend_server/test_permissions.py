@@ -604,7 +604,7 @@ class TestPermissionMatrixAPI:
         assert resp.status_code == 200, resp.text
         data = resp.json()
         assert data.get("success") is True
-        for field in ("role", "role_permissions", "team_permissions",
+        for field in ("role", "role_permissions", "team_ceiling", "sources",
                       "individual_grants", "denied_permissions", "effective"):
             assert field in data, f"Missing field: {field}"
 

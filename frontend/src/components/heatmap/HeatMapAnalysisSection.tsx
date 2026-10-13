@@ -4,7 +4,6 @@ import {
   Typography,
   Card,
   CardContent,
-  Chip,
   Collapse,
   Table,
   TableBody,
@@ -16,6 +15,7 @@ import {
   Link,
   Tooltip,
 } from '@mui/material';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import React from 'react';
 import { useHref } from 'react-router-dom';
 
@@ -47,12 +47,31 @@ interface HeatMapAnalysisSectionProps {
   frameTimestamp?: string;
 }
 
+
+/** Yes / No / N/A as a tinted pill in the app palette (No = red, Yes = green). */
+const YesNoPill: React.FC<{ state: 'yes' | 'no' | 'na'; clickable?: boolean }> = ({ state, clickable }) => {
+  const P = useAgentChatPalette();
+  const color = state === 'yes' ? P.success : state === 'no' ? P.error : P.textMuted;
+  return (
+    <Box
+      component="span"
+      sx={{
+        display: 'inline-block', px: 1, py: 0.1, borderRadius: 999, fontSize: '0.72rem', fontWeight: 600,
+        color, bgcolor: `${color}1f`, border: `1px solid ${color}55`, cursor: clickable ? 'pointer' : 'default',
+      }}
+    >
+      {state === 'yes' ? 'Yes' : state === 'no' ? 'No' : 'N/A'}
+    </Box>
+  );
+};
+
 export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
   images,
   analysisExpanded,
   onToggleExpanded,
   frameTimestamp,
 }) => {
+  const P = useAgentChatPalette();
   // Router basename (e.g. /pi4 behind the proxy) so the new-tab href lands in this app.
   const routerBase = useHref('/').replace(/\/$/, '');
 
@@ -92,11 +111,6 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
     return analysisJson.blackscreen || analysisJson.freeze || analysisJson.audio === false;
   }).length;
 
-  const summary =
-    totalDevices > 0
-      ? `${totalDevices} devices | ${devicesWithIncidents} with incidents`
-      : 'No analysis data available';
-
   // Show a message when no analysis data is available
   if (totalDevices === 0) {
     return (
@@ -118,7 +132,7 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
   }
 
   return (
-    <Card sx={{ backgroundColor: 'transparent', boxShadow: 'none' }}>
+    <Card sx={{ backgroundColor: P.surface, boxShadow: 'none', border: `1px solid ${P.borderColor}`, borderRadius: 3 }}>
       <CardContent>
         <Box
           display="flex"
@@ -127,11 +141,16 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
           onClick={onToggleExpanded}
           sx={{ cursor: 'pointer' }}
         >
-          <Typography variant="h6">Data Analysis</Typography>
+          <Typography variant="h6">Data analysis</Typography>
           <Box display="flex" alignItems="center" gap={1}>
-            <Typography variant="body2" color="textSecondary">
-              {summary}
-            </Typography>
+            <Box component="span" sx={{ px: 1.1, py: 0.1, borderRadius: 999, fontSize: '0.72rem', fontWeight: 600, color: P.textSecondary, bgcolor: P.hoverBg, border: `1px solid ${P.borderColor}` }}>
+              {totalDevices} devices
+            </Box>
+            {devicesWithIncidents > 0 && (
+              <Box component="span" sx={{ px: 1.1, py: 0.1, borderRadius: 999, fontSize: '0.72rem', fontWeight: 600, color: P.error, bgcolor: `${P.error}1f`, border: `1px solid ${P.error}66` }}>
+                {devicesWithIncidents} {devicesWithIncidents === 1 ? 'incident' : 'incidents'}
+              </Box>
+            )}
             {analysisExpanded ? <ExpandLess /> : <ExpandMore />}
           </Box>
         </Box>
@@ -143,7 +162,11 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
                 component={Paper}
                 variant="outlined"
                 sx={{
-                  backgroundColor: 'transparent',
+                  backgroundColor: P.surface,
+                  borderColor: P.borderColor,
+                  borderRadius: 2,
+                  '& thead .MuiTableCell-root': { backgroundColor: `${P.hoverBg} !important`, color: P.textSecondary },
+                  '& .MuiTableCell-root': { borderColor: P.borderColor },
                   '& .MuiPaper-root': {
                     backgroundColor: 'transparent !important',
                     boxShadow: 'none',
@@ -154,6 +177,10 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
                   size="small"
                   sx={{
                     backgroundColor: 'transparent',
+                    // Fixed layout: column widths don't follow the content, so the table
+                    // doesn't jump width as device names / values change frame to frame.
+                    tableLayout: 'fixed',
+                    minWidth: 760,
                     '& .MuiTableRow-root': {
                       backgroundColor: 'transparent !important',
                     },
@@ -162,9 +189,19 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
                     },
                     '& .MuiTableCell-root': {
                       backgroundColor: 'transparent !important',
+                      whiteSpace: 'nowrap',
                     },
                   }}
                 >
+                  <colgroup>
+                    <col />
+                    <col style={{ width: 80 }} />
+                    <col style={{ width: 80 }} />
+                    <col style={{ width: 95 }} />
+                    <col style={{ width: 95 }} />
+                    <col style={{ width: 105 }} />
+                    <col style={{ width: 120 }} />
+                  </colgroup>
                   <TableHead>
                     <TableRow sx={{ backgroundColor: 'transparent !important' }}>
                       <TableCell>
@@ -219,28 +256,19 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
                               },
                             }}
                           >
-                            <TableCell>
+                            <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }} title={deviceLabel}>
                               {deviceLabel}
                             </TableCell>
                             <TableCell>
                               {(() => {
                                 const chip = (
-                                  <Chip
-                                    label={audioState === 'yes' ? 'Yes' : audioState === 'no' ? 'No' : 'N/A'}
-                                    color={audioState === 'yes' ? 'success' : audioState === 'no' ? 'error' : 'default'}
-                                    size="small"
-                                    sx={audioState === 'no' ? { cursor: 'pointer' } : undefined}
-                                  />
+                                  <YesNoPill state={audioState === 'yes' ? 'yes' : audioState === 'no' ? 'no' : 'na'} clickable={audioState === 'no'} />
                                 );
                                 return audioState === 'no' ? incidentLink(image, 'no_audio', chip) : chip;
                               })()}
                             </TableCell>
                             <TableCell>
-                              <Chip
-                                label={hasVideo ? 'Yes' : 'No'}
-                                color={hasVideo ? 'success' : 'error'}
-                                size="small"
-                              />
+                              <YesNoPill state={hasVideo ? 'yes' : 'no'} />
                             </TableCell>
                             <TableCell>
                               <Typography variant="caption">

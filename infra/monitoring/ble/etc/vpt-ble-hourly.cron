@@ -1,0 +1,26 @@
+# /etc/cron.d/vpt-ble-hourly — TASK-76 hourly probe on vpt-mf1
+#
+# Installed by the worktree at infra/monitoring/ble/etc/vpt-ble-hourly.cron
+# (owner-only). One tick per hour, at HH:01 (so it never collides with the
+# top of the hour, when a fresh journald batch may still be flushing).
+#
+#   - root is required for /var/lib/bluetooth/ read (0700), the FIFO state
+#     (0660 root:vpt_user), and /var/log/vpt-ble/ writes (0750 root:vpt_user).
+#   - The script is fully read-only against the BLE surface; the only
+#     writes are to /var/log/vpt-ble/hourly/ (with redact_ltkirk on the
+#     journal + status JSON dump) and (when triggered) to
+#     /var/log/vpt-ble/incidents/<TS>/.
+#   - env_reset clears any hangover from /etc/environment or the shell
+#     that invoked crontab. Only the explicit vars below are inherited.
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+MAILTO=""
+LOGNAME=root
+HOME=/root
+
+# All output already lives in /var/log/vpt-ble/hourly/, so cron's
+# mail-to-root is disabled. `>>/dev/null` keeps the systemd
+# cron-enqueue quiet too.
+
+01 * * * *  root  /opt/virtualpytest/infra/monitoring/ble/vpt-ble-hourly.sh --once >>/var/log/vpt-ble/hourly/cron.log 2>&1 || true

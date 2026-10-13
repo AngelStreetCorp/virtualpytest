@@ -1,7 +1,10 @@
 import React from 'react';
-import { Box, Typography, TextField, Button } from '@mui/material';
+import { Alert, Box, Typography, TextField, Button, ToggleButton, ToggleButtonGroup } from '@mui/material';
+import { AIEditControls } from '../../../hooks/testcase/useAIGraphEdit';
+import { AIEditPreview } from './AIEditPreview';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import VisibilityIcon from '@mui/icons-material/Visibility';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface AIModePanelProps {
   aiPrompt?: string;
@@ -11,6 +14,8 @@ interface AIModePanelProps {
   hasLastGeneration?: boolean;
   handleShowLastGeneration?: () => void;
   isControlActive?: boolean;
+  /** "Edit open graph": change the canvas' step-list graph by prompt (TASK-36 §3). */
+  aiEdit?: AIEditControls;
 }
 
 export const AIModePanel: React.FC<AIModePanelProps> = ({
@@ -21,28 +26,64 @@ export const AIModePanel: React.FC<AIModePanelProps> = ({
   hasLastGeneration = false,
   handleShowLastGeneration = () => {},
   isControlActive = true,
+  aiEdit,
 }) => {
+  const editing = aiEdit?.mode === 'edit';
+  const P = useAgentChatPalette();
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 1.5, flex: 1, overflowY: 'auto' }}>
       <Typography variant="subtitle2" fontWeight="bold">
         AI Test Generator
       </Typography>
+      {aiEdit && (
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          fullWidth
+          value={aiEdit.mode}
+          onChange={(_, mode) => mode && aiEdit.setMode(mode)}
+          disabled={isGenerating || aiEdit.isEditing}
+        >
+          <ToggleButton value="new" sx={{ fontSize: 11 }}>New graph</ToggleButton>
+          <ToggleButton value="edit" sx={{ fontSize: 11 }}>Edit open graph</ToggleButton>
+        </ToggleButtonGroup>
+      )}
       <TextField
         multiline
         rows={6}
         placeholder={
-          isControlActive
-            ? "e.g., Go to live TV and verify audio is playing"
-            : "Take control of the device first to enter a prompt"
+          !isControlActive
+            ? "Take control of the device first to enter a prompt"
+            : editing
+            ? "e.g., Add a check that the cart icon is shown"
+            : "e.g., Go to live TV and verify audio is playing"
         }
         value={aiPrompt}
         onChange={(e) => setAiPrompt(e.target.value)}
         size="small"
         fullWidth
-        disabled={!isControlActive || isGenerating}
+        disabled={!isControlActive || isGenerating || !!aiEdit?.isEditing}
       />
       
       {/* Action Buttons */}
+      {editing && aiEdit ? (
+        <>
+          <Button
+            variant="contained"
+            startIcon={<AutoAwesomeIcon />}
+            onClick={aiEdit.propose}
+            disabled={!isControlActive || aiEdit.isEditing || !aiPrompt.trim()}
+            fullWidth
+            size="small"
+          >
+            {aiEdit.isEditing ? 'Editing...' : 'Edit'}
+          </Button>
+          {aiEdit.error && <Alert severity="warning" onClose={aiEdit.cancel}>{aiEdit.error}</Alert>}
+          {aiEdit.proposal && (
+            <AIEditPreview proposal={aiEdit.proposal} onApply={aiEdit.apply} onCancel={aiEdit.cancel} />
+          )}
+        </>
+      ) : (
       <Box sx={{ display: 'flex', gap: 1 }}>
         <Button
           variant="contained"
@@ -67,6 +108,7 @@ export const AIModePanel: React.FC<AIModePanelProps> = ({
           </Button>
         )}
       </Box>
+      )}
       
       {/* Sample prompts */}
       <Box sx={{ mt: 1 }}>
@@ -85,7 +127,7 @@ export const AIModePanel: React.FC<AIModePanelProps> = ({
               display: 'block',
               mt: 0.5,
               cursor: 'pointer',
-              color: 'primary.main',
+              color: P.accentText,
               '&:hover': { textDecoration: 'underline' }
             }}
             onClick={() => setAiPrompt(example)}

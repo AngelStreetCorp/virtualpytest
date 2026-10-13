@@ -7,15 +7,20 @@ import { LogTerminalPanel } from './panels/LogTerminalPanel';
 import { useAIContext } from '../../contexts/AIContext';
 import { useResponsiveMode } from '../../hooks/useResponsiveMode';
 import { matchesFeatureRoute } from '../../config/features';
+import { usePermissions } from '../../hooks/auth/usePermissions';
 
 export const AIOmniOverlay: React.FC = () => {
   const { isLogsOpen, openCommand, status, suppressFloatingButton } = useAIContext();
   const { isMobile, isTablet } = useResponsiveMode();
   const location = useLocation();
   const isOnAgentChat = location.pathname === '/ai-agent';
+  // Ask AI and Cmd+K start an Atlas conversation; a role without ai_agent:use (viewer) cannot.
+  const canChat = usePermissions().canAccess('ai_agent:use');
   const isOnNavigationEditor = location.pathname.startsWith('/navigation-editor');
   // Dedicated fullscreen watch player — a bare page with no app chrome; no AI here.
-  const isOnFullscreenPlayer = location.pathname === '/fullscreen-player';
+  // A public shared run snapshot is bare as well: the visitor may not be signed in.
+  const isOnFullscreenPlayer =
+    location.pathname === '/fullscreen-player' || location.pathname.startsWith('/share/run/');
   // The TestCase builder has its own AI mode (Visual/AI toggle), so the global
   // Ask AI button is redundant there.
   // Optional-feature builders (QuickTest, Virtual Scripts) opt in via
@@ -26,6 +31,7 @@ export const AIOmniOverlay: React.FC = () => {
     location.pathname.startsWith('/test-plan/testcase-builder') ||
     matchesFeatureRoute(location.pathname, 'hideFloatingAiButton');
   const hideFloatingAiButton =
+    !canChat ||
     isMobile ||
     isTablet ||
     status !== 'ready' ||
@@ -39,7 +45,7 @@ export const AIOmniOverlay: React.FC = () => {
     <Box sx={{ position: 'fixed', inset: 0, zIndex: 9999, pointerEvents: 'none' }}>
 
       {/* 1. Floating Command Bar (Always mounted, visible via internal state) */}
-      {!isOnAgentChat && !isOnFullscreenPlayer && (
+      {canChat && !isOnAgentChat && !isOnFullscreenPlayer && (
         <Box sx={{ pointerEvents: 'auto' }}>
           <AICommandBar />
         </Box>

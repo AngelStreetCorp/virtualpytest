@@ -9,14 +9,16 @@ Navigates to a URL, waits for the page to settle, and executes a browser-use AI 
 - Host-targeted web script.
 - Uses the device web controller during normal VirtualPyTest execution.
 - Supports local-debug Playwright execution with `--local-debug`.
-- Local-debug browser-use requires an OpenRouter API key supplied by argument or environment.
+- The browser-use model is the `agent.browser` AI route (Settings → AI; must be an OpenAI-compatible
+  profile). Calls go through the server passthrough `/server/ai/openai/agent.browser`, so local-debug
+  needs `SERVER_URL` + `API_KEY` for a server, not a provider key.
 
 ## Usage
 
 ```bash
 python test_scripts/web/browser_task.py --url "google.com" --task "Search for Python tutorials"
 python test_scripts/web/browser_task.py --url "https://youtube.com" --task "Find a video about cats" --max_steps 10
-python test_scripts/web/browser_task.py --local-debug --url "youtube.com" --task "Launch funny cat video" --openrouter_api_key "$OPENROUTER_API_KEY"
+python test_scripts/web/browser_task.py --local-debug --url "youtube.com" --task "Launch funny cat video"
 ```
 
 ## Parameters
@@ -29,12 +31,11 @@ Run Tests UI / script arguments:
 | `--task` | string | `Launch funny cat video` | Browser-use task description |
 | `--max_steps` | int | `10` | Maximum browser-use agent steps |
 | `--wait_seconds` | int | `10` | Wait time before task execution |
-| `--openrouter_api_key` | string | empty | Optional OpenRouter API key for local-debug browser-use |
 
 Local-debug CLI behavior:
 
 - `--local-debug` bypasses decorated device setup and runs a host Playwright flow.
-- Local-debug accepts `--url`, `--task`, `--max_steps`, `--wait_seconds`, and `--openrouter_api_key`.
+- Local-debug accepts `--url`, `--task`, `--max_steps` and `--wait_seconds`.
 
 ## Behavior
 
@@ -53,7 +54,6 @@ Stored metadata includes:
 - `url`
 - `task`
 - `max_steps`
-- `openrouter_api_key_provided`
 - `navigation_result`
 - `task_result`
 - `final_url`
@@ -70,7 +70,9 @@ No dedicated Grafana dashboard is documented for this script. Results are review
 
 ## Troubleshooting
 
-- If local-debug browser-use fails with a missing API key, provide `--openrouter_api_key` or configure `OPENROUTER_API_KEY`.
+- If browser-use fails before the first step, check the `agent.browser` route in Settings → AI → Routing
+  (it must resolve to an OpenAI-compatible profile with a working key — press Test) and that
+  `SERVER_URL` / `API_KEY` reach the server.
 - If task execution fails, inspect `task_result.error` and truncated execution logs in the report.
 
 ## Related Documentation

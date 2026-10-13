@@ -5,12 +5,16 @@ Navigate through UI trees using pathfinding and action execution.
 """
 
 import time
-import uuid
 from typing import Dict, Any, Optional
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
+from ..utils.lock_ownership import auto_lock
 from ..utils.screenshot_capture import capture_image_block
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
+
+
+# Upper bound of /server/navigation/execute: 5 + 30 + 5 + 120 s (see execute_navigation), plus slack.
+NAVIGATION_EXECUTE_TIMEOUT_S = 180
 
 
 class NavigationTools:
@@ -22,66 +26,12 @@ class NavigationTools:
         # Track active control sessions per device for auto-lock
         self._control_sessions: Dict[str, str] = {}
 
-    def _auto_lock(self, host_name: str, device_id: str, team_id: str, force_unlock: bool = False) -> Optional[Dict[str, Any]]:
-        """Auto-acquire device lock. Returns error dict on failure, None on success."""
-        device_key = f"{host_name}:{device_id}"
-
-        # Reuse existing session if we already hold the lock
-        if device_key in self._control_sessions:
-            return None
-
-        session_id = f"mcp-nav-{uuid.uuid4()}"
-        data = {
-            'host_name': host_name,
-            'device_id': device_id,
-            'session_id': session_id,
-        }
-
-        result = self.api.post('/server/control/takeControl', data=data, params={'team_id': team_id})
-
-        # If locked and force requested, preempt the existing lock
-        if not result.get('success') and result.get('errorType') == 'device_locked' and force_unlock:
-            owner_type = result.get('owner_type') or (result.get('lock_info') or {}).get('owner_type')
-            # Graceful takeover for execution locks: aborts the running script/deployment first.
-            if owner_type in ('script_execution', 'deployment_execution', 'mcp'):
-                takeover_data = {
-                    'host_name': host_name,
-                    'device_id': device_id,
-                    'requested_by_session': session_id,
-                    'stop_running_execution': True,
-                    'reason': 'mcp_force_unlock',
-                }
-                result = self.api.post('/server/control/takeover', data=takeover_data, params={'team_id': team_id})
-
-            # Still locked (e.g. a manual_control lock, which /takeover refuses to preempt).
-            # force_unlock=true is an explicit override and a manual lock has no running
-            # execution to abort, so clear it unconditionally and retake.
-            if not result.get('success'):
-                self.api.post('/server/control/forceUnlock',
-                              data={'host_name': host_name, 'device_id': device_id},
-                              params={'team_id': team_id})
-                result = self.api.post('/server/control/takeControl', data=data, params={'team_id': team_id})
-
-        if not result.get('success'):
-            if result.get('errorType') == 'device_locked':
-                owner_type = result.get('owner_type') or (result.get('lock_info') or {}).get('owner_type', 'unknown')
-
-                # Piggyback on existing manual_control lock (same as action_tools).
-                # The user took control from the frontend, then ran a test prompt —
-                # the AI agent acts on their behalf. Don't store in _control_sessions
-                # so _auto_unlock becomes a no-op (we don't own the lock).
-                if owner_type == 'manual_control':
-                    print(f"[@MCP:_auto_lock:nav] Device {device_key} held by manual_control — piggybacking")
-                    return None
-
-                msg = result.get('message', 'Device is currently in use')
-                error_msg = f"Device '{device_id}' on host '{host_name}' is locked by {owner_type}. {msg}"
-                error_msg += ". Retry with force_unlock=true to preempt."
-                return {"content": [{"type": "text", "text": error_msg}], "isError": True, "errorType": "device_locked"}
-            return {"content": [{"type": "text", "text": f"Failed to lock device: {result.get('error', 'Unknown error')}"}], "isError": True}
-
-        self._control_sessions[device_key] = session_id
-        return None
+    def _auto_lock(self, params: Dict[str, Any], host_name: str, device_id: str, team_id: str,
+                   force_unlock: bool = False) -> Optional[Dict[str, Any]]:
+        """Lock the device for this call, or run under the caller's own lock. Returns an error dict
+        when someone else holds it (never taken over), None to proceed. See lock_ownership."""
+        return auto_lock(self.api, self._control_sessions, params, host_name, device_id, team_id,
+                         force_unlock, 'nav')
 
     def _auto_unlock(self, host_name: str, device_id: str, team_id: str) -> None:
         """Release device lock acquired by auto-lock."""
@@ -252,8 +202,9 @@ class NavigationTools:
                 'device_id': str (REQUIRED - device identifier),
                 'userinterface_name': str (REQUIRED - UI name for auto-resolving tree_id),
                 'target_node_label': str (REQUIRED - target screen like shop or home),
-                'force_unlock': bool (OPTIONAL - preempt existing lock if device is locked),
-                'include_screenshot': bool (OPTIONAL - include a device screenshot of the resulting screen in the response, default false)
+                'force_unlock': bool (OPTIONAL - stop a running script/testcase/deployment holding the device; never another user's take-control),
+                'session_id': str (OPTIONAL - session_id from take_control; runs under that lock),
+                'include_screenshot': bool (OPTIONAL - include a device screenshot of the resulting screen in the response, default true)
             }
 
         Returns:
@@ -268,7 +219,7 @@ class NavigationTools:
         current_node_id = params.get('current_node_id')
         host_name = params.get('host_name')
         force_unlock = bool(params.get('force_unlock', False))
-        include_screenshot = params.get('include_screenshot', False)
+        include_screenshot = params.get('include_screenshot', True)
 
         # Validate required parameters
         if not userinterface_name:
@@ -281,7 +232,7 @@ class NavigationTools:
             return {"content": [{"type": "text", "text": "Error: target_node_label is required"}], "isError": True}
 
         # Auto-lock device
-        lock_error = self._auto_lock(host_name, device_id, team_id, force_unlock)
+        lock_error = self._auto_lock(params, host_name, device_id, team_id, force_unlock)
         if lock_error:
             return lock_error
 
@@ -310,10 +261,14 @@ class NavigationTools:
 
             # Call EXISTING endpoint - SAME as frontend (navigationExecutionUtils.ts line 53)
             print(f"[@MCP:navigate_to_node] Calling /server/navigation/execute/{tree_id}")
+            # The route populates a cold cache first (cache check 5 s + populate 30 s + re-check 5 s),
+            # then starts the navigation on the host, which answers with an execution_id at once;
+            # the poll below waits for the end (BUG-0389, BUG-0411).
             result = self.api.post(
                 f'/server/navigation/execute/{tree_id}',
                 data=data,
-                params=query_params
+                params=query_params,
+                timeout=NAVIGATION_EXECUTE_TIMEOUT_S,
             )
 
             # Check for errors
@@ -348,7 +303,7 @@ class NavigationTools:
         if image_block:
             response.setdefault('content', []).append(image_block)
 
-    def _poll_navigation_completion(self, execution_id: str, device_id: str, host_name: str, team_id: str, target_label: str, max_wait: int = 60, include_screenshot: bool = False) -> Dict[str, Any]:
+    def _poll_navigation_completion(self, execution_id: str, device_id: str, host_name: str, team_id: str, target_label: str, max_wait: int = 120, include_screenshot: bool = False) -> Dict[str, Any]:
         """
         Poll navigation execution until complete
         

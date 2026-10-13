@@ -39,6 +39,14 @@ call has to present the key from the server's `.env`.
 curl -H "X-API-Key: $API_KEY" http://<server>:5109/server/system/info
 ```
 
+### A run starts, then the UI waits until it times out
+The work usually finished; the result did not get back. Walk the event path — the host's status
+endpoint, then the callback, then the socket — with
+[Async executions: why the UI waits](../technical/async-execution-troubleshooting.md)
+_(internal-only — not in the public snapshot)_. That page
+also lists the diagnostics that come back empty for the wrong reason, which is how this class of
+bug stays hidden.
+
 ### Host missing from *Devices*
 ```bash
 docker logs vpt-host --tail 50        # or: sudo journalctl -u vpt-host -n 50
@@ -365,6 +373,39 @@ Every address is configured, nothing is discovered: `VITE_SERVER_URL` (browser �
 `HOST_API_URL` (server → host), `SERVER_URL` in the host's `.env` (host → server),
 `HOST_URL` (browser → host). The [configuration reference](../get-started/configuration.md)
 says which file each lives in. After changing a `VITE_*` value the frontend must be rebuilt.
+
+### A host is unreachable but its VM is still powered on
+
+SSH returns `No route to host` and the guest never answers ARP, while `qm list` shows it
+`running`. Check disk and RAM first so you can rule them out, but a powered-on, ARP-dead guest
+after hours of uptime is a **hung kernel**, not exhaustion.
+
+The usual cause is a runaway capture loop: a `vpt-emulator-fifo` unit that was hand-edited into
+an inline `while true; do adb …; done` with **no `sleep`** re-forks an `adb` that fails
+instantly, ~423 times per second, and starves the guest's networking after ~23 hours. Its last
+log lines are thousands of `error: device 'emulator-5554' not found`.
+
+```bash
+# One vCPU near 100% while the others idle = hung guest kernel
+top -H -b -n1 -p <qemu-pid>
+
+# Look at the guest screen without logging in — a live login prompt means only networking died
+printf "screendump /tmp/vptdiag/<vmid>.ppm\n" | sudo qm monitor <vmid>
+
+# Is the deployed unit still the repo script, or a hand-edited inline loop?
+sudo grep -c "while true; do" /etc/systemd/system/vpt-emulator-fifo.service
+```
+
+Stop **and** disable the unit (it returns after a reboot otherwise), then power-cycle the VM:
+```bash
+sudo systemctl stop    vpt-emulator-fifo.service
+sudo systemctl disable vpt-emulator-fifo.service
+sudo qm stop <vmid> --timeout 15 && sudo qm start <vmid>
+```
+
+`vpt-emulator-fifo` is only meaningful when `HOST_TYPE` contains `android`; on a `host_vnc`
+host the capture comes from the VNC display, so the unit must stay disabled. Full diagnosis:
+[Android Emulator Troubleshooting](../android-emulator-troubleshooting.md).
 
 ### Remote access
 Open 5073, 5109, 6109, 6080 (and 3000 for Grafana) towards the browsers that use the

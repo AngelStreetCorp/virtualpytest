@@ -6,11 +6,12 @@ import json
 import requests
 import threading
 import time
-from pathlib import Path
+import uuid
 from shared.src.lib.config.constants import CACHE_CONFIG
 from backend_server.src.lib.auth_middleware import require_permission
 from backend_server.src.integrations.testrail_client import TestRailConnectionError, test_connection as test_testrail_connection
 from backend_server.src.integrations import testrail_service
+from backend_server.src.lib.utils.integration_state import state_path
 
 server_integrations_bp = Blueprint('server_integrations_bp', __name__, url_prefix='/server/integrations')
 
@@ -22,9 +23,8 @@ def add_cors_headers(response):
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS, DELETE'
     return response
 
-# Path to integrations config
-BACKEND_SERVER_ROOT = Path(__file__).parent.parent.parent
-JIRA_CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'jira_instances.json'
+# Runtime-written integration state lives outside the deploy tree (see integration_state.py)
+JIRA_CONFIG_PATH = state_path('jira_instances.json')
 
 def load_jira_instances():
     """Load JIRA instances configuration from JSON file"""
@@ -53,6 +53,19 @@ def save_jira_instances(instances):
     except Exception as e:
         print(f"[@integrations_routes] Error saving JIRA config: {e}")
         return False
+
+def _clean_team_ids(raw):
+    """Sorted unique team UUID strings, or None when ``raw`` is not a list of UUIDs."""
+    if not isinstance(raw, list):
+        return None
+    cleaned = set()
+    for value in raw:
+        try:
+            cleaned.add(str(uuid.UUID(str(value))))
+        except (ValueError, TypeError, AttributeError):
+            return None
+    return sorted(cleaned)
+
 
 def get_jira_instance_by_id(instance_id):
     """Get JIRA instance config by ID"""
@@ -120,6 +133,7 @@ def call_jira_api(domain, endpoint, email, api_token, method='GET', data=None):
 
 @server_integrations_bp.route('/jira/instances', methods=['GET'])
 @handle_route_exceptions('server_integrations:get_jira_instances')
+@require_permission('plugins.jira:view')
 def get_jira_instances():
     """Get list of configured JIRA instances"""
     try:
@@ -134,6 +148,7 @@ def get_jira_instances():
                 'domain': instance['domain'],
                 'email': instance['email'],
                 'projectKey': instance.get('projectKey', ''),
+                'teamIds': instance.get('teamIds') or [],
             })
         
         return jsonify({
@@ -150,6 +165,7 @@ def get_jira_instances():
 
 @server_integrations_bp.route('/jira/instances', methods=['POST'])
 @handle_route_exceptions('server_integrations:create_jira_instance')
+@require_permission('plugins.jira:manage')
 def create_jira_instance():
     """Create or update JIRA instance configuration"""
     try:
@@ -176,13 +192,26 @@ def create_jira_instance():
                 existing_index = i
                 break
         
+        # teamIds: the teams whose test-result defects may be pushed to this
+        # instance (the store is server-global). Kept as is when omitted.
+        if 'teamIds' in data:
+            team_ids = _clean_team_ids(data['teamIds'])
+            if team_ids is None:
+                return jsonify({
+                    'success': False,
+                    'error': 'teamIds must be a list of team UUIDs'
+                }), 400
+        else:
+            team_ids = (instances[existing_index].get('teamIds') or []) if existing_index is not None else []
+
         new_instance = {
             'id': instance_id,
             'name': data['name'],
             'domain': data['domain'],
             'email': data['email'],
             'apiToken': data['apiToken'],
-            'projectKey': data['projectKey']
+            'projectKey': data['projectKey'],
+            'teamIds': team_ids,
         }
         
         if existing_index is not None:
@@ -203,7 +232,8 @@ def create_jira_instance():
                 'name': new_instance['name'],
                 'domain': new_instance['domain'],
                 'email': new_instance['email'],
-                'projectKey': new_instance['projectKey']
+                'projectKey': new_instance['projectKey'],
+                'teamIds': new_instance['teamIds'],
             }
         })
     except Exception as e:
@@ -216,6 +246,7 @@ def create_jira_instance():
 
 @server_integrations_bp.route('/jira/instances/<instance_id>', methods=['DELETE'])
 @handle_route_exceptions('server_integrations:delete_jira_instance')
+@require_permission('plugins.jira:manage')
 def delete_jira_instance(instance_id):
     """Delete JIRA instance configuration"""
     try:
@@ -458,11 +489,11 @@ def test_jira_connection(instance_id):
 # SLACK CONFIGURATION
 # ============================================================================
 
-SLACK_CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_config.json'
-THREADS_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_threads.json'
+SLACK_CONFIG_PATH = state_path('slack_config.json')
+THREADS_PATH = state_path('slack_threads.json')
 
 # TestRail credentials are kept on the backend and omitted from every read response.
-TESTRAIL_CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'testrail.json'
+TESTRAIL_CONFIG_PATH = state_path('testrail.json')
 
 
 def _testrail_team_id():
@@ -837,7 +868,7 @@ def get_slack_status():
         config = load_slack_config()
         
         # Load thread statistics
-        threads_path = BACKEND_SERVER_ROOT / 'config' / 'integrations' / 'slack_threads.json'
+        threads_path = THREADS_PATH
         thread_count = 0
         last_sync = None
         

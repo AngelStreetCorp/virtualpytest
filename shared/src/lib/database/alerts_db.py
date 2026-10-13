@@ -256,19 +256,7 @@ def create_alert(
         if result.data:
             _alert_log(f"[@db:alerts:create_alert] Success: {alert_id}")
             
-            # Add to analysis queue for Nightwatch/Sherlock to process
-            # Include FULL alert data so AI can analyze without DB lookup
-            try:
-                from shared.src.lib.utils.redis_queue import get_queue_processor
-                queue_processor = get_queue_processor()
-                queue_processor.add_alert_to_queue(alert_id, {
-                    **alert_data,  # Full alert: host_name, device_id, incident_type, metadata, etc.
-                    'alert_type': incident_type,  # Alias for handler compatibility
-                })
-                _alert_log(f"[@db:alerts:create_alert] Added to analysis queue: {alert_id}")
-            except Exception as e:
-                _alert_log(f"[@db:alerts:create_alert] Warning: Failed to add to analysis queue: {e}")
-            
+            # No queue: vpt-discard-incidents (server) polls the alerts table itself.
             return {
                 'success': True,
                 'alert_id': alert_id,
@@ -481,6 +469,27 @@ def add_unique_constraint_for_active_alerts() -> Dict:
             'error': str(e)
         }
 
+def merge_alert_metadata(alert_id: str, patch: Dict) -> bool:
+    """Merge ``patch`` (top-level keys) into an alert's metadata; every other key is kept.
+    The alerts table has no team_id: an alert is addressed by its id alone."""
+    try:
+        supabase = get_supabase()
+        current = supabase.table('alerts').select('metadata').eq('id', alert_id).execute()
+        if not current.data:
+            return False
+        metadata = current.data[0].get('metadata') or {}
+        if not isinstance(metadata, dict):
+            metadata = {}
+        metadata.update(patch)
+        result = supabase.table('alerts').update({
+            'metadata': metadata,
+            'updated_at': datetime.now(timezone.utc).isoformat()
+        }).eq('id', alert_id).execute()
+        return bool(result.data)
+    except Exception as e:
+        _alert_log(f"[@db:alerts:merge_alert_metadata] Error: {str(e)}")
+        return False
+
 def update_alert_checked_status(alert_id: str, checked: bool, check_type: str = 'manual') -> bool:
     """Update alert checked status."""
     try:
@@ -663,3 +672,51 @@ def get_alert_by_id(alert_id: str) -> Optional[Dict]:
     except Exception as e:
         print(f"[@db:alerts:get_alert_by_id] Error: {str(e)}")
         return None 
+
+
+def delete_alert(alert_id: str) -> Dict:
+    """Delete one alert by id (the alerts table has no team_id)."""
+    try:
+        supabase = get_supabase()
+        result = supabase.table('alerts').delete().eq('id', alert_id).execute()
+        if not result.data:
+            return {'success': False, 'error': 'Alert not found'}
+        return {'success': True, 'deleted_count': len(result.data)}
+    except Exception as e:
+        print(f"[@db:alerts:delete_alert] Error: {str(e)}")
+        return {'success': False, 'error': str(e)}
+
+
+def get_triage_stats() -> Dict:
+    """Today's (UTC) alert-triage activity for the Alerts page: model calls, failures, tokens, alerts the
+    screen memory discarded without a model call, how many screens are known per verdict, and ``unavailable``
+    (``{reason, since}``) when the last model request failed."""
+    try:
+        supabase = get_supabase()
+        midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        usage = (supabase.table('ai_usage_stats').select('calls,errors,tokens_in,tokens_out')
+                 .eq('usage_key', 'vision.alert_triage').gte('bucket', midnight).execute()).data or []
+        avoided = (supabase.table('alerts').select('id', count='exact').eq('check_type', 'fingerprint')
+                   .gte('updated_at', midnight).limit(1).execute()).count or 0
+        # The last model request decides "triage unavailable": a failed one stays the last until a call answers
+        # again (a no-credit pause or the worker back-off makes no request in between).
+        last = (supabase.table('ai_calls').select('ts,ok,error_type').eq('usage_key', 'vision.alert_triage')
+                .eq('outcome', 'served').order('ts', desc=True).limit(1).execute()).data or []
+        unavailable = ({'reason': last[0].get('error_type') or 'other', 'since': last[0]['ts']}
+                       if last and not last[0]['ok'] else None)
+        screens = {'expected': 0, 'bad': 0, 'unknown': 0}
+        for row in (supabase.table('screen_fingerprints').select('verdict').execute()).data or []:
+            screens[row['verdict']] = screens.get(row['verdict'], 0) + 1
+        return {
+            'success': True,
+            'calls': sum(r['calls'] for r in usage),
+            'errors': sum(r['errors'] for r in usage),
+            'tokens_in': sum(r['tokens_in'] for r in usage),
+            'tokens_out': sum(r['tokens_out'] for r in usage),
+            'avoided': avoided,
+            'screens': screens,
+            'unavailable': unavailable,
+        }
+    except Exception as e:
+        print(f"[@db:alerts:get_triage_stats] Error: {str(e)}")
+        return {'success': False, 'error': str(e)}

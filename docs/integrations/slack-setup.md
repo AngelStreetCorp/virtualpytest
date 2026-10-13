@@ -87,7 +87,7 @@ In your Slack channel, type:
 4. Click **"Test Connection"** to verify credentials
 5. Toggle **"Enable Integration"** to ON
 6. Click **"Save Configuration"**
-   - This creates `backend_server/config/integrations/slack_config.json` (gitignored)
+   - This creates `~/.config/virtualpytest/slack_config.json` (outside the project tree)
 7. Click **"Send Test Message"** to verify it works
 
 **Authentication Flow:**
@@ -100,7 +100,7 @@ This is the same pattern as JIRA integration - credentials stored in JSON config
 
 ## Configuration Storage
 
-Configuration is stored in `backend_server/config/integrations/slack_config.json`:
+Configuration is stored in `slack_config.json` under `~/.config/virtualpytest/` of the user the server runs as (`vpt_user`), or `$VPT_CONFIG_DIR`:
 
 ```json
 {
@@ -112,7 +112,7 @@ Configuration is stored in `backend_server/config/integrations/slack_config.json
 }
 ```
 
-- ✅ File is **gitignored** for security (like `jira_instances.json`)
+- ✅ File lives **outside the project tree** (like `jira_instances.json`), so deploys cannot wipe it
 - ✅ Created automatically when you save configuration through UI
 - ✅ No environment variables needed
 - ❌ **Never commit this file** - contains sensitive credentials
@@ -244,9 +244,7 @@ Both require you to create credentials in the third-party platform first.
 ```
 backend_server/
 ├── config/integrations/
-│   ├── slack_config.json          # Configuration (created on save)
-│   ├── slack_config.json.example  # Example template
-│   └── slack_threads.json         # Thread mapping (auto-created)
+│   └── slack_config.json.example  # Example template
 ├── src/
 │   ├── integrations/
 │   │   ├── __init__.py

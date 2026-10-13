@@ -21,6 +21,7 @@ import {
   ListItem,
 } from '@mui/material';
 import { useState, useEffect } from 'react';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 // Tree names are stored in the DB with a " - Subtree" suffix
 // (e.g. "apps - Subtree"). Strip it so chips/dropdown show just "apps".
@@ -38,6 +39,7 @@ interface ValidationPreviewClientProps {
 }
 
 export default function ValidationPreviewClient({ treeId, onClose, selectedHost, selectedDeviceId }: ValidationPreviewClientProps) {
+  const P = useAgentChatPalette();
   const validation = useValidation(treeId, selectedHost, selectedDeviceId);
   const [selectedEdges, setSelectedEdges] = useState<Set<string>>(new Set());
   // Tree filter: empty set === no filter (show all). Populated set === only show
@@ -214,7 +216,7 @@ export default function ValidationPreviewClient({ treeId, onClose, selectedHost,
           </Typography>
           <Typography
             variant="caption"
-            color={canSelectAll ? 'primary.main' : 'text.disabled'}
+            color={canSelectAll ? P.accentText : P.textMuted}
             sx={{ cursor: canSelectAll ? 'pointer' : 'default' }}
             onClick={canSelectAll ? handleSelectAll : undefined}
           >
@@ -223,7 +225,7 @@ export default function ValidationPreviewClient({ treeId, onClose, selectedHost,
           <Typography variant="caption" color="text.disabled">-</Typography>
           <Typography
             variant="caption"
-            color={visibleSelectedCount > 0 ? 'primary.main' : 'text.disabled'}
+            color={visibleSelectedCount > 0 ? P.accentText : P.textMuted}
             sx={{ cursor: visibleSelectedCount > 0 ? 'pointer' : 'default' }}
             onClick={visibleSelectedCount > 0 ? handleDeselectAll : undefined}
           >
@@ -302,8 +304,8 @@ export default function ValidationPreviewClient({ treeId, onClose, selectedHost,
                     <Chip
                       label="Has Verifications"
                       size="small"
-                      color="info"
                       variant="outlined"
+                      sx={{ color: P.series[1], borderColor: P.borderColor }}
                     />
                   )}
                   {edge.actions && edge.actions.length > 0 && (

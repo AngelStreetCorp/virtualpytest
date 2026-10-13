@@ -1,8 +1,7 @@
 """Browser-Use Integration Utility"""
 
-import os
+import asyncio
 import time
-import sys
 from typing import Dict, Any
 
 # browser_use should be installed in the environment via requirements.txt
@@ -10,6 +9,75 @@ from typing import Dict, Any
 
 from browser_use import Agent
 from browser_use.llm import ChatOpenAI
+
+BROWSER_USAGE = 'agent.browser'
+_OPENAI_COMPATIBLE_PRESETS = ('openrouter', 'openai', 'openai_compatible')
+
+
+def _counted_http_client(hop: dict, team_id: str | None):
+    """httpx client that reports every chat-completions response to the server's AI stats.
+
+    A direct host-reach call never touches the server passthrough, and one browser-use task is N
+    model calls, so each response is counted here (the server records them like any other call)."""
+    import httpx
+    from shared.src.lib.ai import gateway
+    from shared.src.lib.ai.provider_client import openai_call_usage
+
+    started: dict[int, float] = {}
+
+    async def _on_request(request):
+        started[id(request)] = time.time()
+
+    async def _on_response(response):
+        ms = int((time.time() - started.pop(id(response.request), time.time())) * 1000)
+        if not str(response.request.url).endswith('/chat/completions'):
+            return
+        usage_block: dict = {}
+        try:
+            await response.aread()
+            usage_block = (response.json() or {}).get('usage') or {}
+        except Exception:
+            pass
+        ok = response.status_code < 400
+        # The report is a blocking POST: keep it off the event loop.
+        await asyncio.to_thread(
+            gateway.report_direct_call, BROWSER_USAGE, team_id, hop, ok=ok, ms=ms,
+            call_usage=openai_call_usage(usage_block), error_type=None if ok else 'server',
+        )
+
+    return httpx.AsyncClient(event_hooks={'request': [_on_request], 'response': [_on_response]},
+                             timeout=httpx.Timeout(float(hop.get('timeout_s') or 120)))
+
+
+def build_browser_llm(team_id: str | None = None) -> ChatOpenAI:
+    """browser-use LLM from the ``agent.browser`` AI route (TASK-30).
+
+    browser-use drives an OpenAI client itself, so the route must point at an
+    OpenAI-compatible profile. A keyless LAN endpoint marked reach=host is called
+    directly; any other goes through the server passthrough, which swaps in the
+    routed model and the API key (hosts hold no provider keys).
+    """
+    from shared.src.lib.ai import gateway
+    from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
+
+    hop = gateway.describe(BROWSER_USAGE, team_id)['chain'][0]
+    if hop['preset'] not in _OPENAI_COMPATIBLE_PRESETS:
+        raise RuntimeError(f"{BROWSER_USAGE} routes to '{hop['profile']}' ({hop['preset']}); "
+                           "browser-use needs an OpenAI-compatible profile")
+    if hop['reach'] == 'host':
+        return ChatOpenAI(model=hop['model'], api_key='local', base_url=hop['base_url'],
+                          temperature=hop.get('temperature'), http_client=_counted_http_client(hop, team_id))
+    headers = dict(server_auth_headers())
+    if team_id:
+        headers['X-VPT-Team-Id'] = team_id
+    return ChatOpenAI(
+        model=hop['model'],
+        api_key='vpt-gateway',  # ignored: the server authenticates X-API-Key and holds the real key
+        base_url=buildServerUrl(f'/server/ai/openai/{BROWSER_USAGE}'),
+        default_headers=headers,
+        temperature=hop.get('temperature'),
+    )
+
 
 class BrowserUseManager:
     """Simple browser-use manager with session reuse"""
@@ -20,12 +88,7 @@ class BrowserUseManager:
         
     def _get_llm(self):
         if self.llm is None:
-            self.llm = ChatOpenAI(
-                model='o4-mini',  # Best free model for browser automation
-                api_key=os.getenv('OPENROUTER_API_KEY'),
-                base_url='https://openrouter.ai/api/v1',
-                temperature=1.0  # Lower temperature for more consistent behavior
-            )
+            self.llm = build_browser_llm()
         return self.llm
 
     async def execute_task(self, task: str, max_steps: int = 20) -> Dict[str, Any]:

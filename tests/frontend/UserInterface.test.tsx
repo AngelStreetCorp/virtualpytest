@@ -60,6 +60,6 @@ describe('UserInterface page', () => {
       </BrowserRouter>,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Interface' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Interface \(\d+\)$/ })).toBeInTheDocument();
   });
 });

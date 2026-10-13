@@ -156,7 +156,7 @@ def test_ingest_validates_payload_without_writing(base_url, verify_ssl, request_
 
 
 def test_update_project_requires_admin(base_url, verify_ssl, request_timeout, admin_jwt, tester_jwt):
-    """PUT /cicd/projects/<p> is @require_user_auth + @require_role('admin').
+    """PUT /cicd/projects/<p> is @require_user_auth + @require_permission('settings.cicd:edit').
 
     Checks the gate from both sides without mutating the registry: unauthenticated and
     tester-role callers are refused. The success path is left alone on purpose — there is

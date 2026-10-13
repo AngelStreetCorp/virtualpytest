@@ -14,8 +14,14 @@ This guide covers everything you need to know to get the most out of VirtualPyTe
 
 ### Core Features
 - **[Running Tests](./running-tests.md)** - Execute tests and campaigns
+- **[Sharing a test report](./sharing-reports.md)** - An expiring link (optional password) to one report, for someone without a VPT account
+- **[App languages](./app-languages.md)** - Use the web app in English, French or German; change language and theme from Settings
+- **[Report languages](./report-languages.md)** - Read a report in English, French or German; translate your own script's strings
 - **Monitoring** - 24/7 device monitoring and alerts
+- **[Grafana alerting](./grafana-alerting.md)** - Email / Slack alerts on host health, incidents and test regressions
 - **[Requirements management](../features/requirements-management.md)** - Link requirements to tests, coverage
+- **[Nintendo Switch](./nintendo-switch.md)** - Pair a stock Switch as a Bluetooth Pro Controller and drive it from the remote panel
+- **[Subtitle QA](./subtitle-qa.md)** - Check subtitles on a film (missing, wrong, late, stuck, wrong language) from an .mkv or a live device
 
 ### Configuration
 - **[Configuration reference](../get-started/configuration.md)** - Every variable and port

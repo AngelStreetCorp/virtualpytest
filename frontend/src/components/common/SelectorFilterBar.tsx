@@ -11,6 +11,7 @@ import {
   Search as SearchIcon,
 } from '@mui/icons-material';
 
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { useResponsiveMode } from '../../hooks/useResponsiveMode';
 
 interface TagOption {
@@ -50,6 +51,7 @@ export const SelectorFilterBar: React.FC<SelectorFilterBarProps> = ({
   rightContent,
 }) => {
   const { isMobile } = useResponsiveMode();
+  const P = useAgentChatPalette();
   return (
   <Box sx={{ display: 'flex', gap: 1, mb: 1, alignItems: 'center' }}>
     {showSearch && (
@@ -116,7 +118,7 @@ export const SelectorFilterBar: React.FC<SelectorFilterBarProps> = ({
                 {...getTagProps({ index })}
                 sx={{
                   height: '20px',
-                  backgroundColor: tag?.color || '#9e9e9e',
+                  backgroundColor: tag?.color || P.textMuted,
                   color: 'white',
                   '& .MuiChip-deleteIcon': {
                     color: 'rgba(255,255,255,0.7)',

@@ -177,6 +177,10 @@ vi.mock('../../frontend/src/components/common/ExecutionProgressOverlay', () => (
   ExecutionProgressOverlay: () => null,
 }));
 
+vi.mock('../../frontend/src/components/reports/TestcaseVersionInsights', () => ({
+  TestcaseVersionInsights: () => null,
+}));
+
 vi.mock('../../frontend/src/components/common/VersionHistoryDialog', () => ({
   VersionHistoryDialog: () => null,
 }));

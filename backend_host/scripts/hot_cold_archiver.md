@@ -14,6 +14,11 @@ The FAST loop is a retry mechanism. It does **not** force a new 1-minute video e
    - Windows/SD mode: `.../segments/`
 2. FAST loop reads the live segments folder and builds a 1-minute MP4.
 3. That 1-minute MP4 is appended into a growing 10-minute chunk (`chunk_10min_X.mp4`).
+   Both are built in RAM (`/dev/shm/vpt-archiver/<captureN>/`) when it has room: the cold path
+   `segments/<hour>/chunk_10min_X.mp4` is a symlink to the open chunk, which is copied to cold
+   storage once when the next chunk starts or after 11 idle minutes (BUG-0463). Each append
+   re-muxes the whole chunk, so doing it on an SD card wrote ~110x a minute of video per chunk.
+   `ARCHIVE_VIDEO=false` (host `.env`) skips this step: no 24h review buffer.
 4. Audio extraction (if available) is done from the 1-minute MP4.
 
 ## Why a 15s FAST Loop?

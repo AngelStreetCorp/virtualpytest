@@ -844,6 +844,9 @@ def _create_validation_step(G, from_node: str, to_node: str, edge_data: Dict, st
         'to_node_id': to_node,
         'from_node_label': from_info.get('label', from_node),
         'to_node_label': to_info.get('label', to_node),
+        # Step that leaves the entry point: same flag as the pathfinding steps. The
+        # validation script runs it from wherever the device is (it is the reset).
+        'is_entry_transition': bool(from_info.get('is_entry_point', False)),
         'actions': actions,
         'retryActions': retry_actions,
         'failureActions': failure_actions,

@@ -10,6 +10,7 @@ import html
 from typing import Dict, List
 from datetime import datetime
 from .cloudflare_utils import convert_to_signed_url
+from ..i18n.report_i18n import t, tx, tx_lines
 
 
 def ensure_signed_url(url: str) -> str:
@@ -154,7 +155,7 @@ def create_compact_step_results_section(step_results: List[Dict], screenshots: D
     report reads STEP 1, STEP 2, STEP 3 regardless of how many hops each took.
     """
     if not step_results:
-        return '<p>No steps executed</p>'
+        return '<p>' + t('steps.none') + '</p>'
 
     # --- Grouping pass: (parent_step, [hop_steps]) tuples in display order. ---
     groups: List = []
@@ -242,7 +243,7 @@ def format_single_step(
     # beneath it (see create_compact_step_results_section), so the parent gets a
     # stronger left accent and the children render indented/plain.
     is_block = step.get('step_category') == 'testcase_block'
-    message = step.get('message', 'No message')
+    message = tx(step.get('message', 'No message'))
     execution_time = step.get('execution_time_ms', 0)
     start_time = step.get('start_time', 'N/A')
     end_time = step.get('end_time', 'N/A')
@@ -252,19 +253,19 @@ def format_single_step(
     # recovery wins over plain success/failure for its own visual lane (blue).
     if skipped:
         status_class = 'skipped'
-        badge_text = 'SKIP'
+        badge_text = t('badge.skip')
     elif is_recovery:
         status_class = 'recovery'
-        badge_text = 'PASS' if success else 'FAIL'
+        badge_text = t('badge.pass') if success else t('badge.fail')
     else:
         status_class = 'success' if success else 'failure'
-        badge_text = 'PASS' if success else 'FAIL'
+        badge_text = t('badge.pass') if success else t('badge.fail')
 
     # Format execution time. A genuine 0 (e.g. an "already at destination" step
     # that runs no actions) is a real duration, not missing data — show "0s",
     # never "N/A". execution_time_ms defaults to 0 when absent, so it is never None.
     exec_time_str = format_execution_time(execution_time) if execution_time else "0s"
-    timing_header = f"Start: {start_time} End: {end_time} Duration: {exec_time_str}"
+    timing_header = t('step.timing', start=start_time, end=end_time, duration=exec_time_str)
 
     # Format step content
     actions_html = format_step_actions(step)
@@ -277,11 +278,11 @@ def format_single_step(
         detail_parts = []
         if extracted_text:
             truncated = str(extracted_text)[:300]
-            detail_parts.append(f'<div style="margin: 4px 0;"><strong>OCR Extracted Text:</strong> <code style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 3px;">{truncated}</code></div>')
+            detail_parts.append(f'<div style="margin: 4px 0;"><strong>{t("step.ocr_text")}</strong> <code style="background: rgba(0,0,0,0.05); padding: 2px 6px; border-radius: 3px;">{truncated}</code></div>')
         if matching_result is not None:
             score = float(matching_result)
             color = '#22c55e' if score >= 0.8 else '#f59e0b' if score >= 0.5 else '#ef4444'
-            detail_parts.append(f'<div style="margin: 4px 0;"><strong>Match Score:</strong> <span style="color: {color}; font-weight: bold;">{score:.2f}</span></div>')
+            detail_parts.append(f'<div style="margin: 4px 0;"><strong>{t("step.match_score")}</strong> <span style="color: {color}; font-weight: bold;">{score:.2f}</span></div>')
         verifications_html += '<div style="background: rgba(0,0,0,0.03); border-left: 3px solid #3b82f6; padding: 8px 12px; margin: 8px 0; border-radius: 4px;">' + ''.join(detail_parts) + '</div>'
 
     # For zap steps the failure reason is shown inside Analysis Results → Zap Detection
@@ -312,8 +313,8 @@ def format_single_step(
     hop_badge = (
         '<span style="display:inline-block;margin-left:8px;padding:1px 6px;'
         'border-radius:3px;background:#eef2ff;color:#6366f1;font-size:11px;'
-        f'font-weight:600;vertical-align:middle;">{hop_count} '
-        f'{"hop" if hop_count == 1 else "hops"}</span>'
+        'font-weight:600;vertical-align:middle;">'
+        + (t('step.hop', n=hop_count) if hop_count == 1 else t('step.hops', n=hop_count)) + '</span>'
         if hop_count else ''
     )
 
@@ -371,16 +372,17 @@ def format_step_error(step: Dict) -> str:
         if reason_text.lower().startswith('skipped:'):
             reason_text = reason_text.split(':', 1)[1].strip()
         return (
-            '<div><strong>⏭️ Skip Reason:</strong></div>'
+            '<div><strong>' + t('error.skip_reason') + '</strong></div>'
             '<div class="skip-reason-container" '
             'style="background-color: var(--skipped-bg); '
             'border-left: 4px solid var(--skipped-color); '
             'padding: 12px; margin: 8px 0; border-radius: 4px; '
-            f'color: var(--skipped-text); font-size: 14px;">{reason_text}</div>'
+            f'color: var(--skipped-text); font-size: 14px;">{tx(reason_text)}</div>'
         )
 
     # Clean and format the error message
-    error_html = "<div><strong>❌ Error Details:</strong></div>"
+    from .report_icons import icon
+    error_html = '<div><strong>' + icon('error') + ' ' + t('error.step_title') + '</strong></div>'
     error_html += '<div class="error-details-container" style="background-color: #fff5f5; border-left: 4px solid #e53e3e; padding: 12px; margin: 8px 0; border-radius: 4px;">'
 
     # When the failure is one or more verification legs, render a numbered list
@@ -391,6 +393,7 @@ def format_step_error(step: Dict) -> str:
     verification_failures_html = _format_verification_failures(step)
     if verification_failures_html:
         error_html += verification_failures_html
+        error_html += _format_sibling_reports(step)
         error_html += '</div>'
         return error_html
 
@@ -406,9 +409,9 @@ def format_step_error(step: Dict) -> str:
             failed_actions = parts[1].strip()
             
             if main_error:
-                error_html += f'<div class="error-summary" style="font-weight: bold; color: #e53e3e; margin-bottom: 8px;">{main_error}</div>'
+                error_html += f'<div class="error-summary" style="font-weight: bold; color: #e53e3e; margin-bottom: 8px;">{tx(main_error)}</div>'
             
-            error_html += f'<div class="failed-actions" style="color: #a0a0a0; font-size: 14px;">Failed Actions: <span style="color: #e53e3e; font-weight: bold;">{failed_actions}</span></div>'
+            error_html += f'<div class="failed-actions" style="color: #a0a0a0; font-size: 14px;">{t("error.failed_actions")} <span style="color: #e53e3e; font-weight: bold;">{failed_actions}</span></div>'
     
     elif "Detailed selector attempts:" in error_text:
         # Handle Playwright detailed selector failures
@@ -417,11 +420,11 @@ def format_step_error(step: Dict) -> str:
             main_error = parts[0].strip()
             selector_details = parts[1].strip()
             
-            error_html += f'<div class="error-summary" style="font-weight: bold; color: #e53e3e; margin-bottom: 8px;">🔍 {main_error}</div>'
+            error_html += f'<div class="error-summary" style="font-weight: bold; color: #e53e3e; margin-bottom: 8px;">🔍 {tx(main_error)}</div>'
             
             # Format selector attempts in a collapsible section
             error_html += '<div class="selector-attempts" style="margin-top: 12px;">'
-            error_html += '<div style="font-weight: bold; color: #666; margin-bottom: 6px; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === \'none\' ? \'block\' : \'none\'">📋 View All Selector Attempts ▼</div>'
+            error_html += '<div style="font-weight: bold; color: #666; margin-bottom: 6px; cursor: pointer;" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === \'none\' ? \'block\' : \'none\'">' + t('error.view_selector_attempts') + '</div>'
             error_html += '<div style="display: none; background-color: #f8f8f8; padding: 8px; border-radius: 4px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto;">'
             
             # Format each selector attempt
@@ -437,20 +440,20 @@ def format_step_error(step: Dict) -> str:
             error_html += '</div></div>'
         else:
             # Fallback if parsing fails
-            error_html += f'<div style="color: #e53e3e; font-size: 14px;">{error_text}</div>'
+            error_html += f'<div style="color: #e53e3e; font-size: 14px;">{tx(error_text)}</div>'
     
     elif "Timeout" in error_text or "timeout" in error_text:
         # Format timeout errors with better structure
         error_html += f'<div class="timeout-error" style="color: #e53e3e;">'
-        error_html += f'<div style="font-weight: bold;">⏱️ Timeout Error</div>'
-        error_html += f'<div style="margin-top: 4px; font-size: 14px;">{error_text}</div>'
+        error_html += '<div style="font-weight: bold;">' + t('error.timeout') + '</div>'
+        error_html += f'<div style="margin-top: 4px; font-size: 14px;">{tx(error_text)}</div>'
         error_html += f'</div>'
         
     elif "element not found" in error_text.lower():
         # Format element not found errors
         error_html += f'<div class="element-error" style="color: #e53e3e;">'
-        error_html += f'<div style="font-weight: bold;">🔍 Element Not Found</div>'
-        error_html += f'<div style="margin-top: 4px; font-size: 14px;">{error_text}</div>'
+        error_html += '<div style="font-weight: bold;">' + t('error.element_not_found') + '</div>'
+        error_html += f'<div style="margin-top: 4px; font-size: 14px;">{tx(error_text)}</div>'
         error_html += f'</div>'
         
     else:
@@ -463,11 +466,16 @@ def format_step_error(step: Dict) -> str:
             for line in lines:
                 if line.strip():
                     # Preserve indentation for structured error messages
-                    formatted_line = line.replace('  ', '&nbsp;&nbsp;').replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
+                    # A line that is exactly a known message is translatable; an indented
+                    # (structured) line keeps its spacing as before.
+                    if line == line.lstrip() and '\t' not in line:
+                        formatted_line = tx(line)
+                    else:
+                        formatted_line = line.replace('  ', '&nbsp;&nbsp;').replace('\t', '&nbsp;&nbsp;&nbsp;&nbsp;')
                     error_html += f'<div style="margin: 2px 0;">{formatted_line}</div>'
         else:
             # Single line error
-            error_html += error_text
+            error_html += tx(error_text)
         
         error_html += f'</div>'
     
@@ -478,13 +486,51 @@ def format_step_error(step: Dict) -> str:
     if debug_report_url:
         error_html += '<div class="debug-report-link" style="margin-top: 12px; padding: 8px; background-color: #e8f4fd; border-left: 4px solid #3182ce; border-radius: 4px;">'
         error_html += f'<a href="{debug_report_url}" target="_blank" style="color: #3182ce; text-decoration: none; font-size: 14px; display: inline-flex; align-items: center; gap: 4px;">'
-        error_html += '📊 View Detailed Comparison Report'
+        error_html += t('error.view_detailed_report')
         error_html += '<span style="font-size: 12px;">↗</span>'
         error_html += '</a>'
         error_html += '</div>'
 
+    error_html += _format_sibling_reports(step)
     error_html += '</div>'
     return error_html
+
+
+def _format_sibling_reports(step: Dict) -> str:
+    """Conditional-edge siblings that were also checked after the target failed.
+
+    A conditional edge (one action, several possible destinations) fails only
+    when neither the target nor any sibling verifies. NavigationExecutor attaches
+    each failed sibling's verification report as `sibling_reports`; listing them
+    under the target's legs shows the user why every possible landing failed.
+    """
+    reports = step.get('sibling_reports') or []
+    if not reports:
+        return ''
+    target_node = step.get('to_node')
+    items_html = ''
+    for rep in reports:
+        label = html.escape(str(rep.get('label') or '?'))
+        msg = tx(rep.get('error') or 'Verification failed', escape_markup=True)
+        url = rep.get('debug_report_url')
+        link_html = ''
+        if url:
+            link_html = (
+                f' &nbsp;-&nbsp; <a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener" '
+                'style="color:#3182ce;text-decoration:none;white-space:nowrap;">'
+                + t('error.view_sibling_report') + ' <span style="font-size:12px;">↗</span></a>'
+            )
+        items_html += (
+            '<div class="sibling-report-item" '
+            'style="color:#e53e3e;font-size:14px;line-height:1.6;margin:3px 0;">'
+            f'<span style="font-weight:bold;">{label}:</span> {msg}{link_html}</div>'
+        )
+    return (
+        '<div class="sibling-reports" style="margin-top:10px;padding-top:8px;border-top:1px dashed #f5b5b5;">'
+        '<div style="color:#a0a0a0;font-size:13px;margin-bottom:4px;">'
+        + (t('error.conditional_edge', target=target_node) if target_node else t('error.conditional_edge_unknown')) +
+        f'</div>{items_html}</div>'
+    )
 
 
 def _format_verification_failures(step: Dict) -> str:
@@ -506,14 +552,14 @@ def _format_verification_failures(step: Dict) -> str:
 
     items_html = ''
     for idx, r in failures:
-        msg = r.get('message') or r.get('error') or 'Verification failed'
+        msg = tx(r.get('message') or r.get('error') or 'Verification failed')
         url = r.get('debug_report_url')
         link_html = ''
         if url:
             link_html = (
                 f' &nbsp;-&nbsp; <a href="{url}" target="_blank" '
                 'style="color:#3182ce;text-decoration:none;white-space:nowrap;">'
-                '📊 View comparison report <span style="font-size:12px;">↗</span></a>'
+                + t('error.view_comparison_report') + ' <span style="font-size:12px;">↗</span></a>'
             )
         items_html += (
             '<div class="verification-error-item" '
@@ -535,14 +581,63 @@ def _action_result_detail(result: Dict, command: str) -> str:
     return message[len(separator):].strip() if message.startswith(separator) else ''
 
 
+def _action_report_link(result: Dict) -> str:
+    """Inline link to a repeat_until action's verification comparison report.
+
+    ActionExecutor attaches `verification_report_url` to a "press until
+    appears/disappears" action result (and to each of its iterations) when the
+    cap was reached without the condition being met, so the step shows exactly
+    what every check saw. Returns '' when there is no report.
+    """
+    url = result.get('verification_report_url')
+    if not url:
+        return ''
+    return (
+        f' &nbsp;<a href="{html.escape(url, quote=True)}" target="_blank" rel="noopener" '
+        'onclick="event.stopPropagation()" '
+        'style="color:#3182ce;text-decoration:none;white-space:nowrap;font-size:13px;">'
+        + t('error.view_comparison_report') + ' <span style="font-size:12px;">↗</span></a>'
+    )
+
+
+def _action_until_iterations(result: Dict) -> str:
+    """Press → wait → check trace of a repeat_until action, one row per iteration.
+
+    Only rows carrying `condition_met` (set by ActionExecutor for repeat_until
+    checks) are shown; plain ×N count actions have nothing to add here.
+    """
+    rows = [it for it in (result.get('iterations') or []) if 'condition_met' in it]
+    if not rows:
+        return ''
+    max_iterations = (result.get('action_details') or {}).get('iterator_count') or len(rows)
+    rows_html = ''
+    for it in rows:
+        met = it.get('condition_met')
+        color = '#22c55e' if met else '#e53e3e'
+        press = (t('until.press') + ' ✓') if it.get('success') else f"{t('until.press')} ✗ {html.escape(str(it.get('message') or ''))}"
+        verify_message = it.get('verify_message')
+        verify_html = (
+            f' <span style="color:#a0a0a0;">- {html.escape(str(verify_message))}</span>'
+            if verify_message else ''
+        )
+        rows_html += (
+            f'<div class="until-iteration" style="margin:2px 0 2px 24px;font-size:13px;color:{color};">'
+            f"{'✓' if met else '✗'} {t('until.iteration', i=it.get('iteration'), max=max_iterations)} "
+            f"{press} ({it.get('press_ms', 0)}ms) · {t('until.wait')} {it.get('wait_ms', 0)}ms · "
+            f"{t('until.check')} {t('until.met') if met else t('until.not_met')} ({it.get('verify_ms', 0)}ms)"
+            f'{verify_html}{_action_report_link(it)}</div>'
+        )
+    return rows_html
+
+
 def format_step_actions(step: Dict) -> str:
     """Format actions section for a step with execution status."""
     # Check if this is an "already at destination" step
     if step.get('already_at_destination'):
-        return '''<div class="already-at-destination" style="background-color: #f0f9ff; border-left: 4px solid #3b82f6; padding: 12px; margin: 8px 0; border-radius: 4px;">
-            <div style="font-weight: bold; color: #1e40af; margin-bottom: 4px;">✓ Already at Destination</div>
-            <div style="color: #64748b; font-size: 14px;">No navigation needed - device was already verified at the target node.</div>
-        </div>'''
+        return f"""<div class="already-at-destination" style="background-color: #f0f9ff; border-left: 4px solid #3b82f6; padding: 12px; margin: 8px 0; border-radius: 4px;">
+            <div style="font-weight: bold; color: #1e40af; margin-bottom: 4px;">{t('action.already_title')}</div>
+            <div style="color: #64748b; font-size: 14px;">{t('action.already_text')}</div>
+        </div>"""
     
     actions = step.get('actions', [])
     retry_actions = step.get('retry_actions', [])
@@ -559,7 +654,7 @@ def format_step_actions(step: Dict) -> str:
     
     # Regular actions
     if actions:
-        actions_html = "<div><strong>Actions:</strong></div>"
+        actions_html = '<div><strong>' + t('action.actions') + '</strong></div>'
         for action_index, action in enumerate(actions, 1):
             command = action.get('command', 'unknown')
             params = action.get('params', {})
@@ -568,6 +663,7 @@ def format_step_actions(step: Dict) -> str:
             params_str = ", ".join([f"{k}='{v}'" for k, v in params.items()]) if params else ""
             
             action_line = f"{action_index}. {command}({params_str})" if params_str else f"{action_index}. {command}"
+            iterations_html = ''
             
             # Show result if available
             if action_results and action_index <= len([r for r in action_results if r.get('action_category') == 'main']):
@@ -586,16 +682,18 @@ def format_step_actions(step: Dict) -> str:
                             f' <span class="action-result-detail" '
                             f'style="color:#a0a0a0;">{html.escape(detail)}</span>'
                         )
+                    action_line += _action_report_link(result)
+                    iterations_html = _action_until_iterations(result)
             
-            actions_html += f'<div class="action-item">{action_line}</div>'
+            actions_html += f'<div class="action-item">{action_line}</div>{iterations_html}'
     
     # Retry actions
     if retry_actions:
         was_executed = 'retry' in executed_categories
-        status_label = 'EXECUTED' if was_executed else 'AVAILABLE'
+        status_label = t('action.executed') if was_executed else t('action.available')
         status_class = 'executed' if was_executed else 'available'
         
-        actions_html += f"<div><strong>Retry Actions:</strong> <span class='retry-status {status_class}'>{status_label}</span></div>"
+        actions_html += f"<div><strong>{t('action.retry')}</strong> <span class='retry-status {status_class}'>{status_label}</span></div>"
         for retry_index, retry_action in enumerate(retry_actions, 1):
             command = retry_action.get('command', 'unknown')
             params = retry_action.get('params', {})
@@ -613,16 +711,17 @@ def format_step_actions(step: Dict) -> str:
                     success = result.get('success', False)
                     status_badge = f'<span class="action-result-badge {"success" if success else "failure"}">{"✓" if success else "✗"}</span>'
                     retry_line += f" {status_badge}"
+                    retry_line += _action_report_link(result)
             
             actions_html += f'<div class="retry-action-item {status_class}">{retry_line}</div>'
     
     # Failure actions
     if failure_actions:
         was_executed = 'failure' in executed_categories
-        status_label = 'EXECUTED' if was_executed else 'AVAILABLE'
+        status_label = t('action.executed') if was_executed else t('action.available')
         status_class = 'executed' if was_executed else 'available'
         
-        actions_html += f"<div><strong>Failure Actions:</strong> <span class='failure-status {status_class}'>{status_label}</span></div>"
+        actions_html += f"<div><strong>{t('action.failure')}</strong> <span class='failure-status {status_class}'>{status_label}</span></div>"
         for failure_index, failure_action in enumerate(failure_actions, 1):
             command = failure_action.get('command', 'unknown')
             params = failure_action.get('params', {})
@@ -640,6 +739,7 @@ def format_step_actions(step: Dict) -> str:
                     success = result.get('success', False)
                     status_badge = f'<span class="action-result-badge {"success" if success else "failure"}">{"✓" if success else "✗"}</span>'
                     failure_line += f" {status_badge}"
+                    failure_line += _action_report_link(result)
             
             actions_html += f'<div class="failure-action-item {status_class}">{failure_line}</div>'
     
@@ -657,14 +757,14 @@ def format_step_verifications(step: Dict) -> str:
     verifications_html = ""
     
     if verifications:
-        verifications_html = "<div><strong>Verifications:</strong></div>"
+        verifications_html = '<div><strong>' + t('verification.verifications') + '</strong></div>'
         for verification_index, verification in enumerate(verifications, 1):
             # Script verifications include 'success' inline (combined definition + result)
             if isinstance(verification, dict) and 'success' in verification:
-                v_label = verification.get('label', verification.get('command', f'Verification {verification_index}'))
-                v_details = verification.get('details', '')
+                v_label = tx(verification.get('label', verification.get('command', f'Verification {verification_index}')))
+                v_details = tx(verification.get('details', ''))
                 v_success = verification.get('success', False)
-                badge_text = "PASS" if v_success else "FAIL"
+                badge_text = t('badge.pass') if v_success else t('badge.fail')
                 badge_class = "success" if v_success else "failure"
                 verification_line = f'{verification_index}. {v_label}: {v_details}'
                 verification_result_html = f' <span class="verification-result-badge {badge_class}">{badge_text}</span>'
@@ -682,12 +782,12 @@ def format_step_verifications(step: Dict) -> str:
     
     elif verification_results:
         # Show verification results even if verification definitions are missing
-        verifications_html = "<div><strong>Verification Results:</strong></div>"
+        verifications_html = '<div><strong>' + t('verification.results') + '</strong></div>'
         for verification_index, result in enumerate(verification_results, 1):
             result_success = result.get('success', False)
-            result_message = result.get('message', 'Verification completed')
+            result_message = tx(result.get('message', 'Verification completed'))
             verification_type = result.get('verification_type', 'unknown')
-            result_badge = f'<span class="verification-result-badge {"success" if result_success else "failure"}">{"PASS" if result_success else "FAIL"}</span>'
+            result_badge = f'<span class="verification-result-badge {"success" if result_success else "failure"}">{t("badge.pass") if result_success else t("badge.fail")}</span>'
             
             verification_line = f"{verification_index}. {verification_type}: {result_message}"
             verification_result_html = f" {result_badge}"
@@ -716,7 +816,10 @@ def format_verification_item(verification: Dict, verification_index: int) -> str
         # when a failure is a "fired too early" timing issue, so we surface
         # it inline beside the score badge instead of stripping it.
         filtered_params = {k: v for k, v in params.items() if k != 'wait_time'}
-        params_str = ", ".join([f"{k}='{v}'" for k, v in filtered_params.items()]) if filtered_params else ""
+        # `timeout` is milliseconds for every verification type; say so in the line.
+        params_str = ", ".join([
+            f"{k}='{v} ms'" if k == 'timeout' else f"{k}='{v}'" for k, v in filtered_params.items()
+        ]) if filtered_params else ""
         
         # Create verification line with label if available
         if label:
@@ -806,15 +909,14 @@ def format_text_verification_extras(result: Dict) -> str:
     parts = []
     if threshold is not None:
         try:
-            parts.append(f"required {float(threshold)*100:.0f}%")
+            parts.append(t('verification.required', pct=f"{float(threshold)*100:.0f}"))
         except (TypeError, ValueError):
             pass
     if extracted:
         # OCR can return arbitrary chars (incl. HTML-special) and very long
         # text — escape + truncate so the report row stays one line.
-        import html
         snippet = extracted if len(extracted) <= 60 else extracted[:57] + '...'
-        parts.append(f'read &ldquo;{html.escape(snippet)}&rdquo;')
+        parts.append(t('verification.read', text=snippet))
 
     if not parts:
         return ""
@@ -867,7 +969,7 @@ def format_image_verification_extras(result: Dict, step: Dict) -> str:
             signed_source = ensure_signed_url(source_image)
             thumbnails_html += f"""
             <div style='text-align: center;'>
-                <div style='font-size: 11px; color: #666; margin-bottom: 2px;'>Source</div>
+                <div style='font-size: 11px; color: #666; margin-bottom: 2px;'>{t("verification.source")}</div>
                 <img src='{signed_source}' style='width: 60px; height: 40px; object-fit: contain; border: 1px solid #ddd; border-radius: 3px; cursor: pointer;' 
                      onclick='openVerificationImageModal({modal_data})' title='Click to compare all images'>
             </div>
@@ -877,7 +979,7 @@ def format_image_verification_extras(result: Dict, step: Dict) -> str:
             signed_reference = ensure_signed_url(reference_image)
             thumbnails_html += f"""
             <div style='text-align: center;'>
-                <div style='font-size: 11px; color: #666; margin-bottom: 2px;'>Reference</div>
+                <div style='font-size: 11px; color: #666; margin-bottom: 2px;'>{t("verification.reference")}</div>
                 <img src='{signed_reference}' style='width: 60px; height: 40px; object-fit: contain; border: 1px solid #ddd; border-radius: 3px; cursor: pointer;' 
                      onclick='openVerificationImageModal({modal_data})' title='Click to compare all images'>
             </div>
@@ -887,7 +989,7 @@ def format_image_verification_extras(result: Dict, step: Dict) -> str:
             signed_overlay = ensure_signed_url(overlay_image)
             thumbnails_html += f"""
             <div style='text-align: center;'>
-                <div style='font-size: 11px; color: #666; margin-bottom: 2px;'>Overlay</div>
+                <div style='font-size: 11px; color: #666; margin-bottom: 2px;'>{t("verification.overlay")}</div>
                 <img src='{signed_overlay}' style='width: 60px; height: 40px; object-fit: contain; border: 1px solid #ddd; border-radius: 3px; cursor: pointer;' 
                      onclick='openVerificationImageModal({modal_data})' title='Click to compare all images'>
             </div>
@@ -905,16 +1007,16 @@ def format_script_output(step: Dict) -> str:
     if not script_output or not (script_output.get('stdout') or script_output.get('stderr')):
         return ""
     
-    script_output_html = "<div><strong>Script Output:</strong></div>"
+    script_output_html = '<div><strong>' + t('output.title') + '</strong></div>'
     
     if script_output.get('stdout'):
-        script_output_html += f'<div class="script-output stdout"><strong>Output:</strong><pre>{script_output["stdout"]}</pre></div>'
+        script_output_html += f'<div class="script-output stdout"><strong>{t("output.stdout")}</strong><pre>{script_output["stdout"]}</pre></div>'
     
     if script_output.get('stderr'):
-        script_output_html += f'<div class="script-output stderr"><strong>Error:</strong><pre>{script_output["stderr"]}</pre></div>'
+        script_output_html += f'<div class="script-output stderr"><strong>{t("output.stderr")}</strong><pre>{script_output["stderr"]}</pre></div>'
     
     exit_code = script_output.get('exit_code', 0)
-    script_output_html += f'<div class="script-output exit-code"><strong>Exit Code:</strong> {exit_code}</div>'
+    script_output_html += f'<div class="script-output exit-code"><strong>{t("output.exit_code")}</strong> {exit_code}</div>'
     
     return script_output_html
 
@@ -943,8 +1045,8 @@ def format_analysis_results(step: Dict) -> str:
     zapping_html = ""
     if zapping_analysis and zapping_analysis.get('success') is not None:
         zapping_detected = zapping_analysis.get('zapping_detected', False)
-        zapping_status = "✅ DETECTED" if zapping_detected else "❌ NOT DETECTED"
-        zapping_html += f'<div class="analysis-item zapping"><strong>Zap Detection:</strong> {zapping_status}</div>'
+        zapping_status = t('analysis.detected') if zapping_detected else t('analysis.not_detected')
+        zapping_html += f'<div class="analysis-item zapping"><strong>{t("analysis.zap")}</strong> {zapping_status}</div>'
 
         # Link to the standalone per-event zap measurement report (R2/MinIO HTML) when the
         # script attached its URL. Gives the step the same "open the full report" affordance
@@ -954,7 +1056,7 @@ def format_analysis_results(step: Dict) -> str:
             zapping_html += (
                 '<div class="analysis-detail" style="margin: 2px 0 6px;">'
                 f'<a href="{_zap_report_url}" target="_blank" rel="noopener" '
-                'style="color:#3182ce;text-decoration:none;font-weight:600;">📺 View Zap Report ↗</a></div>'
+                'style="color:#3182ce;text-decoration:none;font-weight:600;">' + t('analysis.zap_report') + '</a></div>'
             )
 
         if zapping_detected:
@@ -969,21 +1071,21 @@ def format_analysis_results(step: Dict) -> str:
             # Label the transition by its real type (freeze vs blackscreen). Many STBs zap via a
             # frozen frame, never a black frame, so "Blackscreen" would be wrong.
             transition_type = zapping_analysis.get('transition_type', 'blackscreen')
-            t_label = 'Freeze' if transition_type == 'freeze' else 'Blackscreen'
+            t_key = 'analysis.freeze_duration' if transition_type == 'freeze' else 'analysis.blackscreen_duration'
 
             zap_details = []
             if total_zap_duration_ms > 0:
-                zap_details.append(f"Total Zap Duration: {total_zap_duration_ms/1000:.2f}s")
+                zap_details.append(t('analysis.total_zap', value=f"{total_zap_duration_ms/1000:.2f}s"))
             elif zapping_duration > 0:
-                zap_details.append(f"Total Zap Duration: {zapping_duration:.1f}s")
+                zap_details.append(t('analysis.total_zap', value=f"{zapping_duration:.1f}s"))
             if blackscreen_duration_ms > 0:
-                zap_details.append(f"{t_label} Duration: {blackscreen_duration_ms/1000:.2f}s")
+                zap_details.append(t(t_key, value=f"{blackscreen_duration_ms/1000:.2f}s"))
             elif blackscreen_duration > 0:
-                zap_details.append(f"{t_label} Duration: {blackscreen_duration:.1f}s")
+                zap_details.append(t(t_key, value=f"{blackscreen_duration:.1f}s"))
             if audio_silence_duration > 0:
-                zap_details.append(f"Audio Silence: {audio_silence_duration:.2f}s")
+                zap_details.append(t('analysis.audio_silence', value=f"{audio_silence_duration:.2f}s"))
             if analyzed_images > 0:
-                zap_details.append(f"Images Analyzed: {analyzed_images}")
+                zap_details.append(t('analysis.images_analyzed', n=analyzed_images))
             if zap_details:
                 zapping_html += f'<div class="analysis-detail" style="margin-bottom: 6px;">{" | ".join(zap_details)}</div>'
 
@@ -993,9 +1095,9 @@ def format_analysis_results(step: Dict) -> str:
                     channel_display += f" ({channel_info['channel_number']})"
                 if channel_info.get('program_name'):
                     channel_display += f" - {channel_info['program_name']}"
-                channel_info_line = f"Channel info: {channel_display}"
+                channel_info_line = f"{t('analysis.channel_info')} {channel_display}"
                 if channel_info.get('start_time') and channel_info.get('end_time'):
-                    channel_info_line += f" Program Time - {channel_info['start_time']}-{channel_info['end_time']}"
+                    channel_info_line += ' ' + t('analysis.program_time', start=channel_info['start_time'], end=channel_info['end_time'])
                 zapping_html += f'<div class="analysis-detail" style="word-wrap: break-word; max-width: none; margin-bottom: 8px;">{channel_info_line}</div>'
 
             # Transition images used for the zap decision (before / blackscreen / after)
@@ -1029,10 +1131,10 @@ def format_analysis_results(step: Dict) -> str:
         else:
             # NOT DETECTED — show the reason here (red), and any analyzed images / mosaic.
             reason = zapping_analysis.get('error') or zapping_analysis.get('message') or 'No channel change detected'
-            zapping_html += f'<div class="analysis-detail" style="color: #f87171;">Reason: {reason}</div>'
+            zapping_html += f'<div class="analysis-detail" style="color: #f87171;">{t("analysis.reason")} {tx(reason)}</div>'
             analyzed_images = zapping_analysis.get('analyzed_images', 0)
             if analyzed_images > 0:
-                zapping_html += f'<div class="analysis-detail">Images Analyzed: {analyzed_images}</div>'
+                zapping_html += f'<div class="analysis-detail">{t("analysis.images_analyzed", n=analyzed_images)}</div>'
             failure_mosaic_path = ensure_signed_url(zapping_analysis.get('failure_mosaic_path'))
             analysis_log = zapping_analysis.get('analysis_log', [])
             if failure_mosaic_path:
@@ -1045,7 +1147,7 @@ def format_analysis_results(step: Dict) -> str:
                 zapping_html += "<div class='zapping-failure-mosaic' style='margin-top: 4px;'>"
                 zapping_html += f"""
                 <div style='text-align: center;'>
-                    <div style='font-size: 11px; color: #666; margin-bottom: 2px;'>Failure Analysis Mosaic</div>
+                    <div style='font-size: 11px; color: #666; margin-bottom: 2px;'>{t("analysis.failure_mosaic")}</div>
                     <img src='{failure_mosaic_path}' style='width: 120px; height: 80px; object-fit: contain; border: 2px solid #e53e3e; border-radius: 4px; cursor: pointer;'
                          onclick='openZappingAnalysisModal({modal_data_json})' title='Click to view detailed failure analysis'>
                 </div>
@@ -1053,7 +1155,7 @@ def format_analysis_results(step: Dict) -> str:
                 zapping_html += "</div>"
 
     # Assemble Analysis Results — Zap Detection first.
-    analysis_html = "<div><strong>Analysis Results:</strong></div>"
+    analysis_html = '<div><strong>' + t('analysis.title') + '</strong></div>'
     if zapping_html:
         analysis_html += zapping_html
 
@@ -1066,7 +1168,7 @@ def format_analysis_results(step: Dict) -> str:
         if zapping_html:
             analysis_html += sep
         motion_success = motion_analysis.get('success', False)
-        motion_status = "✅ DETECTED" if motion_success else "❌ NOT DETECTED"
+        motion_status = t('analysis.detected') if motion_success else t('analysis.not_detected')
         # When the real (2-frame) detector ran, show the measured change AS A COMPARISON
         # against the threshold it was tested on, plus the region used. The explicit
         # "1.9% < 5% threshold" makes a NOT DETECTED verdict self-explanatory (two
@@ -1076,7 +1178,7 @@ def format_analysis_results(step: Dict) -> str:
         real_area = motion_analysis.get('real_motion_area')
         meta = ""
         if real_change is not None:
-            region_txt = "custom region" if real_area else "centre region"
+            region_txt = t('analysis.region_custom') if real_area else t('analysis.region_centre')
             if real_threshold is not None:
                 # Operator from the numbers themselves so the text is always internally
                 # consistent (never "1.9% ≥ 5%"), independent of which flag set the badge.
@@ -1084,11 +1186,11 @@ def format_analysis_results(step: Dict) -> str:
                     op = "≥" if float(real_change) >= float(real_threshold) else "<"
                 except (TypeError, ValueError):
                     op = "vs"
-                change_txt = f"{real_change}% {op} {real_threshold}% threshold"
+                change_txt = t('analysis.motion_threshold', change=real_change, op=op, threshold=real_threshold)
             else:
-                change_txt = f"{real_change}% change"
+                change_txt = t('analysis.motion_change', change=real_change)
             meta = f' <span style="color:#888; font-size: 12px;">({change_txt} · {region_txt})</span>'
-        analysis_html += f'<div class="analysis-item motion"><strong>Motion Detection:</strong> {motion_status}{meta}</div>'
+        analysis_html += f'<div class="analysis-item motion"><strong>{t("analysis.motion")}</strong> {motion_status}{meta}</div>'
 
         # Motion analysis thumbnails — the exact frames compared (or recent JSON captures)
         motion_images = motion_analysis.get('motion_analysis_images', [])
@@ -1173,17 +1275,17 @@ def format_analysis_results(step: Dict) -> str:
         
 
         subtitle_detected = subtitle_analysis.get('subtitles_detected', False)
-        subtitle_status = "✅ DETECTED" if subtitle_detected else "❌ NOT DETECTED"
-        analysis_html += f'<div class="analysis-item subtitle"><strong>Subtitle Detection:</strong> {subtitle_status}</div>'
+        subtitle_status = t('analysis.detected') if subtitle_detected else t('analysis.not_detected')
+        analysis_html += f'<div class="analysis-item subtitle"><strong>{t("analysis.subtitle")}</strong> {subtitle_status}</div>'
         
         if subtitle_detected:
             if subtitle_analysis.get('detected_language'):
-                analysis_html += f'<div class="analysis-detail">Language: {subtitle_analysis.get("detected_language")}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.language")} {subtitle_analysis.get("detected_language")}</div>'
             if subtitle_analysis.get('extracted_text'):
                 text_preview = subtitle_analysis.get('extracted_text')[:100] + ('...' if len(subtitle_analysis.get('extracted_text', '')) > 100 else '')
-                analysis_html += f'<div class="analysis-detail">Text: {text_preview}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.text")} {text_preview}</div>'
         elif subtitle_analysis.get('message'):
-            analysis_html += f'<div class="analysis-detail">Details: {subtitle_analysis.get("message")}</div>'
+            analysis_html += f'<div class="analysis-detail">{t("analysis.details")} {tx(subtitle_analysis.get("message"))}</div>'
             
         # Show analyzed screenshot thumbnail for debugging (with modal like zapping images)
         analyzed_screenshot = ensure_signed_url(subtitle_analysis.get('analyzed_screenshot'))
@@ -1218,38 +1320,38 @@ def format_analysis_results(step: Dict) -> str:
         was_skipped = audio_analysis.get('skipped', False)
         
         if was_skipped:
-            speech_status = "⏭️ SKIPPED"
+            speech_status = t('analysis.skipped')
         else:
-            speech_status = "✅ DETECTED" if speech_detected else "❌ NOT DETECTED"
+            speech_status = t('analysis.detected') if speech_detected else t('analysis.not_detected')
         
-        analysis_html += f'<div class="analysis-item audio"><strong>Audio Speech Detection:</strong> {speech_status}</div>'
+        analysis_html += f'<div class="analysis-item audio"><strong>{t("analysis.audio")}</strong> {speech_status}</div>'
         
         if was_skipped:
             # Show skip reason for skipped analysis
             if audio_analysis.get('details'):
-                analysis_html += f'<div class="analysis-detail">Details: {audio_analysis.get("details")}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.details")} {tx(audio_analysis.get("details"))}</div>'
         elif speech_detected:
             # Add details on separate lines for better readability
             if audio_analysis.get('detected_language'):
-                analysis_html += f'<div class="analysis-detail">Language: {audio_analysis.get("detected_language")}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.language")} {audio_analysis.get("detected_language")}</div>'
             if audio_analysis.get('combined_transcript'):
                 transcript_preview = audio_analysis.get('combined_transcript')[:100] + ('...' if len(audio_analysis.get('combined_transcript', '')) > 100 else '')
-                analysis_html += f'<div class="analysis-detail">Transcript: {transcript_preview}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.transcript")} {transcript_preview}</div>'
             if audio_analysis.get('confidence'):
-                analysis_html += f'<div class="analysis-detail">Confidence: {audio_analysis.get("confidence"):.2f}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.confidence")} {audio_analysis.get("confidence"):.2f}</div>'
         else:
             # Show failure details for failed (not skipped) analysis
             if audio_analysis.get('message'):
-                analysis_html += f'<div class="analysis-detail">Details: {audio_analysis.get("message")}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.details")} {tx(audio_analysis.get("message"))}</div>'
 
         # Show R2 audio URLs if available for traceability (for both detected and not detected speech)
         audio_urls = audio_analysis.get('audio_urls', [])
         if audio_urls:
-            analysis_html += '<div class="analysis-detail">Audio files:'
+            analysis_html += '<div class="analysis-detail">' + t('analysis.audio_files')
             for i, url in enumerate(audio_urls, 1):
                 if url:
                     signed_url = ensure_signed_url(url)
-                    analysis_html += f' <a href="{signed_url}" target="_blank" style="font-size: 10px; margin-left: 4px;">Segment {i}</a>'
+                    analysis_html += f' <a href="{signed_url}" target="_blank" style="font-size: 10px; margin-left: 4px;">{t("analysis.segment", n=i)}</a>'
             analysis_html += '</div>'
     
     # Audio Menu Analysis Results
@@ -1257,8 +1359,8 @@ def format_analysis_results(step: Dict) -> str:
         analysis_html += '<div style="margin: 8px 0; border-top: 1px solid #555; opacity: 0.6;"></div>'
         
         menu_detected = audio_menu_analysis.get('menu_detected', False)
-        menu_status = "✅ DETECTED" if menu_detected else "❌ NOT DETECTED"
-        analysis_html += f'<div class="analysis-item audio-menu"><strong>Audio Menu Detection:</strong> {menu_status}</div>'
+        menu_status = t('analysis.detected') if menu_detected else t('analysis.not_detected')
+        analysis_html += f'<div class="analysis-item audio-menu"><strong>{t("analysis.audio_menu")}</strong> {menu_status}</div>'
         
         if menu_detected:
             audio_languages = audio_menu_analysis.get('audio_languages', [])
@@ -1271,22 +1373,22 @@ def format_analysis_results(step: Dict) -> str:
                 audio_display = []
                 for i, lang in enumerate(audio_languages):
                     if i == selected_audio:
-                        audio_display.append(f"<strong>{lang}</strong> (selected)")
+                        audio_display.append(f"<strong>{lang}</strong> {t('analysis.selected')}")
                     else:
                         audio_display.append(lang)
-                analysis_html += f'<div class="analysis-detail">Audio Languages: {", ".join(audio_display)}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.audio_languages")} {", ".join(audio_display)}</div>'
             
             if subtitle_languages:
                 # Show available subtitle languages with selected indicator
                 subtitle_display = []
                 for i, lang in enumerate(subtitle_languages):
                     if i == selected_subtitle:
-                        subtitle_display.append(f"<strong>{lang}</strong> (selected)")
+                        subtitle_display.append(f"<strong>{lang}</strong> {t('analysis.selected')}")
                     else:
                         subtitle_display.append(lang)
-                analysis_html += f'<div class="analysis-detail">Subtitle Languages: {", ".join(subtitle_display)}</div>'
+                analysis_html += f'<div class="analysis-detail">{t("analysis.subtitle_languages")} {", ".join(subtitle_display)}</div>'
         elif audio_menu_analysis.get('message'):
-            analysis_html += f'<div class="analysis-detail">Details: {audio_menu_analysis.get("message")}</div>'
+            analysis_html += f'<div class="analysis-detail">{t("analysis.details")} {tx(audio_menu_analysis.get("message"))}</div>'
 
         # Add screenshot display for audio menu analysis (similar to subtitle analysis)
         analyzed_screenshot = ensure_signed_url(audio_menu_analysis.get('analyzed_screenshot'))
@@ -1492,7 +1594,8 @@ def format_step_screenshots(step: Dict, step_index: int) -> str:
         f"{screenshot_count} screenshot{'s' if screenshot_count > 1 else ''}",
         step_title,
         screenshots_for_step,
-        0
+        0,
+        label_html=t('shot.many', n=screenshot_count) if screenshot_count > 1 else t('shot.one', n=screenshot_count),
     )
     
     return f"""

@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Box, Chip, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
-import { Link as LinkIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, PlayArrow as ScriptIcon, CheckCircle as PassIcon, Error as FailIcon, RestartAlt as RerunIcon, HourglassTop as RunningIcon, Schedule as QueuedIcon, Block as AbortedIcon, RemoveCircleOutline as SkippedIcon, StopCircle as AbortIcon } from '@mui/icons-material';
+import { Box, IconButton, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from '@mui/material';
+import { DescriptionOutlined as ReportIcon, Terminal as LogsIcon, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, PlayArrow as ScriptIcon, CheckCircle as PassIcon, Error as FailIcon, RestartAlt as RerunIcon, HourglassTop as RunningIcon, Schedule as QueuedIcon, Block as AbortedIcon, RemoveCircleOutline as SkippedIcon, StopCircle as AbortIcon } from '@mui/icons-material';
 import { SxProps, Theme } from '@mui/material/styles';
 
 import type { RerunPayload } from '../../types/common/Rerun_Types';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export type ExecutionHistoryColumnKey = 'target' | 'script' | 'start' | 'end' | 'status' | 'report' | 'logs' | 'rerun';
 
@@ -49,16 +50,15 @@ interface ExecutionHistoryTableProps {
   tableSx?: SxProps<Theme>;
 }
 
-const getTransparentHoverSx = (): SxProps<Theme> => ({
+// Rows sit on the card colour and take the palette hover tint (the global table theme
+// paints its own row colours, hence the !important).
+const getRowHoverSx = (hoverBg: string): SxProps<Theme> => ({
   backgroundColor: 'transparent',
   '& > .MuiTableCell-root': {
     backgroundColor: 'transparent !important',
   },
-  '&:hover': {
-    backgroundColor: 'transparent !important',
-  },
   '&:hover > .MuiTableCell-root': {
-    backgroundColor: 'transparent !important',
+    backgroundColor: `${hoverBg} !important`,
   },
 });
 
@@ -73,27 +73,30 @@ const columns: Array<{ key: ExecutionHistoryColumnKey; label: string }> = [
   { key: 'rerun', label: 'Action' },
 ];
 
-export const getExecutionHistoryStatusChip = (row: ExecutionHistoryRow): React.JSX.Element => {
+export const getExecutionHistoryStatusChip = (row: ExecutionHistoryRow): React.JSX.Element => <ExecutionStatus row={row} />;
+
+/** Status as a coloured icon + word (Passed / Failed / Running …), colours from the app palette. */
+const ExecutionStatus: React.FC<{ row: ExecutionHistoryRow }> = ({ row }) => {
+  const P = useAgentChatPalette();
   const status = row.status === 'completed' && row.resultSuccess != null
     ? (row.resultSuccess ? 'success' : 'failure')
     : row.status;
-  const statusView: Record<string, { label: string; color: 'success' | 'error' | 'warning' | 'info' | 'disabled'; icon: React.ReactNode }> = {
-    success: { label: 'Passed', color: 'success', icon: <PassIcon fontSize="small" /> },
-    failure: { label: 'Failed', color: 'error', icon: <FailIcon fontSize="small" /> },
-    completed: { label: 'Completed', color: 'success', icon: <PassIcon fontSize="small" /> },
-    failed: { label: 'Failed', color: 'error', icon: <FailIcon fontSize="small" /> },
-    running: { label: 'Running', color: 'warning', icon: <RunningIcon fontSize="small" /> },
-    queued: { label: 'Queued', color: 'info', icon: <QueuedIcon fontSize="small" /> },
-    aborted: { label: 'Aborted', color: 'error', icon: <AbortedIcon fontSize="small" /> },
-    skipped: { label: 'Skipped', color: 'disabled', icon: <SkippedIcon fontSize="small" /> },
+  const statusView: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
+    success: { label: 'Passed', color: P.success, icon: <PassIcon sx={{ fontSize: 16 }} /> },
+    failure: { label: 'Failed', color: P.error, icon: <FailIcon sx={{ fontSize: 16 }} /> },
+    completed: { label: 'Completed', color: P.success, icon: <PassIcon sx={{ fontSize: 16 }} /> },
+    failed: { label: 'Failed', color: P.error, icon: <FailIcon sx={{ fontSize: 16 }} /> },
+    running: { label: 'Running', color: P.accentText, icon: <RunningIcon sx={{ fontSize: 16 }} /> },
+    queued: { label: 'Queued', color: P.textSecondary, icon: <QueuedIcon sx={{ fontSize: 16 }} /> },
+    aborted: { label: 'Aborted', color: P.warning, icon: <AbortedIcon sx={{ fontSize: 16 }} /> },
+    skipped: { label: 'Skipped', color: P.textMuted, icon: <SkippedIcon sx={{ fontSize: 16 }} /> },
   };
-  const view = statusView[status] ?? { label: status, color: 'disabled' as const, icon: <SkippedIcon fontSize="small" /> };
+  const view = statusView[status] ?? { label: status, color: P.textMuted, icon: <SkippedIcon sx={{ fontSize: 16 }} /> };
   return (
-    <Tooltip title={view.label} arrow>
-      <Box component="span" aria-label={view.label} sx={{ display: 'inline-flex', color: view.color === 'disabled' ? 'text.disabled' : `${view.color}.main`, verticalAlign: 'middle' }}>
-        {view.icon}
-      </Box>
-    </Tooltip>
+    <Box component="span" aria-label={view.label} sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, color: view.color, fontSize: '0.78rem', fontWeight: 600, verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+      {view.icon}
+      {view.label}
+    </Box>
   );
 };
 
@@ -109,11 +112,21 @@ export const ExecutionHistoryTable: React.FC<ExecutionHistoryTableProps> = ({
   tableSx,
 }) => {
   const [expandedExecutionId, setExpandedExecutionId] = useState<string | null>(null);
-  const rowHoverSx = useMemo(() => getTransparentHoverSx(), []);
+  const P = useAgentChatPalette();
+  const rowHoverSx = useMemo(() => getRowHoverSx(P.hoverBg), [P.hoverBg]);
+  const linkSx = { color: P.textSecondary, '&:hover': { color: P.accentText, bgcolor: P.hoverBg } };
 
+  // ui-ok: table-layout — every caller passes tableLayout: 'fixed' (+ its column widths) through tableSx
   return (
-    <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'hidden' }}>
-      <Table size="small" sx={tableSx}>
+    <TableContainer component={Paper} variant="outlined" sx={{ overflowX: 'hidden', borderRadius: 2, borderColor: P.borderColor }}>
+      <Table
+        size="small"
+        sx={{
+          '& .MuiTableCell-root': { borderColor: P.borderColor },
+          '& thead .MuiTableCell-root': { fontSize: '0.72rem', fontWeight: 600, color: `${P.textSecondary} !important`, bgcolor: `${P.hoverBg} !important` },
+          ...(tableSx as object),
+        }}
+      >
         <TableHead>
           <TableRow>
             {columns.map(({ key, label }) => {
@@ -184,12 +197,12 @@ export const ExecutionHistoryTable: React.FC<ExecutionHistoryTableProps> = ({
                   <TableCell sx={{ ...bodyCellSx?.('report') as object, textAlign: 'center' }}>
                     {row.reportUrl ? (
                       <Tooltip title="Open report">
-                        <IconButton aria-label="Open report" size="small" color="primary" onClick={(event) => { event.stopPropagation(); onOpenUrl(row.reportUrl!); }}>
-                          <LinkIcon fontSize="small" />
+                        <IconButton aria-label="Open report" size="small" sx={linkSx} onClick={(event) => { event.stopPropagation(); onOpenUrl(row.reportUrl!); }}>
+                          <ReportIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     ) : (
-                      <Tooltip title="No report available"><span><IconButton aria-label="No report available" size="small" disabled><LinkIcon fontSize="small" /></IconButton></span></Tooltip>
+                      <Tooltip title="No report available"><span><IconButton aria-label="No report available" size="small" disabled><ReportIcon fontSize="small" /></IconButton></span></Tooltip>
                     )}
                   </TableCell>
                   <TableCell sx={{ ...bodyCellSx?.('logs') as object, textAlign: 'center' }}>
@@ -197,12 +210,12 @@ export const ExecutionHistoryTable: React.FC<ExecutionHistoryTableProps> = ({
                       ''
                     ) : row.logsUrl ? (
                       <Tooltip title="Open logs">
-                        <IconButton aria-label="Open logs" size="small" color="secondary" onClick={(event) => { event.stopPropagation(); onOpenUrl(row.logsUrl!); }}>
-                          <LinkIcon fontSize="small" />
+                        <IconButton aria-label="Open logs" size="small" sx={linkSx} onClick={(event) => { event.stopPropagation(); onOpenUrl(row.logsUrl!); }}>
+                          <LogsIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
                     ) : (
-                      <Tooltip title="No logs available"><span><IconButton aria-label="No logs available" size="small" disabled><LinkIcon fontSize="small" /></IconButton></span></Tooltip>
+                      <Tooltip title="No logs available"><span><IconButton aria-label="No logs available" size="small" disabled><LogsIcon fontSize="small" /></IconButton></span></Tooltip>
                     )}
                   </TableCell>
                   <TableCell sx={{ ...bodyCellSx?.('rerun') as object, textAlign: 'center' }}>
@@ -225,7 +238,7 @@ export const ExecutionHistoryTable: React.FC<ExecutionHistoryTableProps> = ({
                             event.stopPropagation();
                             onRerun(row.rerunPayload!);
                           }}
-                          color="primary"
+                          sx={linkSx}
                         >
                           <RerunIcon fontSize="small" />
                         </IconButton>
@@ -251,38 +264,23 @@ export const ExecutionHistoryTable: React.FC<ExecutionHistoryTableProps> = ({
                       </Typography>
                     </TableCell>
                     <TableCell sx={{ ...bodyCellSx?.('status') as object, textAlign: 'center' }}>
-                      <Chip
-                        icon={script.success ? <PassIcon /> : <FailIcon />}
-                        label={script.success ? 'PASS' : 'FAIL'}
-                        color={script.success ? 'success' : 'error'}
-                        size="small"
-                        sx={{ height: '18px', fontSize: '0.65rem' }}
-                      />
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, fontSize: '0.75rem', fontWeight: 600, color: script.success ? P.success : P.error }}>
+                        {script.success ? <PassIcon sx={{ fontSize: 15 }} /> : <FailIcon sx={{ fontSize: 15 }} />}
+                        {script.success ? 'Passed' : 'Failed'}
+                      </Box>
                     </TableCell>
                     <TableCell sx={{ ...bodyCellSx?.('report') as object, textAlign: 'center' }}>
                       {script.reportUrl ? (
-                        <Chip
-                          label="Report"
-                          clickable
-                          onClick={(event) => { event.stopPropagation(); onOpenUrl(script.reportUrl!); }}
-                          size="small"
-                          icon={<LinkIcon />}
-                          color="primary"
-                          variant="outlined"
-                        />
+                        <IconButton aria-label="Open report" size="small" sx={linkSx} onClick={(event) => { event.stopPropagation(); onOpenUrl(script.reportUrl!); }}>
+                          <ReportIcon fontSize="small" />
+                        </IconButton>
                       ) : null}
                     </TableCell>
                     <TableCell sx={{ ...bodyCellSx?.('logs') as object, textAlign: 'center' }}>
                       {script.logsUrl ? (
-                        <Chip
-                          label="Logs"
-                          clickable
-                          onClick={(event) => { event.stopPropagation(); onOpenUrl(script.logsUrl!); }}
-                          size="small"
-                          icon={<LinkIcon />}
-                          color="secondary"
-                          variant="outlined"
-                        />
+                        <IconButton aria-label="Open logs" size="small" sx={linkSx} onClick={(event) => { event.stopPropagation(); onOpenUrl(script.logsUrl!); }}>
+                          <LogsIcon fontSize="small" />
+                        </IconButton>
                       ) : null}
                     </TableCell>
                     {/* Rerun cell intentionally empty for campaign sub-rows. */}

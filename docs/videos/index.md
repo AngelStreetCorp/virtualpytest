@@ -110,29 +110,312 @@
   <div class="video-card">
     <h3>Navigation tree: map your app once</h3>
     <div class="video-wrapper">
-      <video controls preload="metadata" playsinline
-        poster="https://virtualpytest.com/videos/virtualpytest_02_navigation_tree.jpg"
-        src="https://virtualpytest.com/videos/virtualpytest_02_navigation_tree.mp4"
-        style="position:absolute;top:0;left:0;width:100%;height:100%;background:#000;">
-      </video>
+      <iframe
+        src="https://www.youtube.com/embed/_CP29LQe0xQ"
+        title="Navigation tree: map your app once"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
     </div>
   </div>
 
   <div class="video-card">
     <h3>Evidence: every run leaves proof</h3>
     <div class="video-wrapper">
-      <video controls preload="metadata" playsinline
-        poster="https://virtualpytest.com/videos/virtualpytest_03_evidence.jpg"
-        src="https://virtualpytest.com/videos/virtualpytest_03_evidence.mp4"
-        style="position:absolute;top:0;left:0;width:100%;height:100%;background:#000;">
-      </video>
+      <iframe
+        src="https://www.youtube.com/embed/bBheQqaRIQM"
+        title="Evidence: every run leaves proof"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
     </div>
   </div>
 
   <div class="video-card">
     <h3>AI agent: ask, it acts</h3>
-    <div class="video-wrapper" style="display:flex;align-items:center;justify-content:center;background:#1b2a41;color:#cfd8e6;font-size:14px;padding-bottom:0;min-height:160px;">
-      Coming soon
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/prG2eqnbjfs"
+        title="AI agent: ask, it acts"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>KPI: every navigation, timed</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/rFkZxSoK0zM"
+        title="KPI: every navigation, timed"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Why did it fail? The image comparison report</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/TcRkqETFlco"
+        title="Why did it fail? The image comparison report"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Automatic zap detection: zap with the remote, no code</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/9cjzYpDVROs"
+        title="Automatic zap detection: zap with the remote, no code"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Automatic incident detection + 24 h review buffer</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/DR8IX3Y_rCs"
+        title="Automatic incident detection + 24 h review buffer"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>QuickTest Builder: no code, just steps</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/xWZyBp7Npck"
+        title="QuickTest Builder: no code, just steps"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Real devices driven by Agentic AI: 2048 played simultaneously on mobile and web</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/hHnKrb9vIc0"
+        title="Real devices driven by Agentic AI: 2048 played simultaneously on mobile and web"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Audio Video Quality: metrics 24/7 with no scripts</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/YlOJau8WPqE"
+        title="Audio Video Quality: metrics 24/7 with no scripts"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>24 video streams monitored 24/7 on one small host</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/hdcoyhftNEs"
+        title="24 video streams monitored 24/7 on one small host"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Ask your test data in plain words: AI charts</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/HF2Kuiw8zaE"
+        title="Ask your test data in plain words: AI charts"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Create and run a test campaign in seconds, no scripting</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/RdMTfT4MjAM"
+        title="Create and run a test campaign in seconds, no scripting"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Map an Android app automatically on a real phone, then test every path</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/sDkJ3U14mlE"
+        title="Map an Android app automatically on a real phone, then test every path"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>AI Test Prompting: natural language to a test, replay without AI</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/ehsC4x7_5KQ"
+        title="AI Test Prompting: natural language to a test, replay without AI"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Write a test script in the browser, run it on a real device</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/x0ghHYXUFeI"
+        title="Write a test script in the browser, run it on a real device"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Ask a question, get a Grafana dashboard</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/ujmCqAn-RvE"
+        title="Ask a question, get a Grafana dashboard"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>MCP Server to connect your AI Agent</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/pSYvpoRfTIM"
+        title="MCP Server to connect your AI Agent"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>What's new in VirtualPyTest: new look, 3 languages, shareable reports, analytics</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/IP7rehiSBo4"
+        title="What's new in VirtualPyTest: new look, 3 languages, shareable reports, analytics"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Automatic Subtitle Analysis: compare displayed subtitles against the source</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/03jh3MMb6PM"
+        title="Automatic Subtitle Analysis: compare displayed subtitles against the source"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Localize your screen with Fingerprint: no more image or text references</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/qAm6YmmvU5g"
+        title="Localize your screen with Fingerprint: no more image or text references"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Now compatible: Nintendo Switch and Fire TV Vega OS</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/Dvd5CpA2SwU"
+        title="Now compatible: Nintendo Switch and Fire TV Vega OS"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Device view showing from 1 to 48 devices</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/Sj9kyKj98s8"
+        title="Device view showing from 1 to 48 devices"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Group control: one remote drives two phones at once</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/Pt384v3ucDA"
+        title="Group control: one remote drives two phones at once"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
     </div>
   </div>
 </div>

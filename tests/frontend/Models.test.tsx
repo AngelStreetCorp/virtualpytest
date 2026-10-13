@@ -6,6 +6,7 @@ import { BrowserRouter } from 'react-router-dom';
 vi.mock('../../frontend/src/hooks/pages/useDeviceModels', () => ({
   useDeviceModels: () => ({
     models: [],
+    supportedModels: [],
     isLoading: false,
     error: null,
     createModel: vi.fn(),

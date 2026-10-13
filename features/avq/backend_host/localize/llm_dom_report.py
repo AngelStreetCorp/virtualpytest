@@ -8,7 +8,8 @@ the report reflects exactly what the live pipeline produces. For each image it s
 the DOM overlay (inline base64) next to the focusable elements + navigation graph,
 with a summary table (focus, element count, latency, cost) up top.
 
-Requires OPENAI_API_KEY in the environment.
+The model is the AI route for usage vision.dom (Settings -> AI), reached through the
+server gateway (SERVER_URL + API_KEY in the environment).
 
 Usage:
     python3 features/avq/backend_host/localize/llm_dom_report.py [IMAGE_DIR] [--out report.html] [--workers 6]
@@ -27,6 +28,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 from backend_host.src.services.ai_exploration.dom_generator import (  # noqa: E402
     generate_dom, render_dom_overlay,
 )
+from shared.src.lib.utils.report_theme import report_theme_head  # noqa: E402
 
 RATE_IN, RATE_OUT = 5.0, 30.0  # GPT-5.5 $/1M
 
@@ -102,16 +104,16 @@ def build_html(results: list, out_html: Path) -> None:
             f'<div><h4>Elements</h4>{els_html}<h4>Navigation</h4>{nav_html}</div></div>'
         )
     summary = f"{len(results)} images · {focus_found} focus found · ${tot_cost:.2f} total"
-    doc = f"""<!doctype html><meta charset="utf-8"><title>LLM DOM report (GPT-5.5)</title>
+    doc = f"""<!doctype html><meta charset="utf-8">{report_theme_head()}<title>LLM DOM report (GPT-5.5)</title>
 <style>
-body{{font:13px -apple-system,Segoe UI,Arial;background:#111;color:#ddd;margin:0;padding:16px}}
-h1{{font-size:18px}} h3{{margin:28px 0 6px;border-top:1px solid #333;padding-top:14px}}
-small{{color:#888;font-weight:normal}} a{{color:#6cf;text-decoration:none}}
-table{{border-collapse:collapse;width:100%;font-size:12px}} td,th{{border:1px solid #333;padding:3px 6px;text-align:left;vertical-align:top}}
-tr.ok td:first-child{{border-left:3px solid #2c2}} tr.warn td:first-child{{border-left:3px solid #fb0}} tr.fail td:first-child{{border-left:3px solid #f44}}
-.grid{{display:grid;grid-template-columns:560px 1fr;gap:16px;align-items:start}} .grid img{{width:560px;border:1px solid #333;border-radius:4px}}
-h4{{margin:8px 0 2px;color:#9cf}} .elements tr.foc td,.navigation tr.foc td{{color:#f66!important;font-weight:bold;background:#2a1010}}
-code{{color:#9cf}} .box{{color:#888;font-size:11px}}
+body{{font:13px -apple-system,Segoe UI,Arial;background:var(--vpt-page);color:var(--vpt-text);margin:0;padding:16px}}
+h1{{font-size:18px}} h3{{margin:28px 0 6px;border-top:1px solid var(--vpt-border);padding-top:14px}}
+small{{color:var(--vpt-muted);font-weight:normal}} a{{color:var(--vpt-accent-text);text-decoration:none}}
+table{{border-collapse:collapse;width:100%;font-size:12px}} td,th{{border:1px solid var(--vpt-border);padding:3px 6px;text-align:left;vertical-align:top}}
+tr.ok td:first-child{{border-left:3px solid var(--vpt-success)}} tr.warn td:first-child{{border-left:3px solid var(--vpt-warning)}} tr.fail td:first-child{{border-left:3px solid var(--vpt-error)}}
+.grid{{display:grid;grid-template-columns:560px 1fr;gap:16px;align-items:start}} .grid img{{width:560px;border:1px solid var(--vpt-border);border-radius:4px}}
+h4{{margin:8px 0 2px;color:var(--vpt-steel)}} .elements tr.foc td,.navigation tr.foc td{{color:var(--vpt-error)!important;font-weight:bold;background:var(--vpt-error-tint)}}
+code{{color:var(--vpt-accent-text)}} .box{{color:var(--vpt-muted);font-size:11px}}
 </style>
 <h1>LLM DOM report — GPT-5.5, medium, no hints <small>{html.escape(summary)}</small></h1>
 <table><tr><th>image</th><th>els</th><th>nav</th><th>focus</th><th>time</th><th>cost</th><th>error</th></tr>{''.join(rows)}</table>
@@ -126,10 +128,6 @@ def main() -> int:
     ap.add_argument('--out', default='/tmp/llm_dom_report.html')
     ap.add_argument('--workers', type=int, default=6)
     args = ap.parse_args()
-
-    if not os.getenv('OPENAI_API_KEY', '').strip():
-        print('❌ OPENAI_API_KEY not set')
-        return 1
 
     image_dir = Path(args.image_dir)
     names = sorted(p.name for p in image_dir.glob('*.jpg'))

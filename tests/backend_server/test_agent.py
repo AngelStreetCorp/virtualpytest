@@ -6,6 +6,10 @@ Covers the REST endpoints in backend_server/src/routes/server_agent_routes.py
 stop_generation, clear_session) registered by this module drive the actual
 LLM chat loop and are not exercised here - they need a live socket
 connection and would trigger real provider calls with no dry-run mode.
+
+NOTE: GET /server/agent/models was removed by TASK-30 (982f8596b) — AI routing
+moved to the database and the Settings -> AI page now consumes the routing
+endpoints table directly. The corresponding test was removed.
 """
 
 import uuid
@@ -29,22 +33,6 @@ def test_agent_health(base_url, request_timeout, verify_ssl, api_headers):
     assert "provider" in body
     assert "model" in body
     assert "manager_initialized" in body
-
-
-def test_agent_models(base_url, request_timeout, verify_ssl, api_headers):
-    """Read-only: static provider/model/task matrix used by the AI settings UI."""
-    response = requests.get(
-        f"{base_url}/server/agent/models",
-        headers=api_headers,
-        timeout=request_timeout,
-        verify=verify_ssl,
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body.get("success") is True
-    assert isinstance(body.get("providers"), list)
-    assert isinstance(body.get("tasks"), list)
-    assert isinstance(body.get("provider_models"), dict)
 
 
 def test_save_api_key_requires_api_key(base_url, request_timeout, verify_ssl, api_headers):

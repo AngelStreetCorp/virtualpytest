@@ -52,16 +52,17 @@ const BACKSTOP_RELOAD_MS = 120000;
 
 export const RunExecutionsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { getRecentExecutions } = useDeployment();
-  const { activeWorkspace } = useWorkspaceContext();
+  const { activeWorkspace, deviceFilter } = useWorkspaceContext();
   const [runningExecutions, setRunningExecutions] = useState<DeploymentExecution[]>([]);
   const [queuedExecutions, setQueuedExecutions] = useState<DeploymentExecution[]>([]);
   const [completedExecutions, setCompletedExecutions] = useState<DeploymentExecution[]>([]);
 
-  // Active workspace scope, read live inside refresh() via a ref so switching
-  // workspaces doesn't recreate refresh() (which would tear down the socket).
+  // Device scope (user's device limit ∩ active workspace) and workspace script scope, read live
+  // inside refresh() via a ref so switching workspaces doesn't recreate refresh() (which would
+  // tear down the socket).
   const scopeRef = useRef<{ deviceFilter?: string[]; scriptFilter?: string[] }>({});
   scopeRef.current = {
-    deviceFilter: activeWorkspace?.device_filter,
+    deviceFilter: deviceFilter ?? undefined,
     scriptFilter: activeWorkspace?.script_filter,
   };
 

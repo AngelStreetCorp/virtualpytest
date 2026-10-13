@@ -32,6 +32,10 @@ if FOLDER_TITLE:
     FOLDER_UID = match[0]
 
 for path in sys.argv[1:]:
+    if os.path.basename(path) == 'template.json':
+        # The Atlas house-style template is read by the backend, never deployed as a dashboard.
+        print(f"SKIP  {path}: template.json is the Atlas dashboard template, not a dashboard")
+        continue
     d = json.load(open(path))
     db = d['dashboard'] if 'dashboard' in d and 'panels' in d.get('dashboard', {}) else d
     db.pop('id', None)

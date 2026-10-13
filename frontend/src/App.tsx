@@ -12,10 +12,15 @@ import {
 import React, { Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 
+import { QualityTabRedirect, RunManagementTabRedirect } from './components/reports/TabRedirects';
+
 // Import navigation components (keep these as regular imports since they're always needed)
 import Footer from './components/common/Footer';
 import NavigationBar from './components/common/Navigation_Bar';
+import { NavbarInteractionTheme } from './components/common/NavbarInteractionTheme';
 import { ServerSelector } from './components/common/ServerSelector';
+import { MobileServerBar } from './components/common/MobileServerBar';
+import { MobileHeaderSlotProvider } from './contexts/MobileHeaderSlotProvider';
 import ThemeToggle from './components/common/ThemeToggle';
 
 import { HostManagerProvider } from './contexts/HostManagerProvider';
@@ -23,6 +28,7 @@ import { RunExecutionsProvider } from './contexts/RunExecutionsContext';
 import { ServerManagerProvider } from './contexts/ServerManagerProvider';
 import { ToastProvider } from './contexts/ToastContext';
 import { BuilderProvider } from './contexts/builder/BuilderContext';
+import { useAgentChatPalette } from './constants/agentChatTheme';
 
 // Auth components and providers
 import { AuthProvider } from './contexts/auth/AuthContext';
@@ -55,6 +61,14 @@ const CampaignBuilder = React.lazy(() => import('./pages/CampaignBuilder'));
 const TestReports = React.lazy(() => import('./pages/TestReports'));
 const ModelReports = React.lazy(() => import('./pages/ModelReports'));
 const DependencyReport = React.lazy(() => import('./pages/DependencyReport'));
+const RunSummary = React.lazy(() => import('./pages/RunSummary'));
+const RunLive = React.lazy(() => import('./pages/RunLivePanel'));
+const RunGroupDetail = React.lazy(() => import('./pages/RunGroupDetail'));
+const MilestoneDetail = React.lazy(() => import('./pages/MilestoneDetail'));
+const Quality = React.lazy(() => import('./pages/Quality'));
+const RunManagement = React.lazy(() => import('./pages/RunManagement'));
+const ManualRun = React.lazy(() => import('./pages/ManualRun'));
+const ShareRun = React.lazy(() => import('./pages/ShareRun'));
 // Lazy is what keeps recharts out of the main bundle — it loads only when
 // someone opens Analytics.
 const MonitoringAnalytics = React.lazy(() => import('./pages/MonitoringAnalytics'));
@@ -62,11 +76,13 @@ const MonitoringIncidents = React.lazy(() => import('./pages/MonitoringIncidents
 const Heatmap = React.lazy(() => import('./pages/Heatmap'));
 const UserInterface = React.lazy(() => import('./pages/UserInterface'));
 const UserInterfaceReferences = React.lazy(() => import('./pages/UserInterfaceReferences'));
+const UserInterfaceUnknown = React.lazy(() => import('./pages/UserInterfaceUnknown'));
 const TestCaseEditor = React.lazy(() => import('./pages/TestCaseEditor'));
 const TestCaseBuilder = React.lazy(() => import('./pages/TestCaseBuilder'));
 const NavigationEditor = React.lazy(() => import('./pages/NavigationEditor'));
 const RemoteTestPage = React.lazy(() => import('./pages/RemoteTestPage'));
 const AIQueueMonitor = React.lazy(() => import('./pages/AIQueueMonitor'));
+const MonitoringAiUsage = React.lazy(() => import('./pages/MonitoringAiUsage'));
 const HLSDebugPage = React.lazy(() => import('./pages/HLSDebugPage'));
 const OpenRouterDebug = React.lazy(() => import('./pages/OpenRouterDebug'));
 const FullscreenPlayer = React.lazy(() => import('./pages/FullscreenPlayer'));
@@ -84,6 +100,7 @@ const TestRailIntegration = React.lazy(() => import('./pages/TestRailIntegration
 const Teams = React.lazy(() => import('./pages/Teams'));
 const Tenants = React.lazy(() => import('./pages/Tenants'));
 const Users = React.lazy(() => import('./pages/Users'));
+const Roles = React.lazy(() => import('./pages/Roles'));
 const Workspaces = React.lazy(() => import('./pages/Workspaces'));
 const DeviceInfoOverrides = React.lazy(() => import('./pages/DeviceInfoOverrides'));
 const AgentChat = React.lazy(() => import('./pages/AgentChat'));
@@ -147,6 +164,7 @@ const RunExecutionShell: React.FC = () => {
 
 // 404 Not Found component
 const NotFound: React.FC = () => {
+  const P = useAgentChatPalette();
   const { branding } = useBranding();
 
   // Set document title for 404 pages
@@ -198,7 +216,7 @@ const NotFound: React.FC = () => {
           href="/"
           sx={{
             textDecoration: 'none',
-            color: 'primary.main',
+            color: P.accentText,
             '&:hover': { textDecoration: 'underline' },
           }}
         >
@@ -306,6 +324,9 @@ const ConditionalContainer: React.FC<{ children: React.ReactNode }> = ({ childre
 // Routes that should use full width without Container constraints
 const FULL_WIDTH_ROUTES = ['/ai-agent', '/docs/api', '/fullscreen-player'];
 
+/** Public read-only share snapshot: anonymous visitors, no app chrome, no workspace actions. */
+const isShareSnapshotPath = (pathname: string) => pathname.startsWith('/share/run/');
+
 // AGENTS: When adding or removing a route, also update:
 //   1. tests/e2e/playwright/specs/ui.pages.spec.js  — PAGES array (screenshot + error test per route)
 //   2. docs/agent/validation/TESTING.md                        — Route inventory table (name, path, description)
@@ -319,7 +340,7 @@ const AppHeader: React.FC = () => {
 
   // Fully bare pages render their own chrome (e.g. dedicated fullscreen player tab) —
   // no AppHeader at all, so the fixed full-viewport video isn't shoved below the AppBar.
-  if (location.pathname === '/fullscreen-player') {
+  if (location.pathname === '/fullscreen-player' || isShareSnapshotPath(location.pathname)) {
     return null;
   }
 
@@ -329,7 +350,7 @@ const AppHeader: React.FC = () => {
   // Show header if: auth disabled OR user authenticated OR not on auth pages
   const shouldShowHeader = !isAuthEnabled || (isAuthenticated && !isAuthPage);
 
-  if (isAuthPage || isLoading) {
+  if (isAuthPage) {
     // Minimal header for login page
     return (
       <AppBar position="static" elevation={1} sx={{ overflow: 'hidden' }}>
@@ -353,15 +374,26 @@ const AppHeader: React.FC = () => {
     );
   }
 
-  if (!shouldShowHeader) {
+  // While auth is still resolving, keep painting the real app chrome (nav bar, server picker,
+  // workspace switcher) instead of falling back to a bare logo+footer page. The protected
+  // subtree is gated separately by ProtectedRoute, so no protected content renders early —
+  // this only fills the time until the session lands. Previously `isLoading` forced the
+  // minimal header here, so every cold load of every page showed a stripped-down frame with
+  // an empty body, which reads as a broken "loading screen" (measured 171–276 ms locally,
+  // longer on a real network because AuthContext waits on a profile round trip).
+  const chromeDuringAuthInit = isLoading && isAuthEnabled;
+  if (!shouldShowHeader && !chromeDuringAuthInit) {
     return null;
   }
 
   // Mobile: no top app bar — the bottom nav already provides navigation
   // context, so the fixed header (logo + theme toggle) added no value and
-  // its overlay was clipping the top of in-page headings.
+  // its overlay was clipping the top of in-page headings. The server picker
+  // only matters where hosts and devices are listed, so it is rendered, in the
+  // page flow, on Dashboard and Device only.
   if (isMobile) {
-    return null;
+    const showsServerPicker = location.pathname === '/' || location.pathname.startsWith('/device-control');
+    return showsServerPicker ? <MobileServerBar /> : null;
   }
 
   // Full header with navigation
@@ -388,11 +420,13 @@ const AppHeader: React.FC = () => {
           </Box>
         </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0, flex: 1, ml: 2, mr: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'stretch', alignSelf: 'stretch', minWidth: 0, flex: 1, ml: 2, mr: 2 }}>
           <NavigationBar />
         </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+          {/* Mods (TASK-77): e.g. Online Users' "N online" chip */}
+          <ModSlot name="app.header" props={{}} />
           <UserMenu />
         </Box>
       </Toolbar>
@@ -418,7 +452,7 @@ const ResponsiveFooter: React.FC = () => {
   const isAuthPage = location.pathname === '/login' || location.pathname === '/auth/callback';
   const isApiDocsPage = location.pathname === '/docs/api';
 
-  if (isMobile || isAuthPage || isApiDocsPage) {
+  if (isMobile || isAuthPage || isApiDocsPage || isShareSnapshotPath(location.pathname)) {
     return null;
   }
 
@@ -435,6 +469,10 @@ import { AIOmniOverlay } from './components/ai/AIOmniOverlay';
 import { GlobalAgentBadges } from './components/agent/GlobalAgentBadges';
 import { AgentActivityBridge } from './components/agent/AgentActivityBridge';
 import { useAIOrchestrator } from './hooks/ai/useAIOrchestrator';
+import { ModsProvider } from './mods/core/components/ModsProvider';
+import { ModSlot } from './mods/core/components/ModSlot';
+import { ModPaneDrawer } from './mods/core/components/ModPaneDrawer';
+import { isEmbedded } from './utils/embeddedMode';
 
 // Orchestrator Wrapper Component
 const AIOrchestratorWrapper: React.FC = () => {
@@ -480,14 +518,29 @@ const App: React.FC = () => {
                         <AgentActivityProvider>
                     <AIOrchestratorWrapper />
                     <BrandingTitle />
-                    <Box sx={{ height: '100vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-                      <AppHeader />
+                    <MobileHeaderSlotProvider>
+                    <ModsProvider>
+                    <Box sx={{ height: ['100vh', '100dvh'], display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                      {/* Split view's second page runs this app in a frame: page only, no chrome (TASK-77). */}
+                      {!isEmbedded && (
+                        <>
+                          <NavbarInteractionTheme>
+                            <AppHeader />
+                          </NavbarInteractionTheme>
+                          {/* Mods (TASK-77): a band under the top bar, a right pane, a floating layer */}
+                          <ModSlot name="app.band" props={{}} />
+                          <ModPaneDrawer />
+                          <ModSlot name="app.overlay" props={{}} />
 
-                      <AIOmniOverlay />
-                      <GlobalAgentBadges />
+                          <AIOmniOverlay />
+                          <GlobalAgentBadges />
+                        </>
+                      )}
                       <AgentActivityBridge />
 
-                      <Box sx={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: isMobile ? 'auto' : 'stable', display: 'flex', flexDirection: 'column' }}>
+                      {/* Row: the page, and beside it whatever a mod puts in app.side (split view) */}
+                      <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
+                      <Box sx={{ flex: 1, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: isMobile ? 'auto' : 'stable', display: 'flex', flexDirection: 'column' }}>
                       <ConditionalContainer>
                         <RouteErrorBoundary>
                         <Suspense fallback={<LoadingSpinner />}>
@@ -500,7 +553,11 @@ const App: React.FC = () => {
                       Public + bare (no app chrome) — see AppHeader bare-page hide below. */}
                   <Route path="/fullscreen-player" element={<FullscreenPlayer />} />
 
-                  {/* All other routes require authentication */}
+                  {/* Shared run snapshot (TASK-42). Public on purpose: the token in the URL
+                      fragment authorizes this one sanitized snapshot, nothing else. */}
+                  <Route path="/share/run/:snapshotId" element={<ShareRun />} />
+
+                  {/* All other routes require authentication, plus the page's permission (PAGE_PERMISSIONS) */}
                   <Route element={<ProtectedRoute />}>
                     <Route path="/" element={<Dashboard />} />
 
@@ -545,11 +602,28 @@ const App: React.FC = () => {
                   <Route path="/monitoring/incidents" element={<MonitoringIncidents />} />
                   <Route path="/monitoring/heatmap" element={<Heatmap />} />
                   <Route path="/monitoring/ai-queue" element={<AIQueueMonitor />} />
+                  <Route path="/monitoring/ai-usage" element={<MonitoringAiUsage />} />
 
                   {/* Test Results Routes */}
                   <Route path="/test-results/reports" element={<TestReports />} />
                   <Route path="/test-results/model-reports" element={<ModelReports />} />
                   <Route path="/test-results/dependency-report" element={<DependencyReport />} />
+
+                  {/* Run management (TASK-42) */}
+                  <Route path="/test-results/runs/:kind/:id" element={<RunSummary />} />
+                  <Route path="/test-results/live/:taskId" element={<RunLive />} />
+                  <Route path="/test-results/run-management" element={<RunManagement />} />
+                  <Route path="/test-results/groups" element={<RunManagementTabRedirect tab="groups" />} />
+                  <Route path="/test-results/groups/:groupId" element={<RunGroupDetail />} />
+                  <Route path="/test-results/milestones" element={<RunManagementTabRedirect tab="milestones" />} />
+                  <Route path="/test-results/milestones/:milestoneId" element={<MilestoneDetail />} />
+                  <Route path="/test-results/labels" element={<RunManagementTabRedirect tab="labels" />} />
+                  <Route path="/test-results/defects" element={<RunManagementTabRedirect tab="defects" />} />
+                  <Route path="/test-results/quality" element={<Quality />} />
+                  <Route path="/test-results/quality/:tab" element={<QualityTabRedirect />} />
+                  <Route path="/test-results/custom-reports" element={<RunManagementTabRedirect tab="custom-reports" />} />
+                  <Route path="/test-results/manual" element={<RunManagementTabRedirect tab="manual" />} />
+                  <Route path="/test-results/manual/:sessionId" element={<ManualRun />} />
 
                   {/* System Status Page */}
                   <Route path="/status" element={<Status />} />
@@ -563,11 +637,9 @@ const App: React.FC = () => {
                   {/* Grafana Direct Access - Redirects to VITE_GRAFANA_URL */}
                   <Route path="/grafana/*" element={<GrafanaRedirect />} />
 
-                  {/* User API Testing Routes - Protected by permission */}
-                  <Route element={<ProtectedRoute requiredPermission="plugins.postman:view" />}>
-                    <Route path="/api/workspaces" element={<UserApiWorkspaces />} />
-                    <Route path="/api/workspace/:workspaceId" element={<UserApiWorkspaceDetail />} />
-                  </Route>
+                  {/* User API Testing Routes */}
+                  <Route path="/api/workspaces" element={<UserApiWorkspaces />} />
+                  <Route path="/api/workspace/:workspaceId" element={<UserApiWorkspaceDetail />} />
                   
                   {/* Documentation Routes */}
                   <Route path="/docs/api" element={<ApiDocumentation />} />
@@ -577,13 +649,9 @@ const App: React.FC = () => {
                   <Route path="/docs/:section/:page" element={<Documentation />} />
                   <Route path="/docs/:section" element={<Documentation />} />
 
-                  {/* Integrations Routes - Protected by permission */}
-                  <Route element={<ProtectedRoute requiredPermission="plugins.jira:view" />}>
-                    <Route path="/integrations/jira" element={<JiraIntegration />} />
-                  </Route>
-                  <Route element={<ProtectedRoute requiredPermission="plugins.testrail:view" />}>
-                    <Route path="/integrations/testrail" element={<TestRailIntegration />} />
-                  </Route>
+                  {/* Integrations Routes */}
+                  <Route path="/integrations/jira" element={<JiraIntegration />} />
+                  <Route path="/integrations/testrail" element={<TestRailIntegration />} />
 
                   {/* TASK-23: Tenants — super admin only. Sits beside the admin
                       surface but its own gate so regular admins never see it. */}
@@ -591,12 +659,11 @@ const App: React.FC = () => {
                     <Route path="/tenants" element={<Tenants />} />
                   </Route>
 
-                  {/* Teams, Users & Workspaces Management - Admin only */}
-                  <Route element={<ProtectedRoute requiredRole="admin" />}>
-                    <Route path="/teams" element={<Teams />} />
-                    <Route path="/users" element={<Users />} />
-                    <Route path="/workspaces" element={<Workspaces />} />
-                  </Route>
+                  {/* Teams, Users, Roles & Workspaces Management */}
+                  <Route path="/teams" element={<Teams />} />
+                  <Route path="/users" element={<Users />} />
+                  <Route path="/roles" element={<Roles />} />
+                  <Route path="/workspaces" element={<Workspaces />} />
 
                   {/* Configuration Routes */}
                   <Route
@@ -608,20 +675,23 @@ const App: React.FC = () => {
                     element={<Navigate to="/configuration/models" replace />}
                   />
                   
-                  {/* Admin-only configuration routes */}
-                  <Route element={<ProtectedRoute requiredRole="admin" />}>
-                    <Route path="/configuration/models" element={<Models />} />
-                    <Route path="/configuration/logs" element={<Logs />} />
-                    <Route path="/configuration/settings" element={<Settings />} />
-                    <Route path="/configuration/code-deployment" element={<CodeDeployment />} />
-                    <Route path="/configuration/run-command" element={<RunCommand />} />
-                  </Route>
+                  {/* Configuration routes */}
+                  <Route path="/configuration/models" element={<Models />} />
+                  <Route path="/configuration/logs" element={<Logs />} />
+                  <Route path="/configuration/settings" element={<Settings />} />
+                  <Route path="/configuration/code-deployment" element={<CodeDeployment />} />
+                  <Route path="/configuration/run-command" element={<RunCommand />} />
 
                   {/* Regular configuration routes */}
                   <Route path="/configuration/interface" element={<UserInterface />} />
                   <Route
                     path="/configuration/interface/:name/references"
                     element={<UserInterfaceReferences />}
+                  />
+                  {/* Real route, not a modal — cmd-click / open-in-new-tab work for free. */}
+                  <Route
+                    path="/configuration/interface/:name/unknown"
+                    element={<UserInterfaceUnknown />}
                   />
                   <Route path="/configuration/openrouter" element={<OpenRouterDebug />} />
                   {/* CI/CD Reports moved into the optional `cicd` feature
@@ -659,10 +729,14 @@ const App: React.FC = () => {
                         </RouteErrorBoundary>
             </ConditionalContainer>
 
-            <ResponsiveFooter />
+            {!isEmbedded && <ResponsiveFooter />}
             </Box>
-            <MobileBottomNav />
+            {!isEmbedded && <ModSlot name="app.side" props={{}} />}
             </Box>
+            {!isEmbedded && <MobileBottomNav />}
+            </Box>
+                    </ModsProvider>
+                    </MobileHeaderSlotProvider>
                       </AgentActivityProvider>
                     </AIProvider>
                       </AgentChatProvider>

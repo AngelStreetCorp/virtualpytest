@@ -90,26 +90,11 @@ def main():
         'Executor Template'
     ))
     
-    # Check Agent Runtime
-    print("\n📁 Agent Runtime:")
-    results.append(check_file_exists(
-        os.path.join(base_dir, 'backend_server/src/agent/runtime/state.py'),
-        'Agent State Management'
-    ))
-    results.append(check_file_exists(
-        os.path.join(base_dir, 'backend_server/src/agent/runtime/runtime.py'),
-        'Agent Runtime Manager'
-    ))
-    
     # Check Routes
     print("\n📁 REST API Routes:")
     results.append(check_file_exists(
         os.path.join(base_dir, 'backend_server/src/routes/agent_registry_routes.py'),
         'Agent Registry Routes'
-    ))
-    results.append(check_file_exists(
-        os.path.join(base_dir, 'backend_server/src/routes/agent_runtime_routes.py'),
-        'Agent Runtime Routes'
     ))
     results.append(check_file_exists(
         os.path.join(base_dir, 'backend_server/src/routes/event_routes.py'),
@@ -154,18 +139,15 @@ def main():
         with open(app_file, 'r') as f:
             content = f.read()
             has_registry_import = 'agent_registry_routes' in content
-            has_runtime_import = 'agent_runtime_routes' in content
             has_event_import = 'event_routes' in content
-            
+
             results.append(has_registry_import)
             print(f"{'✅' if has_registry_import else '❌'} Agent Registry routes imported")
-            results.append(has_runtime_import)
-            print(f"{'✅' if has_runtime_import else '❌'} Agent Runtime routes imported")
             results.append(has_event_import)
             print(f"{'✅' if has_event_import else '❌'} Event routes imported")
     else:
         print("❌ app.py not found")
-        results.extend([False, False, False])
+        results.extend([False, False])
     
     # Summary
     print("\n" + "="*70)

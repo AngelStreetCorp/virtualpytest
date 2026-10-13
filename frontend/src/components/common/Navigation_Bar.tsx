@@ -1,5 +1,4 @@
-import { DarkMode, LightMode, SettingsBrightness } from '@mui/icons-material';
-import { Box, Button, Divider, ListItemIcon, ListItemText, ListSubheader, MenuItem } from '@mui/material';
+import { Box, Button } from '@mui/material';
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
@@ -14,42 +13,21 @@ import {
   TEST_GROUPS,
   buildIntegrationsItems,
 } from '../../config/navItems';
-import { useTheme } from '../../contexts/ThemeContext';
 import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
-import { usePermissions } from '../../hooks/auth/usePermissions';
+import { useI18n } from '../../i18n/useI18n';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
+import { PreferencesRows } from './PreferencesRows';
 import NavigationDropdown from './Navigation_Dropdown';
+import { navItemSx } from './Navigation_ItemStyle';
 import NavigationGroupedDropdown from './Navigation_GroupedDropdown';
 import { getEnv } from '../../config/constants';
 
 const NavigationBar: React.FC = () => {
   const location = useLocation();
   const { isPathHidden } = useWorkspaceContext();
-  const { role } = usePermissions();
-  const { mode, setMode } = useTheme();
-
-  // Viewers only get the Theme switcher in the Settings dropdown — the
-  // configuration pages (Logs/Models/Settings/Code Deployment/Run Command)
-  // are admin-only routes (see App.tsx) and would just bounce a viewer
-  // back to "Access Denied". Keeping the dropdown (with its footer) lets
-  // viewers still toggle Light/Dark/System without seeing links they can't open.
-  const isViewer = role === 'viewer';
-  const configurationItems = isViewer ? [] : CONFIGURATION_ITEMS;
+  const { t } = useI18n();
   const [slackUrl, setSlackUrl] = useState<string>('https://slack.com');
   const [testrailInstanceUrl, setTestrailInstanceUrl] = useState<string>('https://virtualpytest.testrail.io');
-  const navItemSx = {
-    justifyContent: 'center',
-    textAlign: 'center',
-    textTransform: 'none',
-    px: 1,
-    py: 0.875,
-    whiteSpace: 'nowrap',
-    minWidth: 108,
-    flexShrink: 0,
-    '&:hover': {
-      backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    },
-  } as const;
 
   // Fetch Slack configuration from backend
   useEffect(() => {
@@ -76,7 +54,7 @@ const NavigationBar: React.FC = () => {
         if (data?.success && config?.base_url) {
           setTestrailInstanceUrl(config.base_url);
         }
-      } catch (error) {
+      } catch {
         // The TestRail link is optional; users without plugin access simply do not see it.
       }
     };
@@ -85,7 +63,8 @@ const NavigationBar: React.FC = () => {
 
   // Langfuse URL from env — if set, the dropdown item opens externally
   const langfuseUrl = getEnv('VITE_LANGFUSE_URL') as string | undefined;
-  const integrationsItems = buildIntegrationsItems({ slackUrl, langfuseUrl, testrailInstanceUrl });
+  const grafanaUrl = getEnv('VITE_GRAFANA_URL') as string | undefined;
+  const integrationsItems = buildIntegrationsItems({ slackUrl, langfuseUrl, testrailInstanceUrl, grafanaUrl });
 
   const isActive = (path: string, prefix = false) =>
     prefix ? location.pathname.startsWith(path) : location.pathname === path;
@@ -94,7 +73,8 @@ const NavigationBar: React.FC = () => {
     <Box
       sx={{
         display: 'flex',
-        alignItems: 'center',
+        alignItems: 'stretch', // items fill the bar's height so the active underline sits on its edge
+        alignSelf: 'stretch',
         justifyContent: 'space-between',
         gap: 0,
         width: '100%',
@@ -106,13 +86,9 @@ const NavigationBar: React.FC = () => {
         <Button
           component={Link}
           to={DASHBOARD_ITEM.path}
-          sx={{
-            color: isActive(DASHBOARD_ITEM.path) ? 'secondary.main' : 'inherit',
-            fontWeight: isActive(DASHBOARD_ITEM.path) ? 600 : 400,
-            ...navItemSx,
-          }}
+          sx={navItemSx(isActive(DASHBOARD_ITEM.path))}
         >
-          {DASHBOARD_ITEM.label}
+          {t(DASHBOARD_ITEM.label)}
         </Button>
       )}
 
@@ -121,74 +97,43 @@ const NavigationBar: React.FC = () => {
         <Button
           component={Link}
           to={DEVICE_ITEM.path}
-          sx={{
-            color: isActive(DEVICE_ITEM.path) ? 'secondary.main' : 'inherit',
-            fontWeight: isActive(DEVICE_ITEM.path) ? 600 : 400,
-            ...navItemSx,
-          }}
+          sx={navItemSx(isActive(DEVICE_ITEM.path))}
         >
-          {DEVICE_ITEM.label}
+          {t(DEVICE_ITEM.label)}
         </Button>
       )}
 
       {/* AI Agent */}
-      <NavigationDropdown label="AI" items={AI_AGENT_ITEMS} />
+      <NavigationDropdown label={t('AI')} items={AI_AGENT_ITEMS} />
 
       {/* Test (grouped) */}
-      <NavigationGroupedDropdown label="Test" groups={TEST_GROUPS} />
+      <NavigationGroupedDropdown label={t('Test')} groups={TEST_GROUPS} />
 
       {/* User Interface */}
       {!isPathHidden(INTERFACE_ITEM.path) && (
         <Button
           component={Link}
           to={INTERFACE_ITEM.path}
-          sx={{
-            color: isActive(INTERFACE_ITEM.path, true) ? 'secondary.main' : 'inherit',
-            fontWeight: isActive(INTERFACE_ITEM.path, true) ? 600 : 400,
-            ...navItemSx,
-          }}
+          sx={navItemSx(isActive(INTERFACE_ITEM.path, true))}
         >
-          {INTERFACE_ITEM.label}
+          {t(INTERFACE_ITEM.label)}
         </Button>
       )}
 
       {/* Monitoring */}
-      <NavigationDropdown label="Monitoring" items={MONITORING_ITEMS} />
+      <NavigationDropdown label={t('Monitoring')} items={MONITORING_ITEMS} />
 
       {/* Docs */}
-      <NavigationDropdown label="Docs" items={DOCS_ITEMS} />
+      <NavigationDropdown label={t('Docs')} items={DOCS_ITEMS} />
 
       {/* Plugins (third-party integrations) */}
-      <NavigationDropdown label="Plugins" items={integrationsItems} />
+      <NavigationDropdown label={t('Plugins')} items={integrationsItems} />
 
       {/* Settings (configuration) */}
       <NavigationDropdown
-        label="Settings"
-        items={configurationItems}
-        footer={
-          <Box>
-            <Divider sx={{ my: 0.5 }} />
-            <ListSubheader sx={{ lineHeight: '28px', bgcolor: 'transparent' }}>Theme</ListSubheader>
-            <MenuItem onClick={() => setMode('light')} selected={mode === 'light'} sx={{ py: 1, px: 2 }}>
-              <ListItemIcon>
-                <LightMode fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primaryTypographyProps={{ variant: 'body2' }}>Light</ListItemText>
-            </MenuItem>
-            <MenuItem onClick={() => setMode('dark')} selected={mode === 'dark'} sx={{ py: 1, px: 2 }}>
-              <ListItemIcon>
-                <DarkMode fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primaryTypographyProps={{ variant: 'body2' }}>Dark</ListItemText>
-            </MenuItem>
-            <MenuItem onClick={() => setMode('system')} selected={mode === 'system'} sx={{ py: 1, px: 2 }}>
-              <ListItemIcon>
-                <SettingsBrightness fontSize="small" />
-              </ListItemIcon>
-              <ListItemText primaryTypographyProps={{ variant: 'body2' }}>System</ListItemText>
-            </MenuItem>
-          </Box>
-        }
+        label={t('Settings')}
+        items={CONFIGURATION_ITEMS}
+        footer={<PreferencesRows />}
       />
     </Box>
   );

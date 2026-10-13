@@ -207,12 +207,26 @@ fi
 
 # Normalize IR device access for the service user. LIRC character devices are
 # typically owned by root:video, and vpt_user is added to the video group above.
+# Note this only fixes nodes that exist right now: a dongle replugged later gets a
+# fresh lircN with default ownership, which is why the udev rule in STEP 4 of
+# install_host.sh is the durable fix.
 for lirc_dev in /dev/lirc*; do
     if [ -e "$lirc_dev" ]; then
         chgrp video "$lirc_dev" 2>/dev/null || true
         chmod 660 "$lirc_dev" 2>/dev/null || true
     fi
 done
+
+# USB IR Toy transport (non-Pi hosts): the dongle is a CDC serial node, so the
+# serial node group applies (root:dialout 0660) rather than video. Group membership
+# is what grants access — the node itself is recreated on every replug, so there is
+# nothing to chmod here. See udev/95-vpt-irtoy.rules for the stable /dev/irtoy name.
+if getent group dialout >/dev/null 2>&1 && id -u vpt_user >/dev/null 2>&1; then
+    if ! id -nG vpt_user 2>/dev/null | tr ' ' '\n' | grep -qx dialout; then
+        usermod -aG dialout vpt_user
+        echo "   → added vpt_user to the dialout group (USB IR Toy access)"
+    fi
+fi
 
 echo "✅ Ownership and permissions set"
 

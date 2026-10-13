@@ -13,13 +13,19 @@ import { useSocket } from '../../../../frontend/src/contexts/SocketContext';
 import { useUserInterface } from '../../../../frontend/src/../../frontend/src/hooks/pages/useUserInterface';
 import { filterCompatibleInterfaces, isDeviceCompatibleWithInterface } from '../../../../frontend/src/utils/userinterface/deviceCompatibilityUtils';
 import { api } from '../../../../frontend/src/utils/apiClient';
-import { buildServerUrl } from '../../../../frontend/src/utils/buildUrlUtils';
+import { buildRunningLogUrl, buildServerUrl } from '../../../../frontend/src/utils/buildUrlUtils';
+import { useUserSession } from '../../../../frontend/src/hooks/useUserSession';
+import { useRunningLog, type RunningLogData } from '../../../../frontend/src/hooks/rec/useRunningLog';
+import type { AIGraphEditProposal } from '../../../../frontend/src/hooks/testcase/useAIGraphEdit';
+import type { Host } from '../../../../frontend/src/types/common/Host_Types';
 import {
   TestPromptFormState,
   TestPromptExecution,
   TestPromptStep,
   TestPrompt,
   TestPromptLiveEvent,
+  TestPromptRunMode,
+  LinkedTestcase,
   DEFAULT_TEST_PROMPT_FORM,
 } from '../types/TestPrompt_Types';
 
@@ -66,8 +72,23 @@ export interface UseTestPromptPageReturn {
   // Execution
   executions: TestPromptExecution[];
   isExecuting: boolean;
-  handleRunTestPrompt: () => void;
+  runMode: TestPromptRunMode;
+  setRunMode: (mode: TestPromptRunMode) => void;
+  handleRunTestPrompt: (options?: { regenerate?: boolean }) => void;
   liveEventsByExecutionId: Record<string, TestPromptLiveEvent[]>;
+  /** running.log of the current run (both modes write it), for the step overlay. */
+  runningLogData: RunningLogData | null;
+
+  // Linked testcase (graph mode)
+  linkedTestcase: LinkedTestcase | null;
+  handleSaveAsTestcase: (executionId: string) => Promise<void>;
+  /** Passing exploration -> proposed testcase graph (its steps + checks for the criteria). */
+  explorePreview: { executionId: string; proposal: AIGraphEditProposal } | null;
+  buildingFromExploreId: string | null;
+  handleProposeFromExplore: (executionId: string) => Promise<void>;
+  handleApplyExplorePreview: () => Promise<void>;
+  handleCancelExplorePreview: () => void;
+  handleUnlinkTestcase: () => Promise<void>;
 
   // Feedback & Versioning
   handleSubmitFeedback: (executionId: string, feedback: string) => Promise<void>;
@@ -78,6 +99,45 @@ export interface UseTestPromptPageReturn {
   showSnackbar: (message: string, severity?: 'success' | 'error' | 'info') => void;
   closeSnackbar: () => void;
 }
+
+// Session the page takes control with; a run sends it so the server sees the caller's control.
+const TEST_PROMPT_SESSION_ID = 'test-prompt-session';
+
+/** A test_prompt_executions row's stored details (run_details, host/device) as card fields. */
+const runDetailsFields = (e: any): Partial<TestPromptExecution> => {
+  const d = e?.run_details || {};
+  return {
+    version: d.version,
+    edited: d.edited,
+    ranPrompt: d.prompt,
+    ranCriteria: d.acceptance_criteria,
+    ranTarget: d.target_screen_label || undefined,
+    ranUserinterface: d.userinterface_name || undefined,
+    replayedTestcase: d.testcase_id ? { id: d.testcase_id, name: d.testcase_name } : undefined,
+    generated: d.generated,
+    verdict: d.verdict,
+    error: d.error,
+    savedTestcaseId: d.saved_testcase_id,
+    hostName: e?.host_name,
+    deviceId: e?.device_id,
+    hasTrace: Array.isArray(e?.tool_trace) && e.tool_trace.length > 0,
+    auto: d.auto || undefined,
+    autoFrom: d.auto_from,
+    retryOf: d.retry_of,
+    decision: d.decision,
+    outcome: d.outcome,
+  };
+};
+
+/** One execution row, read again once it finishes (verdict, error and graph are written at the end). */
+const fetchExecutionRow = async (promptId: string, executionId: string): Promise<any | null> => {
+  try {
+    const res = await api.get<any>(buildServerUrl(`/server/testprompt/${promptId}/executions`));
+    return (res?.executions || []).find((e: any) => e.id === executionId) || null;
+  } catch {
+    return null;
+  }
+};
 
 export function useTestPromptPage(): UseTestPromptPageReturn {
   // ==================== HOST & DEVICE ====================
@@ -134,7 +194,7 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
   } = useDeviceControlWithForceUnlock({
     host: selectedHost,
     device_id: selectedDeviceId,
-    sessionId: 'test-prompt-session',
+    sessionId: TEST_PROMPT_SESSION_ID,
     autoCleanup: true,
     tree_id: currentTreeId || undefined,
     requireTreeId: true,
@@ -157,6 +217,12 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
 
   const [compatibleInterfaceNames, setCompatibleInterfaceNames] = useState<string[]>([]);
   const [userinterfaceName, setUserinterfaceName] = useState<string>('');
+  const [formState, setFormState] = useState<TestPromptFormState>(DEFAULT_TEST_PROMPT_FORM);
+  // A target screen belongs to one interface: drop it when the interface really changes
+  // (a manual pick, or a device that cannot use it), not when a loaded prompt sets its own.
+  const clearTargetScreen = useCallback(() => {
+    setFormState(prev => ({ ...prev, targetScreenNodeId: '', targetScreenLabel: '' }));
+  }, []);
   const [navNodes, setNavNodes] = useState<any[]>([]);
 
   const loadTreeForInterface = useCallback(async (interfaceName: string) => {
@@ -191,12 +257,13 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
   }, [getUserInterfaceByName, loadTreeByUserInterface]);
 
   useEffect(() => {
+    // A newer run (device or interface changed meanwhile) supersedes this one.
+    let cancelled = false;
     const loadCompatibleInterfaces = async () => {
       if (!selectedDeviceId || !selectedHost) {
+        // Keep userinterfaceName: a loaded prompt sets it before its device is
+        // picked, and clearing it here made the device's first interface win.
         setCompatibleInterfaceNames([]);
-        setUserinterfaceName('');
-        setNavNodes([]);
-        setCurrentTreeId(null);
         return;
       }
 
@@ -205,6 +272,7 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
         if (!selectedDevice) return;
 
         const interfaces = await getAllUserInterfaces();
+        if (cancelled) return;
         const compatibleInterfaces = filterCompatibleInterfaces(interfaces, selectedDevice);
         const names = compatibleInterfaces.map((ui: any) => ui.name);
 
@@ -213,6 +281,7 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
         const activeName = names.includes(userinterfaceName) ? userinterfaceName : names[0] || '';
         if (activeName !== userinterfaceName) {
           setUserinterfaceName(activeName);
+          clearTargetScreen();
         }
         if (activeName) {
           await loadTreeForInterface(activeName);
@@ -223,12 +292,16 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
     };
 
     loadCompatibleInterfaces();
-  }, [selectedDeviceId, selectedHost, getAllUserInterfaces, userinterfaceName, loadTreeForInterface]);
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDeviceId, selectedHost, getAllUserInterfaces, userinterfaceName, loadTreeForInterface, clearTargetScreen]);
 
   const handleSetUserinterfaceName = useCallback((name: string) => {
     setUserinterfaceName(name);
+    clearTargetScreen();
     loadTreeForInterface(name);
-  }, [loadTreeForInterface]);
+  }, [loadTreeForInterface, clearTargetScreen]);
 
   // ==================== PENDING DEVICE SELECTION EFFECT ====================
   // When hosts become available and we have a pending UI to auto-select a device for
@@ -259,7 +332,6 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
   }, [pendingUIName, availableHosts, getAllUserInterfaces, handleDeviceSelect]);
 
   // ==================== FORM STATE ====================
-  const [formState, setFormState] = useState<TestPromptFormState>(DEFAULT_TEST_PROMPT_FORM);
   // Snapshot of form values at last save/load — used to detect unsaved edits.
   const [savedSnapshot, setSavedSnapshot] = useState<TestPromptFormState>(DEFAULT_TEST_PROMPT_FORM);
 
@@ -276,6 +348,7 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
     setCurrentPromptId(null);
     setCurrentVersion(1);
     setCurrentMode('dev');
+    setLinkedTestcase(null);
   }, []);
 
   const isDirty = (
@@ -285,11 +358,6 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
     formState.targetScreenNodeId !== savedSnapshot.targetScreenNodeId ||
     formState.targetScreenLabel !== savedSnapshot.targetScreenLabel
   );
-
-  useEffect(() => {
-    updateFormField('targetScreenNodeId', '');
-    updateFormField('targetScreenLabel', '');
-  }, [userinterfaceName, updateFormField]);
 
   const isFormValid = Boolean(
     formState.prompt.trim() &&
@@ -303,6 +371,24 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
   const [currentPromptId, setCurrentPromptId] = useState<string | null>(null);
   const [currentVersion, setCurrentVersion] = useState<number>(1);
   const [currentMode, setCurrentMode] = useState<'dev' | 'prod'>('dev');
+  const [linkedTestcase, setLinkedTestcase] = useState<LinkedTestcase | null>(null);
+
+  // The prompt's linked testcase, shown by name; a graph run replays it.
+  const loadLinkedTestcase = useCallback(async (testcaseId: string | null | undefined) => {
+    if (!testcaseId) {
+      setLinkedTestcase(null);
+      return;
+    }
+    setLinkedTestcase({ id: testcaseId, name: '' });
+    try {
+      const result = await api.get<any>(buildServerUrl(`/server/testcase/${testcaseId}`));
+      if (result.success && result.testcase) {
+        setLinkedTestcase({ id: testcaseId, name: result.testcase.testcase_name });
+      }
+    } catch {
+      // Keep the id; the chip falls back to it.
+    }
+  }, []);
   const [isSaving, setIsSaving] = useState(false);
   const [isLoadingPrompts, setIsLoadingPrompts] = useState(false);
 
@@ -389,6 +475,7 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
         setCurrentPromptId(p.id);
         setCurrentVersion(p.version);
         setCurrentMode(p.mode);
+        loadLinkedTestcase(p.testcase_id);
 
         // Auto-select device + interface for this prompt
         if (p.userinterface_name) {
@@ -405,6 +492,7 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
             id: e.id,
             executionId: e.id,
             testPromptId: e.test_prompt_id,
+            mode: e.run_mode,
             status: e.status,
             steps: [],
             reportUrl: e.report_url,
@@ -414,7 +502,8 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
             executionTimeMs: e.execution_time_ms,
             startedAt: e.created_at ? new Date(e.created_at).getTime() : undefined,
             completedAt: e.execution_time_ms ? (new Date(e.created_at).getTime() + e.execution_time_ms) : undefined,
-            version: p.version,
+            // Version, inputs, verdict… as recorded for the run (none for runs before 20261001i).
+            ...runDetailsFields(e),
           } as any)));
         }
 
@@ -423,7 +512,7 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
     } catch (error) {
       showSnackbar('Failed to load prompt', 'error');
     }
-  }, [showSnackbar, loadTreeForInterface]);
+  }, [showSnackbar, loadTreeForInterface, loadLinkedTestcase]);
 
   const handleDelete = useCallback(async (promptId: string) => {
     try {
@@ -442,7 +531,26 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
 
   // ==================== EXECUTION ====================
   const [executions, setExecutions] = useState<TestPromptExecution[]>([]);
+  // Read by the socket handler, which is registered once.
+  const executionsRef = useRef<TestPromptExecution[]>([]);
+  executionsRef.current = executions;
   const [isExecuting, setIsExecuting] = useState(false);
+  const [runMode, setRunMode] = useState<TestPromptRunMode>('explore');
+  const { userId } = useUserSession();
+  // start_time of the running.log already on the device when Run was clicked (null: none).
+  // A log with any other start_time is this run's. Both values come from the host, so a
+  // browser clock that is off cannot hide the overlay.
+  const previousRunLogStartRef = useRef<string | null>(null);
+  // Only polled while a run is in flight and a host is selected, so the cast never reaches a request.
+  const { logData: polledRunningLog } = useRunningLog(
+    selectedHost as Host,
+    selectedDeviceId || undefined,
+    isExecuting && Boolean(selectedHost),
+  );
+  const runningLogData =
+    polledRunningLog && polledRunningLog.start_time !== previousRunLogStartRef.current
+      ? polledRunningLog
+      : null;
   // Ref to the fallback poll timer so the socket handler can cancel it
   // when testprompt_completed arrives (no need to keep polling).
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -543,6 +651,21 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
               }
             : e
         ));
+        const finished = executionsRef.current.find(e => e.executionId === execId);
+        if (finished?.testPromptId) {
+          // This run, and for an Auto follow-up the failed run it follows (its outcome is now set).
+          for (const id of [execId, finished.autoFrom, finished.retryOf]) {
+            if (!id) continue;
+            fetchExecutionRow(finished.testPromptId, id).then(row => {
+              if (row) setExecutions(prev => prev.map(e => e.executionId === id ? { ...e, ...runDetailsFields(row) } : e));
+            });
+          }
+        }
+        // Auto mode: the failed run started a follow-up (exploration or one retry) — keep going.
+        if (event.follow_up_execution_id && finished) {
+          followUpRef.current(finished, event.follow_up_execution_id, event.follow_up_mode);
+          return;
+        }
         setIsExecuting(false);
         showSnackbar(passed ? 'Test prompt passed' : 'Test prompt failed', passed ? 'success' : 'error');
         return;
@@ -569,8 +692,53 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
     joinedRoomsRef.current.add(room);
   }, [socket]);
 
-  const handleRunTestPrompt = useCallback(async () => {
+  // Auto mode follow-up: add its card, join its room, and poll it slowly in case the socket
+  // misses its end (the socket handler is registered once, so it calls this through a ref).
+  const followUpRef = useRef<(parent: TestPromptExecution, followUpId: string, mode?: string) => void>(() => {});
+  followUpRef.current = (parent, followUpId, mode) => {
+    const followUpMode: TestPromptRunMode = mode === 'graph' ? 'graph' : 'explore';
+    setExecutions(prev => [{
+      id: followUpId,
+      executionId: followUpId,
+      testPromptId: parent.testPromptId,
+      mode: followUpMode,
+      status: 'running',
+      steps: [],
+      auto: true,
+      autoFrom: followUpMode === 'explore' ? parent.executionId : undefined,
+      retryOf: followUpMode === 'graph' ? parent.executionId : undefined,
+      version: parent.version,
+      edited: parent.edited,
+      ranPrompt: parent.ranPrompt,
+      ranCriteria: parent.ranCriteria,
+      ranTarget: parent.ranTarget,
+      hostName: parent.hostName,
+      deviceId: parent.deviceId,
+      startedAt: Date.now(),
+    }, ...prev]);
+    joinExecutionRoom(followUpId);
+    showSnackbar(`Auto: the saved test failed — ${followUpMode === 'explore' ? 'exploring' : 'retrying once'}`, 'info');
+    let polls = 0;
+    const timer = setInterval(async () => {
+      polls++;
+      const row = await fetchExecutionRow(parent.testPromptId, followUpId);
+      const current = executionsRef.current.find(e => e.executionId === followUpId);
+      if ((row && row.status !== 'running') || polls >= 180) {
+        clearInterval(timer);
+        if (row && current?.status === 'running') {
+          setExecutions(prev => prev.map(e => e.executionId === followUpId
+            ? { ...e, status: row.status, reportUrl: row.report_url, logsUrl: row.logs_url,
+                executionTimeMs: row.execution_time_ms, completedAt: Date.now(), ...runDetailsFields(row) }
+            : e));
+          setIsExecuting(false);
+        }
+      }
+    }, 10000);
+  };
+
+  const handleRunTestPrompt = useCallback(async (options?: { regenerate?: boolean }) => {
     if (!isFormValid || !selectedHost || !selectedDeviceId) return;
+    const regenerate = Boolean(options?.regenerate);
 
     // Need a prompt row to attach the execution to. If none exists yet,
     // auto-create one so the execution has a parent — but only the first time.
@@ -607,33 +775,61 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
           setSavedSnapshot(snapshotForCreate);
           await refreshPromptList();
         } else {
-          showSnackbar('Failed to save before execution', 'error');
+          showSnackbar(saveResult.message || 'Failed to save before execution', 'error');
           return;
         }
-      } catch {
-        showSnackbar('Failed to save before execution', 'error');
+      } catch (error) {
+        showSnackbar(error instanceof Error ? error.message : 'Failed to save before execution', 'error');
         return;
       }
     }
 
+    previousRunLogStartRef.current = null;
+    if (selectedHost && selectedDeviceId) {
+      try {
+        const res = await fetch(`${buildRunningLogUrl(selectedHost, selectedDeviceId)}?t=${Date.now()}`);
+        if (res.ok) previousRunLogStartRef.current = (await res.json())?.start_time ?? null;
+      } catch {
+        // No log yet (404) or unreadable: every log seen during the run is this run's.
+      }
+    }
     setIsExecuting(true);
 
-    const steps: TestPromptStep[] = [
-      { phase: 'go_home', label: 'Go to Home', status: 'pending' },
-    ];
-    if (formState.targetScreenLabel) {
-      steps.push({ phase: 'navigate', label: `Navigate to ${formState.targetScreenLabel}`, status: 'pending' });
+    const effectiveMode = runMode === 'auto' ? (linkedTestcase ? 'graph' : 'explore') : runMode;
+    const replaysLinked = effectiveMode === 'graph' && Boolean(linkedTestcase) && !regenerate;
+    const steps: TestPromptStep[] = [];
+    if (effectiveMode === 'graph') {
+      steps.push({
+        phase: 'graph',
+        label: replaysLinked ? `Run testcase ${linkedTestcase?.name || ''}`.trim() : 'Generate the graph and run it',
+        status: 'pending',
+      });
+    } else {
+      steps.push({ phase: 'go_home', label: 'Go to Home', status: 'pending' });
+      if (formState.targetScreenLabel) {
+        steps.push({ phase: 'navigate', label: `Navigate to ${formState.targetScreenLabel}`, status: 'pending' });
+      }
+      steps.push({ phase: 'action', label: 'Execute prompt actions', status: 'pending' });
+      steps.push({ phase: 'criteria_check', label: 'Evaluate acceptance criteria', status: 'pending' });
     }
-    steps.push({ phase: 'action', label: 'Execute prompt actions', status: 'pending' });
-    steps.push({ phase: 'criteria_check', label: 'Evaluate acceptance criteria', status: 'pending' });
 
     const execution: TestPromptExecution = {
       id: `tp_${Date.now()}`,
       executionId: `tp_${Date.now()}`,
       testPromptId: promptIdToExecute || '',
+      // Auto replays the linked testcase (a graph run), or explores when none is linked.
+      mode: effectiveMode,
+      auto: runMode === 'auto' || undefined,
       status: 'queued',
       steps,
-      version: currentVersion,
+      version: currentVersion ?? undefined,
+      edited: isDirty,
+      ranPrompt: formState.prompt,
+      ranCriteria: formState.acceptanceCriteria,
+      ranTarget: formState.targetScreenLabel || undefined,
+      ranUserinterface: userinterfaceName || undefined,
+      hostName: selectedHost?.host_name,
+      deviceId: selectedDeviceId || undefined,
       startedAt: Date.now(),
     };
 
@@ -651,16 +847,29 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
         acceptance_criteria: formState.acceptanceCriteria,
         target_screen_node_id: formState.targetScreenNodeId || '',
         target_screen_label: formState.targetScreenLabel || '',
+        mode: runMode,
+        regenerate,
+        // The run goes under this page's Take Control: same user, same session.
+        user_id: userId,
+        session_id: TEST_PROMPT_SESSION_ID,
       });
 
       if (result.success) {
         const backendExecId = result.execution_id;
         const promptId = promptIdToExecute;
 
-        // Update execution with backend ID
+        // Update execution with backend ID (and, for a graph run, the graph it generated)
         setExecutions(prev => prev.map(e =>
           e.executionId === execution.executionId
-            ? { ...e, id: backendExecId, executionId: backendExecId, status: 'running' as const, steps: e.steps.map((s, i) => i === 0 ? { ...s, status: 'running' as const } : s) }
+            ? {
+                ...e,
+                id: backendExecId,
+                executionId: backendExecId,
+                status: 'running' as const,
+                generatedGraph: result.generated_graph || undefined,
+                analysis: result.analysis || undefined,
+                steps: e.steps.map((s, i) => i === 0 ? { ...s, status: 'running' as const } : s),
+              }
             : e
         ));
 
@@ -670,8 +879,11 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
         // Fallback poll — socket should deliver testprompt_completed first,
         // but if the socket disconnects mid-run this catches the result from DB.
         // Reduced frequency (10s) since socket is the primary path.
+        // Poll until the run row has a final status: the server decides when a run ends (an
+        // exploration is bounded by its skill's time limit, a graph run by the executor). The page
+        // used to stop at 180 s and show "Execution timed out" while the run went on and passed.
         const pollInterval = 10000;
-        const maxPolls = 18; // 3 min max
+        const maxPolls = 720; // 2 h: then only stop polling, never mark the run as failed
         let polls = 0;
         if (pollTimerRef.current) clearInterval(pollTimerRef.current);
         const pollTimer = setInterval(async () => {
@@ -694,7 +906,7 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
                       scriptResultId: exec.script_result_id,
                       executionTimeMs: exec.execution_time_ms,
                       steps: e.steps.map(s => ({ ...s, status: passed ? 'passed' as const : 'failed' as const, duration: Math.floor((exec.execution_time_ms || 3000) / e.steps.length) })),
-                      error: exec.error_msg,
+                      ...runDetailsFields(exec),
                     }
                   : e
               ));
@@ -707,35 +919,114 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
           if (polls >= maxPolls) {
             clearInterval(pollTimer);
             pollTimerRef.current = null;
-            setExecutions(prev => prev.map(e =>
-              e.executionId === backendExecId
-                ? { ...e, status: 'error' as const, error: 'Execution timed out' }
-                : e
-            ));
-            setIsExecuting(false);
-            showSnackbar('Execution timed out', 'error');
           }
         }, pollInterval);
         pollTimerRef.current = pollTimer;
       } else {
         setExecutions(prev => prev.map(e =>
           e.executionId === execution.executionId
-            ? { ...e, status: 'error' as const, error: result.message }
+            ? { ...e, id: result.execution_id || e.id, status: 'error' as const, error: result.message }
             : e
         ));
         setIsExecuting(false);
         showSnackbar(result.message || 'Execution failed', 'error');
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to start execution';
       setExecutions(prev => prev.map(e =>
         e.executionId === execution.executionId
-          ? { ...e, status: 'error' as const, error: 'Failed to start execution' }
+          ? { ...e, status: 'error' as const, error: message }
           : e
       ));
       setIsExecuting(false);
-      showSnackbar('Execution failed', 'error');
+      showSnackbar(message, 'error');
     }
-  }, [isFormValid, selectedHost, selectedDeviceId, currentPromptId, formState, userinterfaceName, updateFormField, showSnackbar, refreshPromptList]);
+  }, [isFormValid, selectedHost, selectedDeviceId, currentPromptId, formState, userinterfaceName, updateFormField, showSnackbar, refreshPromptList, runMode, linkedTestcase, userId, isDirty, currentVersion]);
+
+  // ==================== LINKED TESTCASE ====================
+  // Save a graph as a testcase linked to the prompt (a graph run's generated graph, or an
+  // exploration's proposal), then mark the execution card as saved.
+  const saveGraphAsTestcase = useCallback(async (executionId: string, graph: any, analysis?: string): Promise<boolean> => {
+    if (!currentPromptId) return false;
+    try {
+      const result = await api.post<any>(buildServerUrl(`/server/testprompt/${currentPromptId}/save-testcase`), {
+        graph,
+        analysis,
+        execution_id: executionId,
+        testcase_name: formState.name.trim() ? `prompt_${formState.name.trim().replace(/[\s/]+/g, '_')}` : undefined,
+        created_by: userId,
+      });
+      if (!result.success) {
+        showSnackbar(result.message || 'Save as testcase failed', 'error');
+        return false;
+      }
+      setExecutions(prev => prev.map(e => e.executionId === executionId ? { ...e, savedTestcaseId: result.testcase_id } : e));
+      await loadLinkedTestcase(result.testcase_id);
+      showSnackbar('Saved as testcase — Run graph now replays it', 'success');
+      return true;
+    } catch (error) {
+      showSnackbar(error instanceof Error ? error.message : 'Save as testcase failed', 'error');
+      return false;
+    }
+  }, [currentPromptId, formState.name, userId, loadLinkedTestcase, showSnackbar]);
+
+  const handleSaveAsTestcase = useCallback(async (executionId: string) => {
+    const exec = executions.find(e => e.executionId === executionId);
+    if (!exec?.generatedGraph) return;
+    await saveGraphAsTestcase(executionId, exec.generatedGraph, exec.analysis);
+  }, [executions, saveGraphAsTestcase]);
+
+  // ==================== EXPLORE → TESTCASE (TASK-36 §3) ====================
+  const [explorePreview, setExplorePreview] = useState<{ executionId: string; proposal: AIGraphEditProposal } | null>(null);
+  const [buildingFromExploreId, setBuildingFromExploreId] = useState<string | null>(null);
+
+  const handleProposeFromExplore = useCallback(async (executionId: string) => {
+    setBuildingFromExploreId(executionId);
+    setExplorePreview(null);
+    try {
+      const result = await api.post<any>(buildServerUrl(`/server/testprompt/execution/${executionId}/to-graph`), {});
+      if (result?.success && result.graph) {
+        setExplorePreview({
+          executionId,
+          proposal: {
+            graph: result.graph,
+            analysis: result.analysis || '',
+            stepsBefore: result.steps_before || [],
+            stepsAfter: result.steps_after || [],
+          },
+        });
+      } else {
+        showSnackbar(result?.message || result?.error || 'Could not build a testcase from this run', 'error');
+      }
+    } catch (error) {
+      showSnackbar(error instanceof Error ? error.message : 'Could not build a testcase from this run', 'error');
+    } finally {
+      setBuildingFromExploreId(null);
+    }
+  }, [showSnackbar]);
+
+  const handleApplyExplorePreview = useCallback(async () => {
+    if (!explorePreview) return;
+    const saved = await saveGraphAsTestcase(explorePreview.executionId, explorePreview.proposal.graph, explorePreview.proposal.analysis);
+    if (saved) setExplorePreview(null);
+  }, [explorePreview, saveGraphAsTestcase]);
+
+  const handleCancelExplorePreview = useCallback(() => setExplorePreview(null), []);
+
+  const handleUnlinkTestcase = useCallback(async () => {
+    if (!currentPromptId) return;
+    try {
+      const result = await api.post<any>(buildServerUrl(`/server/testprompt/${currentPromptId}/unlink-testcase`), {});
+      if (result.success) {
+        setLinkedTestcase(null);
+        showSnackbar('Testcase unlinked — the next graph run generates a new graph', 'info');
+      } else {
+        showSnackbar(result.message || 'Unlink failed', 'error');
+      }
+    } catch (error) {
+      showSnackbar(error instanceof Error ? error.message : 'Unlink failed', 'error');
+    }
+  }, [currentPromptId, showSnackbar]);
 
   // ==================== FEEDBACK & VERSIONING ====================
   const handleSubmitFeedback = useCallback(async (executionId: string, feedback: string) => {
@@ -805,8 +1096,19 @@ export function useTestPromptPage(): UseTestPromptPageReturn {
     refreshPromptList,
     executions,
     isExecuting,
+    runMode,
+    setRunMode,
     handleRunTestPrompt,
     liveEventsByExecutionId,
+    runningLogData,
+    linkedTestcase,
+    handleSaveAsTestcase,
+    explorePreview,
+    buildingFromExploreId,
+    handleProposeFromExplore,
+    handleApplyExplorePreview,
+    handleCancelExplorePreview,
+    handleUnlinkTestcase,
     handleSubmitFeedback,
     handlePromote,
     snackbar,

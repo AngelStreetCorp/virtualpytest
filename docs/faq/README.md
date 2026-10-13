@@ -4,6 +4,24 @@ Quick answers to the most common questions about VirtualPyTest.
 
 ---
 
+## Overview
+
+### What is VirtualPyTest?
+
+VirtualPyTest is a free, open-source platform for automated testing and 24/7 monitoring of any device with a screen. You write a test script once and run it across Android phones, iOS, smart TVs, set-top boxes, web browsers, and anything with HDMI output — without changing the script per platform.
+
+It separates **test logic** from **device-specific navigation**. Your script says "go to settings and verify the screen," and a navigation tree handles the exact button presses for each device type. AI vision validates screens instead of fragile selectors, so tests survive UI redesigns.
+
+For monitoring, every device's screen is captured continuously through HDMI, and AI flags problems like black screens, freezes, audio loss and macroblocking in real time. Grafana dashboards show device health across the fleet.
+
+**Software:** free under AGPL v3, self-hosted, no per-device or usage fees. See [Is it really free?](#is-it-really-free).
+
+**Hardware:** runs on a Raspberry Pi 5 host with HDMI capture cards. See [hardware guide](../get-started/hardware.md) for the bill of materials.
+
+**Where to start:** [Get started](../get-started/README.md) walks through installation and your first test.
+
+---
+
 ## Core Concepts
 
 ### How does one script work for all devices?
@@ -212,6 +230,74 @@ VirtualPyTest was built to democratize device testing. Commercial tools cost $50
 - 🐛 Report bugs
 - 🤝 Contribute code
 - 📣 Spread the word
+
+---
+
+## Evaluating a Testing Vendor
+
+The five questions worth asking any vendor, answered for VirtualPyTest.
+
+### Can you test our production app on multiple platforms without changing our code?
+
+**Yes.** Nothing is installed in your app: no SDK, no instrumentation, no test build.
+
+- The screen is captured from the outside: HDMI capture, camera, screen mirroring or browser.
+- The device is driven the way a user drives it: IR or Bluetooth remote, ADB, Appium or Playwright.
+- The same script runs on STB, Android TV, mobile and web. The [navigation tree](#what-is-a-navigation-tree) holds what differs per platform, and per-model variants override only the screens that change.
+
+See [Unified controller](../features/unified-controller.md).
+
+---
+
+### Can you show a live event monitored on multiple platforms, with a recording of what viewers saw?
+
+**Yes.**
+
+- **Live, side by side:** every device's screen is visible at once, with a fleet heatmap that flags which devices are in trouble.
+- **Recording:** each device's HDMI output is recorded continuously as video and audio, with a transcript, on a **rolling 24-hour buffer**. You can scrub back through it, and an incident keeps its start and end frames as evidence.
+
+See [Visual capture](../features/visual-capture.md).
+
+---
+
+### Do you measure picture and sound quality, or only whether a screen appeared?
+
+**Both.** Detection runs on every captured frame, 24/7:
+
+| Check | Detects |
+|-------|---------|
+| **Picture** | Black screen, freeze, blurriness, blockiness (macroblocks are optional, off by default to save CPU) |
+| **Sound** | Audio loss, silence, loudness (LKFS), saturation or distortion |
+| **Content** | Subtitles (OCR with language detection), zapping, banners |
+| **Score** | An approximate MOS from 1 to 5 each minute, charted in Grafana |
+
+The MOS is an indicator, not a certified broadcast-lab measurement (VMAF is not included). See [AV quality](../features/avq.md).
+
+---
+
+### What happens to our tests when we redesign the app or switch language?
+
+**The scripts don't change.** Scripts name destinations such as `navigate_to("settings")`, never pixels or selectors, so a redesign only touches the navigation tree:
+
+- **Redesign:** recapture the affected reference images in one click, or let AI exploration rebuild the nodes and edges. Tree history keeps each version.
+- **Language switch:** screens are recognised by a layout fingerprint that tolerates translated text. Text checks are OCR'd with language detection and fuzzy matching, and transcripts can be translated.
+- **Limit:** a full redesign still needs someone to review the updated tree. There is no fully automatic re-mapping.
+
+---
+
+### What will 24/7 monitoring on all our devices cost per month, with no surprises?
+
+**Software: €0 a month.** It is open source (AGPL v3) and self-hosted. There are no licence fees, no per-device fees and no usage limits.
+
+**Hardware is a one-time cost** ([hardware guide](../get-started/hardware.md)):
+
+| Setup | Approx. cost |
+|-------|--------------|
+| 1 device (Raspberry Pi 5 host + HDMI capture card) | ~€420 |
+| Up to 4 devices on the same host | ~€480 |
+| Each extra capture card | ~€7 |
+
+Your only running costs are electricity, and storage if you keep more than the default 24 hours of recordings (roughly 7.5 GB per device per day).
 
 ---
 

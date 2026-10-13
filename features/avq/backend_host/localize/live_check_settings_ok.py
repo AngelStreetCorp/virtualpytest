@@ -17,6 +17,7 @@ exact production code path (fingerprint + _stamp_dynamic + identity) is exercise
 """
 import argparse
 import importlib.util
+import os
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -30,8 +31,10 @@ HOST, DEVICE, NAME, UI = "host1", "device4", "blestbv1", "example_tv"
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--mcp-config", default=".mcp.json")
-    p.add_argument("--mcp-url", default="https://rpitest.angelstreet.io/server/mcp")
+    p.add_argument("--mcp-url", default=os.getenv("VPT_MCP_URL"))
     args = p.parse_args()
+    if not args.mcp_url:
+        p.error("--mcp-url or the VPT_MCP_URL environment variable is required (e.g. https://<server>/server/mcp)")
 
     client = ab.MCPClient(args.mcp_url, ab._find_auth(args.mcp_config), verify_tls=False)
     ab._validate_target(client, HOST, DEVICE, NAME)

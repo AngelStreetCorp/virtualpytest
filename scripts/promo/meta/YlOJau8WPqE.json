@@ -1,0 +1,21 @@
+{
+ "title": "Audio Video Quality, 24/7, no scripts",
+ "description": "VirtualPyTest checks the audio and video quality of every device for you, all day, with no script to write. Open a set-top box on the Device page to see its A/V quality live: a simplified MOS score, blur, freeze, black screen, audio level and silence. The last 24 hours are kept, so you can click any moment and step through the stills it measured, frame by frame. In this example, a black screen at 07:45 turns every chip red, then the picture comes back.\n\nOpen source & free.\n\nChapters\n0:00 Intro\n0:19 The last 24 hours, click a moment\n0:31 Frame by frame: the picture is back",
+ "tags": [
+  "virtualpytest",
+  "audio video quality",
+  "video quality monitoring",
+  "MOS score",
+  "black screen detection",
+  "freeze detection",
+  "set-top box testing",
+  "IPTV monitoring",
+  "A/V quality",
+  "24/7 monitoring",
+  "test automation",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "id": "YlOJau8WPqE"
+}

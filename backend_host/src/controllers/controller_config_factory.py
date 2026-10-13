@@ -74,6 +74,19 @@ def create_controller_configs_from_device_info(device_config: dict) -> dict:
         }
         created_controllers.append(f"web:{web_impl}")
     
+    # Create Switch controllers (TASK-31 follow-up). Same single-key shape as
+    # power (no array — only one switch controller per device today). The
+    # `switch` slot is optional in DEVICE_CONTROLLER_MAP; .get(..., []) so
+    # device models without a switch entry (android_mobile, stb, host_vnc, …)
+    # get an empty list and no switch controller.
+    for switch_impl in device_mapping.get('switch', []):
+        configs['switch'] = {
+            'type': 'switch',
+            'implementation': switch_impl,
+            'params': _get_av_params(switch_impl, device_config),  # same shape as AV params
+        }
+        created_controllers.append(f"switch:{switch_impl}")
+
     # Create Power controllers - only if required environment variables are present
     for power_impl in device_mapping['power']:
         # Check if required power configuration is present in environment
@@ -116,6 +129,20 @@ def create_controller_configs_from_device_info(device_config: dict) -> dict:
                 print(f"[@controller_factory:create_controller_configs_from_device_info]   power_name: {power_name}")
                 print(f"[@controller_factory:create_controller_configs_from_device_info]   power_api_url: {power_api_url}")
                 print(f"[@controller_factory:create_controller_configs_from_device_info]   power_api_key: {'***' if power_api_key else 'None'}")
+        elif power_impl == 'wol':
+            # Wake-on-LAN PC. POWER_MAC selects this transport; POWER_IP is the
+            # SSH shutdown target and status probe. A Tapo / API device has no
+            # POWER_MAC, so it is never clobbered.
+            power_mac = device_config.get('power_mac', '')
+            if power_mac and power_ip:
+                configs['power'] = {
+                    'type': 'power',
+                    'implementation': power_impl,
+                    'params': _get_power_params(power_impl, device_config)
+                }
+                created_controllers.append(f"power:{power_impl}")
+            elif power_mac:
+                print(f"[@controller_factory:create_controller_configs_from_device_info] Skipping Power controller {power_impl} - POWER_MAC set but POWER_IP missing")
     
     # Create Verification controllers (NEW!)
     verification_types = []
@@ -262,6 +289,51 @@ def _get_av_params(implementation: str, device_config: dict) -> dict:
             'vnc_password': device_config.get('vnc_password'),
             'web_browser_path': device_config.get('web_browser_path', '/usr/bin/chromium')
         }
+    elif implementation == 'rtsp_stream':
+        # RTSP / HLS / MJPEG network stream controller (TASK-31).
+        # The URL is taken from the standard DEVICE{i}_VIDEO so the vpt-stream
+        # watcher can resolve it; rtsp_url/hls_url/mjpeg_url/youtube_url are
+        # honoured when set explicitly (e.g. by a feature plugin).
+        return {
+            **base_params,
+            'video_stream_path': device_config.get('video_stream_path', '/host/stream/rtsp_video'),
+            'video_capture_path': device_config.get('video_capture_path', get_device_base_path('rtsp_video')),
+            'rtsp_url': device_config.get('rtsp_url') or device_config.get('video'),
+            'hls_url': device_config.get('hls_url'),
+            'mjpeg_url': device_config.get('mjpeg_url'),
+            'youtube_url': device_config.get('youtube_url'),
+            'loop': device_config.get('stream_loop', True),
+        }
+    elif implementation == 'video_stream':
+        # Local / HTTP(S) video file controller (TASK-31).
+        # video_file_path falls back to device_config['video'] (DEVICE{i}_VIDEO) so
+        # the same env var that tells run_ffmpeg.sh the source also reaches the
+        # controller for status reporting.
+        return {
+            **base_params,
+            'video_stream_path': device_config.get('video_stream_path', '/host/stream/local_video'),
+            'video_capture_path': device_config.get('video_capture_path', get_device_base_path('local_video')),
+            'video_file_path': device_config.get('video_file_path') or device_config.get('video'),
+            'loop': device_config.get('stream_loop', True),
+        }
+    # TASK-31: switch controller params. 'hdmi_switch' is the placeholder;
+    # 'bluetooth_procon' takes the vpt-procon daemon URL + token
+    # (DEVICE{i}_SWITCH_PROCON_URL / _TOKEN; default: local daemon, no token).
+    elif implementation == 'hdmi_switch':
+        return {
+            **base_params,
+            'switch_type': device_config.get('switch_type', 'unknown'),
+            'switch_host': device_config.get('switch_host'),
+            'switch_port': device_config.get('switch_port'),
+            'switch_inputs': device_config.get('switch_inputs', []),
+            'usb_device': device_config.get('usb_device'),
+        }
+    elif implementation == 'bluetooth_procon':
+        return {
+            **base_params,
+            'daemon_url': device_config.get('switch_procon_url') or 'http://127.0.0.1:6190',
+            'token': device_config.get('switch_procon_token'),
+        }
     return base_params
 
 def _get_remote_params(implementation: str, device_config: dict) -> dict:
@@ -276,7 +348,7 @@ def _get_remote_params(implementation: str, device_config: dict) -> dict:
         builder = registered.get('params_builder')
         return dict(builder(device_config)) if builder else {}
 
-    if implementation in ['android_mobile', 'android_tv']:
+    if implementation in ['android_mobile', 'android_tv', 'vega']:
         params = {
             'device_ip': device_config.get('device_ip', '192.168.1.100'),
             'device_port': device_config.get('device_port', 5555),
@@ -315,8 +387,8 @@ def _get_remote_params(implementation: str, device_config: dict) -> dict:
                 if 'IR_PATH' in var:
                     print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=/dev/lirc0  # Path to your IR device")
                 elif 'IR_TYPE' in var:
-                    print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=appletv    # IR config type (appletv, samsung, firetv, stb)")
-            print(f"[@controller_factory:_get_remote_params] WARNING: Available IR types: appletv, samsung, firetv, stb")
+                    print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=apple_tv   # IR config type (apple_tv, samsung, fire_tv, stb)")
+            print(f"[@controller_factory:_get_remote_params] WARNING: Available IR types: apple_tv, samsung, fire_tv, stb")
             
             # Return special marker to indicate this controller should be skipped
             return {'_skip_controller': True, 'reason': 'Missing IR configuration'}
@@ -336,8 +408,6 @@ def _get_remote_params(implementation: str, device_config: dict) -> dict:
         missing_vars = []
         if not ir_ip:
             missing_vars.append('DEVICE1_IR_IP')
-        if not ir_remote:
-            missing_vars.append('DEVICE1_IR_REMOTE')
         if not ir_type:
             missing_vars.append('DEVICE1_IR_TYPE')
 
@@ -351,11 +421,10 @@ def _get_remote_params(implementation: str, device_config: dict) -> dict:
             for var in missing_env_vars:
                 if 'IR_IP' in var:
                     print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=<irtrans-box-ip>  # IRTrans box IP")
-                elif 'IR_REMOTE' in var:
-                    print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=STB_remote  # remote name in the IRTrans box")
                 elif 'IR_TYPE' in var:
-                    print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=stb  # keymap under remote/irtrans_conf/")
+                    print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=stb  # keymap under remote/irtrans_conf/ (with IR_REMOTE) or remote/ir_conf/")
             print(f"[@controller_factory:_get_remote_params] WARNING: Optional: DEVICE{device_num}_IR_PORT=21000 (default), DEVICE{device_num}_IR_LED=1 (IR output 1-16)")
+            print(f"[@controller_factory:_get_remote_params] WARNING: Optional: DEVICE{device_num}_IR_REMOTE=STB_remote (learned remote in the box; unset sends the raw ir_conf codes)")
 
             return {'_skip_controller': True, 'reason': 'Missing IRTrans configuration'}
 
@@ -365,6 +434,42 @@ def _get_remote_params(implementation: str, device_config: dict) -> dict:
             'ir_type': ir_type,
             'ir_port': device_config.get('ir_port') or 21000,
             'ir_led': device_config.get('ir_led'),
+        }
+        return params
+    elif implementation == 'irtoy_remote':
+        # USB IR Toy / Irdroid (04d8:fd08) over its CDC serial node. This is the
+        # transport for non-Pi hosts: a stock Debian x86 kernel ships no
+        # CONFIG_IR_TOY, so the kernel never claims the dongle for IR, cdc_acm
+        # takes it as /dev/ttyACM*, and no /dev/lirc* that ir-ctl could use can
+        # ever exist. We write the waveform to the serial port ourselves.
+        ir_serial = device_config.get('ir_serial')
+        ir_type = device_config.get('ir_type')
+
+        missing_vars = []
+        if not ir_serial:
+            missing_vars.append('DEVICE1_IR_SERIAL')
+        if not ir_type:
+            missing_vars.append('DEVICE1_IR_TYPE')
+
+        if missing_vars:
+            device_id = device_config.get('device_id', 'DEVICE1')
+            device_num = device_id.replace('device', '').upper()
+            missing_env_vars = [var.replace('DEVICE1', f'DEVICE{device_num}') for var in missing_vars]
+
+            print(f"[@controller_factory:_get_remote_params] WARNING: Missing IRToy configuration for {device_id} - skipping irtoy_remote controller")
+            print(f"[@controller_factory:_get_remote_params] WARNING: To enable the USB IR Toy remote, set:")
+            for var in missing_env_vars:
+                if 'IR_SERIAL' in var:
+                    print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=/dev/irtoy  # udev symlink for the 04d8:fd08 dongle")
+                elif 'IR_TYPE' in var:
+                    print(f"[@controller_factory:_get_remote_params] WARNING:   {var}=stb  # keymap under remote/ir_conf/")
+            print(f"[@controller_factory:_get_remote_params] WARNING: Install the udev rule first: setup/local/linux/backend_host/udev/95-vpt-irtoy.rules")
+
+            return {'_skip_controller': True, 'reason': 'Missing IRToy configuration'}
+
+        params = {
+            'ir_serial': ir_serial,
+            'ir_type': ir_type,
         }
         return params
     elif implementation == 'bluetooth_remote':
@@ -382,8 +487,26 @@ def _get_remote_params(implementation: str, device_config: dict) -> dict:
         params = {
             'adapter_hci': ble_adapter_hci,
             'ble_type': ble_type,
+            'ble_mac': device_config.get('ble_mac'),
         }
         return params
+    elif implementation == 'tello':
+        tello_ip = device_config.get('tello_ip')
+
+        if not tello_ip:
+            device_id = device_config.get('device_id', 'DEVICE1')
+            device_num = device_id.replace('device', '').upper()
+            print(f"[@controller_factory:_get_remote_params] WARNING: Missing Tello configuration for {device_id} - skipping tello controller")
+            print(f"[@controller_factory:_get_remote_params] WARNING: To enable the Tello remote, set: DEVICE{device_num}_TELLO_IP=<drone-address>  # 192.168.10.1, or 10.200.<n>.2 with scripts/drone/tello_netns.sh")
+            print(f"[@controller_factory:_get_remote_params] WARNING: Optional: DEVICE{device_num}_TELLO_STATE_PORT=8890 (8889+n), DEVICE{device_num}_TELLO_VIDEO_PORT=11111 (11110+n)")
+            return {'_skip_controller': True, 'reason': 'Missing Tello configuration'}
+
+        return {
+            'tello_ip': tello_ip,
+            'state_port': int(device_config.get('tello_state_port') or 8890),
+            'video_port': int(device_config.get('tello_video_port') or 11111),
+            'name': device_config.get('device_name') or 'tello',
+        }
 
     # Unknown implementation, returning empty params
     return {}
@@ -452,6 +575,15 @@ def _get_power_params(implementation: str, device_config: dict) -> dict:
             'api_url': device_config.get('power_api_url'),
             'device_name': device_config.get('power_name'),   # reused as API device name
             'api_key': device_config.get('power_api_key'),
+        }
+        return params
+    elif implementation == 'wol':
+        params = {
+            'mac': device_config.get('power_mac'),
+            'device_ip': device_config.get('power_ip'),
+            'ssh_user': device_config.get('power_ssh_user'),
+            'ssh_port': device_config.get('power_ssh_port') or 22,
+            'broadcast': device_config.get('power_broadcast') or '255.255.255.255',
         }
         return params
 

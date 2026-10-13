@@ -50,7 +50,8 @@ STATUSES = ('open', 'in progress', 'fixed', 'closed', 'wontfix', 'duplicate')
 #          would put it back into a published page (docs/agent/release/ANONYMIZATION.md).
 #   8887 — `f092aae7ee` added a BUG-0092 bullet after the tag and reworded another. The bullet
 #          has since been moved to the build that actually carries the fix; the reword stays.
-FROZEN_EXEMPT = {'8414', '8713', '8887'}
+#   9151 — `307caaef6d` removed a customer system's name from an example, same reason as 8713.
+FROZEN_EXEMPT = {'8414', '8713', '8887', '9151'}
 
 
 def meta(text: str, field: str) -> str:
@@ -86,8 +87,13 @@ def sections_of(text: str) -> dict:
 HEADING = re.compile(r'^(#{2,3})\s*[^\w\s#]*\s*', re.M)
 
 
+# A link target is where the reader is sent, not what the note claims: repairing a broken path
+# (`364b009fdb` fixed two in build 9307) must not count as rewriting a shipped section.
+LINK_TARGET = re.compile(r'\]\([^)]*\)')
+
+
 def comparable(text: str) -> str:
-    return HEADING.sub(r'\1 ', text or '').strip()
+    return LINK_TARGET.sub('](…)', HEADING.sub(r'\1 ', text or '')).strip()
 
 
 def cited(sections: dict) -> dict:
@@ -106,8 +112,10 @@ def cited(sections: dict) -> dict:
 
 def git(*args):
     try:
-        return subprocess.run(['git', '-C', REPO, *args], capture_output=True, text=True,
-                              check=True).stdout
+        # encoding is explicit: text=True alone decodes with the locale codec, which on a
+        # Windows console is cp1252 and blows up on the em dashes in bug titles.
+        return subprocess.run(['git', '-C', REPO, *args], capture_output=True,
+                              encoding='utf-8', errors='replace', check=True).stdout
     except subprocess.CalledProcessError:
         return None
 

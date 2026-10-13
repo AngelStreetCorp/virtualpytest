@@ -16,6 +16,8 @@ import {
   ToggleButtonGroup,
   Typography,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 
@@ -72,6 +74,7 @@ const gitRepositoryName = (url: string | null): string => {
 };
 
 const CodeDeployment: React.FC = () => {
+  const P = useAgentChatPalette();
   const { serverHostsData, refreshServerData } = useServerManager();
   const [selectedHosts, setSelectedHosts] = useState<string[]>([]);
   const [selectedLocalTargets, setSelectedLocalTargets] = useState<LocalTargetKind[]>([]);
@@ -848,8 +851,8 @@ const CodeDeployment: React.FC = () => {
   };
 
   return (
-    <Box>
-      <Typography variant="h4" component="h1" mb={0.75}>
+    <Box sx={pageSurfaceSx(P)}>
+      <Typography component="h1" sx={PAGE_TITLE_SX}>
         Code Deployment
       </Typography>
 
@@ -1028,7 +1031,7 @@ const CodeDeployment: React.FC = () => {
             <Typography variant="caption" color="text.secondary">|</Typography>
             <Typography
               variant="caption"
-              color={allTargetsSelected ? 'text.disabled' : 'primary.main'}
+              color={allTargetsSelected ? 'text.disabled' : P.accentText}
               sx={{ cursor: allTargetsSelected ? 'default' : 'pointer' }}
               onClick={e => { e.stopPropagation(); if (!allTargetsSelected) toggleSelectAllTargets(true); }}
             >
@@ -1037,7 +1040,7 @@ const CodeDeployment: React.FC = () => {
             <Typography variant="caption" color="text.secondary">/</Typography>
             <Typography
               variant="caption"
-              color={someTargetsSelected ? 'primary.main' : 'text.disabled'}
+              color={someTargetsSelected ? P.accentText : 'text.disabled'}
               sx={{ cursor: someTargetsSelected ? 'pointer' : 'default' }}
               onClick={e => { e.stopPropagation(); if (someTargetsSelected) toggleSelectAllTargets(false); }}
             >

@@ -2,6 +2,21 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+// This page gates UI on permissions via usePermissions() -> usePermissionContext(), which
+// throws outside a PermissionProvider. Mocked at the module boundary, the same way every
+// other provider in this suite is (see Dashboard.test.tsx), rather than wrapping the tree
+// in real providers that would then want a real session.
+vi.mock('../../frontend/src/contexts/auth/PermissionContext', () => ({
+  PermissionProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  usePermissionContext: () => ({
+    role: 'admin',
+    permissions: ['*'],
+    hasRole: () => true,
+    hasPermission: () => true,
+    canAccess: () => true,
+  }),
+}));
+
 import MobileAppPage from '../../features/mobile-app/frontend/MobileAppPage';
 
 // MobileAppPage reads the signed-in profile through useProfile() -> useAuthContext(), which

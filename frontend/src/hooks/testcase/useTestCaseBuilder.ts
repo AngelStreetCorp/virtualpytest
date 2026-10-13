@@ -11,7 +11,13 @@ import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { getErrorMessage } from '../../utils/testcase/testCaseHelpers';
 
-export interface NavigationNode {
+/**
+ * The minimal node identity the TestCase builder needs to populate a navigation
+ * block's target dropdown. Note the field names: `id`/`type`, not the row shape's
+ * `node_id`/`node_type` — this is what `/server/navigation/…` returns for the
+ * builder, and the two were both called `TestCaseNavigationNode` until they were told apart.
+ */
+export interface TestCaseNavigationNode {
   id: string;
   label: string;
   type?: string;
@@ -31,7 +37,7 @@ export interface ActionCommand {
 
 const EMPTY_USER_INTERFACES_RESULT = { success: false, userinterfaces: [] as UserInterface[] };
 const EMPTY_TREES_RESULT = { success: false, trees: [] as any[] };
-const EMPTY_NODES_RESULT = { success: false, nodes: [] as NavigationNode[] };
+const EMPTY_NODES_RESULT = { success: false, nodes: [] as TestCaseNavigationNode[] };
 
 const DEFAULT_ACTIONS: ActionCommand[] = [
   { command: 'press_ok', description: 'Press OK button' },
@@ -111,7 +117,7 @@ export const useTestCaseBuilder = () => {
    */
   const getNavigationNodesForInterface = useCallback(async (
     userinterfaceName: string
-  ): Promise<{ success: boolean; nodes: NavigationNode[] }> => {
+  ): Promise<{ success: boolean; nodes: TestCaseNavigationNode[] }> => {
     try {
       // First, get all trees for the team
       const treesResponse = await getAllNavigationTrees();

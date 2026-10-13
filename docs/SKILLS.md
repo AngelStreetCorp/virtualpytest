@@ -34,6 +34,7 @@ Format: `{action}-{subject}` — reads like a command.
 | `control-device` | — | 4 | Direct hardware actions (click, tap, swipe) |
 | `manage-campaign` | — | 7 | CRUD test campaigns |
 | `manage-script` | — | 3 | List/execute Python scripts |
+| `create-virtual-script` | — | 8 | Write/edit a virtual (DB-stored) Python script, save it, optionally run it (feature `virtual-scripts`) |
 | `check-system-health` | — | 2 | Device/host health status |
 | `search-docs` | — | 3 | Search VPT documentation |
 | `navigate-vpt-ui` | — | 6 | Navigate VPT's frontend pages |
@@ -58,6 +59,6 @@ QualiAi calls VPT's MCP tools for device operations. The intelligence lives in Q
 | Handler | What it does |
 |---------|-------------|
 | `sherlock_handler.py` | Automated batch result analysis (policy-driven, background) |
-| `nightwatch_handler.py` | Automated alert processing (rate-limited, background) |
+| `nightwatch_handler.py` | Alert triage worker `vpt-discard-incidents` (polls the alerts table, cost rules, cheap vision model) |
 
 These are operational — they run continuously without user interaction.

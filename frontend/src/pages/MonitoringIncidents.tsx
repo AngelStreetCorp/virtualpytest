@@ -1,10 +1,8 @@
 import {
   CheckCircle as ResolvedIcon,
   Error as ActiveIcon,
-  Visibility as MonitorIcon,
   KeyboardArrowDown as ExpandMoreIcon,
   KeyboardArrowRight as ExpandLessIcon,
-  SmartToy as AiIcon,
   Person as ManualIcon,
   CheckCircle as CheckedIcon,
   Help as UnknownIcon,
@@ -41,10 +39,16 @@ import {
   Tooltip,
   Switch,
   FormControlLabel,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import type { TriageStats } from '../hooks/pages/useAlerts';
+import { PageTitle, Palette, StatTiles, pageSurfaceSx, segmentedSx } from '../components/common/PageChrome';
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { AIIcon as AiIcon } from '../components/common/icons/CustomIcons';
 import { HeatMapFreezeModal } from '../components/heatmap/HeatMapFreezeModal';
 import { R2Image } from '../components/common/R2Image';
 import { StyledDialog } from '../components/common/StyledDialog';
@@ -54,13 +58,61 @@ import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { Alert } from '../types/pages/Monitoring_Types';
 import { parseIncidentFocus, findFocusedAlert } from '../utils/incidentFocus';
 
+
+/** Section count next to a title; tinted when it carries a colour (e.g. active alerts). */
+const CountPill: React.FC<{ count: number; color?: string; P: Palette }> = ({ count, color, P }) => (
+  <Box component="span" sx={{ fontSize: '0.72rem', fontWeight: 600, lineHeight: 1.7, px: 1, borderRadius: 999, color: color || P.textSecondary, bgcolor: color ? `${color}22` : P.hoverBg }}>
+    {count}
+  </Box>
+);
+
+/** Incident type as a tinted pill (open: by severity; closed: muted with a green tick). */
+const IncidentTag: React.FC<{ label: string; color: string; icon: React.ReactElement; muted?: boolean }> = ({ label, color, icon, muted }) => (
+  <Box
+    component="span"
+    sx={{
+      display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 999,
+      fontSize: '0.75rem', fontWeight: 600, whiteSpace: 'nowrap',
+      color: muted ? 'text.secondary' : color, bgcolor: muted ? 'transparent' : `${color}1f`,
+      border: `1px solid ${color}${muted ? '55' : '66'}`,
+      '& .MuiSvgIcon-root': { fontSize: 14, color },
+    }}
+  >
+    {icon}
+    {label}
+  </Box>
+);
+
+// ai_calls.error_type of a failed triage request, in words for the "Triage unavailable" line.
+const TRIAGE_FAILURE: Record<string, string> = {
+  no_credit: 'no credit on the model account (HTTP 402)',
+  auth: 'model API key refused',
+  rate_limit: 'rate limited by the model provider',
+  timeout: 'model timed out',
+  connection: 'model endpoint unreachable',
+  server: 'model provider error',
+  bad_request: 'request rejected by the model',
+  other: 'model call failed',
+};
+
 const MonitoringIncidents: React.FC = () => {
+  const P = useAgentChatPalette();
   const { isMobile } = useResponsiveMode();
-  const { getAllAlerts, updateCheckedStatus, updateDiscardStatus, deleteAllAlerts } = useAlerts();
+  const { getAllAlerts, updateCheckedStatus, updateDiscardStatus, deleteAllAlerts, deleteAlert, getTriageStats } = useAlerts();
+  const [triage, setTriage] = useState<TriageStats | null>(null);
   const [activeAlerts, setActiveAlerts] = useState<Alert[]>([]);
   const [closedAlerts, setClosedAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Today's triage activity (model calls, failures, tokens, discards by screen memory), refreshed every minute.
+  useEffect(() => {
+    let alive = true;
+    const load = () => getTriageStats().then((t) => alive && t.success && setTriage(t)).catch(() => undefined);
+    load();
+    const timer = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(timer); };
+  }, [getTriageStats]);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [discardModalOpen, setDiscardModalOpen] = useState(false);
   const [selectedDiscardComment, setSelectedDiscardComment] = useState<{
@@ -82,6 +134,9 @@ const MonitoringIncidents: React.FC = () => {
   const incidentFocus = parseIncidentFocus(searchParams);
   const [focusedAlertId, setFocusedAlertId] = useState<string | null>(null);
   const [focusMiss, setFocusMiss] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'closed'>('all');
+  const [weekOnly, setWeekOnly] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<string | null>(null);
   const focusResolvedRef = useRef(false);
   const focusedRowRef = useRef<HTMLTableRowElement | null>(null);
 
@@ -167,6 +222,14 @@ const MonitoringIncidents: React.FC = () => {
 
   const mostCommonIncidentType =
     Object.entries(incidentTypeCounts).sort(([, a], [, b]) => b - a)[0]?.[0] || 'N/A';
+
+  const toggleStatus = (v: 'active' | 'closed') => setStatusFilter((cur) => (cur === v ? 'all' : v));
+  const toggleType = (v: string) => setTypeFilter((cur) => (cur === v ? null : v));
+  const matchesFilters = (a: Alert) =>
+    (!typeFilter || a.incident_type === typeFilter) && (!weekOnly || new Date(a.start_time) >= oneWeekAgo);
+  const shownActive = activeAlerts.filter(matchesFilters);
+  const shownClosed = closedAlerts.filter(matchesFilters);
+  const typeOptions = ['freeze', 'audio_loss', 'blackscreen'];
 
   // Format duration between two dates
   const formatDuration = (startTime: string, endTime?: string): string => {
@@ -312,6 +375,51 @@ const MonitoringIncidents: React.FC = () => {
     }
   };
 
+  const handleDeleteOne = async (alert: Alert) => {
+    try {
+      await deleteAlert(alert.id);
+      setActiveAlerts((a) => a.filter((x) => x.id !== alert.id));
+      setClosedAlerts((a) => a.filter((x) => x.id !== alert.id));
+    } catch (error) {
+      console.error('Failed to delete alert:', error);
+      setError('Failed to delete incident');
+    }
+  };
+
+  // Discard = checked + discarded (false positive); again = back to valid
+  const handleDiscardOne = async (alert: Alert) => {
+    try {
+      if (alert.discard) {
+        await handleDiscardToggle(alert);
+        return;
+      }
+      if (!alert.checked) await updateCheckedStatus(alert.id, true);
+      await updateDiscardStatus(alert.id, true, undefined, 'manual');
+      const upd = (alerts: Alert[]) =>
+        alerts.map((a) => (a.id === alert.id ? { ...a, checked: true, discard: true, check_type: 'manual' } : a));
+      setActiveAlerts(upd);
+      setClosedAlerts(upd);
+    } catch (error) {
+      console.error('Failed to discard alert:', error);
+      setError('Failed to discard incident');
+    }
+  };
+
+  const renderRowActions = (alert: Alert) => (
+    <TableCell sx={{ py: 0.5, whiteSpace: 'nowrap' }} align="right">
+      <Tooltip title={alert.discard ? 'Discarded: click to mark valid again' : 'Discard (false positive)'}>
+        <IconButton size="small" onClick={() => handleDiscardOne(alert)} sx={{ color: alert.discard ? P.warning : P.textMuted }}>
+          <DiscardedIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Tooltip title="Delete this incident">
+        <IconButton size="small" onClick={() => handleDeleteOne(alert)} sx={{ color: P.textMuted, '&:hover': { color: P.error } }}>
+          <DeleteIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+    </TableCell>
+  );
+
   // Get individual discard analysis components
   const getCheckedStatus = (alert: Alert) => {
     if (alert.check_type === 'ai_strategy_skip') {
@@ -415,9 +523,9 @@ const MonitoringIncidents: React.FC = () => {
     return (
       <Chip
         label={alert.discard_type}
-        color="info"
         size="small"
         variant="outlined"
+        sx={{ color: P.textSecondary, borderColor: P.borderColor }}
       />
     );
   };
@@ -789,12 +897,52 @@ const MonitoringIncidents: React.FC = () => {
   }
 
   return (
-    <Box>
-      <Box sx={{ mb: 0.5 }}>
-        <Typography variant="h4" sx={{ mb: 1 }}>
-          Alerts
-        </Typography>
-      </Box>
+    <Box
+      sx={{
+        ...(pageSurfaceSx(P) as object),
+        '& .MuiSwitch-switchBase.Mui-checked': { color: P.accent },
+        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: P.accent },
+      }}
+    >
+      <PageTitle
+        title="Alerts"
+        subtitle="Incidents the monitor opened on each device: what is happening now and what was resolved"
+        right={
+          <>
+        <ToggleButtonGroup
+          exclusive
+          size="small"
+          value={typeFilter}
+          onChange={(_, v) => setTypeFilter(v)}
+          sx={segmentedSx(P, 'sm')}
+        >
+          {typeOptions.map((t) => (
+            <ToggleButton key={t} value={t}>{t.replace('_', ' ')}</ToggleButton>
+          ))}
+        </ToggleButtonGroup>
+        {(typeFilter || weekOnly || statusFilter !== 'all') && (
+          <Button size="small" sx={{ textTransform: 'none' }} onClick={() => { setTypeFilter(null); setWeekOnly(false); setStatusFilter('all'); }}>
+            Clear filters
+          </Button>
+        )}
+          <Tooltip title="Clear all alerts from database">
+            <span>
+              <Button
+                variant="outlined"
+                color="error"
+                size="small"
+                startIcon={<DeleteIcon />}
+                onClick={() => setClearConfirmOpen(true)}
+                disabled={loading || totalActiveAlerts + totalClosedAlerts === 0}
+                sx={{ textTransform: 'none' }}
+              >
+                Clear all
+              </Button>
+            </span>
+          </Tooltip>
+          </>
+        }
+      />
 
       {error && (
         <MuiAlert severity="error" sx={{ mb: 1 }} onClose={() => setError(null)}>
@@ -810,66 +958,39 @@ const MonitoringIncidents: React.FC = () => {
       )}
 
       {/* Quick Stats */}
-      <Box sx={{ mb: 1 }}>
-        <Card>
-          <CardContent sx={{ py: 0.5 }}>
-            <Box display="flex" alignItems="center" justifyContent="space-between">
-              <Box display="flex" alignItems="center" gap={1}>
-                <MonitorIcon color="primary" />
-                <Typography variant="h6" sx={{ my: 0 }}>Incident Summary</Typography>
-              </Box>
+      <StatTiles
+        large
+        tiles={[
+          { label: 'Active alerts', value: totalActiveAlerts, color: totalActiveAlerts > 0 ? P.error : P.success, active: statusFilter === 'active', onClick: () => toggleStatus('active'), title: 'Click to show only active alerts, click again to clear' },
+          { label: 'This week', value: alertsThisWeek, active: weekOnly, onClick: () => setWeekOnly((w) => !w), title: 'Click to show only the last 7 days, click again to clear' },
+          { label: 'Most common', value: mostCommonIncidentType || '-', active: typeFilter === mostCommonIncidentType, onClick: () => mostCommonIncidentType !== 'N/A' && toggleType(mostCommonIncidentType), title: 'Click to filter on this incident type, click again to clear' },
+          { label: 'Closed', value: totalClosedAlerts, active: statusFilter === 'closed', onClick: () => toggleStatus('closed'), title: 'Click to show only closed alerts, click again to clear' },
+        ]}
+      />
 
-              <Box display="flex" alignItems="center" gap={4}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Active Alerts</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {totalActiveAlerts}
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">This Week</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {alertsThisWeek}
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Common Type</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {mostCommonIncidentType}
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Total Closed</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {totalClosedAlerts}
-                  </Typography>
-                </Box>
-                <Tooltip title="Clear all alerts from database">
-                  <Button
-                    variant="outlined"
-                    color="error"
-                    size="small"
-                    startIcon={<DeleteIcon />}
-                    onClick={() => setClearConfirmOpen(true)}
-                    disabled={loading || totalActiveAlerts + totalClosedAlerts === 0}
-                  >
-                    Clear All
-                  </Button>
-                </Tooltip>
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
-      </Box>
+      {triage && (
+        <Typography variant="caption" sx={{ display: 'block', color: P.textMuted, mb: 1 }} title="Alert triage today (UTC): model calls, failed calls, tokens, and alerts discarded by a known screen without a model call">
+          Triage today: {triage.calls} model calls ({triage.errors} failed), {(triage.tokens_in + triage.tokens_out).toLocaleString()} tokens
+          {' · '}{triage.avoided} discarded by screen memory
+          {' · '}{triage.screens.expected} expected / {triage.screens.bad} bad / {triage.screens.unknown} unknown screens
+        </Typography>
+      )}
+      {triage?.unavailable && (
+        <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: P.error, mb: 1 }} title="The last alert-triage model request failed; alerts wait unchecked and the cost rules keep running until a call answers again">
+          <ActiveIcon sx={{ fontSize: 14 }} />
+          Triage unavailable: {TRIAGE_FAILURE[triage.unavailable.reason] || triage.unavailable.reason} (last try {new Date(triage.unavailable.since).toLocaleTimeString()})
+        </Typography>
+      )}
 
       <Grid container spacing={1}>
         {/* Alerts In Progress */}
-        <Grid item xs={12}>
+        {statusFilter !== 'closed' && <Grid item xs={12}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                <Typography variant="h6" sx={{ my: 0 }}>
-                  In Progress
+                <Typography variant="h6" component="h2" sx={{ my: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  In progress
+                  <CountPill count={shownActive.length} color={shownActive.length ? P.error : undefined} P={P} />
                 </Typography>
                 <FormControlLabel
                   control={
@@ -899,12 +1020,10 @@ const MonitoringIncidents: React.FC = () => {
                   },
                 }}
               >
-                <Table size="small">
+                <Table size="small" sx={{ tableLayout: 'fixed', minWidth: showDetailedColumns ? 1520 : 900, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
+<colgroup><col style={{ width: 190 }} /><col /><col style={{ width: 130 }} /><col style={{ width: 195 }} /><col style={{ width: 100 }} /><col style={{ width: 110 }} />{showDetailedColumns && (<><col style={{ width: 90 }} /><col style={{ width: 90 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 200 }} /></>)}</colgroup>
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ py: 0.5, width: 50 }}>
-                        <strong>Expand</strong>
-                      </TableCell>
                       <TableCell sx={{ py: 0.5 }}>
                         <strong>Incident</strong>
                       </TableCell>
@@ -919,6 +1038,9 @@ const MonitoringIncidents: React.FC = () => {
                       </TableCell>
                       <TableCell sx={{ py: 0.5 }}>
                         <strong>Duration</strong>
+                      </TableCell>
+                      <TableCell sx={{ py: 0.5 }} align="right">
+                        <strong>Actions</strong>
                       </TableCell>
                       {showDetailedColumns && (
                         <>
@@ -948,10 +1070,10 @@ const MonitoringIncidents: React.FC = () => {
                           <LoadingState />
                         </TableCell>
                       </TableRow>
-                    ) : activeAlerts.length === 0 ? (
+                    ) : shownActive.length === 0 ? (
                       <EmptyState message="No active alerts" colSpan={showDetailedColumns ? 11 : 6} />
                     ) : (
-                      activeAlerts.map((alert) => (
+                      shownActive.map((alert) => (
                         <React.Fragment key={alert.id}>
                           <TableRow
                             ref={alert.id === focusedAlertId ? focusedRowRef : undefined}
@@ -963,33 +1085,29 @@ const MonitoringIncidents: React.FC = () => {
                               ...focusedRowSx(alert.id),
                             }}
                           >
-                            <TableCell sx={{ py: 0.5 }}>
-                              <IconButton
-                                size="small"
-                                onClick={() => toggleRowExpansion(alert.id)}
-                                sx={{ p: 0.5 }}
-                              >
-                                {expandedRows.has(alert.id) ? (
-                                  <ExpandMoreIcon />
-                                ) : (
-                                  <ExpandLessIcon />
-                                )}
-                              </IconButton>
-                            </TableCell>
-                            <TableCell sx={{ py: 0.5 }}>
-                              <Chip
-                                icon={<ActiveIcon />}
+                            <TableCell sx={{ py: 0.5, pl: 0.5, whiteSpace: 'nowrap' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => toggleRowExpansion(alert.id)}
+                                  sx={{ p: 0.5 }}
+                                >
+                                  {expandedRows.has(alert.id) ? <ExpandMoreIcon /> : <ExpandLessIcon />}
+                                </IconButton>
+                              <IncidentTag
                                 label={alert.incident_type}
-                                color={getIncidentTypeColor(alert.incident_type)}
-                                size="small"
+                                color={{ error: P.error, warning: P.warning, info: P.textSecondary }[getIncidentTypeColor(alert.incident_type)]}
+                                icon={<ActiveIcon />}
                               />
+                              </Box>
                             </TableCell>
                             <TableCell sx={{ py: 0.5 }}>{alert.host_name}</TableCell>
                             <TableCell sx={{ py: 0.5 }}>{alert.device_id}</TableCell>
-                            <TableCell sx={{ py: 0.5 }}>{formatDate(alert.start_time)}</TableCell>
+                            <TableCell sx={{ py: 0.5, whiteSpace: 'nowrap' }}>{formatDate(alert.start_time)}</TableCell>
                             <TableCell sx={{ py: 0.5 }}>
                               {formatDuration(alert.start_time)}
                             </TableCell>
+                            {renderRowActions(alert)}
                             {showDetailedColumns && (
                               <>
                                 <TableCell sx={{ py: 0.5 }}>
@@ -1024,7 +1142,7 @@ const MonitoringIncidents: React.FC = () => {
                                   timeout="auto"
                                   unmountOnExit
                                 >
-                                  <Box sx={{ backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
+                                  <Box sx={{ backgroundColor: P.hoverBg }}>
                                     {renderExpandedContent(alert)}
                                   </Box>
                                 </Collapse>
@@ -1039,15 +1157,16 @@ const MonitoringIncidents: React.FC = () => {
               </TableContainer>
             </CardContent>
           </Card>
-        </Grid>
+        </Grid>}
 
         {/* Alerts Closed */}
-        <Grid item xs={12}>
+        {statusFilter !== 'active' && <Grid item xs={12}>
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                <Typography variant="h6" sx={{ my: 0 }}>
+                <Typography variant="h6" component="h2" sx={{ my: 0, display: 'flex', alignItems: 'center', gap: 1 }}>
                   Closed
+                  <CountPill count={shownClosed.length} P={P} />
                 </Typography>
                 <FormControlLabel
                   control={
@@ -1077,12 +1196,10 @@ const MonitoringIncidents: React.FC = () => {
                   },
                 }}
               >
-                <Table size="small">
+                <Table size="small" sx={{ tableLayout: 'fixed', minWidth: showDetailedColumns ? 1620 : 1000, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
+<colgroup><col style={{ width: 190 }} /><col /><col style={{ width: 130 }} /><col style={{ width: 195 }} /><col style={{ width: 195 }} /><col style={{ width: 130 }} /><col style={{ width: 110 }} />{showDetailedColumns && (<><col style={{ width: 90 }} /><col style={{ width: 90 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 200 }} /></>)}</colgroup>
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ py: 0.5, width: 50 }}>
-                        <strong>Expand</strong>
-                      </TableCell>
                       <TableCell sx={{ py: 0.5 }}>
                         <strong>Incident</strong>
                       </TableCell>
@@ -1100,6 +1217,9 @@ const MonitoringIncidents: React.FC = () => {
                       </TableCell>
                       <TableCell sx={{ py: 0.5 }}>
                         <strong>Total Duration</strong>
+                      </TableCell>
+                      <TableCell sx={{ py: 0.5 }} align="right">
+                        <strong>Actions</strong>
                       </TableCell>
                       {showDetailedColumns && (
                         <>
@@ -1125,14 +1245,14 @@ const MonitoringIncidents: React.FC = () => {
                   <TableBody>
                     {loading ? (
                       <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                        <TableCell colSpan={showDetailedColumns ? 12 : 7}>
+                        <TableCell colSpan={showDetailedColumns ? 11 : 6}>
                           <LoadingState />
                         </TableCell>
                       </TableRow>
-                    ) : closedAlerts.length === 0 ? (
-                      <EmptyState message="No closed alerts" colSpan={showDetailedColumns ? 12 : 7} />
+                    ) : shownClosed.length === 0 ? (
+                      <EmptyState message="No closed alerts" colSpan={showDetailedColumns ? 11 : 6} />
                     ) : (
-                      closedAlerts.map((alert) => (
+                      shownClosed.map((alert) => (
                         <React.Fragment key={alert.id}>
                           <TableRow
                             ref={alert.id === focusedAlertId ? focusedRowRef : undefined}
@@ -1144,32 +1264,22 @@ const MonitoringIncidents: React.FC = () => {
                               ...focusedRowSx(alert.id),
                             }}
                           >
-                            <TableCell sx={{ py: 0.5 }}>
-                              <IconButton
-                                size="small"
-                                onClick={() => toggleRowExpansion(alert.id)}
-                                sx={{ p: 0.5 }}
-                              >
-                                {expandedRows.has(alert.id) ? (
-                                  <ExpandMoreIcon />
-                                ) : (
-                                  <ExpandLessIcon />
-                                )}
-                              </IconButton>
-                            </TableCell>
-                            <TableCell sx={{ py: 0.5 }}>
-                              <Chip
-                                icon={<ResolvedIcon />}
-                                label={alert.incident_type}
-                                color="success"
-                                size="small"
-                                variant="outlined"
-                              />
+                            <TableCell sx={{ py: 0.5, pl: 0.5, whiteSpace: 'nowrap' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => toggleRowExpansion(alert.id)}
+                                  sx={{ p: 0.5 }}
+                                >
+                                  {expandedRows.has(alert.id) ? <ExpandMoreIcon /> : <ExpandLessIcon />}
+                                </IconButton>
+                              <IncidentTag label={alert.incident_type} color={P.success} icon={<ResolvedIcon />} muted />
+                              </Box>
                             </TableCell>
                             <TableCell sx={{ py: 0.5 }}>{alert.host_name}</TableCell>
                             <TableCell sx={{ py: 0.5 }}>{alert.device_id}</TableCell>
-                            <TableCell sx={{ py: 0.5 }}>{formatDate(alert.start_time)}</TableCell>
-                            <TableCell sx={{ py: 0.5 }}>
+                            <TableCell sx={{ py: 0.5, whiteSpace: 'nowrap' }}>{formatDate(alert.start_time)}</TableCell>
+                            <TableCell sx={{ py: 0.5, whiteSpace: 'nowrap' }}>
                               {alert.end_time ? formatDate(alert.end_time) : 'N/A'}
                             </TableCell>
                             <TableCell sx={{ py: 0.5 }}>
@@ -1177,6 +1287,7 @@ const MonitoringIncidents: React.FC = () => {
                                 ? formatDuration(alert.start_time, alert.end_time)
                                 : 'N/A'}
                             </TableCell>
+                            {renderRowActions(alert)}
                             {showDetailedColumns && (
                               <>
                                 <TableCell sx={{ py: 0.5 }}>
@@ -1205,13 +1316,13 @@ const MonitoringIncidents: React.FC = () => {
                                 },
                               }}
                             >
-                              <TableCell colSpan={showDetailedColumns ? 12 : 7} sx={{ p: 0, borderBottom: 0 }}>
+                              <TableCell colSpan={showDetailedColumns ? 11 : 6} sx={{ p: 0, borderBottom: 0 }}>
                                 <Collapse
                                   in={expandedRows.has(alert.id)}
                                   timeout="auto"
                                   unmountOnExit
                                 >
-                                  <Box sx={{ backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
+                                  <Box sx={{ backgroundColor: P.hoverBg }}>
                                     {renderExpandedContent(alert)}
                                   </Box>
                                 </Collapse>
@@ -1226,7 +1337,7 @@ const MonitoringIncidents: React.FC = () => {
               </TableContainer>
             </CardContent>
           </Card>
-        </Grid>
+        </Grid>}
       </Grid>
 
       {/* Discard Comment Modal */}

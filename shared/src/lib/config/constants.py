@@ -126,7 +126,6 @@ HEATMAP_CONFIG = {
 
 AI_CONFIG = {
     # Model configuration
-    'MODEL': 'microsoft/phi-3-mini-128k-instruct',  # OpenRouter model
     'MAX_TOKENS': 2000,                              # Max completion tokens
     'TEMPERATURE': 0.0,                              # Deterministic output
     

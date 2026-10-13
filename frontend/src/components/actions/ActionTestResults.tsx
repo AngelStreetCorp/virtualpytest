@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 import React from 'react';
 
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import type { EdgeAction } from '../../types/controller/Action_Types';
 
 interface ActionTestResultsProps {
@@ -8,17 +9,18 @@ interface ActionTestResultsProps {
 }
 
 export const ActionTestResults: React.FC<ActionTestResultsProps> = ({ testResult }) => {
+  const P = useAgentChatPalette();
   if (!testResult) {
     return null;
   }
 
   const getResultColor = () => {
     if (testResult.success || testResult.resultType === 'SUCCESS') {
-      return '#4caf50'; // Green
+      return P.success; // Passed
     } else if (testResult.resultType === 'ERROR') {
-      return '#ff9800'; // Orange
+      return P.warning; // Run error / in progress
     } else {
-      return '#f44336'; // Red
+      return P.error; // Failed
     }
   };
 

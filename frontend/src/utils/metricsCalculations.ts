@@ -303,11 +303,20 @@ export const formatSuccessRate = (rate: number): string => {
   return `${(rate * 100).toFixed(1)}%`;
 };
 
+import { AGENT_CHAT_PALETTE } from '../constants/agentChatTheme';
+
+// Static palette: this file is a non-component utility (no React hooks possible).
+// The hex form is needed for callers that consume it outside React (e.g. SVG fills,
+// chart libraries). The light counterpart is handled by the React-side equivalent.
+const CONFIDENCE_HIGH = AGENT_CHAT_PALETTE.success;
+const CONFIDENCE_MEDIUM = AGENT_CHAT_PALETTE.warning;
+const CONFIDENCE_LOW = AGENT_CHAT_PALETTE.error;
+
 /**
  * Get confidence color for UI elements
  */
 export const getConfidenceColor = (confidence: number): string => {
-  if (confidence >= CONFIDENCE_THRESHOLDS.HIGH) return '#4caf50'; // Green
-  if (confidence >= CONFIDENCE_THRESHOLDS.MEDIUM) return '#ff9800'; // Orange
-  return '#f44336'; // Red
+  if (confidence >= CONFIDENCE_THRESHOLDS.HIGH) return CONFIDENCE_HIGH;
+  if (confidence >= CONFIDENCE_THRESHOLDS.MEDIUM) return CONFIDENCE_MEDIUM;
+  return CONFIDENCE_LOW;
 };

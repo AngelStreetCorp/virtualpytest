@@ -81,6 +81,7 @@ class BluetoothRemoteController(RemoteControllerInterface):
     def __init__(self,
                  adapter_hci: str = 'hci0',
                  ble_type: str = 'arris',
+                 ble_mac: Optional[str] = None,
                  **kwargs):
         """
         Args:
@@ -104,6 +105,13 @@ class BluetoothRemoteController(RemoteControllerInterface):
 
         self.adapter_hci = adapter_hci
         self.ble_type = ble_type
+        # Last start.sh failure (its ERROR line), cleared on each Start Pairing.
+        # get_pairing_status reports it so the panel can stop waiting.
+        self._pair_error: Optional[str] = None
+        # DEVICEn_BLE_MAC: the spoofed adapter address start.sh pairs on.
+        # Unset = start.sh keeps the adapter's address, or defaults to
+        # 20:21:41:00:1F:1<hci index> for a new adapter (§6.7.33).
+        self.ble_mac = (ble_mac or '').strip().upper() or None
         self._pairing_in_progress = False
         # True while start.sh OR resume.sh is running in the background.
         # start.sh/resume.sh intentionally STOP the hid-remote daemon early
@@ -113,6 +121,17 @@ class BluetoothRemoteController(RemoteControllerInterface):
         # daemon-down window as a crash ("hid-remote service exited during
         # pairing"). See BLUETOOTH.md §6.7.23-followup-3.
         self._script_running = False
+        # End-to-end Resume state.  A successful resume.sh exit only means
+        # the adapter/GATT stack was rebuilt; the STB can still be asleep and
+        # disconnected.  Keep recovery running through the directed wake and
+        # readiness gate so callers never mistake "script launched" for a
+        # usable remote.
+        self._resume_state = 'idle'
+        self._resume_error: Optional[str] = None
+        # Why the last press_key returned False when the FIFO write itself
+        # succeeded (e.g. 'no BLE peer connected after wake'); surfaced in
+        # execute_command's press_key result.
+        self.last_press_error: Optional[str] = None
         self.scripts_dir = os.path.join(
             os.path.dirname(os.path.abspath(__file__)), 'bluetooth')
 
@@ -197,10 +216,14 @@ class BluetoothRemoteController(RemoteControllerInterface):
 
         if command == 'press_key':
             key = params.get('key')
+            self.last_press_error = None
             success = self.press_key(key) if key else False
-            return {'success': success}
+            result = {'success': success}
+            if not success and self.last_press_error:
+                result['error'] = self.last_press_error
+            return result
         if command == 'start_pairing':
-            return self.start_pairing()
+            return self.start_pairing(caller=params.get('caller') or 'unknown')
         if command == 'resume':
             return self.resume()
         if command == 'wake':
@@ -227,7 +250,14 @@ class BluetoothRemoteController(RemoteControllerInterface):
         no peer is currently connected, hid_remote.py's wake_on_press()
         will trigger ADV_DIRECT_IND and reconnect transparently before
         sending the key (§ 6.7.10).
+
+        A FIFO write only proves the daemon will try. When no peer is
+        connected, this waits for the wake to land (see _await_peer_after_write)
+        and returns False — last_press_error 'no BLE peer connected after
+        wake' — if the box never reconnected, instead of reporting a key
+        that went nowhere as sent.
         """
+        self.last_press_error = None
         if not self.is_connected:
             print(f"Remote[{self.device_type.upper()}]: "
                   f"ERROR - controller not connected")
@@ -243,7 +273,6 @@ class BluetoothRemoteController(RemoteControllerInterface):
             with open(self.fifo_path, 'w') as fifo:
                 fifo.write(key_upper + '\n')
             print(f"Remote[{self.device_type.upper()}]: Sent {key_upper}")
-            return True
         except FileNotFoundError:
             print(f"Remote[{self.device_type.upper()}]: "
                   f"FIFO {self.fifo_path} missing — daemon may be down")
@@ -256,6 +285,71 @@ class BluetoothRemoteController(RemoteControllerInterface):
             print(f"Remote[{self.device_type.upper()}]: "
                   f"FIFO write failed: {e}")
             return False
+        return self._await_peer_after_write(key_upper)
+
+    # Mirrors hid_remote.WAKE_TIMEOUT_S (the daemon is a separate process
+    # that imports dbus/gi, so it cannot be imported here; a unit test pins
+    # the two values together).
+    WAKE_TIMEOUT_S = 30
+    _WAKE_POLL_S = 0.5
+    # The daemon tries each HID-ready bond for WAKE_TIMEOUT_S while it
+    # publishes waking=true; never wait longer than this many of them.
+    _MAX_WAKE_TARGETS = 3
+
+    def _read_daemon_status(self) -> Dict[str, Any]:
+        try:
+            with open(self.status_path, 'r') as f:
+                data = json.load(f)
+            return data if isinstance(data, dict) else {}
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            return {}
+
+    def _peer_connected(self) -> Optional[bool]:
+        """Connected flag of our bonded peer; None when no peer is bonded."""
+        peer = self._query_dbus_peer_state()
+        if not peer:
+            return None
+        return bool(peer.get('connected'))
+
+    def _await_peer_after_write(self, key_upper: str) -> bool:
+        """After a FIFO write: True once a peer is connected to carry the key.
+
+        Connected (the normal case) costs one status-file read: hid_ready is
+        only true while the STB holds a key-channel subscription, and the
+        daemon clears it on disconnect. Otherwise one D-Bus read, and only
+        when that says disconnected does this poll — for WAKE_TIMEOUT_S + 2 s,
+        extended while the daemon reports waking=true (a multi-bond wake tries
+        each HID-ready bond in turn).
+        """
+        if self._read_daemon_status().get('hid_ready'):
+            return True
+        connected = self._peer_connected()
+        if connected:
+            return True
+        if connected is None:
+            self.last_press_error = 'no BLE peer bonded'
+            print(f"Remote[{self.device_type.upper()}]: {key_upper} not delivered — "
+                  f"no bonded peer on {self.adapter_hci}")
+            return False
+
+        start = time.monotonic()
+        deadline = start + self.WAKE_TIMEOUT_S + 2
+        hard_cap = start + self.WAKE_TIMEOUT_S * self._MAX_WAKE_TARGETS + 2
+        while True:
+            time.sleep(self._WAKE_POLL_S)
+            if self._read_daemon_status().get('hid_ready') or self._peer_connected():
+                print(f"Remote[{self.device_type.upper()}]: peer connected after wake "
+                      f"({time.monotonic() - start:.1f}s), {key_upper} delivered")
+                return True
+            now = time.monotonic()
+            if now >= hard_cap:
+                break
+            if now >= deadline and not self._read_daemon_status().get('waking'):
+                break
+        self.last_press_error = 'no BLE peer connected after wake'
+        print(f"Remote[{self.device_type.upper()}]: {key_upper} NOT delivered — "
+              f"no BLE peer connected after wake ({time.monotonic() - start:.1f}s)")
+        return False
 
     # ---------- Wake --------------------------------------------------------
 
@@ -367,17 +461,23 @@ class BluetoothRemoteController(RemoteControllerInterface):
 
     # ---------- Pairing flow ----------------------------------------------
 
-    def start_pairing(self) -> Dict[str, Any]:
+    def start_pairing(self, caller: str = 'unknown') -> Dict[str, Any]:
         """Run start.sh (destructive fresh pair) in a background thread.
 
         Returns immediately so the HTTP request doesn't block the single
         werkzeug worker (which would freeze HLS streams for ~25s).
         The frontend polls get_pairing_status to track progress.
+
+        caller (stamped by the server: user, IP) is passed to start.sh, which
+        appends it to /var/log/vpt-ble-pairing.log (§6.7.32).
         """
         if self._pairing_in_progress:
             return {'success': False,
                     'error': 'Pairing already in progress'}
+        print(f"Remote[{self.device_type.upper()}]: start_pairing on "
+              f"{self.adapter_hci} requested by {caller}")
         self._clear_pairing_lock()
+        self._pair_error = None
         self._pairing_in_progress = True
         print(f"Remote[{self.device_type.upper()}]: "
               f"Starting pairing in background (start.sh will auto-pick MAC)")
@@ -386,11 +486,18 @@ class BluetoothRemoteController(RemoteControllerInterface):
 
         def _run():
             try:
-                ok, out = self._run_script('start.sh')
+                extra_env = {'VPT_PAIRING_CALLER': caller}
+                if self.ble_mac:
+                    extra_env['ADAPTER_MAC'] = self.ble_mac
+                ok, out = self._run_script('start.sh', extra_env=extra_env)
                 if not ok:
+                    errors = [l for l in (out or '').splitlines() if l.startswith('ERROR')]
+                    self._pair_error = (errors[-1] if errors
+                                        else 'start.sh failed (see the start-resume log tab)')
                     print(f"Remote[{self.device_type.upper()}]: "
                           f"start.sh failed: {out[-400:] if out else '(no output)'}")
             except Exception as e:
+                self._pair_error = f'start.sh exception: {e}'
                 print(f"Remote[{self.device_type.upper()}]: "
                       f"start.sh exception: {e}")
             finally:
@@ -401,23 +508,55 @@ class BluetoothRemoteController(RemoteControllerInterface):
         return {'success': True, 'output': 'start.sh launched in background'}
 
     def resume(self) -> Dict[str, Any]:
-        """Run resume.sh (non-destructive, preserves the bond) in background."""
+        """Recover the bonded remote through to a usable HID connection.
+
+        The operation stays asynchronous so the host HTTP worker is not held
+        for the adapter reset + directed-advertising window.  Progress and
+        the final verdict are exposed by get_pairing_status() through
+        resume_state/resume_error.
+        """
+        if self._resume_state == 'running':
+            return {'success': False, 'error': 'Resume recovery already in progress'}
+
         self._script_running = True
+        self._resume_state = 'running'
+        self._resume_error = None
 
         def _run():
             try:
                 ok, out = self._run_script('resume.sh')
                 if not ok:
-                    print(f"Remote[{self.device_type.upper()}]: "
-                          f"resume.sh failed: {out[-400:] if out else ''}")
-            except Exception as e:
+                    detail = out[-400:] if out else 'no output'
+                    self._resume_error = f'resume.sh failed: {detail}'
+                    self._resume_state = 'failed'
+                    print(f"Remote[{self.device_type.upper()}]: {self._resume_error}")
+                    return
+
+                # resume.sh intentionally finishes with the peripheral
+                # advertising but the peer may still be asleep.  Complete the
+                # recovery by waking it and requiring the same readiness gate
+                # used before script execution.
+                ready_timeout = self.WAKE_TIMEOUT_S * self._MAX_WAKE_TARGETS + 10
+                if not self.wait_for_ready(timeout=ready_timeout):
+                    self._resume_error = (
+                        f'STB did not reach connected + services + HID ready '
+                        f'within {ready_timeout}s after resume')
+                    self._resume_state = 'failed'
+                    print(f"Remote[{self.device_type.upper()}]: {self._resume_error}")
+                    return
+
+                self._resume_state = 'ready'
                 print(f"Remote[{self.device_type.upper()}]: "
-                      f"resume.sh exception: {e}")
+                      f"Resume recovery complete — BLE link ready")
+            except Exception as e:
+                self._resume_error = f'resume recovery exception: {e}'
+                self._resume_state = 'failed'
+                print(f"Remote[{self.device_type.upper()}]: {self._resume_error}")
             finally:
                 self._script_running = False
 
         threading.Thread(target=_run, daemon=True).start()
-        return {'success': True, 'output': 'resume.sh launched in background'}
+        return {'success': True, 'output': 'BLE resume recovery started'}
 
     # ---------- Status -----------------------------------------------------
 
@@ -467,6 +606,9 @@ class BluetoothRemoteController(RemoteControllerInterface):
         status = {
             'daemon_active': daemon_up,
             'script_running': bool(self._script_running),
+            'resume_state': self._resume_state,
+            'resume_error': self._resume_error,
+            'pair_error': self._pair_error,
             'advertising': daemon_up and self._agent_active(),
             'adapter_mac': self._adapter_address(),
             'bond_present': False,
@@ -526,7 +668,7 @@ class BluetoothRemoteController(RemoteControllerInterface):
         are harmless race artifacts from Restart=always on transient
         units but confuse operators reading the debug panel.
         """
-        units = [self.hid_remote_unit, self.hid_agent_unit, self.boot_resume_unit]
+        units = [self.hid_remote_unit, self.hid_agent_unit]
         out: Dict[str, Any] = {}
         for unit in units:
             try:
@@ -555,8 +697,36 @@ class BluetoothRemoteController(RemoteControllerInterface):
                 out[unit] = cleaned
             except Exception as e:
                 out[unit] = f'error: {e}'
+        out[f'start-resume-{self.adapter_hci}'] = self._last_script_run()
         out['pairing_status'] = self.get_pairing_status()
         return out
+
+    def _last_script_run(self, max_lines: int = 300) -> str:
+        """Output of the most recent start.sh or resume.sh run on this adapter.
+
+        The Start Pairing / Resume buttons run these scripts, which write to
+        /tmp/ble-{start,resume}-<hci>.log, not to a systemd unit. The boot-time
+        unit (vpt-ble-remote@<hci>) only logs at boot, so the logs panel used
+        to show an always-empty tab for it. xtrace lines ('+ cmd') are dropped.
+        """
+        runs = []
+        for name in ('start', 'resume'):
+            path = f'/tmp/ble-{name}-{self.adapter_hci}.log'
+            try:
+                runs.append((os.path.getmtime(path), path))
+            except OSError:
+                pass
+        if not runs:
+            return '(no start.sh / resume.sh run since the host booted)'
+        path = max(runs)[1]
+        try:
+            with open(path, errors='replace') as f:
+                text = f.read()
+        except OSError as e:
+            return f'error reading {path}: {e}'
+        last = text.rfind('===== ')
+        lines = [l for l in text[max(last, 0):].splitlines() if not l.startswith('+')]
+        return f'[{path}]\n' + '\n'.join(lines[-max_lines:])
 
     def get_available_actions(self) -> Dict[str, Any]:
         """List supported keys as action objects, grouped by category.

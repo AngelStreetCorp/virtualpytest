@@ -1,444 +1,77 @@
-# AI Exploration Tools (7 tools) 🤖 **RECOMMENDED**
+# Map Builder Tool (1 tool)
 
-**AI-powered navigation tree building** - Automates the entire tree creation process.
+**`auto_discover_screen` builds a map of the device's current screen**: one node per screen reachable
+from it, one edge each, every edge validated on the device. It is the engine behind the navigation
+editor's **Build Map** button, run without the review steps.
 
----
-
-## 🎯 Quick Workflow
-
-### Automated Tree Building (RECOMMENDED):
-```
-1. start_ai_exploration → AI analyzes screen and proposes structure
-2. approve_exploration_plan → Creates all nodes/edges in batch
-3. validate_exploration_edges → Tests all edges sequentially  
-4. get_node_verification_suggestions → AI suggests verifications
-5. approve_node_verifications → Applies verifications to nodes
-6. finalize_exploration → Removes _temp suffixes
-```
-
-### Manual Tree Building (Advanced):
-```
-1. dump_ui_elements → Inspect screen
-2. analyze_screen_for_action → Get selector
-3. create_node + create_edge → Build manually
-4. execute_edge → Test individually
-```
+It is **a rule-based mapping process, not an AI agent.** Read the next section before using it from an
+agent.
 
 ---
 
-## When to Use AI vs Manual
+## Map builder vs agent pipeline
 
-| Scenario | Recommendation |
-|----------|---------------|
-| **New app exploration** | ✅ AI Exploration (3 steps) |
-| **TV/STB dual-layer** | ✅ AI Exploration (handles automatically) |
-| **Bulk node creation** | ✅ AI Exploration (creates all at once) |
-| **Specific edge fix** | ⚠️ Manual (update_edge) |
-| **Complex custom flow** | ⚠️ Manual (full control) |
+VirtualPyTest has two different ways to build a navigation tree. Keep them apart: one is a tool, the
+other is a plan that may call that tool.
 
----
+| | Map builder | Agent pipeline |
+|---|---|---|
+| What it is | A fixed process: read the screen, propose targets, create, validate | An LLM agent that decides what to do and calls MCP tools |
+| Where | Editor **Build Map** button; MCP `auto_discover_screen` | Atlas with the `build-tree-mobile` / `-web` / `-stb` skills; QualiAI (separate product, drives VPT through REST + `/server/mcp`) |
+| AI model | **None on Android and web.** TV/STB only: a vision model reads the menu from the screenshot (no UI dump exists there) | Every decision |
+| Decides | Nothing: rules choose the targets, a fixed order tries the ways back | Which app and start screen, which proposals to keep, how to repair a failed edge, when to go deeper |
+| Scope | The current screen, one level | Whatever the agent plans |
+| Repeatable | Same screen gives the same map | Depends on the model |
 
-## Tool Reference
+An agent that calls `auto_discover_screen` gets a map, not a judgement: what to keep and what to fix
+stays the agent's job.
 
-### 1. `start_ai_exploration`
+## How the map is built
 
-Start AI-powered exploration of a userinterface.
+| Step | Android / web (no model) | TV / STB |
+|---|---|---|
+| 1. Read the screen | UI dump of the **app's own window** (status bar, navigation bar, launcher dropped) | Screenshot → vision model (`vision.dom`) lists the menu items |
+| 2. Choose targets | Tappable elements, the app's fixed navigation (tab bar, toolbar) before list items; list rows only when fewer than 3 | The menu items in their rows |
+| 3. Create | One node per target; forward edge = tap the label, way back = BACK | Forward = D-pad moves + OK; way back = BACK + reverse move |
+| 4. Validate each edge | Tap; then try the entry edge's taps (e.g. tap Home), BACK, BACK ×2, until **every** validated item shows in the app's window again; the step that worked becomes the edge's way back | D-pad, then BACK, checked on the screen |
+| 5. Node checks (editor only) | Text only that screen shows, from the dumps (`dump_analyzer`, no model) | Text/image references |
 
-**What it does:**
-1. Captures screenshot of home screen
-2. Analyzes UI elements (buttons, tabs, menus)
-3. Detects strategy (click for mobile/web, D-pad for TV)
-4. Proposes nodes and edges structure
-5. Returns plan for your approval
+Code: `backend_host/src/services/ai_exploration/` (`screen_analyzer.py`, `phases/validation_runner.py`,
+`phases/verification_manager.py`). The folder name predates this split; the Android/web path does not
+call a model.
 
-**Parameters:**
-- `userinterface_name` (required): Interface to explore
-- `tree_id` (optional): Auto-detected from userinterface
-- `team_id` (optional): Defaults to team_1
-- `original_prompt` (optional): Your goal/intent
+## `auto_discover_screen`
 
-**Returns:**
-- `exploration_id`: For polling status
-- `exploration_plan`: Proposed items to create
-- `strategy`: 'click' (mobile/web) or 'dpad' (TV)
-- `screenshot`: Visual of analyzed screen
-
-**Example:**
-```python
-# Step 1: Get compatible host/device
-hosts = get_compatible_hosts(userinterface_name='sauce-demo')
-
-# Step 2: Start exploration
-result = start_ai_exploration(
-  userinterface_name='sauce-demo',
-  original_prompt='Build navigation for e-commerce site'
-)
-
-# Step 3: Review plan
-print(result['exploration_plan']['items'])
-# Output: ['login', 'signup', 'search', 'cart', ...]
+```
+auto_discover_screen(tree_id, host_name, userinterface_name, device_id='device1', parent_node_id='home')
 ```
 
-**Time Saved:**
-- Manual: 10+ steps per edge × N edges
-- AI: 1 call → Full plan in seconds
+Runs, on the host, the same calls as the editor: Start → Create (**every** proposal is accepted) →
+validation of every edge. Returns the created nodes and edges and one validation result per item.
 
----
+Compared with the editor's Build Map it skips:
 
-### 2. `get_exploration_status`
+- the review of the proposals (the editor lets the user untick one, e.g. a cast picker);
+- node verifications (*Review Node Verifications*);
+- *Confirm & Save*, so node labels keep their `_temp` suffix.
 
-Poll AI exploration progress.
+### Before calling it
 
-**Returns status:**
-- `'exploring'`: AI analyzing screen
-- `'awaiting_approval'`: Plan ready for review
-- `'structure_created'`: Nodes/edges created
-- `'validating'`: Testing edges
-- `'validation_complete'`: Ready for finalization
+- The interface's entry edge (`Entry → home`) must have actions. For an Android app:
+  `close_app`, `launch_app`, then a tap on the app's Home tab when the app reopens on its last tab.
+  Without actions the call fails with a message saying so.
+- The device must be on the start node's screen, or reachable through the entry edge.
 
-**Example:**
-```python
-status = get_exploration_status(
-  exploration_id='uuid',
-  host_name='host1'
-)
+### After calling it
 
-if status['status'] == 'awaiting_approval':
-  # Review plan
-  print(status['exploration_plan']['items'])
-```
+- Read `validation_results`: an item whose forward tap failed, or whose way back is empty, needs a fix
+  (`update_edge`, see [Tree tools](mcp_tools_tree.md)).
+- Add node verifications (`update_node`) and drop the `_temp` suffix from labels yourself, or finish
+  from the editor.
 
----
+## Related
 
-### 3. `approve_exploration_plan`
-
-Approve AI plan and create navigation structure.
-
-**What it creates:**
-- All nodes in batch
-- All edges with proper selectors
-- Bidirectional navigation
-- Platform-specific actions
-
-**TV Dual-Layer (Automatic):**
-- Focus nodes: `home_tvguide`, `home_apps`
-- Screen nodes: `tvguide`, `apps`
-- Edges: RIGHT/LEFT (horizontal), OK/BACK (vertical)
-
-**Mobile/Web (Automatic):**
-- Screen nodes: `login`, `signup`, `search`
-- Edges: click_element + BACK
-
-**Parameters:**
-- `exploration_id` (required)
-- `host_name` (required)
-- `userinterface_name` (required)
-- `selected_items` (optional): Which items to create
-- `selected_screen_items` (optional): TV only - which screen nodes
-
-**Example:**
-```python
-# Approve all items
-result = approve_exploration_plan(
-  exploration_id='uuid',
-  host_name='host1',
-  userinterface_name='sauce-demo'
-)
-print(f"Created: {result['nodes_created']} nodes, {result['edges_created']} edges")
-
-# Or select specific items
-result = approve_exploration_plan(
-  exploration_id='uuid',
-  host_name='host1',
-  userinterface_name='sauce-demo',
-  selected_items=['login', 'signup', 'search']
-)
-```
-
----
-
-### 4. `validate_exploration_edges`
-
-Auto-validate all created edges by testing them sequentially.
-
-**What it tests:**
-1. Execute forward action (click or D-pad)
-2. Capture screenshot (visual proof)
-3. Execute reverse action (BACK or LEFT)
-4. Verify return to origin
-
-**TV Validation (Depth-first):**
-```
-1. home → home_tvguide: RIGHT
-2. home_tvguide ↓ tvguide: OK (screenshot)
-3. tvguide ↑ home_tvguide: BACK
-4. Repeat for next item
-```
-
-**Mobile/Web Validation:**
-```
-1. home → login: click (screenshot)
-2. login → home: BACK
-```
-
-**Example:**
-```python
-# Start validation
-result = validate_exploration_edges(
-  exploration_id='uuid',
-  host_name='host1',
-  userinterface_name='sauce-demo'
-)
-
-# Poll until complete
-while result.get('has_more_items'):
-  print(f"Tested: {result['item']} - {result['click_result']}")
-  result = validate_exploration_edges(...)
-
-print("Validation complete!")
-```
-
----
-
-### 5. `get_node_verification_suggestions`
-
-Get AI-suggested verifications for created nodes.
-
-Analyzes UI dumps captured during validation to find unique elements per node.
-
-**Returns:**
-- Suggested verifications with confidence scores
-- Uniqueness validation
-- Ready-to-use verification parameters
-
-**Example:**
-```python
-suggestions = get_node_verification_suggestions(
-  exploration_id='uuid',
-  host_name='host1'
-)
-
-for suggestion in suggestions['suggestions']:
-  print(f"Node: {suggestion['node_id']}")
-  print(f"Verification: {suggestion['verification']}")
-```
-
----
-
-### 6. `approve_node_verifications`
-
-Apply AI-suggested verifications to nodes.
-
-Adds verifications + screenshots to nodes for reliable detection.
-
-**Example:**
-```python
-result = approve_node_verifications(
-  exploration_id='uuid',
-  host_name='host1',
-  userinterface_name='sauce-demo',
-  approved_verifications=suggestions['suggestions']
-)
-
-print(f"Updated {result['nodes_updated']} nodes")
-```
-
----
-
-### 7. `finalize_exploration`
-
-Finalize exploration by removing _temp suffixes.
-
-**This is the final step** - makes all nodes and edges permanent.
-
-**Example:**
-```python
-result = finalize_exploration(
-  exploration_id='uuid',
-  host_name='host1',
-  tree_id='tree-uuid'
-)
-
-print(f"Finalized: {result['nodes_renamed']} nodes, {result['edges_renamed']} edges")
-```
-
----
-
-## Complete Example: Sauce Demo
-
-```python
-# Step 0: Get compatible host/device
-hosts = get_compatible_hosts(userinterface_name='sauce-demo')
-host_name = hosts['recommended_host']
-device_id = hosts['recommended_device']
-
-# Step 1: Start AI exploration
-result = start_ai_exploration(
-  userinterface_name='sauce-demo',
-  original_prompt='Build e-commerce navigation'
-)
-exploration_id = result['exploration_id']
-
-# Step 2: Review and approve plan
-result = approve_exploration_plan(
-  exploration_id=exploration_id,
-  host_name=host_name,
-  userinterface_name='sauce-demo',
-  selected_items=['login', 'signup', 'search', 'cart']
-)
-
-# Step 3: Validate all edges
-while True:
-  result = validate_exploration_edges(
-    exploration_id=exploration_id,
-    host_name=host_name,
-    userinterface_name='sauce-demo'
-  )
-  if not result.get('has_more_items'):
-    break
-
-# Step 4: Get verification suggestions
-suggestions = get_node_verification_suggestions(
-  exploration_id=exploration_id,
-  host_name=host_name
-)
-
-# Step 5: Apply verifications
-approve_node_verifications(
-  exploration_id=exploration_id,
-  host_name=host_name,
-  userinterface_name='sauce-demo',
-  approved_verifications=suggestions['suggestions']
-)
-
-# Step 6: Finalize
-nodes = list_navigation_nodes(userinterface_name='sauce-demo')
-tree_id = nodes['tree_id']
-
-finalize_exploration(
-  exploration_id=exploration_id,
-  host_name=host_name,
-  tree_id=tree_id
-)
-
-print("🎉 Navigation tree complete and ready!")
-```
-
----
-
-## Time Comparison
-
-| Task | Manual Approach | AI Exploration |
-|------|----------------|----------------|
-| **Analyze screen** | Visual inspection | Automatic (1s) |
-| **Find selectors** | Trial and error | AI analysis |
-| **Create nodes** | 1 at a time | Batch creation |
-| **Create edges** | 1 at a time + test | Batch creation |
-| **Test edges** | Manual per edge | Sequential auto-test |
-| **Add verifications** | Manual inspection | AI suggestion |
-| **Total for 5 nodes** | ~2-3 hours | ~10-15 minutes |
-
-**Time Saved: ~90%** for typical apps
-
----
-
-## Prerequisites
-
-1. **Userinterface must exist:**
-   ```python
-   create_userinterface(
-     name='sauce-demo',
-     device_model='host_vnc'
-   )
-   ```
-
-2. **Device must be on home screen:**
-   ```python
-   # Navigate to home first if needed
-   navigate_to_node(
-     userinterface_name='sauce-demo',
-     target_node_label='home'
-   )
-   ```
-
-3. **Get compatible host/device:**
-   ```python
-   hosts = get_compatible_hosts(userinterface_name='sauce-demo')
-   ```
-
----
-
-## Error Handling
-
-### Common Issues
-
-**"No exploration found"**
-- Cause: Exploration ID expired or invalid
-- Fix: Start new exploration
-
-**"Navigation to home failed"**
-- Cause: Entry → home edge not configured
-- Fix: Create/test entry → home edge first
-
-**"Edge validation failed"**
-- Cause: Selector changed or ambiguous
-- Fix: Review failed edge, update selector manually
-
-**"No unique verifications found"**
-- Cause: Screen has no unique elements
-- Fix: Add manual verifications or use image verification
-
----
-
-## Advanced Usage
-
-### Custom Item Selection (TV)
-
-```python
-# Only create focus nodes, skip screens
-approve_exploration_plan(
-  exploration_id='uuid',
-  host_name='host1',
-  userinterface_name='netflix_tv',
-  selected_items=['tv guide', 'apps', 'search'],
-  selected_screen_items=[]  # No screen nodes
-)
-```
-
-### Partial Validation
-
-```python
-# Validate one edge at a time for debugging
-result = validate_exploration_edges(...)
-print(f"Edge: {result['item']}")
-print(f"Screenshot: {result['screenshot_url']}")
-# Fix issues before continuing
-```
-
-### Manual Verification Override
-
-```python
-# Get suggestions
-suggestions = get_node_verification_suggestions(...)
-
-# Modify before applying
-custom_suggestions = suggestions['suggestions']
-custom_suggestions[0]['verification']['params'] = {'search_term': 'custom-selector'}
-
-# Apply modified verifications
-approve_node_verifications(approved_verifications=custom_suggestions)
-```
-
----
-
-## See Also
-
-- [Tree Tools](mcp_tools_tree.md) - Manual node/edge creation
-- [Screen Analysis Tools](mcp_tools_screen_analysis.md) - Selector analysis
-- [Navigation Tools](mcp_tools_navigation.md) - Navigate to nodes
-- [UserInterface Tools](mcp_tools_userinterface.md) - Create userinterfaces
-
----
-
-**Recommendation:** Start with AI Exploration for all new apps. Only use manual tools for edge cases or specific fixes.
-
+- [Tree tools](mcp_tools_tree.md): create, update and delete nodes and edges by hand.
+- `docs/technical/ai/tree-creation.md`: the editor flow (Build Map modal → validation → node
+  verifications → Confirm & Save).
+- `backend_server/src/agent/skills/definitions/build-tree-*/SKILL.md`: the agent pipeline's skills.

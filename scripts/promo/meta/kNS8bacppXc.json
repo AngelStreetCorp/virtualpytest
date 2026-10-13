@@ -1,0 +1,22 @@
+{
+ "id": "kNS8bacppXc",
+ "title": "Ask your test data in plain words: AI charts",
+ "description": "Ask Atlas, VirtualPyTest's AI assistant, about your test runs in plain language. It answers from the same data and definitions as the Grafana dashboards: pass rate by device, the KPI radar of an interface, only the regressions over 10 %, or a whole canvas of panels for two devices, in one sentence. Every answer exports to CSV, JSON, SVG, PNG, a report or a Grafana draft.\n\nOpen source and free.\n\nChapters\n00:00 Intro\n00:04 Pass rate by device\n00:14 KPI radar\n00:25 Regressions over 10 %\n00:36 A canvas in one sentence\n00:49 End",
+ "tags": [
+  "AI analytics",
+  "test analytics",
+  "test automation",
+  "Grafana",
+  "KPI",
+  "regression analysis",
+  "natural language query",
+  "AI assistant",
+  "QA dashboard",
+  "set-top box testing",
+  "open source",
+  "VirtualPyTest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { 
-  Box, 
-  Paper, 
-  InputBase, 
-  IconButton, 
+import {
+  Box,
+  Paper,
+  InputBase,
+  IconButton,
   Chip,
   Fade,
   Backdrop,
@@ -12,7 +12,7 @@ import {
   Typography,
   Tooltip
 } from '@mui/material';
-import { 
+import {
   AutoAwesome as SparkleIcon,
   KeyboardReturn as EnterIcon,
   KeyboardArrowDown as ArrowDownIcon,
@@ -20,27 +20,29 @@ import {
   LinkOff as RedirectOffIcon
 } from '@mui/icons-material';
 import { useAIContext } from '../../contexts/AIContext';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 // Available agents with agent-specific tips
 const AVAILABLE_AGENTS = [
-  { 
-    id: 'assistant', 
-    nickname: 'Atlas', 
-    description: 'General AI Assistant', 
-    color: '#d4af37',
+  {
+    id: 'assistant',
+    nickname: 'Atlas',
+    description: 'General AI Assistant',
+    color: '#d4af37', // palette: agent-specific brand colour used by chip fill
     tips: ['Explore the sauce-demo app', 'Run testcase TC_AUTH_01', 'Create a testcase for login']
   },
 ];
 
 export const AICommandBar: React.FC = () => {
-  const { 
-    isCommandOpen, 
-    closeCommand, 
-    selectedAgentId, 
-    setSelectedAgentId, 
+  const P = useAgentChatPalette();
+  const {
+    isCommandOpen,
+    closeCommand,
+    selectedAgentId,
+    setSelectedAgentId,
     sendMessage,
     allowAutoNavigation,
-    setAllowAutoNavigation 
+    setAllowAutoNavigation
   } = useAIContext();
   const [input, setInput] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -112,12 +114,12 @@ export const AICommandBar: React.FC = () => {
               bgcolor: 'background.paper',
               borderRadius: 3,
               border: '1px solid',
-              borderColor: '#d4af37',
+              borderColor: P.accent,
               boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
               overflow: 'hidden'
             }}
           >
-            <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', color: '#d4af37' }}>
+            <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', color: P.accentText }}>
               <SparkleIcon fontSize="medium" />
             </Box>
             
@@ -162,27 +164,27 @@ export const AICommandBar: React.FC = () => {
             
             <Box sx={{ display: 'flex', alignItems: 'center', pr: 1, gap: 0.5 }}>
               {/* Auto-redirect toggle */}
-              <Tooltip 
+              <Tooltip
                 title={allowAutoNavigation ? "Auto-redirect ON - Click to disable" : "Auto-redirect OFF - Click to enable"}
                 arrow
                 placement="top"
                 slotProps={{ popper: { sx: { zIndex: 10001 } } }}
               >
-                <IconButton 
+                <IconButton
                   onClick={() => setAllowAutoNavigation(!allowAutoNavigation)}
-                  sx={{ 
+                  sx={{
                     p: 0.75,
-                    color: allowAutoNavigation ? '#d4af37' : '#666',
-                    bgcolor: allowAutoNavigation ? 'rgba(212, 175, 55, 0.12)' : 'transparent',
+                    color: allowAutoNavigation ? P.accentText : P.textMuted,
+                    bgcolor: allowAutoNavigation ? `${P.accent}1f` : 'transparent',
                     border: '1px solid',
-                    borderColor: allowAutoNavigation ? 'rgba(212, 175, 55, 0.3)' : 'transparent',
+                    borderColor: allowAutoNavigation ? `${P.accent}4d` : 'transparent',
                     borderRadius: 1.5,
                     transition: 'all 0.2s ease',
-                    '&:hover': { 
-                      bgcolor: allowAutoNavigation ? 'rgba(212, 175, 55, 0.2)' : 'rgba(255,255,255,0.08)',
-                      color: allowAutoNavigation ? '#d4af37' : '#999',
+                    '&:hover': {
+                      bgcolor: allowAutoNavigation ? `${P.accent}33` : `${P.hoverBg}`,
+                      color: allowAutoNavigation ? P.accentText : P.textSecondary,
                     }
-                  }} 
+                  }}
                   aria-label="toggle auto-redirect"
                 >
                   {allowAutoNavigation ? <RedirectIcon sx={{ fontSize: 18 }} /> : <RedirectOffIcon sx={{ fontSize: 18 }} />}
@@ -205,18 +207,19 @@ export const AICommandBar: React.FC = () => {
                   size="small"
                   onClick={() => setInput(tip)}
                   sx={{
-                    bgcolor: 'rgba(60, 60, 60, 0.9)',
-                    color: '#b0b0b0',
+                    bgcolor: P.hoverBg,
+                    color: P.textSecondary,
                     fontSize: '0.75rem',
                     height: 26,
-                    border: '1px solid rgba(100, 100, 100, 0.3)',
+                    border: '1px solid',
+                    borderColor: P.borderColor,
                     backdropFilter: 'blur(4px)',
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
-                    '&:hover': { 
-                      bgcolor: 'rgba(80, 80, 80, 0.95)',
-                      color: '#e0e0e0',
-                      borderColor: 'rgba(150, 150, 150, 0.4)'
+                    '&:hover': {
+                      bgcolor: P.surface,
+                      color: P.textPrimary,
+                      borderColor: P.accent
                     }
                   }}
                 />
@@ -240,8 +243,9 @@ export const AICommandBar: React.FC = () => {
         slotProps={{
           paper: {
             sx: {
-              bgcolor: '#2a2a2a',
-              border: '1px solid #444',
+              bgcolor: P.surface,
+              border: '1px solid',
+              borderColor: P.borderColor,
               borderRadius: 2,
               mt: 0.5,
               minWidth: 220,
@@ -265,24 +269,24 @@ export const AICommandBar: React.FC = () => {
               py: 0.75,
               px: 1.5,
               minHeight: 'auto',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
-              '&.Mui-selected': { 
-                bgcolor: 'rgba(255,255,255,0.08)',
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' }
+              '&:hover': { bgcolor: P.hoverBg },
+              '&.Mui-selected': {
+                bgcolor: P.hoverBg,
+                '&:hover': { bgcolor: P.hoverBg }
               },
             }}
           >
-            <Box sx={{ 
-              width: 8, 
-              height: 8, 
-              borderRadius: '50%', 
+            <Box sx={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
               bgcolor: agent.color,
               flexShrink: 0
             }} />
-            <Typography sx={{ fontWeight: 600, color: '#f0f0f0', fontSize: '0.85rem', ml: 1.5 }}>
+            <Typography sx={{ fontWeight: 600, color: P.textPrimary, fontSize: '0.85rem', ml: 1.5 }}>
               {agent.nickname}
             </Typography>
-            <Typography sx={{ color: '#999', fontSize: '0.75rem', ml: 'auto', pl: 2 }}>
+            <Typography sx={{ color: P.textMuted, fontSize: '0.75rem', ml: 'auto', pl: 2 }}>
               {agent.description}
             </Typography>
           </MenuItem>

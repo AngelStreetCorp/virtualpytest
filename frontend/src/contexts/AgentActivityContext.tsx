@@ -258,7 +258,7 @@ export const AgentActivityProvider: React.FC<{ children: React.ReactNode }> = ({
       const activity = activities[agentId];
       const task = activity?.tasks.find(t => t.id === taskId);
       
-      const response = await fetch(buildServerUrl('/server/benchmarks/feedback'), {
+      const response = await fetch(buildServerUrl('/server/agents/feedback'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -155,54 +155,6 @@ paths:
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
-  /server/agent/api-key:
-    post:
-      summary: Save and validate the active or selected provider API key
-      description: Route inventory entry from `backend_server/src/routes/server_agent_routes.py` (save_api_key).
-        Check the handler for required payload fields and authorization rules.
-      operationId: server_agent_routes_save_api_key_post_41a7abb1
-      tags:
-      - server/agent
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/agent/health:
-    get:
-      summary: Health check - returns active provider configuration status.
-      description: Route inventory entry from `backend_server/src/routes/server_agent_routes.py` (health_check).
-        Check the handler for required payload fields and authorization rules.
-      operationId: server_agent_routes_health_check_get_781943a3
-      tags:
-      - server/agent
-      parameters:
-      - name: team_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/agent/models:
-    get:
-      summary: Return the per-provider × per-task default model matrix and task types
-      description: Route inventory entry from `backend_server/src/routes/server_agent_routes.py` (list_models).
-        Check the handler for required payload fields and authorization rules.
-      operationId: server_agent_routes_list_models_get_69c9fa29
-      tags:
-      - server/agent
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
   /server/agent/sessions:
     get:
       summary: List all sessions
@@ -312,6 +264,179 @@ paths:
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
+  /server/agents/overview:
+    get:
+      summary: Agent Dashboard overview - one card per AI agent (health, now, stats, parts, recent errors, feedback)
+      description: 'Handler `backend_server/src/routes/agent_activity_routes.py` (overview). Permission ai_agent:view.
+        Response `{window_hours, agents:[{id,name,role,description,version,model,health,last_activity,now,stats,feedback,parts,recent_errors,links}]}`.
+        Error text is shown to admins only.'
+      operationId: agent_activity_routes_overview_get
+      tags:
+      - server/agents
+      parameters:
+      - name: hours
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 720
+          default: 24
+      responses:
+        '200':
+          description: Overview
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /server/agents/usage:
+    get:
+      summary: Agent Dashboard usage (admin) - tokens per agent per day, per usage key, decision quality
+      description: 'Handler `agent_activity_routes.py` (usage). Admin only. Response `{days, by_agent_day, by_key, decisions, openrouter}`.'
+      operationId: agent_activity_routes_usage_get
+      tags:
+      - server/agents
+      parameters:
+      - name: days
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 30
+          default: 7
+      responses:
+        '200':
+          description: Usage
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /server/agents/{agent_id}/logs:
+    get:
+      summary: Log rows of one agent (chat turns, Test Prompt runs, verdicts, decisions)
+      description: 'Handler `agent_activity_routes.py` (agent_logs). Permission ai_agent:view; agent `other` is admin only.
+        Response `{rows:[{id,ts,part,level,summary,tokens_in,tokens_out,duration_ms,links,detail}], next_before}`.'
+      operationId: agent_activity_routes_agent_logs_get
+      tags:
+      - server/agents
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: part
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: level
+        in: query
+        required: false
+        schema:
+          type: string
+          enum: [ok, error, fallback, running]
+      - name: hours
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 720
+          default: 24
+      - name: q
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 200
+          default: 50
+      - name: before
+        in: query
+        required: false
+        schema:
+          type: string
+          format: date-time
+      responses:
+        '200':
+          description: Log rows
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /server/agents/{agent_id}/turns/{session_id}:
+    get:
+      summary: Stored transcript of one chat session
+      description: 'Handler `agent_activity_routes.py` (agent_turns). Permission ai_agent:view. Response `{turns:[{ts,role,content,tool_calls,tokens_in,tokens_out,trace_url}]}`.'
+      operationId: agent_activity_routes_agent_turns_get
+      tags:
+      - server/agents
+      parameters:
+      - name: agent_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Turns
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+  /server/agents/feedback:
+    post:
+      summary: Submit chat feedback for an agent (rating 1-5 or thumbs up/down)
+      description: 'Handler `agent_activity_routes.py` (submit_feedback). Permission ai_agent:use. Stored in agent_feedback (thumbs up = 5, down = 1).'
+      operationId: agent_activity_routes_submit_feedback_post
+      tags:
+      - server/agents
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [agent_id]
+              properties:
+                agent_id:
+                  type: string
+                rating:
+                  description: 1-5, or the string up/down
+                comment:
+                  type: string
+                task_description:
+                  type: string
+                session_id:
+                  type: string
+                task_id:
+                  type: string
+      responses:
+        '201':
+          description: Feedback stored
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  feedback_id:
+                    type: string
+                  message:
+                    type: string
   /server/agents/events/{event_type}:
     get:
       summary: Get all agents that handle a specific event type.
@@ -329,44 +454,6 @@ paths:
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
-  /server/agents/import:
-    post:
-      summary: Import custom agent from YAML
-      description: Route inventory entry from `backend_server/src/routes/agent_registry_routes.py` (import_agent_yaml).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_registry_routes_import_agent_yaml_post_165e2d1d
-      tags:
-      - server/agents
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/agents/reload:
-    post:
-      summary: Reload all agents from YAML templates
-      description: Route inventory entry from `backend_server/src/routes/agent_registry_routes.py` (reload_agents_endpoint).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_registry_routes_reload_agents_endpoint_post_c1128672
-      tags:
-      - server/agents
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
   /server/agents/selectable:
     get:
       summary: List only agents that can be selected by users in the UI dropdown
@@ -385,23 +472,6 @@ paths:
       description: Route inventory entry from `backend_server/src/routes/agent_registry_routes.py` (get_agent).
         Check the handler for required payload fields and authorization rules.
       operationId: agent_registry_routes_get_agent_get_e21711d0
-      tags:
-      - server/agents
-      parameters:
-      - name: agent_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/agents/{agent_id}/export:
-    get:
-      summary: Export agent as YAML file.
-      description: Route inventory entry from `backend_server/src/routes/agent_registry_routes.py` (export_agent).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_registry_routes_export_agent_get_b6566cfb
       tags:
       - server/agents
       parameters:
@@ -454,30 +524,6 @@ paths:
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
-  /server/ai/saveDisambiguation:
-    post:
-      summary: Save disambiguation preferences
-      description: Route inventory entry from `backend_server/src/routes/server_ai_routes.py` (save_disambiguation).
-        Check the handler for required payload fields and authorization rules.
-      operationId: server_ai_routes_save_disambiguation_post_bbed056c
-      tags:
-      - server/ai
-      parameters:
-      - name: team_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
   /server/ai_userinterface/create:
     post:
       summary: Create route
@@ -911,229 +957,6 @@ paths:
       tags:
       - server/auth
       parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/benchmarks/compare:
-    get:
-      summary: Compare two or more agents
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_compare_agents).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_compare_agents_get_7f06d8de
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: agents
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/benchmarks/feedback:
-    get:
-      summary: List feedback for agents
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_list_feedback).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_list_feedback_get_8edd901b
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: agent_id
-        in: query
-        required: false
-        schema:
-          type: string
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-    post:
-      summary: Submit user feedback for an agent
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_submit_feedback).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_submit_feedback_post_8edd901b
-      tags:
-      - server/benchmarks
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/benchmarks/feedback/{feedback_id}:
-    delete:
-      summary: Delete a feedback row and rebalance the agent's aggregate score
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_delete_feedback).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_delete_feedback_delete_ad5248c0
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: feedback_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/benchmarks/leaderboard:
-    get:
-      summary: Get agent leaderboard with rankings
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_get_leaderboard).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_get_leaderboard_get_d0138c11
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/benchmarks/run:
-    post:
-      summary: Create a new benchmark run
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_create_benchmark_run).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_create_benchmark_run_post_944100ea
-      tags:
-      - server/benchmarks
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/benchmarks/run/{run_id}/execute:
-    post:
-      summary: Execute a pending benchmark run
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_execute_benchmark_run).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_execute_benchmark_run_post_c994c060
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: run_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/benchmarks/runs:
-    get:
-      summary: List benchmark runs
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_list_benchmark_runs).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_list_benchmark_runs_get_c15123c5
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: agent_id
-        in: query
-        required: false
-        schema:
-          type: string
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/benchmarks/runs/{run_id}:
-    delete:
-      summary: Delete a benchmark run
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_delete_benchmark_run).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_delete_benchmark_run_delete_e7e51d7a
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: run_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-    get:
-      summary: Get benchmark run details with results
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_get_benchmark_run).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_get_benchmark_run_get_e7e51d7a
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: run_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/benchmarks/scores:
-    get:
-      summary: Get aggregated scores for agents
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_get_agent_scores).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_get_agent_scores_get_95a366ae
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: agent_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/benchmarks/tests:
-    get:
-      summary: List all available benchmark tests
-      description: Route inventory entry from `backend_server/src/routes/agent_benchmark_routes.py` (route_list_benchmark_tests).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_benchmark_routes_route_list_benchmark_tests_get_489ac8d1
-      tags:
-      - server/benchmarks
-      parameters:
-      - name: category
-        in: query
-        required: false
-        schema:
-          type: string
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
@@ -1799,6 +1622,25 @@ paths:
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
+  /server/companion/latest:
+    post:
+      summary: Latest companion result of one device (proxied to its host).
+      description: Route inventory entry from `features/companion/backend_server/__init__.py` (latest). Check the
+        handler for required payload fields and authorization rules.
+      operationId: __init___latest_post_264f3d3f
+      tags:
+      - server/companion
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /server/control/acquireExecutionLock:
     post:
       summary: Acquire a device lock for non-manual execution owners.
@@ -2362,6 +2204,18 @@ paths:
         required: false
         schema:
           type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /server/devicemodel/getSupportedModels:
+    get:
+      summary: Model names a host understands (DEVICE{i}_MODEL values) — what Add Model offers.
+      description: Route inventory entry from `backend_server/src/routes/server_devicemodel_routes.py` (get_supported_models).
+        Check the handler for required payload fields and authorization rules.
+      operationId: server_devicemodel_routes_get_supported_models_get_77222573
+      tags:
+      - server/devicemodel
+      parameters: []
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
@@ -3162,7 +3016,7 @@ paths:
               additionalProperties: true
   /server/mcp-proxy/execute-prompt:
     post:
-      summary: Execute natural language prompt via OpenRouter with function calling (MCP-style)
+      summary: 'Traced wrapper: one Langfuse trace per prompt, one generation per model call.'
       description: Route inventory entry from `backend_server/src/routes/server_mcp_proxy_routes.py` (execute_prompt).
         Check the handler for required payload fields and authorization rules.
       operationId: server_mcp_proxy_routes_execute_prompt_post_12ec9e24
@@ -3245,6 +3099,11 @@ paths:
         schema:
           type: string
       - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: variant
         in: query
         required: false
         schema:
@@ -3803,6 +3662,11 @@ paths:
       tags:
       - server/navigationTrees
       parameters:
+      - name: kpi_only
+        in: query
+        required: false
+        schema:
+          type: string
       - name: team_id
         in: query
         required: false
@@ -5076,69 +4940,28 @@ paths:
             schema:
               type: object
               additionalProperties: true
-  /server/runtime/instances:
+  /server/roles:
     get:
-      summary: List all running agent instances
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (list_instances).
+      summary: 'The role catalog: every role''s default permissions, preferred name, rank and device limit'
+      description: Route inventory entry from `backend_server/src/routes/server_permissions_routes.py` (get_roles).
         Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_list_instances_get_06bbae38
+      operationId: server_permissions_routes_get_roles_get_30144e87
       tags:
-      - server/runtime
-      parameters:
-      - name: team_id
-        in: query
-        required: false
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/runtime/instances/start:
-    post:
-      summary: Start new agent instance
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (start_agent_instance).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_start_agent_instance_post_a7f1efa8
-      tags:
-      - server/runtime
+      - server/roles
       parameters: []
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/runtime/instances/{instance_id}:
-    get:
-      summary: Get status of specific agent instance
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (get_instance_status).
+  /server/roles/{role}:
+    put:
+      summary: Edit a role
+      description: Route inventory entry from `backend_server/src/routes/server_permissions_routes.py` (update_role).
         Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_get_instance_status_get_b828b6ef
+      operationId: server_permissions_routes_update_role_put_1fd73f17
       tags:
-      - server/runtime
+      - server/roles
       parameters:
-      - name: instance_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/runtime/instances/{instance_id}/pause:
-    post:
-      summary: Pause agent instance
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (pause_agent_instance).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_pause_agent_instance_post_bc983684
-      tags:
-      - server/runtime
-      parameters:
-      - name: instance_id
+      - name: role
         in: path
         required: true
         schema:
@@ -5153,98 +4976,7 @@ paths:
             schema:
               type: object
               additionalProperties: true
-  /server/runtime/instances/{instance_id}/resume:
-    post:
-      summary: Resume paused agent instance
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (resume_agent_instance).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_resume_agent_instance_post_4e7321e8
-      tags:
-      - server/runtime
-      parameters:
-      - name: instance_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/runtime/instances/{instance_id}/stop:
-    post:
-      summary: Stop agent instance
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (stop_agent_instance).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_stop_agent_instance_post_6194c37f
-      tags:
-      - server/runtime
-      parameters:
-      - name: instance_id
-        in: path
-        required: true
-        schema:
-          type: string
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/runtime/start:
-    post:
-      summary: Start the agent runtime system
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (start_runtime).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_start_runtime_post_39bcfd21
-      tags:
-      - server/runtime
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-  /server/runtime/status:
-    get:
-      summary: Get overall runtime status
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (get_runtime_status).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_get_runtime_status_get_586129c5
-      tags:
-      - server/runtime
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-  /server/runtime/stop:
-    post:
-      summary: Stop the agent runtime system
-      description: Route inventory entry from `backend_server/src/routes/agent_runtime_routes.py` (stop_runtime).
-        Check the handler for required payload fields and authorization rules.
-      operationId: agent_runtime_routes_stop_runtime_post_d39e1a24
-      tags:
-      - server/runtime
-      parameters: []
-      responses:
-        default:
-          description: Endpoint response; see the source route for response schema and status codes.
-      requestBody:
+  /server/script/identity-map:
         required: false
         content:
           application/json:
@@ -6788,7 +6520,7 @@ paths:
           description: Endpoint response; see the source route for response schema and status codes.
   /server/testprompt/execute:
     post:
-      summary: Testprompt execute
+      summary: Run a test prompt
       description: Route inventory entry from `features/ai-test/backend_server/server_testprompt_routes.py` (testprompt_execute).
         Check the handler for required payload fields and authorization rules.
       operationId: server_testprompt_routes_testprompt_execute_post_313c6da3
@@ -7008,6 +6740,212 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /server/testprompt/{prompt_id}/save-testcase:
+    post:
+      summary: Save a graph generated by a graph run as a testcase and link it to the prompt, so
+      description: Route inventory entry from `features/ai-test/backend_server/server_testprompt_routes.py` (testprompt_save_testcase).
+        Check the handler for required payload fields and authorization rules.
+      operationId: server_testprompt_routes_testprompt_save_testcase_post_d4cf6c8d
+      tags:
+      - server/testprompt
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /server/testprompt/{prompt_id}/unlink-testcase:
+    post:
+      summary: Drop the prompt's link to its testcase (the testcase itself is kept).
+      description: Route inventory entry from `features/ai-test/backend_server/server_testprompt_routes.py` (testprompt_unlink_testcase).
+        Check the handler for required payload fields and authorization rules.
+      operationId: server_testprompt_routes_testprompt_unlink_testcase_post_46d4d7d0
+      tags:
+      - server/testprompt
+      parameters:
+      - name: prompt_id
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: team_id
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /server/training-samples/coverage:
+    get:
+      summary: 'Step 4h: how much of the canonical apps the dataset covers (definitions in'
+      description: Route inventory entry from `features/ai-dataset/backend_server/server_training_samples_routes.py`
+        (training_coverage). Check the handler for required payload fields and authorization rules.
+      operationId: server_training_samples_routes_training_coverage_get_c280b484
+      tags:
+      - server/training-samples
+      parameters:
+      - name: k
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /server/training-samples/eval-counts:
+    get:
+      summary: 'Per family, eval rows not frozen: ``counts`` = human-verified (what an ``eval-vN``'
+      description: Route inventory entry from `features/ai-dataset/backend_server/server_training_samples_routes.py`
+        (training_eval_counts). Check the handler for required payload fields and authorization rules.
+      operationId: server_training_samples_routes_training_eval_counts_get_5084810b
+      tags:
+      - server/training-samples
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /server/training-samples/freeze:
+    post:
+      summary: Freeze an eval version
+      description: Route inventory entry from `features/ai-dataset/backend_server/server_training_samples_routes.py`
+        (freeze_training_eval). Check the handler for required payload fields and authorization rules.
+      operationId: server_training_samples_routes_freeze_training_eval_post_891639a2
+      tags:
+      - server/training-samples
+      parameters: []
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+  /server/training-samples/list:
+    get:
+      summary: Samples for review, hardest first, each with ``image_url`` and ``proposed_label``
+      description: Route inventory entry from `features/ai-dataset/backend_server/server_training_samples_routes.py`
+        (list_training_samples). Check the handler for required payload fields and authorization rules.
+      operationId: server_training_samples_routes_list_training_samples_get_e9bc66ae
+      tags:
+      - server/training-samples
+      parameters:
+      - name: balance
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: device_model
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: family
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: label_source
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: split
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: triage
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /server/training-samples/offtree-labels:
+    get:
+      summary: 'Step 4f: suggestions for the "Screen not in the tree" field of a ``screen-id``'
+      description: Route inventory entry from `features/ai-dataset/backend_server/server_training_samples_routes.py`
+        (training_offtree_labels). Check the handler for required payload fields and authorization rules.
+      operationId: server_training_samples_routes_training_offtree_labels_get_7e65f288
+      tags:
+      - server/training-samples
+      parameters:
+      - name: family
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /server/training-samples/screen-groups:
+    get:
+      summary: 'Step 4k: the screen groups of one app, derived from its tree (core ``screen_groups``,'
+      description: Route inventory entry from `features/ai-dataset/backend_server/server_training_samples_routes.py`
+        (training_screen_groups). Check the handler for required payload fields and authorization rules.
+      operationId: server_training_samples_routes_training_screen_groups_get_58027c68
+      tags:
+      - server/training-samples
+      parameters:
+      - name: userinterface
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+  /server/training-samples/{sample_id}/label:
+    post:
+      summary: Write a human label
+      description: Route inventory entry from `features/ai-dataset/backend_server/server_training_samples_routes.py`
+        (label_training_sample). Check the handler for required payload fields and authorization rules.
+      operationId: server_training_samples_routes_label_training_sample_post_8d771905
+      tags:
+      - server/training-samples
+      parameters:
+      - name: sample_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
   /server/userinterface/domReport:
     get:
       summary: Serve the cached HTML DOM report for a userinterface, built from stored
@@ -7030,6 +6968,48 @@ paths:
       responses:
         default:
           description: Endpoint response; see the source route for response schema and status codes.
+  /server/userinterface/domReport/url:
+    get:
+      summary: Return a presigned URL for the cached DOM report HTML of a userinterface (BUG-0459)
+      description: 'Handler `backend_server/src/routes/server_navigation_trees_routes.py`
+        (dom_report_url). Permission userinterface:view. Builds (or re-signs) the cached
+        R2 artifact at `navigation/<safe>/dom_report.html` and returns `{success, url}`
+        where the URL is signed against MINIO_PRESIGN_ENDPOINT. The new-tab navigation
+        carries the signature as its credential — no Authorization header, no vpt_jwt
+        cookie, no cross-origin issue (see BUG-0459 / BUG-0057 follow-up).'
+      operationId: server_navigation_trees_routes_dom_report_url_get
+      tags:
+      - server/userinterface
+      parameters:
+      - name: team_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: userinterface
+        in: query
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: 'Signed URL for the cached DOM report HTML'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  url:
+                    type: string
+                required:
+                - success
+                - url
+        '400':
+          description: Missing userinterface or team_id
+        '404':
+          description: Unknown userinterface
   /server/userinterface/duplicateUserInterface/{interface_id}:
     post:
       summary: Duplicate a user interface with its navigation tree
@@ -7414,6 +7394,23 @@ paths:
             schema:
               type: object
               additionalProperties: true
+  /server/users/{user_id}/scope:
+    get:
+      summary: 'The user''s device chain (TASK-31 phase C): team, role and own limits and the effective set'
+      description: Route inventory entry from `backend_server/src/routes/server_users_routes.py` (get_user_scope).
+        Check the handler for required payload fields and authorization rules.
+      operationId: server_users_routes_get_user_scope_get_5b67f137
+      tags:
+      - server/users
+      parameters:
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        default:
+          description: Endpoint response; see the source route for response schema and status codes.
   /server/users/{user_id}/tenants:
     get:
       summary: List the tenants this user belongs to.

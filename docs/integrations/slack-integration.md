@@ -7,7 +7,7 @@ Slack integration syncs AI Agent conversations from VirtualPyTest to your Slack 
 ## Architecture
 
 Follows the same pattern as JIRA integration:
-- **Configuration**: JSON file (`config/integrations/slack_config.json`)
+- **Configuration**: JSON file (`~/.config/virtualpytest/slack_config.json`, outside the deploy tree)
 - **Routes**: Extended `server_integrations_routes.py`
 - **UI**: React page at `/integrations/slack`
 - **No environment variables needed**
@@ -33,7 +33,7 @@ Follows the same pattern as JIRA integration:
 }
 ```
 
-**Stored in**: `backend_server/config/integrations/slack_config.json` (gitignored)
+**Stored in**: `slack_config.json` under `~/.config/virtualpytest/` of the user the server runs as (`vpt_user`), or `$VPT_CONFIG_DIR`. Thread mapping goes to `slack_threads.json` in the same directory.
 
 ## Message Flow
 
@@ -78,9 +78,7 @@ All at `/server/integrations/slack/`:
 ```
 backend_server/
 ├── config/integrations/
-│   ├── slack_config.json           # Configuration (gitignored)
-│   ├── slack_config.json.example   # Template
-│   ├── slack_threads.json          # Thread mapping (auto-created)
+│   ├── slack_config.json.example   # Template (live config: ~/.config/virtualpytest/)
 │   └── slack-setup.md              # Detailed setup guide
 ├── src/
 │   ├── integrations/

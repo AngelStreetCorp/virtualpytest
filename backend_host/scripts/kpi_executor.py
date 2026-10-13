@@ -79,14 +79,14 @@ LATE_DEQUEUE_WARN_SECONDS = 30.0
 # before scanning (the disappear can land late). The KPI is queued right after the
 # action's wait_time — usually shorter than the timeout — so we wait for the
 # remaining frames to be captured. Capped so a misconfigured huge timeout can't
-# stall the single worker indefinitely; hot storage retains ~60-75s of frames.
+# stall the single worker indefinitely; hot storage retains ~180s of frames.
 MAX_ATD_FRAME_WAIT_SECONDS = 30.0
 
 # ---------------------------------------------------------------------------
 # Long-window scan (device reboot / multi-minute waits) — see docs/agent/execution/KPI_TROUBLESHOOTING.md
 # "Long-window scan".
 #
-# The hot captures dir holds only the newest ~300 frames (~60-75s at 5 fps);
+# The hot captures dir holds only the newest ~900 frames (~180s at 5 fps);
 # everything older is archived to the cold hour-folders ({base}/captures/{0..23}/)
 # at 1 fps for ~24h, with mtime preserved. _copy_images_to_tmp therefore pulls
 # the recent part of the window from hot (5 fps) and the older part from cold
@@ -283,7 +283,7 @@ def _cold_captures_root(capture_dir: str) -> Optional[str]:
         RAM mode:  {base}/hot/captures  → {base}/captures
         SD mode:   {base}/captures      → {base}/captures (hour folders are subdirs)
 
-    The cold archive keeps ~24h of frames at 1 fps (vs 5 fps / ~75s in hot), so
+    The cold archive keeps ~24h of frames at 1 fps (vs 5 fps / ~180s in hot), so
     it is the only source for the older part of a long (reboot) scan window.
     Returns None if the path doesn't match the expected layout.
     """
@@ -613,7 +613,7 @@ class KPIExecutorService:
         # (Also covers appear-then-disappear, whose disappear half can land late.)
         # When a live verifier DID run (verification_timestamp set), the destination
         # already appeared and was found, so every frame we need is already on disk
-        # — no wait. Frames keep being captured; hot storage holds ~60-75s and the
+        # — no wait. Frames keep being captured; hot storage holds ~180s and the
         # cold archive holds ~24h, so the late frames are still present when we
         # wake. Capped at frame_wait_cap (larger for long windows) so a
         # misconfigured huge timeout can't stall the single worker.
@@ -627,7 +627,7 @@ class KPIExecutorService:
                 time.sleep(wait_s)
 
         # CRITICAL: Copy images from hot/cold storage to /tmp/ (RAM) to avoid a race:
-        # hot keeps only the newest ~300 frames (~60-75s) and may roll them during
+        # hot keeps only the newest ~900 frames (~180s) and may roll them during
         # processing; the older part of a long window is read from the cold archive.
         working_dir, extra_before_filename = self._copy_images_to_tmp(request)
         if not working_dir:
@@ -658,13 +658,17 @@ class KPIExecutorService:
             except asyncio.TimeoutError:
                 logger.error(f"⏰ Scan budget exceeded ({scan_deadline:.0f}s) "
                              f"after {progress['captures_scanned']} verifier calls")
+                all_captures = progress.get('all_captures') or []
                 match_result = {
                     'success': False,
                     'timestamp': None,
                     'capture_index': None,
-                    'all_captures': [],
+                    'all_captures': all_captures,
                     'captures_scanned': progress['captures_scanned'],
-                    'error': f'scan budget exceeded ({scan_deadline:.0f}s)',
+                    # Budget = processing wall-clock; the scanned video window is
+                    # a different number (shown as Scan Window in the report).
+                    'error': f'scan budget exceeded ({scan_deadline:.0f}s of processing, '
+                             f'{progress["captures_scanned"]} of {len(all_captures)} frames verified)',
                     'algorithm': 'deadline_exceeded',
                     'verification_evidence_list': progress['verification_evidence_list'],
                 }
@@ -857,8 +861,8 @@ class KPIExecutorService:
         """Find every capture frame that falls in (or just before) the scan
         window, drawing from BOTH hot and cold storage.
 
-        Hot (`request.capture_dir`, 5 fps) only retains the newest ~300 frames
-        (~60-75s). For a long window (e.g. a 2-minute reboot) the earlier part
+        Hot (`request.capture_dir`, 5 fps) only retains the newest ~900 frames
+        (~180s). For a long window (e.g. a 2-minute reboot) the earlier part
         of the window has already rolled out of hot and lives in the cold
         hour-folder archive ({root}/{0..23}/, 1 fps, ~24h, mtime preserved).
 
@@ -931,6 +935,27 @@ class KPIExecutorService:
 
         combined.sort(key=lambda x: x['ts'])
         return combined
+
+    def _cold_frame_before(self, request: KPIMeasurementRequest, target_ts: float,
+                           max_delta: float) -> Optional[str]:
+        """Latest cold-archive frame with target_ts - max_delta <= mtime <= target_ts."""
+        cold_root = _cold_captures_root(request.capture_dir)
+        if not target_ts or not cold_root:
+            return None
+        hours = {time.localtime(target_ts).tm_hour, time.localtime(target_ts - max_delta).tm_hour}
+        paths = [p for h in hours for p in glob.glob(os.path.join(cold_root, str(h), "capture_*.jpg"))]
+        best, best_ts = None, None
+        for path in paths:
+            try:
+                ts = os.path.getmtime(path)
+            except (OSError, IOError):
+                continue
+            if target_ts - max_delta <= ts <= target_ts and (best_ts is None or ts > best_ts):
+                best, best_ts = path, ts
+        if best:
+            logger.info(f"   • before_action: from cold archive {os.path.basename(best)} "
+                        f"({target_ts - best_ts:.1f}s before the action)")
+        return best
 
     def _copy_images_to_tmp(self, request: KPIMeasurementRequest) -> tuple:
         """
@@ -1016,7 +1041,7 @@ class KPIExecutorService:
 
         logger.info(f"   • Scan window: {scan_end - scan_start:.2f}s")
 
-        # Discover candidate frames from BOTH hot (5 fps, ~75s) and the cold
+        # Discover candidate frames from BOTH hot (5 fps, ~180s) and the cold
         # hour-folder archive (1 fps, ~24h) so a long window still has its older
         # frames. Returns a single mtime-sorted list (paths point at the live
         # source files; we copy the in-window subset to /tmp below).
@@ -1079,6 +1104,34 @@ class KPIExecutorService:
         # files are numbered with an independent `-start_number` and could
         # point at a different moment after unequal dir cleanups — relying on
         # them caused the "thumbnail ≠ original" mismatch, so they're gone.
+
+        # The before/after-action screenshots point at the transient
+        # `captures/` copy, which is cleaned up within ~a minute. A request
+        # that waited in the queue behind other edges finds it gone and the
+        # report shows "No Image". Pin both into the working dir now, taking
+        # the same frame from hot storage (180 s buffer) when the original
+        # path has already been cleaned. Past hot's window the before-action
+        # frame comes from the cold archive: renamed and 1 fps there, so it is
+        # looked up by time (last cold frame at most 1.5 s before the action).
+        # The after-action tile needs no cold lookup: the report already falls
+        # back to the closest scanned capture.
+        for attr in ('before_action_screenshot_path', 'action_screenshot_path'):
+            src = getattr(request, attr)
+            if not src:
+                continue
+            if not os.path.exists(src):
+                src = os.path.join(request.capture_dir, os.path.basename(src))
+            if not os.path.exists(src) and attr == 'before_action_screenshot_path':
+                src = self._cold_frame_before(request, request.action_timestamp, 1.5) or src
+            if not os.path.exists(src):
+                logger.warning(f"   ✗ {attr}: gone from captures/, hot and cold storage")
+                continue
+            dest = os.path.join(working_dir, f"_{attr}_{os.path.basename(src)}")
+            try:
+                shutil.copy2(src, dest)
+                setattr(request, attr, dest)
+            except (OSError, IOError) as e:
+                logger.warning(f"Could not pin {attr}: {e}")
 
         return working_dir, extra_before_filename
     
@@ -1200,6 +1253,10 @@ class KPIExecutorService:
             return {'success': False, 'error': 'No captures found in time window', 'captures_scanned': 0}
         
         total_captures = len(all_captures)
+        # Published up front so a scan cut short by the deadline still reports
+        # its real window (strip, mosaic, Scan Window) instead of an empty one.
+        if progress is not None:
+            progress['all_captures'] = all_captures
         
         logger.info(f"📸 Found {total_captures} captures in window")
         
@@ -1286,6 +1343,7 @@ class KPIExecutorService:
                     it['frame_index'] = idx
                     it['frame_label'] = f"{name} · {format_offset(offset)}"
                     it['frame_offset'] = offset
+                    it['frame_timestamp'] = capture['timestamp']
                     # The probed capture itself — lets the report draw the
                     # search-area rectangle on THIS frame (not the match frame).
                     it['capture_path'] = capture['path']

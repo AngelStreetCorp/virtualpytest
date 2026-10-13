@@ -23,6 +23,7 @@ export interface ServerResponse<T> {
 const QUERY_KEYS = {
   deviceModels: ['deviceModels'] as const,
   deviceModel: (id: string) => ['deviceModels', id] as const,
+  supportedModels: ['deviceModels', 'supported'] as const,
 };
 
 // Device Model Server Service Class
@@ -49,6 +50,14 @@ class DeviceModelServerService {
       );
       throw error;
     }
+  }
+
+  /**
+   * Model names a host can run (its DEVICE{i}_MODEL values) — the only names Add Model accepts
+   */
+  async getSupportedModels(): Promise<string[]> {
+    const data = await api.get(buildServerUrl('/server/devicemodel/getSupportedModels'));
+    return data.models || [];
   }
 
   /**
@@ -161,6 +170,13 @@ export const useDeviceModels = () => {
     staleTime: 24 * 60 * 60 * 1000, // 24 hours
   });
 
+  // Model names a host can run; fixed per server build
+  const { data: supportedModels = [] } = useQuery({
+    queryKey: QUERY_KEYS.supportedModels,
+    queryFn: () => serverService.getSupportedModels(),
+    staleTime: 24 * 60 * 60 * 1000, // 24 hours
+  });
+
   // Create device model mutation
   const createMutation = useMutation({
     mutationFn: (payload: ModelCreatePayload) => serverService.createDeviceModel(payload),
@@ -214,6 +230,7 @@ export const useDeviceModels = () => {
   return {
     // Data
     models,
+    supportedModels,
 
     // Status
     isLoading,

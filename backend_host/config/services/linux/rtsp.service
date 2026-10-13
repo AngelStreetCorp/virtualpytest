@@ -1,0 +1,24 @@
+[Unit]
+Description=VirtualPyTest local RTSP test source (mediamtx + looping file publisher)
+# Only for hosts with an rtsp_video device fed from rtsp://127.0.0.1:8554/smoke.
+# Tied to the capture pipeline: started before vpt-stream (so its reader finds the
+# stream), and stopped/restarted whenever vpt-stream is (PartOf).
+# Needs the mediamtx binary at /usr/local/bin/mediamtx (github.com/bluenviron/mediamtx).
+After=network.target
+Before=vpt-stream.service
+PartOf=vpt-stream.service
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+ExecStart=/usr/local/bin/mediamtx %PROJECT_ROOT%/backend_host/config/rtsp/mediamtx.yml
+Restart=always
+RestartSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=vpt-rtsp
+
+[Install]
+WantedBy=vpt-stream.service

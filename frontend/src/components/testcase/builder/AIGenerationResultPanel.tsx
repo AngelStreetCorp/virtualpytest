@@ -14,6 +14,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { AGENT_CHAT_PALETTE, AGENT_CHAT_PALETTE_LIGHT } from '../../../constants/agentChatTheme';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface AIGenerationResult {
   success: boolean;
@@ -51,6 +53,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
   originalPrompt,
 }) => {
   const { actualMode } = useTheme();
+  const P = useAgentChatPalette();
   const [isAnalysisExpanded, setIsAnalysisExpanded] = useState(true);
   const [isStatsExpanded, setIsStatsExpanded] = useState(true); // Expanded by default
   
@@ -205,10 +208,10 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
         left: `${position.x}px`,
         zIndex: 1100,
         width: 600,
-        backgroundColor: actualMode === 'dark' ? '#1f2937' : '#ffffff',
+        backgroundColor: actualMode === 'dark' ? AGENT_CHAT_PALETTE.surface : AGENT_CHAT_PALETTE_LIGHT.surface,
         borderRadius: 1,
         boxShadow: isDragging ? '0 12px 24px rgba(0, 0, 0, 0.4)' : '0 8px 16px rgba(0, 0, 0, 0.3)',
-        border: '2px solid #10b981',
+        border: `2px solid ${P.success}`,
         cursor: isDragging ? 'grabbing' : 'default',
         userSelect: isDragging ? 'none' : 'auto',
         transition: isDragging ? 'none' : 'box-shadow 0.2s ease',
@@ -232,7 +235,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
             sx={{ 
               cursor: isDragging ? 'grabbing' : 'grab', 
               display: 'flex', 
-              color: isDragging ? 'primary.main' : 'text.secondary',
+              color: isDragging ? P.accentText : P.textSecondary,
               '&:hover': {
                 color: 'text.primary',
               },
@@ -243,7 +246,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
           >
             <DragIndicatorIcon fontSize="small" />
           </Box>
-          <CheckCircleIcon sx={{ color: '#10b981', fontSize: 18 }} />
+          <CheckCircleIcon sx={{ color: P.success, fontSize: 18 }} />
           <Typography variant="caption" fontWeight="bold" color="#10b981">
             AI GENERATION COMPLETE
           </Typography>
@@ -257,8 +260,8 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
               height: 20,
               fontSize: '0.7rem',
               fontWeight: 'bold',
-              backgroundColor: 'rgba(59, 130, 246, 0.15)',
-              color: '#3b82f6',
+              backgroundColor: `${P.series[1]}26`,
+              color: P.series[1],
             }}
           />
           <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
@@ -271,8 +274,8 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
       </Box>
 
       {/* 1. ORIGINAL PROMPT - COMPACT */}
-      <Box sx={{ px: 1.5, py: 0.75, borderBottom: 1, borderColor: 'divider', backgroundColor: actualMode === 'dark' ? 'rgba(59, 130, 246, 0.05)' : 'rgba(59, 130, 246, 0.03)' }}>
-        <Typography variant="caption" fontWeight="bold" sx={{ color: '#3b82f6', display: 'block', mb: 0.25 }}>
+      <Box sx={{ px: 1.5, py: 0.75, borderBottom: 1, borderColor: 'divider', backgroundColor: `${P.series[1]}0d` }}>
+        <Typography variant="caption" fontWeight="bold" sx={{ color: P.series[1], display: 'block', mb: 0.25 }}>
           📝 Original Prompt
         </Typography>
         <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
@@ -291,8 +294,8 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
               px: 1.5,
               py: 0.5,
               cursor: 'pointer',
-              backgroundColor: actualMode === 'dark' ? 'rgba(16, 185, 129, 0.05)' : 'rgba(16, 185, 129, 0.03)',
-              '&:hover': { backgroundColor: actualMode === 'dark' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(16, 185, 129, 0.05)' },
+              backgroundColor: `${P.success}0d`,
+              '&:hover': { backgroundColor: `${P.success}14` },
             }}
             onClick={() => setIsAnalysisExpanded(!isAnalysisExpanded)}
           >
@@ -308,7 +311,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
             <Box sx={{ px: 1.5, py: 0.75 }}>
               {goal && (
                 <Box sx={{ mb: 0.5 }}>
-                  <Typography variant="caption" fontWeight="bold" sx={{ color: '#3b82f6', display: 'inline', mr: 0.5 }}>
+                  <Typography variant="caption" fontWeight="bold" sx={{ color: P.series[1], display: 'inline', mr: 0.5 }}>
                     🎯
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
@@ -318,7 +321,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
               )}
               {thinking && (
                 <Box>
-                  <Typography variant="caption" fontWeight="bold" sx={{ color: '#10b981', display: 'inline', mr: 0.5 }}>
+                  <Typography variant="caption" fontWeight="bold" sx={{ color: P.success, display: 'inline', mr: 0.5 }}>
                     💭
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
@@ -361,21 +364,21 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
         <Collapse in={isStatsExpanded}>
           <Box sx={{ px: 1.5, py: 0.75 }}>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0.5 }}>
-              <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: actualMode === 'dark' ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.05)' }}>
+              <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: `${P.series[1]}1a` }}>
                 <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>🧭 Navigation</Typography>
-                <Typography variant="caption" fontWeight="bold" sx={{ color: '#3b82f6', display: 'block' }}>{blockCounts.navigation}</Typography>
+                <Typography variant="caption" fontWeight="bold" sx={{ color: P.series[1], display: 'block' }}>{blockCounts.navigation}</Typography>
               </Box>
-              <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: actualMode === 'dark' ? 'rgba(139, 92, 246, 0.1)' : 'rgba(139, 92, 246, 0.05)' }}>
+              <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: `${P.series[2]}1a` }}>
                 <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>⚡ Action</Typography>
-                <Typography variant="caption" fontWeight="bold" sx={{ color: '#8b5cf6', display: 'block' }}>{blockCounts.action}</Typography>
+                <Typography variant="caption" fontWeight="bold" sx={{ color: P.series[2], display: 'block' }}>{blockCounts.action}</Typography>
               </Box>
               <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: actualMode === 'dark' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.05)' }}>
                 <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>✓ Verification</Typography>
-                <Typography variant="caption" fontWeight="bold" sx={{ color: '#10b981', display: 'block' }}>{blockCounts.verification}</Typography>
+                <Typography variant="caption" fontWeight="bold" sx={{ color: P.success, display: 'block' }}>{blockCounts.verification}</Typography>
               </Box>
-              <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: actualMode === 'dark' ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.05)' }}>
+              <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: `${P.warning}1a` }}>
                 <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>🔤 Tokens</Typography>
-                <Typography variant="caption" fontWeight="bold" sx={{ color: '#f59e0b', display: 'block' }}>{result.generation_stats?.prompt_tokens}/{result.generation_stats?.completion_tokens}</Typography>
+                <Typography variant="caption" fontWeight="bold" sx={{ color: P.warning, display: 'block' }}>{result.generation_stats?.prompt_tokens}/{result.generation_stats?.completion_tokens}</Typography>
               </Box>
             </Box>
           </Box>
@@ -389,12 +392,12 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
             size="small"
             onClick={onRegenerate}
             sx={{
-              color: '#3b82f6',
-              border: '1px solid #3b82f6',
+              color: P.series[1],
+              border: `1px solid ${P.series[1]}`,
               borderRadius: 0.5,
               px: 1,
               py: 0.25,
-              '&:hover': { backgroundColor: 'rgba(59, 130, 246, 0.1)' },
+              '&:hover': { backgroundColor: `${P.series[1]}1a` },
             }}
           >
             <RefreshIcon fontSize="small" sx={{ mr: 0.5 }} />
@@ -407,12 +410,12 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
             size="small"
             onClick={onClose}
             sx={{
-              color: '#10b981',
-              border: '1px solid #10b981',
+              color: P.success,
+              border: `1px solid ${P.success}`,
               borderRadius: 0.5,
               px: 1,
               py: 0.25,
-              backgroundColor: 'rgba(16, 185, 129, 0.1)',
+              backgroundColor: `${P.success}1a`,
               '&:hover': { backgroundColor: 'rgba(16, 185, 129, 0.2)' },
             }}
           >

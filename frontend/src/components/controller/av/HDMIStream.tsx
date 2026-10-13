@@ -3,7 +3,6 @@ import {
   VideoCall,
   StopCircle,
   Refresh,
-  OpenInFull,
   CloseFullscreen,
   KeyboardArrowDown,
   KeyboardArrowUp,
@@ -11,6 +10,7 @@ import {
 import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 
+import { FullscreenIcon } from '../../common/icons/CustomIcons';
 import { getConfigurableAVPanelLayout, loadAVConfig } from '../../../config/av';
 import { useHdmiStream, useStream } from '../../../hooks/controller';
 import { Host } from '../../../types/common/Host_Types';
@@ -20,7 +20,7 @@ import { DEFAULT_DEVICE_RESOLUTION } from '../../../config/deviceResolutions';
 
 import { RecordingOverlay, LoadingOverlay, ModeIndicatorDot } from './ScreenEditorOverlay';
 import { ScreenshotCapture } from './ScreenshotCapture';
-import { HLSVideoPlayer } from '../../common/HLSVideoPlayer';
+import { LiveStreamPlayer } from '../../common/LiveStream/LiveStreamPlayer';
 import { VideoCapture } from './VideoCapture';
 
 interface HDMIStreamProps {
@@ -37,6 +37,8 @@ interface HDMIStreamProps {
   useAbsolutePositioning?: boolean;
   positionLeft?: string;
   positionBottom?: string;
+  /** Anchor to the right instead of the left (absolute positioning only). */
+  positionRight?: string;
   sx?: any;
   // NEW: Orientation state for mobile devices
   isLandscape?: boolean;
@@ -55,6 +57,7 @@ export const HDMIStream = React.memo(
     useAbsolutePositioning = false,
     positionLeft,
     positionBottom,
+    positionRight,
     sx = {},
     isLandscape = false,
   }: HDMIStreamProps) {
@@ -78,6 +81,11 @@ export const HDMIStream = React.memo(
     // Use new stream hook - auto-fetches when host/deviceId changes
     const { streamUrl, isLoadingUrl, urlError } = useStream({ host, device_id: deviceId });
     const isStreamActive = !!streamUrl && !isLoadingUrl;
+
+    const streamProtocol = useMemo(
+      () => host.devices?.find((d) => d.device_id === deviceId)?.stream_protocol,
+      [host.devices, deviceId],
+    );
 
     // Get device model from device or use override
     const effectiveDeviceModel = useMemo(() => {
@@ -305,7 +313,7 @@ export const HDMIStream = React.memo(
       ...(useAbsolutePositioning
         ? {
             bottom: positionBottom || '50px',
-            left: positionLeft || '10px',
+            ...(positionRight ? { right: positionRight } : { left: positionLeft || '10px' }),
           }
         : {
             bottom: panelLayout.collapsed.position.bottom || '20px',
@@ -503,7 +511,7 @@ export const HDMIStream = React.memo(
                     {isExpanded ? (
                       <CloseFullscreen fontSize="small" />
                     ) : (
-                      <OpenInFull fontSize="small" />
+                      <FullscreenIcon fontSize="small" />
                     )}
                   </IconButton>
                 </Tooltip>
@@ -519,8 +527,11 @@ export const HDMIStream = React.memo(
                   position: 'relative',
                 }}
               >
-                {/* Unified HLS player - consistent with RecHostPreview */}
-                <HLSVideoPlayer
+                {/* Live player: WebRTC when the device has it, HLS otherwise */}
+                <LiveStreamPlayer
+                  hostName={host.host_name}
+                  deviceId={deviceId}
+                  streamProtocol={streamProtocol}
                   streamUrl={streamUrl || undefined}
                   isStreamActive={isStreamPlaying}
                   isCapturing={isCaptureActive}
@@ -666,6 +677,7 @@ export const HDMIStream = React.memo(
     const useAbsolutePositioningChanged = prevProps.useAbsolutePositioning !== nextProps.useAbsolutePositioning;
     const positionLeftChanged = prevProps.positionLeft !== nextProps.positionLeft;
     const positionBottomChanged = prevProps.positionBottom !== nextProps.positionBottom;
+    const positionRightChanged = prevProps.positionRight !== nextProps.positionRight;
     const isLandscapeChanged = prevProps.isLandscape !== nextProps.isLandscape;
 
     // Only re-render if meaningful props have changed
@@ -678,6 +690,7 @@ export const HDMIStream = React.memo(
       useAbsolutePositioningChanged ||
       positionLeftChanged ||
       positionBottomChanged ||
+      positionRightChanged ||
       isLandscapeChanged;
 
     if (shouldRerender) {

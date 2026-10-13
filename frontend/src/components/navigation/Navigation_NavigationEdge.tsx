@@ -4,10 +4,12 @@ import { EdgeLabelRenderer, EdgeProps, getSmoothStepPath, getBezierPath, useReac
 import { useMetrics } from '../../hooks/navigation/useMetrics';
 import { useValidationColors } from '../../hooks/validation';
 import { UINavigationEdge as UINavigationEdgeType } from '../../types/pages/Navigation_Types';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export const NavigationEdgeComponent: React.FC<EdgeProps<UINavigationEdgeType['data']>> = (
   props,
 ) => {
+  const P = useAgentChatPalette();
   const {
     id,
     source,
@@ -42,11 +44,12 @@ export const NavigationEdgeComponent: React.FC<EdgeProps<UINavigationEdgeType['d
   // 'main' = action owner, 'sibling' = borrower (stamped in useResolvedTree).
   const conditionalRole = (data as any)?._conditionalRole as 'main' | 'sibling' | null | undefined;
 
-  // 🎨 OVERRIDE: Conditional edges are always BLUE. The borrowing SIBLING is
-  // drawn dashed so it's visually distinct from the action-owning MAIN (solid).
+  // 🎨 OVERRIDE: Conditional edges are always palette steel (categorical mark).
+  // The borrowing SIBLING is drawn dashed so it's visually distinct from the
+  // action-owning MAIN (solid).
   if (isConditionalEdge) {
     edgeColors = {
-      stroke: '#2196f3',
+      stroke: P.series[1],
       strokeWidth: 3,
       strokeDasharray: conditionalRole === 'sibling' ? '6,4' : '',
       opacity: 1,
@@ -61,7 +64,7 @@ export const NavigationEdgeComponent: React.FC<EdgeProps<UINavigationEdgeType['d
   // Edges connecting to root nodes are rendered in gold.
   if (targetNode?.data?.is_root === true) {
     edgeColors = {
-      stroke: '#ffc107',
+      stroke: P.accent,
       strokeWidth: 3,
       strokeDasharray: '',
       opacity: 1,
@@ -76,7 +79,7 @@ export const NavigationEdgeComponent: React.FC<EdgeProps<UINavigationEdgeType['d
   if (isVariantDisabled) {
     edgeColors = {
       ...edgeColors,
-      stroke: '#9e9e9e',
+      stroke: P.textMuted,
       strokeDasharray: '4,4',
       opacity: 0.35,
     };
@@ -167,7 +170,7 @@ export const NavigationEdgeComponent: React.FC<EdgeProps<UINavigationEdgeType['d
         <path
           style={{
             ...edgeColors,
-            stroke: '#555',
+            stroke: P.borderColor,
             strokeWidth: (edgeColors.strokeWidth || 2) + 2,
             fill: 'none',
             strokeDasharray: '5,5',
@@ -186,14 +189,14 @@ export const NavigationEdgeComponent: React.FC<EdgeProps<UINavigationEdgeType['d
             style={{
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${(pathSourceX + pathTargetX) / 2}px, ${(pathSourceY + pathTargetY) / 2}px)`,
-              backgroundColor: '#1976d2',
+              backgroundColor: P.series[1],
               color: '#fff',
               fontSize: '10px',
               fontWeight: 'bold',
               padding: '2px 6px',
               borderRadius: '4px',
               whiteSpace: 'nowrap',
-              border: '1px solid rgba(0,0,0,0.1)',
+              border: `1px solid ${P.borderColor}`,
               pointerEvents: 'none',
               opacity: isVariantDisabled ? 0.45 : 1,
             }}

@@ -5,7 +5,7 @@ Script tool definitions - AUTO-GENERATED (DEBUG VIEW)
 This file is auto-generated from docstrings in script_tools.py
 To change definitions, update the docstrings in the implementation.
 
-Generated: 2 tools
+Generated: 3 tools
 """
 
 from typing import List, Dict, Any
@@ -21,36 +21,33 @@ def get_tools() -> List[Dict[str, Any]]:
     return [
     {
         "name": "execute_script",
-        "description": (
-            "Execute a Python script on a device. Automatically acquires a device lock for the duration of execution.\n\n"
-            "⚠️ MANDATORY PREREQUISITE: You MUST call get_device_info() or get_compatible_hosts() BEFORE this tool "
-            "to discover available host_name and device_id values. Do NOT guess device_id values.\n\n"
-            "⚠️ DEVICE ID: The device_id MUST match an actual device on the host. Use get_device_info(host_name='...') "
-            "to see exactly which device_ids exist. Wrong device_id will be rejected.\n\n"
-            "Example: execute_script(script_name='dns_lookuptime.py', host_name='my-host', device_id='host')"
-        ),
+        "description": "Start a Python script on a device and return its execution_id at once. Automatically acquires a device lock for the duration of execution. The script goes on on the host. This tool does NOT wait for the result: call get_script_execution_status(execution_id) until `done` is true. \u26a0\ufe0f MANDATORY PREREQUISITE: You MUST call get_device_info() or get_compatible_hosts() BEFORE this tool to discover available host_name and device_id values. Do NOT guess device_id values. \u26a0\ufe0f DEVICE ID: The device_id MUST match an actual device on the host. Use get_device_info(host_name='...') to see exactly which device_ids exist. Wrong device_id will be rejected. \u26a0\ufe0f DEVICE LOCKING: This tool acquires an exclusive lock on the device. If the device is already locked by another execution, it will return a 'device_locked' error. Use force_unlock=true to preempt. MCP response with structuredContent {execution_id, host_name, device_id, status: 'running', done: false}",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "script_name": {
                     "type": "string",
-                    "description": "Script filename (e.g., 'my_script.py')"
+                    "description": "Script filename (e.g., 'my_script.py'"
                 },
                 "host_name": {
                     "type": "string",
-                    "description": "Host where device is located (from get_device_info or get_compatible_hosts)"
+                    "description": "Host where device is located (from get_device_info or get_compatible_hosts"
                 },
                 "device_id": {
                     "type": "string",
-                    "description": "Device identifier (defaults to 'host' if not provided. Use get_device_info to find valid values)"
+                    "description": "Device identifier (defaults to 'host' if not provided"
                 },
                 "parameters": {
                     "type": "string",
-                    "description": "CLI parameters as string (e.g., '--param1 value1 --param2 value2')"
+                    "description": "CLI parameters as string (e.g., '--param1 value1 --param2 value2'"
                 },
                 "force_unlock": {
                     "type": "boolean",
-                    "description": "If true, preempt any existing lock on the device (default false)"
+                    "description": "If true, preempt any existing lock on the device (default false"
+                },
+                "environment": {
+                    "type": "string",
+                    "description": "'dev'|'test'|'prod', capacity this run counts as (default 'prod'"
                 }
             },
             "required": [
@@ -60,15 +57,28 @@ def get_tools() -> List[Dict[str, Any]]:
         }
     },
     {
+        "name": "get_script_execution_status",
+        "description": "Read the state of a script started by execute_script Waits up to wait_seconds (default 20, max 50) for the script to end, then answers with its current state. Call again while `done` is false. A script whose test FAILED is `status: completed, passed: false` (not a tool error); isError is only set when the execution_id is unknown. REUSES existing /server/script/status/<task_id> endpoint (same as frontend) MCP response with structuredContent {execution_id, status: running|completed|failed|aborted|unknown, done, passed, exit_code, script_success, report_url, logs_url, execution_time_ms, error}",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "execution_id": {
+                    "type": "string",
+                    "description": "execution_id returned by execute_script"
+                },
+                "wait_seconds": {
+                    "type": "integer",
+                    "description": "Seconds to wait for the script to end before answering: default 20, max 50, 0 answers at once"
+                }
+            },
+            "required": [
+                "execution_id"
+            ]
+        }
+    },
+    {
         "name": "list_scripts",
-        "description": (
-            "List all available Python scripts with their target rules (device requirements).\n\n"
-            "⚠️ IMPORTANT: Use this tool BEFORE execute_script to understand what device type each script requires. "
-            "Each script includes target_rules that specify target_type, device_model, and host_os.\n\n"
-            "After listing scripts, call get_device_info() or get_compatible_hosts() to find "
-            "a matching host_name and device_id for the script you want to run.\n\n"
-            "Example: list_scripts()"
-        ),
+        "description": "List all available Python scripts with their target rules (device requirements). \u26a0\ufe0f IMPORTANT: Use this tool BEFORE execute_script to understand what device type each script requires. Each script includes target_rules that specify: - target_type: 'host' (runs on host machine), 'android_mobile', 'android_tv', etc. - device_model: specific device model or 'all' - host_os: required OS or 'all' After listing scripts, call get_device_info() or get_compatible_hosts() to find a matching host_name and device_id for the script you want to run. MCP-formatted response with list of scripts and their target_rules\n\nExample: list_scripts()",
         "inputSchema": {
             "type": "object",
             "properties": {},

@@ -96,14 +96,7 @@ def proxy_to_host_with_params(endpoint, method='GET', data=None, query_params=No
             'error': error or 'Host information required'
         }, 400
     
-    # Log which host we're proxying to
-    host_name = host_info.get('host_name', 'unknown')
-    host_api_url = host_info.get('host_api_url', host_info.get('host_url', 'not set'))
-    print(f"[@proxy_to_host] 📡 Proxying to host '{host_name}'")
-    print(f"[@proxy_to_host]    Endpoint: {endpoint}")
-    print(f"[@proxy_to_host]    host_api_url: {host_api_url}")
-    print(f"[@proxy_to_host]    Method: {method}")
-    
+    # call_host logs the call (one line; none for polling endpoints).
     # Use centralized call_host() - API key injection handled automatically
     return call_host(
         host_info,

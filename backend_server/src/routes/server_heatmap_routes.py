@@ -54,13 +54,36 @@ def _extract_server_path(mosaic_url: str) -> str:
     return None
 
 
+_WORKSPACE_ID_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
+
+
+def _extract_heatmap_prefix(mosaic_url: str):
+    """Storage prefix of a mosaic: '<server>' or '<server>/ws/<workspace_id>' (no 'heatmaps/').
+
+    The workspace id becomes a storage key, so it must be a strict UUID."""
+    server_path = _extract_server_path(mosaic_url)
+    if not server_path:
+        return None
+    from urllib.parse import urlparse
+    parsed = urlparse(mosaic_url)
+    raw = parsed.path.lstrip('/') if parsed.scheme else mosaic_url.lstrip('/')
+    if not raw.startswith('heatmaps/'):
+        idx = raw.find('/heatmaps/')
+        if idx >= 0:
+            raw = raw[idx + 1:]
+    parts = raw.split('/')
+    if len(parts) >= 5 and parts[2] == 'ws' and _WORKSPACE_ID_RE.fullmatch(parts[3]):
+        return f"{server_path}/ws/{parts[3].lower()}"
+    return server_path
+
+
 def generate_timeline_heatmap_data(selected_time_key: str, selected_mosaic_url: str, selected_devices: list, selected_incidents_count: int) -> list:
     """Generate heatmap data for selected mosaic + 9 previous mosaics with actual analysis data"""
     import requests
     from shared.src.lib.utils.cloudflare_utils import get_cloudflare_utils
 
     R2_BASE_URL = os.getenv('CLOUDFLARE_R2_PUBLIC_URL', '')
-    server_path = _extract_server_path(selected_mosaic_url)
+    server_path = _extract_heatmap_prefix(selected_mosaic_url)  # '<server>' or '<server>/ws/<id>'
     uploader = get_cloudflare_utils() if not R2_BASE_URL and server_path else None
 
     heatmap_data = []
@@ -202,12 +225,12 @@ def generate_html_report():
     # Generate HTML content
     html_content = generate_comprehensive_heatmap_html(heatmap_data)
     
-    server_path = _extract_server_path(mosaic_url)
-    mosaic_r2_path = f"heatmaps/{server_path}/{time_key}.jpg" if server_path else mosaic_url
-    metadata_r2_path = f"heatmaps/{server_path}/{time_key}.json" if server_path else f"heatmaps/{time_key}.json"
+    heatmap_prefix = _extract_heatmap_prefix(mosaic_url)  # includes ws/<id> for a workspace mosaic
+    mosaic_r2_path = f"heatmaps/{heatmap_prefix}/{time_key}.jpg" if heatmap_prefix else mosaic_url
+    metadata_r2_path = f"heatmaps/{heatmap_prefix}/{time_key}.json" if heatmap_prefix else f"heatmaps/{time_key}.json"
 
     # Upload HTML to R2 — use new-style path when server_path is known
-    html_result = upload_heatmap_html(html_content, time_key, server_path=server_path)
+    html_result = upload_heatmap_html(html_content, time_key, server_path=heatmap_prefix)
 
     if not html_result['success']:
         return jsonify({

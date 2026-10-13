@@ -6,7 +6,6 @@ export interface Model {
   version: string;
   description: string;
   is_default?: boolean; // Flag to indicate if model is a system default
-  controllers?: { [key: string]: string }; // Controller type -> value mapping
   created_at?: string;
   updated_at?: string;
 }
@@ -17,5 +16,4 @@ export interface ModelCreatePayload {
   types: string[];
   version: string;
   description: string;
-  controllers?: { [key: string]: string };
 }

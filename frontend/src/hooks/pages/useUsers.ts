@@ -8,18 +8,25 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
+import type { Role } from '../../types/auth';
 
 export interface User {
   id: string;
-  full_name: string;
+  full_name: string | null;
   email: string;
   avatar_url?: string;
-  role: 'admin' | 'tester' | 'viewer';
+  role: Role;
   team_id?: string;
   team?: string;
   teams?: string[];
   permissions: string[];
   denied_permissions?: string[];
+  /** Team permission ceiling (TASK-31); null = no limit. */
+  team_ceiling?: string[] | null;
+  /** Team device ceiling; null = every device. */
+  team_device_ceiling?: string[] | null;
+  /** The user's own device limit, inside team ∩ role; null = inherits. */
+  allowed_devices?: string[] | null;
   created_at: string;
   updated_at: string;
 }
@@ -27,10 +34,11 @@ export interface User {
 export interface UserUpdatePayload {
   full_name?: string;
   avatar_url?: string;
-  role?: 'admin' | 'tester' | 'viewer';
+  role?: Role;
   team_id?: string;
   permissions?: string[];
   denied_permissions?: string[];
+  allowed_devices?: string[] | null;
 }
 
 export interface AssignTeamPayload {

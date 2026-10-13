@@ -29,6 +29,13 @@ from typing import Any, Dict, List
 
 import cv2
 
+import sys
+from pathlib import Path
+_REPO = Path(__file__).resolve().parents[4]
+if str(_REPO) not in sys.path:
+    sys.path.insert(0, str(_REPO))
+from shared.src.lib.utils.report_theme import report_theme_head  # noqa: E402
+
 
 def _b64(path: str) -> str:
     with open(path, "rb") as f:
@@ -199,19 +206,19 @@ def main() -> None:
         f"<b class=\"fail\">{n_error} errors</b>"
     )
 
-    doc = f"""<!doctype html><meta charset="utf-8"><title>OmniParser DOM report</title>
+    doc = f"""<!doctype html><meta charset="utf-8">{report_theme_head()}<title>OmniParser DOM report</title>
 <style>
-body{{font:13px -apple-system,Segoe UI,Arial;background:#111;color:#ddd;margin:0;padding:16px}}
-h1{{font-size:18px}} h3{{margin:28px 0 6px;border-top:1px solid #333;padding-top:14px}}
-small{{color:#888;font-weight:normal}} a{{color:#6cf;text-decoration:none}}
-table{{border-collapse:collapse;width:100%;font-size:12px}} td,th{{border:1px solid #333;padding:3px 6px;text-align:left}}
-tr.ok td:first-child{{border-left:3px solid #2c2}} tr.warn td:first-child{{border-left:3px solid #fb0}} tr.fail td:first-child{{border-left:3px solid #f44}}
-.ok{{color:#3d3}} .warn{{color:#fb0}} .fail{{color:#f66}}
+body{{font:13px -apple-system,Segoe UI,Arial;background:var(--vpt-page);color:var(--vpt-text);margin:0;padding:16px}}
+h1{{font-size:18px}} h3{{margin:28px 0 6px;border-top:1px solid var(--vpt-border);padding-top:14px}}
+small{{color:var(--vpt-muted);font-weight:normal}} a{{color:var(--vpt-accent-text);text-decoration:none}}
+table{{border-collapse:collapse;width:100%;font-size:12px}} td,th{{border:1px solid var(--vpt-border);padding:3px 6px;text-align:left}}
+tr.ok td:first-child{{border-left:3px solid var(--vpt-success)}} tr.warn td:first-child{{border-left:3px solid var(--vpt-warning)}} tr.fail td:first-child{{border-left:3px solid var(--vpt-error)}}
+.ok{{color:var(--vpt-success)}} .warn{{color:var(--vpt-warning)}} .fail{{color:var(--vpt-error)}}
 .grid{{display:grid;grid-template-columns:560px 1fr;gap:16px;align-items:start}}
-.grid img{{width:560px;border:1px solid #333;border-radius:4px}}
-.data h4{{margin:8px 0 2px;color:#9cf}} ul{{margin:0;padding-left:18px}}
-.box{{color:#888;font-size:11px}} .content{{color:#eee}} .source{{color:#777;font-size:11px}}
-.flag{{display:inline-block;background:#532;color:#fb0;border-radius:3px;padding:1px 6px;margin-left:6px;font-size:11px}}
+.grid img{{width:560px;border:1px solid var(--vpt-border);border-radius:4px}}
+.data h4{{margin:8px 0 2px;color:var(--vpt-steel)}} ul{{margin:0;padding-left:18px}}
+.box{{color:var(--vpt-muted);font-size:11px}} .content{{color:var(--vpt-text)}} .source{{color:var(--vpt-text-2);font-size:11px}}
+.flag{{display:inline-block;background:var(--vpt-warning-tint);color:var(--vpt-warning);border-radius:3px;padding:1px 6px;margin-left:6px;font-size:11px}}
 ul.ocr{{column-count:2}}
 </style>
 <h1>OmniParser DOM report &nbsp;<small>{summary}</small></h1>

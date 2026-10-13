@@ -1,0 +1,25 @@
+{
+  "id": "game_show",
+  "category": "game_show",
+  "hints": "a game or talent show: contestants, a host, a jury, a stage, scores or votes (e.g. The Voice)",
+  "entity": [
+    "title",
+    "season",
+    "episode"
+  ],
+  "identify_interval_s": 120,
+  "track": {
+    "type": "time_window"
+  },
+  "render": "title",
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "episode_title": "title or stage of this episode (e.g. 'Blind auditions')",
+      "synopsis": "what the show is and what happens in this episode, two sentences",
+      "host": "presenter(s)",
+      "jury": "list of jury members or coaches, if any",
+      "network": "original channel or platform"
+    }
+  }
+}

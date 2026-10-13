@@ -15,6 +15,12 @@ import uuid
 import logging
 from typing import Dict, List, Optional, Any
 
+from shared.src.lib.utils.phase_timing import (
+    t0 as _phase_t0,
+    log_duration as _log_duration,
+    log_phase as _log_phase,
+)
+
 # Get capture monitor logger for frame JSON operations
 logger = logging.getLogger('capture_monitor')
 
@@ -287,16 +293,19 @@ class ActionExecutor:
         
         # Execute main actions - stop on first failure
         main_actions_failed = False
+        optional_failed_count = 0
         
         # Capture "before action" screenshot BEFORE executing last action (for KPI report)
         # Store separately - DON'T add to action_screenshots (which is used for validation report counting)
         before_action_screenshot = ""
         if valid_actions:
+            _t = _phase_t0()
             from shared.src.lib.utils.device_utils import capture_screenshot
             before_action_screenshot = capture_screenshot(self.device, context=None) or ""
             if before_action_screenshot:
                 # Store in separate variable for KPI use - not in action_screenshots list
                 print(f"[@lib:action_executor:execute_actions] 📸 Captured before-action screenshot (for KPI, not for validation report)")
+            _log_phase('action.before_action_screenshot', _t)
         
         for i, action in enumerate(valid_actions):
             result = await self._execute_single_action(action, execution_order, i+1, 'main', team_id, context)
@@ -310,6 +319,7 @@ class ActionExecutor:
                 
                 if continue_on_fail:
                     # Action failed but continue_on_fail is set - continue execution
+                    optional_failed_count += 1
                     print(f"[@lib:action_executor:execute_actions] ⚠️  Main action {i+1} failed but continue_on_fail=True, continuing...")
                 else:
                     # First action failed - stop executing remaining main actions
@@ -362,7 +372,9 @@ class ActionExecutor:
                 # If main failed and no retry actions available, it's a failure
                 overall_success = False
         else:
-            overall_success = passed_count >= len(valid_actions)
+            # Every mandatory main action passed; a failed continue_on_fail action is
+            # non-mandatory by definition (e.g. a popup that is not always shown).
+            overall_success = passed_count + optional_failed_count >= len(valid_actions)
         
         if main_actions_failed and valid_retry_actions:
             print(f"[@lib:action_executor:execute_actions] Batch completed: {passed_count}/{len(valid_actions)} main actions passed, {retry_actions_passed}/{len(valid_retry_actions)} retry actions passed, overall success: {overall_success}")
@@ -372,7 +384,8 @@ class ActionExecutor:
         # Build simple error message showing which actions failed
         failed_actions = [r for r in results if not r.get('success')]
         
-        if failed_actions:
+        # Failures of continue_on_fail actions alone (main batch not failed) are not errors
+        if failed_actions and main_actions_failed:
             failed_details = []
             for failed_action in failed_actions:
                 action_name = failed_action.get('message', 'Unknown action')
@@ -564,6 +577,10 @@ class ActionExecutor:
         # ends the loop (precondition-met, condition-met, or cap-reached). Used
         # after the loop to build ONE verification report for the Edge Run panel.
         until_evidence = None
+        until_cap_reached = False
+        # (iteration_entry, evidence) per press → verify check, so a failed loop
+        # can attach one comparison report to every iteration.
+        until_checks = []
         if repeat_until:
             precondition_met, until_evidence = await self._evaluate_until_condition(
                 repeat_until, team_id=team_id, context=context
@@ -683,6 +700,14 @@ class ActionExecutor:
                         'params': params,
                         'device_id': self.device_id
                     }
+                elif action_type == 'switch':
+                    # Route to the switch endpoint (Pro Controller over Bluetooth)
+                    endpoint = '/host/switch/executeCommand'
+                    request_data = {
+                        'command': action.get('command'),
+                        'params': params,
+                        'device_id': self.device_id
+                    }
                 elif action_type == 'standard_block':
                     # Execute standard block directly via block registry (no HTTP)
                     from backend_host.src.builder import execute_block
@@ -772,6 +797,19 @@ class ActionExecutor:
                     else:
                         response_data = {'success': False, 'error': 'Power controller not available'}
                         status_code = 500
+                elif action_type == 'switch':
+                    # Use switch controller directly (Bluetooth Pro Controller over vpt-procon)
+                    switch_controller = self.device._get_controller('switch')
+                    if switch_controller:
+                        response_data = switch_controller.send_command(
+                            request_data['command'],
+                            **request_data['params']
+                        )
+                        success = response_data.get('success', False)
+                        status_code = 200 if success else 500
+                    else:
+                        response_data = {'success': False, 'error': 'Switch controller not available'}
+                        status_code = 500
                 elif action_type == 'verification':
                     # Use verification executor directly
                     verification_type = action.get('verification_type', 'text')
@@ -838,7 +876,13 @@ class ActionExecutor:
                 
                 iteration_execution_time = int((time.time() - iteration_start_time) * 1000)
                 iteration_success = status_code == 200 and response_data.get('success', False)
-                
+                # Controller time only: for web input_text it includes the controller's own
+                # post-fill sleep (params.timeout, default 3000 ms); the action's wait_time
+                # sleep comes later and is timed as action.wait_time_sleep.
+                _log_duration('action.controller_call', iteration_execution_time,
+                              f"cmd={action.get('command')} type={action_type} iteration={iteration + 1}/{iterator_count} "
+                              f"success={iteration_success}")
+
                 total_execution_time += iteration_execution_time
                 
                 # Log detailed results including error information with clear visibility
@@ -913,8 +957,29 @@ class ActionExecutor:
                     if settle_ms > 0:
                         print(f"[@lib:action_executor] ↻ repeat_until: waiting {settle_ms}ms after press before verify ({iteration + 1}/{iterator_count})")
                         time.sleep(settle_ms / 1000.0)
+                    verify_start = time.time()
                     condition_met, until_evidence = await self._evaluate_until_condition(
                         repeat_until, team_id=team_id, context=context
+                    )
+                    verify_ms = int((time.time() - verify_start) * 1000)
+                    # The iteration row so far only timed the press; record the
+                    # whole press → wait → verify cycle and what the check saw, so
+                    # "Iteration N: ✅" can't be read as "the condition passed".
+                    iteration_entry = iteration_results[-1]
+                    iteration_entry['press_ms'] = iteration_entry['execution_time_ms']
+                    iteration_entry['wait_ms'] = settle_ms
+                    iteration_entry['verify_ms'] = verify_ms
+                    iteration_entry['execution_time_ms'] = int((time.time() - iteration_start_time) * 1000)
+                    iteration_entry['condition_met'] = condition_met
+                    iteration_entry['verify_message'] = (
+                        (until_evidence or {}).get('message') or (until_evidence or {}).get('error') or ''
+                    )
+                    total_execution_time += settle_ms + verify_ms
+                    until_checks.append((iteration_entry, until_evidence))
+                    print(
+                        f"[@lib:action_executor] ↻ repeat_until check {iteration + 1}/{iterator_count}: "
+                        f"{'MET' if condition_met else 'not met'} (wait {settle_ms}ms, verify {verify_ms}ms) "
+                        f"{iteration_entry['verify_message']}"
                     )
                     if condition_met:
                         print(f"[@lib:action_executor] ✅ repeat_until condition met after iteration {iteration + 1}/{iterator_count}")
@@ -922,6 +987,7 @@ class ActionExecutor:
                     if iteration == iterator_count - 1:
                         # Cap reached without the condition ever being met → fail.
                         all_iterations_successful = False
+                        until_cap_reached = True
                         last_error_detail = (
                             f"repeat_until condition not met after {iterator_count} iteration(s) "
                             f"(condition={repeat_until.get('condition', 'appears')}, "
@@ -958,26 +1024,27 @@ class ActionExecutor:
                 # Stop on exception - don't continue iterations
                 break
         
-        # Build ONE verification report for the repeat_until decision (the frame
-        # that drove pass/fail) so the Edge "Run" panel can link to it exactly
-        # like goto / Edit-Node. Gated to interactive edge runs (report_repeat_until,
-        # set by NavigationExecutor.execute_single_edge_step) so CLI/goto batches
+        # repeat_until comparison reports (source frame vs reference). When the cap
+        # was reached without the condition being met, every press → verify check
+        # gets its own report (on its iteration row) so script/testcase reports show
+        # what each check actually saw. Otherwise only the decisive check is
+        # reported, and only for interactive edge runs (report_repeat_until, set by
+        # NavigationExecutor.execute_single_edge_step) so passing CLI/goto batches
         # don't pay the per-run R2-upload cost. Report styling (green/red) mirrors
-        # the decisive leg's own verification outcome.
+        # each check's own verification outcome. The action-level URL (Edge Run
+        # panel, step action line) is the decisive/last check.
         repeat_until_report_url = None
-        if repeat_until and until_evidence and getattr(self, 'report_repeat_until', False):
-            try:
-                verification_executor = self.device.verification_executor
-                if verification_executor and '_report_config' in until_evidence:
-                    is_success = bool(until_evidence.get('success', False))
-                    _report_path, _report_url = verification_executor._build_verification_report(
-                        until_evidence, is_success=is_success
-                    )
-                    if _report_url:
-                        repeat_until_report_url = _report_url
-                        print(f"[@lib:action_executor] 🔗 repeat_until verification report: {_report_url}")
-            except Exception as report_exc:
-                print(f"[@lib:action_executor] ⚠️ repeat_until report build failed: {report_exc}")
+        if repeat_until and until_evidence:
+            if until_cap_reached:
+                for entry, evidence in until_checks:
+                    url = self._build_until_report(evidence)
+                    if url:
+                        entry['verification_report_url'] = url
+                        repeat_until_report_url = url
+            elif getattr(self, 'report_repeat_until', False):
+                repeat_until_report_url = self._build_until_report(until_evidence)
+                if repeat_until_report_url and until_checks:
+                    until_checks[-1][0]['verification_report_url'] = repeat_until_report_url
 
         # ✅ Store action timestamp IMMEDIATELY after action executes (before wait)
         # This ensures last_action.json is written before zapping detection happens during wait
@@ -998,7 +1065,9 @@ class ActionExecutor:
             wait_seconds = wait_time / 1000.0
             current_time = time.strftime("%H:%M:%S", time.localtime())
             print(f"[@lib:action_executor:_execute_single_action] [{current_time}] Waiting {wait_time}ms after successful {action.get('command')} execution")
+            _t = _phase_t0()
             time.sleep(wait_seconds)
+            _log_phase('action.wait_time_sleep', _t, f"cmd={action.get('command')} wait_time={wait_time}")
             end_time = time.strftime("%H:%M:%S", time.localtime())
             
         # NavigationExecutor records the execution_results row once per step
@@ -1029,12 +1098,14 @@ class ActionExecutor:
             result_message += f" - {controller_detail}"
         
         # Capture screenshot (no upload)
+        _t = _phase_t0()
         from shared.src.lib.utils.device_utils import capture_screenshot
         screenshot_path = capture_screenshot(self.device, context) or ""
-        
+
         # Add screenshot to collection for report
         if screenshot_path:
             self.action_screenshots.append(screenshot_path)
+        _log_phase('action.after_action_screenshot', _t, f"cmd={action.get('command')}")
         
         # Build detailed action info for KPI report
         action_details = {
@@ -1072,6 +1143,24 @@ class ActionExecutor:
             'verification_report_url': repeat_until_report_url,  # repeat_until evidence report (Edge Run panel)
         }
     
+    def _build_until_report(self, evidence: Dict[str, Any]):
+        """Build one repeat_until verification report; returns its URL or None."""
+        if not evidence or '_report_config' not in evidence:
+            return None
+        try:
+            verification_executor = self.device.verification_executor
+            if not verification_executor:
+                return None
+            _report_path, report_url = verification_executor._build_verification_report(
+                evidence, is_success=bool(evidence.get('success', False))
+            )
+            if report_url:
+                print(f"[@lib:action_executor] 🔗 repeat_until verification report: {report_url}")
+            return report_url
+        except Exception as report_exc:
+            print(f"[@lib:action_executor] ⚠️ repeat_until report build failed: {report_exc}")
+            return None
+
     def _resolve_node_verifications(self, node_id: str, team_id: str = None):
         """Resolve a node's current verifications from the cached unified graph.
 

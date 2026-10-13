@@ -28,6 +28,8 @@ import threading
 import time
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from shared.src.lib.database.transient_retry import brief, call_with_retry
+
 # gevent is what the server runs under, but the module is imported by tests and by
 # `python app.py` runs that may not have monkey-patched yet. Fall back to a plain
 # thread so importing this never forces a gevent dependency on a caller.
@@ -101,7 +103,7 @@ class SectionCache:
             entry = self._entries.get(key)
             if entry is not None:
                 age = now - entry.computed_at
-                if age <= fresh:
+                if age < fresh:
                     return entry.value, 'fresh'
                 if age <= stale:
                     # Serve stale immediately; refresh behind the caller's back.
@@ -131,7 +133,7 @@ class SectionCache:
         try:
             self._compute(section, team_id)
         except Exception as e:  # noqa: BLE001 - deliberately broad, see docstring
-            print(f"[@section_cache:_refresh] {section} failed, keeping stale value: {e}")
+            print(f"[@section_cache:_refresh] {section} failed, keeping stale value: {brief(e)}")
             with self._lock:
                 entry = self._entries.get(key)
                 if entry is not None:
@@ -169,9 +171,19 @@ class SectionCache:
             while True:
                 for section in list(self._loaders):
                     try:
-                        self._compute(section, team_id)
+                        # The Supabase path is reached over the main server's public
+                        # hostname, and this loop starts the moment the process does, so
+                        # the first cycles can hit a TLS session that is still settling or
+                        # a proxy that answers 500 while the far end comes up. Retry just
+                        # those; `_sleep`, not time.sleep, so a wait here does not block
+                        # the gevent hub the request path runs on.
+                        call_with_retry(
+                            lambda s=section: self._compute(s, team_id),
+                            label=f"[@section_cache:prewarm] {section}",
+                            sleep=_sleep,
+                        )
                     except Exception as e:  # noqa: BLE001
-                        print(f"[@section_cache:prewarm] {section} failed: {e}")
+                        print(f"[@section_cache:prewarm] {section} failed: {brief(e)}")
                 _sleep(interval)
 
         _spawn(loop)

@@ -8,7 +8,7 @@
 CREATE TABLE IF NOT EXISTS public.workspaces (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name TEXT NOT NULL,
-  slug TEXT UNIQUE NOT NULL,
+  slug TEXT NOT NULL,                              -- unique per server (constraint below)
   description TEXT DEFAULT '',
   permissions JSONB DEFAULT '[]'::jsonb,          -- permission filter (intersection with user perms)
   denied_permissions JSONB DEFAULT '[]'::jsonb,   -- extra denials within workspace
@@ -17,8 +17,10 @@ CREATE TABLE IF NOT EXISTS public.workspaces (
   project_tags JSONB DEFAULT '[]'::jsonb,          -- project scope tags
   hidden_pages JSONB DEFAULT '[]'::jsonb,          -- page paths hidden in this workspace
   is_public BOOLEAN NOT NULL DEFAULT FALSE,        -- when TRUE, workspace is visible to everyone (no membership required)
+  server_name TEXT NOT NULL,                       -- SERVER_NAME of the owning server; only that server lists it
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  updated_at TIMESTAMPTZ DEFAULT NOW()
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  CONSTRAINT workspaces_server_name_slug_key UNIQUE (server_name, slug)
 );
 
 -- workspace_members junction table

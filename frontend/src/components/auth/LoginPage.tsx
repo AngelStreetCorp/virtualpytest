@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Box,
   Button,
@@ -21,13 +21,19 @@ import { useAuth } from '../../hooks/auth/useAuth';
 import { isAuthEnabled } from '../../lib/supabase';
 import { useBranding } from '../../contexts/BrandingContext';
 import { getEnv } from '../../config/constants';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export const LoginPage: React.FC = () => {
+  const P = useAgentChatPalette();
   const { signInWithGoogle, signInWithGithub, signInWithEmail, signUpWithEmail, resetPassword, isAuthenticated, isLoading } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const { branding } = useBranding();
   const oauthEnabled = getEnv('VITE_ENABLE_OAUTH', 'true') === 'true';
-  
+  // Admin-provisioned sites turn these off: accounts are created on the Users page, not here.
+  const signupEnabled = getEnv('VITE_ENABLE_SIGNUP', 'true') === 'true';
+  const resetPasswordEnabled = getEnv('VITE_ENABLE_RESET_PASSWORD', 'true') === 'true';
+
   const [tab, setTab] = useState<'login' | 'signup' | 'reset'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -36,12 +42,17 @@ export const LoginPage: React.FC = () => {
   const [success, setSuccess] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  // Redirect if already authenticated OR if auth is disabled
+  // Redirect if already authenticated OR if auth is disabled — back to the page ProtectedRoute
+  // sent here from, so a session that resolves late does not lose the user's page (BUG-0392).
   useEffect(() => {
     if (isAuthenticated || !isAuthEnabled) {
-      navigate('/');
+      const from = (location.state as { from?: { pathname?: string; search?: string; hash?: string } } | null)?.from;
+      const target = from?.pathname && from.pathname !== '/login'
+        ? `${from.pathname}${from.search ?? ''}${from.hash ?? ''}`
+        : '/';
+      navigate(target, { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, location.state]);
 
   const handleGoogleSignIn = async () => {
     try {
@@ -141,7 +152,7 @@ export const LoginPage: React.FC = () => {
                 To enable authentication, add these variables to <code>frontend/.env</code>:
               </Typography>
 
-              <Box sx={{ bgcolor: 'grey.100', p: 2, borderRadius: 1, fontFamily: 'monospace', fontSize: '0.9rem' }}>
+              <Box sx={{ bgcolor: P.hoverBg, p: 2, borderRadius: 1, fontFamily: 'monospace', fontSize: '0.9rem' }}>
                 VITE_SUPABASE_URL=https://your-project.supabase.co<br />
                 VITE_SUPABASE_ANON_KEY=your-anon-key-here
               </Box>
@@ -215,11 +226,13 @@ export const LoginPage: React.FC = () => {
             {error && <Alert severity="error" sx={{ mb: 0.5 }}>{error}</Alert>}
             {success && <Alert severity="success" sx={{ mb: 0.5 }}>{success}</Alert>}
 
-            <Tabs value={tab} onChange={(_, v) => { setTab(v); setError(''); setSuccess(''); }} sx={{ mb: 2 }}>
-              <Tab label="Login" value="login" />
-              <Tab label="Sign Up" value="signup" />
-              <Tab label="Reset Password" value="reset" />
-            </Tabs>
+            {(signupEnabled || resetPasswordEnabled) && (
+              <Tabs value={tab} onChange={(_, v) => { setTab(v); setError(''); setSuccess(''); }} sx={{ mb: 2 }}>
+                <Tab label="Login" value="login" />
+                {signupEnabled && <Tab label="Sign Up" value="signup" />}
+                {resetPasswordEnabled && <Tab label="Reset" value="reset" />}
+              </Tabs>
+            )}
 
             {tab === 'login' && (
               <Box component="form" onSubmit={handleEmailLogin}>
@@ -260,7 +273,7 @@ export const LoginPage: React.FC = () => {
               </Box>
             )}
 
-            {tab === 'signup' && (
+            {signupEnabled && tab === 'signup' && (
               <Box component="form" onSubmit={handleEmailSignup}>
                 <Stack spacing={1.5}>
                   <TextField
@@ -309,7 +322,7 @@ export const LoginPage: React.FC = () => {
               </Box>
             )}
 
-            {tab === 'reset' && (
+            {resetPasswordEnabled && tab === 'reset' && (
               <Box component="form" onSubmit={handlePasswordReset}>
                 <Stack spacing={1.5}>
                   <TextField
@@ -349,7 +362,7 @@ export const LoginPage: React.FC = () => {
                   py: 1.5,
                   borderColor: 'divider',
                   '&:hover': {
-                    borderColor: 'primary.main',
+                    borderColor: P.accent,
                     backgroundColor: 'action.hover',
                   },
                 }}
@@ -365,7 +378,7 @@ export const LoginPage: React.FC = () => {
                   py: 1.5,
                   borderColor: 'divider',
                   '&:hover': {
-                    borderColor: 'primary.main',
+                    borderColor: P.accent,
                     backgroundColor: 'action.hover',
                   },
                 }}
@@ -374,7 +387,7 @@ export const LoginPage: React.FC = () => {
               </Button>
             </Stack>}
 
-            {tab === 'login' && (
+            {signupEnabled && tab === 'login' && (
               <Box sx={{ mt: 2, textAlign: 'center' }}>
                 <Link
                   component="button"
@@ -387,7 +400,7 @@ export const LoginPage: React.FC = () => {
               </Box>
             )}
 
-            {tab === 'signup' && (
+            {signupEnabled && tab === 'signup' && (
               <Box sx={{ mt: 2, textAlign: 'center' }}>
                 <Link
                   component="button"

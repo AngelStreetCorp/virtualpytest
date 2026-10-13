@@ -1,0 +1,4997 @@
+{
+  "captured_at": "2026-10-03T15:01:39+00:00",
+  "cases": {
+    "active_alerts_by_device": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "from_time": null,
+        "preset": "active_alerts_by_device",
+        "to_time": null
+      },
+      "atlas_sql_sha256": "66bdffd25b6d44f47aff8bf88c7a5f783ab0b4ffe265e0cd0293f730fd3f5e3d",
+      "dashboard": "device-alerts-dashboard.json",
+      "family": "alerts",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "title": "Active Alerts by Device"
+      },
+      "row_count": 3,
+      "rows": [
+        {
+          "atlas": {
+            "incident_count": 1
+          },
+          "dashboard": {
+            "incident_count": 1
+          },
+          "key": "k1"
+        },
+        {
+          "atlas": {
+            "incident_count": 1
+          },
+          "dashboard": {
+            "incident_count": 1
+          },
+          "key": "k2"
+        },
+        {
+          "atlas": {
+            "incident_count": 1
+          },
+          "dashboard": {
+            "incident_count": 1
+          },
+          "key": "k3"
+        }
+      ],
+      "tolerated": []
+    },
+    "campaign_by_campaign": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "preset": "campaign_pass_rate"
+      },
+      "atlas_sql_sha256": "adcc5bce97fb44fcacc41835e38eed74b097e69c68c5e0cfe97c8573bce84460",
+      "dashboard": "campaign-results.json",
+      "family": "script",
+      "known_divergence": "The panel's environment filter goes through the campaign's script results, so a run that failed before starting any script is hidden; Atlas counts it as a failed run.",
+      "mismatches": [],
+      "panel": {
+        "title": "By Campaign"
+      },
+      "row_count": 5,
+      "rows": [
+        {
+          "atlas": {
+            "avg_duration_ms": 33743.0,
+            "pass_rate": 0.0,
+            "run_count": 372
+          },
+          "dashboard": {
+            "avg_duration_ms": 33743,
+            "pass_rate": 0.0,
+            "run_count": 372
+          },
+          "key": "k1"
+        },
+        {
+          "atlas": {
+            "avg_duration_ms": 632007.0,
+            "pass_rate": 0.0,
+            "run_count": 4
+          },
+          "dashboard": {
+            "avg_duration_ms": 632007,
+            "pass_rate": 0.0,
+            "run_count": 4
+          },
+          "key": "k2"
+        },
+        {
+          "atlas": {
+            "avg_duration_ms": null,
+            "pass_rate": 0.0,
+            "run_count": 1
+          },
+          "dashboard": null,
+          "key": "k3"
+        },
+        {
+          "atlas": {
+            "avg_duration_ms": 307281.0,
+            "pass_rate": 75.0,
+            "run_count": 4
+          },
+          "dashboard": {
+            "avg_duration_ms": 307281,
+            "pass_rate": 75.0,
+            "run_count": 4
+          },
+          "key": "k4"
+        },
+        {
+          "atlas": {
+            "avg_duration_ms": 443881.0,
+            "pass_rate": 0.0,
+            "run_count": 2
+          },
+          "dashboard": {
+            "avg_duration_ms": 443881,
+            "pass_rate": 0.0,
+            "run_count": 2
+          },
+          "key": "k5"
+        }
+      ],
+      "tolerated": [
+        "k3 only in atlas"
+      ]
+    },
+    "dns_lookup_times": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [],
+        "metrics": [
+          "min_lookup_ms",
+          "avg_lookup_ms",
+          "max_lookup_ms"
+        ],
+        "source_id": "dns_lookup"
+      },
+      "atlas_sql_sha256": "118a43c09defd11ab753a4088e8b077ef60120a4b2eff14cc31e739eabcab4ec",
+      "dashboard": "dns-lookup.json",
+      "family": "network",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "id": 11
+      },
+      "row_count": 1,
+      "rows": [
+        {
+          "atlas": {
+            "avg_lookup_ms": null,
+            "max_lookup_ms": null,
+            "min_lookup_ms": null
+          },
+          "dashboard": {
+            "avg_lookup_ms": null,
+            "max_lookup_ms": null,
+            "min_lookup_ms": null
+          },
+          "key": "k1"
+        }
+      ],
+      "tolerated": []
+    },
+    "fleet_live_per_device": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [
+          "host_name",
+          "device_name",
+          "verdict"
+        ],
+        "filters": {
+          "run_kind": [
+            "live"
+          ]
+        },
+        "metrics": [],
+        "source_id": "fleet_health_latest"
+      },
+      "atlas_sql_sha256": "d1affc300efa3497415bc87f320e755fe605f12e253571a977956894b5814a3e",
+      "dashboard": "vpt-fleet-health.json",
+      "family": "alerts",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "title": "Live \u2014 per device"
+      },
+      "row_count": 20,
+      "rows": [
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k1"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k2"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k3"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k4"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k5"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k6"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k7"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k8"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k9"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k10"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k11"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k12"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k13"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k14"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k15"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k16"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k17"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k18"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k19"
+        },
+        {
+          "atlas": {},
+          "dashboard": {},
+          "key": "k20"
+        }
+      ],
+      "tolerated": []
+    },
+    "kpi_radar_stb_tv": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "filters": {
+          "userinterface_name": "stb_tv"
+        },
+        "preset": "kpi_radar"
+      },
+      "atlas_sql_sha256": "6eb30d779e2f3402eb90a0a3b41f64c86ea44d07c0a54801f46e586de9261c87",
+      "dashboard": "kpi-measurement.json",
+      "family": "kpi",
+      "known_divergence": "The panel groups by the raw variant and action-set id, so a NULL variant and 'Base' (or two action sets sharing a label) appear as separate rows with one label; Atlas merges them into one axis value. Those keys are reported as ambiguous, not compared.",
+      "mismatches": [],
+      "panel": {
+        "id": 19
+      },
+      "row_count": 38,
+      "rows": [
+        {
+          "atlas": {
+            "avg_kpi_ms": 1302.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1302.0
+          },
+          "key": "k1"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 910.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 910.0
+          },
+          "key": "k2"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2562.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2562.0
+          },
+          "key": "k3"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1707.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1707.0
+          },
+          "key": "k4"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1946.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1946.0
+          },
+          "key": "k5"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1464.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1464.0
+          },
+          "key": "k6"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2071.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2071.0
+          },
+          "key": "k7"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 928.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 928.0
+          },
+          "key": "k8"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2432.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2432.0
+          },
+          "key": "k9"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1644.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1644.0
+          },
+          "key": "k10"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1352.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1352.0
+          },
+          "key": "k11"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2115.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2115.0
+          },
+          "key": "k12"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1577.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1577.0
+          },
+          "key": "k13"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1288.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1288.0
+          },
+          "key": "k14"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1133.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1133.0
+          },
+          "key": "k15"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1640.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1640.0
+          },
+          "key": "k16"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1748.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1748.0
+          },
+          "key": "k17"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1816.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1816.0
+          },
+          "key": "k18"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 864.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 864.0
+          },
+          "key": "k19"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2754.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2754.0
+          },
+          "key": "k20"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 772.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 772.0
+          },
+          "key": "k21"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 3396.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 3396.0
+          },
+          "key": "k22"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1335.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1335.0
+          },
+          "key": "k23"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1415.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1415.0
+          },
+          "key": "k24"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2270.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2270.0
+          },
+          "key": "k25"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1900.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1900.0
+          },
+          "key": "k26"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 956.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 956.0
+          },
+          "key": "k27"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 937.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 937.0
+          },
+          "key": "k28"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1454.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1454.0
+          },
+          "key": "k29"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2330.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2330.0
+          },
+          "key": "k30"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 3051.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 3051.0
+          },
+          "key": "k31"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2462.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2462.0
+          },
+          "key": "k32"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1249.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1249.0
+          },
+          "key": "k33"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1257.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1257.0
+          },
+          "key": "k34"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1135.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1135.0
+          },
+          "key": "k35"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2578.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2578.0
+          },
+          "key": "k36"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 2006.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 2006.0
+          },
+          "key": "k37"
+        },
+        {
+          "atlas": {
+            "avg_kpi_ms": 1903.0
+          },
+          "dashboard": {
+            "avg_kpi_ms": 1903.0
+          },
+          "key": "k38"
+        }
+      ],
+      "tolerated": []
+    },
+    "occupancy_by_device": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "preset": "occupancy_by_device"
+      },
+      "atlas_sql_sha256": "41c7c487fa7e41425d07c9f2974c57b33bd11dd881817bc65e6466cf83c8de98",
+      "dashboard": "device-occupancy.json",
+      "family": "occupancy",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "title": "Occupancy % by device"
+      },
+      "row_count": 422,
+      "rows": [
+        {
+          "atlas": {
+            "occupancy_percent": 0.08
+          },
+          "dashboard": {
+            "occupancy_percent": 0.07660957993344908
+          },
+          "key": "k1"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.02
+          },
+          "dashboard": {
+            "occupancy_percent": 0.017412798249421296
+          },
+          "key": "k2"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.02
+          },
+          "dashboard": {
+            "occupancy_percent": 0.022158908854166666
+          },
+          "key": "k3"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 2.48
+          },
+          "dashboard": {
+            "occupancy_percent": 2.477427480251736
+          },
+          "key": "k4"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 0.0002825453559027778
+          },
+          "key": "k5"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.09
+          },
+          "dashboard": {
+            "occupancy_percent": 0.08892121983506944
+          },
+          "key": "k6"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.47
+          },
+          "dashboard": {
+            "occupancy_percent": 0.47229353233506943
+          },
+          "key": "k7"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.52
+          },
+          "dashboard": {
+            "occupancy_percent": 0.5219442422598379
+          },
+          "key": "k8"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.18
+          },
+          "dashboard": {
+            "occupancy_percent": 0.17953125282118054
+          },
+          "key": "k9"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 5.724464699074074e-06
+          },
+          "key": "k10"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.294466145833333e-05
+          },
+          "key": "k11"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4897858796296296e-05
+          },
+          "key": "k12"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3765335648148148e-05
+          },
+          "key": "k13"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0565972222222223e-05
+          },
+          "key": "k14"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.274956597222222e-06
+          },
+          "key": "k15"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3601200810185186e-05
+          },
+          "key": "k16"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.493872974537037e-05
+          },
+          "key": "k17"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.339822048611111e-05
+          },
+          "key": "k18"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.2712962962962965e-05
+          },
+          "key": "k19"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.715277777777778e-06
+          },
+          "key": "k20"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.627112268518518e-05
+          },
+          "key": "k21"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3263020833333334e-05
+          },
+          "key": "k22"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.8701533564814816e-05
+          },
+          "key": "k23"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1670211226851851e-05
+          },
+          "key": "k24"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.728153935185185e-06
+          },
+          "key": "k25"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.746050347222222e-05
+          },
+          "key": "k26"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2912254050925926e-05
+          },
+          "key": "k27"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.128638599537037e-05
+          },
+          "key": "k28"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.7859519675925925e-05
+          },
+          "key": "k29"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2584129050925926e-05
+          },
+          "key": "k30"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4861617476851851e-05
+          },
+          "key": "k31"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.7103081597222225e-05
+          },
+          "key": "k32"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3732711226851852e-05
+          },
+          "key": "k33"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2537037037037037e-05
+          },
+          "key": "k34"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3154441550925926e-05
+          },
+          "key": "k35"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.8982204861111115e-06
+          },
+          "key": "k36"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.655526620370371e-06
+          },
+          "key": "k37"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3438585069444444e-05
+          },
+          "key": "k38"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.8077835648148147e-05
+          },
+          "key": "k39"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.1093243634259258e-05
+          },
+          "key": "k40"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.891203703703704e-06
+          },
+          "key": "k41"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.486762152777778e-06
+          },
+          "key": "k42"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4152633101851852e-05
+          },
+          "key": "k43"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.034866898148148e-06
+          },
+          "key": "k44"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.249927662037038e-06
+          },
+          "key": "k45"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.0029875578703704e-05
+          },
+          "key": "k46"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2780381944444445e-05
+          },
+          "key": "k47"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2777054398148148e-05
+          },
+          "key": "k48"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0335865162037037e-05
+          },
+          "key": "k49"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.54310619212963e-05
+          },
+          "key": "k50"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3788700810185185e-05
+          },
+          "key": "k51"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0101200810185185e-05
+          },
+          "key": "k52"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.791015625e-06
+          },
+          "key": "k53"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.541087962962963e-06
+          },
+          "key": "k54"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.5926432291666664e-05
+          },
+          "key": "k55"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.255837673611111e-05
+          },
+          "key": "k56"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.092230902777777e-06
+          },
+          "key": "k57"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3675419560185185e-05
+          },
+          "key": "k58"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2693359375e-05
+          },
+          "key": "k59"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3037181712962962e-05
+          },
+          "key": "k60"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.098017939814815e-06
+          },
+          "key": "k61"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.2374638310185184e-05
+          },
+          "key": "k62"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.018359375e-05
+          },
+          "key": "k63"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1615885416666666e-05
+          },
+          "key": "k64"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4805844907407408e-05
+          },
+          "key": "k65"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3906539351851852e-05
+          },
+          "key": "k66"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.184534143518518e-06
+          },
+          "key": "k67"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2176142939814815e-05
+          },
+          "key": "k68"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4260923032407407e-05
+          },
+          "key": "k69"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1625434027777778e-05
+          },
+          "key": "k70"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4373625578703703e-05
+          },
+          "key": "k71"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2459852430555556e-05
+          },
+          "key": "k72"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.3028211805555554e-05
+          },
+          "key": "k73"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.0554615162037036e-05
+          },
+          "key": "k74"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2536024305555556e-05
+          },
+          "key": "k75"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.207884837962963e-05
+          },
+          "key": "k76"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.422829861111111e-05
+          },
+          "key": "k77"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.912037037037037e-06
+          },
+          "key": "k78"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.791529224537037e-05
+          },
+          "key": "k79"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 5.994646990740741e-06
+          },
+          "key": "k80"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.447337962962963e-06
+          },
+          "key": "k81"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.1608796296296295e-06
+          },
+          "key": "k82"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.821730324074074e-05
+          },
+          "key": "k83"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.5075376157407408e-05
+          },
+          "key": "k84"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2213831018518518e-05
+          },
+          "key": "k85"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.7014829282407406e-05
+          },
+          "key": "k86"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.560980902777778e-06
+          },
+          "key": "k87"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3493127893518519e-05
+          },
+          "key": "k88"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4716652199074074e-05
+          },
+          "key": "k89"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.373415798611111e-05
+          },
+          "key": "k90"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3320818865740741e-05
+          },
+          "key": "k91"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.404810474537037e-05
+          },
+          "key": "k92"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.2359085648148146e-05
+          },
+          "key": "k93"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0238353587962963e-05
+          },
+          "key": "k94"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2002242476851851e-05
+          },
+          "key": "k95"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.099681712962963e-06
+          },
+          "key": "k96"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.407740162037037e-05
+          },
+          "key": "k97"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2670500578703704e-05
+          },
+          "key": "k98"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2285300925925925e-05
+          },
+          "key": "k99"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2319155092592593e-05
+          },
+          "key": "k100"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2151909722222222e-05
+          },
+          "key": "k101"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2307725694444445e-05
+          },
+          "key": "k102"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.9425202546296298e-05
+          },
+          "key": "k103"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2271556712962962e-05
+          },
+          "key": "k104"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 5.6826895254629626e-05
+          },
+          "key": "k105"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3539785879629629e-05
+          },
+          "key": "k106"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.151953125e-05
+          },
+          "key": "k107"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4441478587962962e-05
+          },
+          "key": "k108"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4766420717592592e-05
+          },
+          "key": "k109"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.387586805555556e-06
+          },
+          "key": "k110"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3627748842592592e-05
+          },
+          "key": "k111"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.3795934606481482e-05
+          },
+          "key": "k112"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.176728877314815e-05
+          },
+          "key": "k113"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3772714120370371e-05
+          },
+          "key": "k114"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3771846064814815e-05
+          },
+          "key": "k115"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.014576099537037e-05
+          },
+          "key": "k116"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.148097511574074e-05
+          },
+          "key": "k117"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.6517578125e-05
+          },
+          "key": "k118"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 5.251822916666667e-05
+          },
+          "key": "k119"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.083622685185185e-06
+          },
+          "key": "k120"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.508015046296296e-05
+          },
+          "key": "k121"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.025173611111111e-05
+          },
+          "key": "k122"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.2194950810185184e-05
+          },
+          "key": "k123"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0242042824074075e-05
+          },
+          "key": "k124"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.515480324074075e-06
+          },
+          "key": "k125"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.312644675925926e-06
+          },
+          "key": "k126"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.831618923611111e-05
+          },
+          "key": "k127"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.4978660300925926e-05
+          },
+          "key": "k128"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2135127314814815e-05
+          },
+          "key": "k129"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 5.305266203703703e-06
+          },
+          "key": "k130"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0313368055555555e-05
+          },
+          "key": "k131"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2390986689814815e-05
+          },
+          "key": "k132"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.587717013888889e-05
+          },
+          "key": "k133"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2890480324074074e-05
+          },
+          "key": "k134"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2914351851851852e-05
+          },
+          "key": "k135"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.270949074074074e-05
+          },
+          "key": "k136"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.5025318287037037e-05
+          },
+          "key": "k137"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0279079861111111e-05
+          },
+          "key": "k138"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2367042824074074e-05
+          },
+          "key": "k139"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.5037037037037036e-05
+          },
+          "key": "k140"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2700086805555555e-05
+          },
+          "key": "k141"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.407696759259259e-06
+          },
+          "key": "k142"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.545189525462963e-05
+          },
+          "key": "k143"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3268229166666667e-05
+          },
+          "key": "k144"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.5135561342592592e-05
+          },
+          "key": "k145"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.817057291666666e-06
+          },
+          "key": "k146"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.164793113425926e-05
+          },
+          "key": "k147"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0995732060185185e-05
+          },
+          "key": "k148"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3900101273148148e-05
+          },
+          "key": "k149"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.310691550925926e-05
+          },
+          "key": "k150"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.6780671296296297e-05
+          },
+          "key": "k151"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0011501736111111e-05
+          },
+          "key": "k152"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3639322916666667e-05
+          },
+          "key": "k153"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1630208333333333e-05
+          },
+          "key": "k154"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1001953125e-05
+          },
+          "key": "k155"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.6456958912037038e-05
+          },
+          "key": "k156"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.562138310185185e-06
+          },
+          "key": "k157"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3390118634259259e-05
+          },
+          "key": "k158"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3415943287037037e-05
+          },
+          "key": "k159"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.025318287037037e-06
+          },
+          "key": "k160"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.685257523148148e-06
+          },
+          "key": "k161"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.99168113425926e-06
+          },
+          "key": "k162"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.07525318287037e-05
+          },
+          "key": "k163"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0743272569444444e-05
+          },
+          "key": "k164"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.9410300925925926e-05
+          },
+          "key": "k165"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.1709635416666666e-05
+          },
+          "key": "k166"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.863179976851852e-05
+          },
+          "key": "k167"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0840060763888888e-05
+          },
+          "key": "k168"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.879195601851852e-06
+          },
+          "key": "k169"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.413114872685185e-05
+          },
+          "key": "k170"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0027199074074075e-05
+          },
+          "key": "k171"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3177589699074075e-05
+          },
+          "key": "k172"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.165747974537037e-05
+          },
+          "key": "k173"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.233644386574074e-05
+          },
+          "key": "k174"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2377821180555555e-05
+          },
+          "key": "k175"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1062717013888889e-05
+          },
+          "key": "k176"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2095630787037036e-05
+          },
+          "key": "k177"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.346867766203704e-05
+          },
+          "key": "k178"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.837456597222223e-06
+          },
+          "key": "k179"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.760033275462963e-05
+          },
+          "key": "k180"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0069227430555555e-05
+          },
+          "key": "k181"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.7092737268518514e-06
+          },
+          "key": "k182"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.1643012152777775e-05
+          },
+          "key": "k183"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2112702546296297e-05
+          },
+          "key": "k184"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.5395688657407406e-05
+          },
+          "key": "k185"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1217881944444444e-05
+          },
+          "key": "k186"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.281828703703703e-06
+          },
+          "key": "k187"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.967701099537037e-05
+          },
+          "key": "k188"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.6561414930555556e-05
+          },
+          "key": "k189"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.2548466435185186e-05
+          },
+          "key": "k190"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0251374421296296e-05
+          },
+          "key": "k191"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1266710069444444e-05
+          },
+          "key": "k192"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1325665509259259e-05
+          },
+          "key": "k193"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3569589120370371e-05
+          },
+          "key": "k194"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.8488425925925926e-05
+          },
+          "key": "k195"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0679108796296296e-05
+          },
+          "key": "k196"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.731264467592592e-06
+          },
+          "key": "k197"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2437210648148148e-05
+          },
+          "key": "k198"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2684895833333334e-05
+          },
+          "key": "k199"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.7049913194444444e-05
+          },
+          "key": "k200"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.479738136574074e-05
+          },
+          "key": "k201"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.67349537037037e-05
+          },
+          "key": "k202"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.237398726851852e-05
+          },
+          "key": "k203"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 5.354094328703704e-06
+          },
+          "key": "k204"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.001953125e-05
+          },
+          "key": "k205"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.954282407407408e-06
+          },
+          "key": "k206"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.828993055555555e-06
+          },
+          "key": "k207"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3380353009259259e-05
+          },
+          "key": "k208"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.9507523148148146e-05
+          },
+          "key": "k209"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2750072337962963e-05
+          },
+          "key": "k210"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.993923611111111e-06
+          },
+          "key": "k211"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1722077546296296e-05
+          },
+          "key": "k212"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3837022569444445e-05
+          },
+          "key": "k213"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.030164930555555e-06
+          },
+          "key": "k214"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.726128472222222e-06
+          },
+          "key": "k215"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.560619212962963e-06
+          },
+          "key": "k216"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.265060763888889e-05
+          },
+          "key": "k217"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.676866319444444e-06
+          },
+          "key": "k218"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.7680627893518517e-05
+          },
+          "key": "k219"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.554962384259259e-05
+          },
+          "key": "k220"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.609686053240741e-05
+          },
+          "key": "k221"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.264576099537037e-05
+          },
+          "key": "k222"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.830222800925926e-06
+          },
+          "key": "k223"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0501085069444444e-05
+          },
+          "key": "k224"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.022222222222222e-05
+          },
+          "key": "k225"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1906322337962963e-05
+          },
+          "key": "k226"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.3610315393518518e-05
+          },
+          "key": "k227"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2504195601851852e-05
+          },
+          "key": "k228"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.3004701967592593e-05
+          },
+          "key": "k229"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4368778935185186e-05
+          },
+          "key": "k230"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0356264467592593e-05
+          },
+          "key": "k231"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1181061921296297e-05
+          },
+          "key": "k232"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 5.000318287037037e-05
+          },
+          "key": "k233"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2816695601851853e-05
+          },
+          "key": "k234"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.783854166666666e-06
+          },
+          "key": "k235"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.446773726851852e-05
+          },
+          "key": "k236"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.349898726851853e-06
+          },
+          "key": "k237"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0454354745370371e-05
+          },
+          "key": "k238"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.878956886574074e-05
+          },
+          "key": "k239"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1075159143518518e-05
+          },
+          "key": "k240"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2257378472222222e-05
+          },
+          "key": "k241"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2842664930555556e-05
+          },
+          "key": "k242"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1534722222222223e-05
+          },
+          "key": "k243"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2080367476851851e-05
+          },
+          "key": "k244"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1618272569444445e-05
+          },
+          "key": "k245"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0635344328703703e-05
+          },
+          "key": "k246"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3117693865740741e-05
+          },
+          "key": "k247"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.18828125e-05
+          },
+          "key": "k248"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2624131944444445e-05
+          },
+          "key": "k249"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.347142650462963e-05
+          },
+          "key": "k250"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.9993561921296298e-05
+          },
+          "key": "k251"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2313151041666667e-05
+          },
+          "key": "k252"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.308224826388889e-05
+          },
+          "key": "k253"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4474681712962963e-05
+          },
+          "key": "k254"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3740596064814815e-05
+          },
+          "key": "k255"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.685980902777777e-06
+          },
+          "key": "k256"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1078269675925926e-05
+          },
+          "key": "k257"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.071332465277778e-05
+          },
+          "key": "k258"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2052517361111111e-05
+          },
+          "key": "k259"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4968171296296297e-05
+          },
+          "key": "k260"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3291377314814814e-05
+          },
+          "key": "k261"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3541015625e-05
+          },
+          "key": "k262"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0377314814814816e-05
+          },
+          "key": "k263"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.80910011574074e-06
+          },
+          "key": "k264"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.36796875e-05
+          },
+          "key": "k265"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1987847222222222e-05
+          },
+          "key": "k266"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.738642939814814e-06
+          },
+          "key": "k267"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4086226851851852e-05
+          },
+          "key": "k268"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.6099030671296296e-05
+          },
+          "key": "k269"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.32421875e-05
+          },
+          "key": "k270"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.215017361111111e-05
+          },
+          "key": "k271"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3786313657407408e-05
+          },
+          "key": "k272"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.845558449074073e-06
+          },
+          "key": "k273"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.635517939814815e-05
+          },
+          "key": "k274"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.353197337962963e-05
+          },
+          "key": "k275"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1976996527777777e-05
+          },
+          "key": "k276"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.182798032407407e-05
+          },
+          "key": "k277"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.262326388888889e-05
+          },
+          "key": "k278"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.115625e-05
+          },
+          "key": "k279"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3281901041666667e-05
+          },
+          "key": "k280"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2098162615740741e-05
+          },
+          "key": "k281"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.400245949074074e-05
+          },
+          "key": "k282"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2806640625e-05
+          },
+          "key": "k283"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2047526041666666e-05
+          },
+          "key": "k284"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.618851273148149e-06
+          },
+          "key": "k285"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.493200231481481e-06
+          },
+          "key": "k286"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2383897569444445e-05
+          },
+          "key": "k287"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3142433449074073e-05
+          },
+          "key": "k288"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2838035300925926e-05
+          },
+          "key": "k289"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4137586805555555e-05
+          },
+          "key": "k290"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3899594907407408e-05
+          },
+          "key": "k291"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.200737847222222e-06
+          },
+          "key": "k292"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2624565972222222e-05
+          },
+          "key": "k293"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.8361400462962964e-05
+          },
+          "key": "k294"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.308449074074074e-05
+          },
+          "key": "k295"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.80490451388889e-06
+          },
+          "key": "k296"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2398365162037038e-05
+          },
+          "key": "k297"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.8863715277777778e-05
+          },
+          "key": "k298"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2590205439814814e-05
+          },
+          "key": "k299"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.418800636574074e-05
+          },
+          "key": "k300"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.963592303240741e-05
+          },
+          "key": "k301"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3282262731481481e-05
+          },
+          "key": "k302"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2531828703703704e-05
+          },
+          "key": "k303"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.287203414351852e-05
+          },
+          "key": "k304"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3970558449074075e-05
+          },
+          "key": "k305"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0198784722222222e-05
+          },
+          "key": "k306"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2190465856481482e-05
+          },
+          "key": "k307"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.0974464699074073e-05
+          },
+          "key": "k308"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3754267939814815e-05
+          },
+          "key": "k309"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1194806134259259e-05
+          },
+          "key": "k310"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2318287037037037e-05
+          },
+          "key": "k311"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4772497106481482e-05
+          },
+          "key": "k312"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.794415509259259e-06
+          },
+          "key": "k313"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.309476273148148e-05
+          },
+          "key": "k314"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1118706597222222e-05
+          },
+          "key": "k315"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.166811342592593e-05
+          },
+          "key": "k316"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.451750578703704e-06
+          },
+          "key": "k317"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.040581597222222e-06
+          },
+          "key": "k318"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4829065393518518e-05
+          },
+          "key": "k319"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.9508969907407406e-05
+          },
+          "key": "k320"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1789496527777778e-05
+          },
+          "key": "k321"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1345992476851852e-05
+          },
+          "key": "k322"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3418041087962964e-05
+          },
+          "key": "k323"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.263454861111111e-06
+          },
+          "key": "k324"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4307508680555555e-05
+          },
+          "key": "k325"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4096354166666667e-05
+          },
+          "key": "k326"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3467230902777777e-05
+          },
+          "key": "k327"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2577690972222222e-05
+          },
+          "key": "k328"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.198640046296296e-06
+          },
+          "key": "k329"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.1483000578703705e-05
+          },
+          "key": "k330"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.107060185185185e-06
+          },
+          "key": "k331"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.13828125e-05
+          },
+          "key": "k332"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2498046875e-05
+          },
+          "key": "k333"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3879557291666667e-05
+          },
+          "key": "k334"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.878616898148148e-06
+          },
+          "key": "k335"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.0655092592592594e-05
+          },
+          "key": "k336"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.743605324074074e-05
+          },
+          "key": "k337"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.128103298611111e-05
+          },
+          "key": "k338"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2337528935185186e-05
+          },
+          "key": "k339"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.067346643518518e-06
+          },
+          "key": "k340"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4107204861111111e-05
+          },
+          "key": "k341"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.932725694444444e-06
+          },
+          "key": "k342"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.2511574074074073e-05
+          },
+          "key": "k343"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.6597873263888887e-05
+          },
+          "key": "k344"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2474175347222222e-05
+          },
+          "key": "k345"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2618127893518518e-05
+          },
+          "key": "k346"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.47421875e-05
+          },
+          "key": "k347"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1483723958333333e-05
+          },
+          "key": "k348"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.552170138888889e-05
+          },
+          "key": "k349"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1080656828703703e-05
+          },
+          "key": "k350"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2209418402777778e-05
+          },
+          "key": "k351"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.311451099537037e-05
+          },
+          "key": "k352"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.8203125e-06
+          },
+          "key": "k353"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2786313657407407e-05
+          },
+          "key": "k354"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1803457754629629e-05
+          },
+          "key": "k355"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 9.729890046296296e-06
+          },
+          "key": "k356"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.219654224537037e-05
+          },
+          "key": "k357"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.9474609375e-05
+          },
+          "key": "k358"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0271412037037036e-05
+          },
+          "key": "k359"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3350694444444445e-05
+          },
+          "key": "k360"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.544574652777778e-05
+          },
+          "key": "k361"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 5.619285300925926e-06
+          },
+          "key": "k362"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.269849537037037e-05
+          },
+          "key": "k363"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.426721643518518e-06
+          },
+          "key": "k364"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2303891782407408e-05
+          },
+          "key": "k365"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.313013599537037e-05
+          },
+          "key": "k366"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.252466724537037e-05
+          },
+          "key": "k367"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2183666087962962e-05
+          },
+          "key": "k368"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3304904513888888e-05
+          },
+          "key": "k369"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4257667824074074e-05
+          },
+          "key": "k370"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1630425347222222e-05
+          },
+          "key": "k371"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.309353298611111e-05
+          },
+          "key": "k372"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.376989293981482e-05
+          },
+          "key": "k373"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4721498842592593e-05
+          },
+          "key": "k374"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 7.499927662037037e-06
+          },
+          "key": "k375"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.5884765625e-05
+          },
+          "key": "k376"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2859230324074075e-05
+          },
+          "key": "k377"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0039134837962962e-05
+          },
+          "key": "k378"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.592809606481482e-06
+          },
+          "key": "k379"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3766203703703704e-05
+          },
+          "key": "k380"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2371744791666667e-05
+          },
+          "key": "k381"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4364149305555556e-05
+          },
+          "key": "k382"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.34921875e-05
+          },
+          "key": "k383"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3154875578703704e-05
+          },
+          "key": "k384"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3163049768518519e-05
+          },
+          "key": "k385"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.6280598958333332e-05
+          },
+          "key": "k386"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3449001736111112e-05
+          },
+          "key": "k387"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.405888310185186e-06
+          },
+          "key": "k388"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.230056423611111e-05
+          },
+          "key": "k389"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.0899160879629629e-05
+          },
+          "key": "k390"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 4.156467013888889e-06
+          },
+          "key": "k391"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.087239583333333e-06
+          },
+          "key": "k392"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3503616898148148e-05
+          },
+          "key": "k393"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.2986183449074074e-05
+          },
+          "key": "k394"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.187087673611111e-05
+          },
+          "key": "k395"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3737123842592593e-05
+          },
+          "key": "k396"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.6056857638888885e-06
+          },
+          "key": "k397"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 6.032573784722222e-05
+          },
+          "key": "k398"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.126171875e-05
+          },
+          "key": "k399"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.16333912037037e-05
+          },
+          "key": "k400"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2937138310185186e-05
+          },
+          "key": "k401"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.1907841435185184e-05
+          },
+          "key": "k402"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.188968460648148e-05
+          },
+          "key": "k403"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.360792824074074e-05
+          },
+          "key": "k404"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.2129195601851851e-05
+          },
+          "key": "k405"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.3040581597222222e-05
+          },
+          "key": "k406"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 8.8125e-06
+          },
+          "key": "k407"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3500144675925926e-05
+          },
+          "key": "k408"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.4281539351851852e-05
+          },
+          "key": "k409"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.5417824074074074e-05
+          },
+          "key": "k410"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.452785011574074e-05
+          },
+          "key": "k411"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.7537109375e-05
+          },
+          "key": "k412"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 2.447771990740741e-05
+          },
+          "key": "k413"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 3.0074869791666667e-05
+          },
+          "key": "k414"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 1.3432798032407407e-05
+          },
+          "key": "k415"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.01
+          },
+          "dashboard": {
+            "occupancy_percent": 0.014047370153356482
+          },
+          "key": "k416"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.34
+          },
+          "dashboard": {
+            "occupancy_percent": 0.3398736372974537
+          },
+          "key": "k417"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.0
+          },
+          "dashboard": {
+            "occupancy_percent": 0.00234354296875
+          },
+          "key": "k418"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.4
+          },
+          "dashboard": {
+            "occupancy_percent": 0.3973850093315972
+          },
+          "key": "k419"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 1.64
+          },
+          "dashboard": {
+            "occupancy_percent": 1.6417825537471065
+          },
+          "key": "k420"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.12
+          },
+          "dashboard": {
+            "occupancy_percent": 0.12134530504918982
+          },
+          "key": "k421"
+        },
+        {
+          "atlas": {
+            "occupancy_percent": 0.26
+          },
+          "dashboard": {
+            "occupancy_percent": 0.2603303110532407
+          },
+          "key": "k422"
+        }
+      ],
+      "tolerated": []
+    },
+    "ookla_averages": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [],
+        "metrics": [
+          "avg_download_mbps",
+          "avg_upload_mbps",
+          "avg_packet_loss_percent",
+          "avg_latency_ms"
+        ],
+        "source_id": "ookla_speedtest"
+      },
+      "atlas_sql_sha256": "a1d1c543cfacf514cb66d6978cd6150086d8b617cf4a6763043b3fbbb8b9823f",
+      "dashboard": "ookla-speedtest.json",
+      "family": "network",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "id": 3
+      },
+      "row_count": 1,
+      "rows": [
+        {
+          "atlas": {
+            "avg_download_mbps": 912.9,
+            "avg_latency_ms": 0.61,
+            "avg_packet_loss_percent": 0.0,
+            "avg_upload_mbps": 927.71
+          },
+          "dashboard": {
+            "avg_download_mbps": 912.9,
+            "avg_latency_ms": 0.61,
+            "avg_packet_loss_percent": 0.0,
+            "avg_upload_mbps": 927.71
+          },
+          "key": "k1"
+        }
+      ],
+      "tolerated": []
+    },
+    "script_summary": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "preset": "script_summary"
+      },
+      "atlas_sql_sha256": "07e3bca3a2e0761d24ed02ae367b0c64887d73ad2f46da9e0806771f5dfbfb63",
+      "dashboard": "script-results.json",
+      "family": "script",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "id": 2
+      },
+      "row_count": 1,
+      "rows": [
+        {
+          "atlas": {
+            "failure_count": 543,
+            "pass_rate": 80.31,
+            "run_count": 2758
+          },
+          "dashboard": {
+            "failure_count": 543,
+            "pass_rate": 80.3,
+            "run_count": 2758
+          },
+          "key": "k1"
+        }
+      ],
+      "tolerated": []
+    },
+    "service_availability": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [
+          "server_name",
+          "vm",
+          "component"
+        ],
+        "metrics": [
+          "availability_percent",
+          "minutes_not_ok",
+          "times_not_ok"
+        ],
+        "source_id": "service_availability"
+      },
+      "atlas_sql_sha256": "d93f07188c76059bf6b1f14c00ba76d9ad59f09ce9d591d8ac12e0425d8a52ba",
+      "dashboard": "system-service-status.json",
+      "family": "system",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "title": "Availability over the selected range"
+      },
+      "row_count": 27,
+      "rows": [
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k1"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k2"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k3"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k4"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k5"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k6"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k7"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k8"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k9"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k10"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k11"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k12"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k13"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k14"
+        },
+        {
+          "atlas": {
+            "availability_percent": 95.05,
+            "minutes_not_ok": 100.0,
+            "times_not_ok": 1
+          },
+          "dashboard": {
+            "availability_percent": 95.05,
+            "minutes_not_ok": 100.0,
+            "times_not_ok": 1
+          },
+          "key": "k15"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k16"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k17"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k18"
+        },
+        {
+          "atlas": {
+            "availability_percent": 99.79,
+            "minutes_not_ok": 4.0,
+            "times_not_ok": 5
+          },
+          "dashboard": {
+            "availability_percent": 99.79,
+            "minutes_not_ok": 4.0,
+            "times_not_ok": 5
+          },
+          "key": "k19"
+        },
+        {
+          "atlas": {
+            "availability_percent": 99.32,
+            "minutes_not_ok": 13.0,
+            "times_not_ok": 1
+          },
+          "dashboard": {
+            "availability_percent": 99.32,
+            "minutes_not_ok": 13.0,
+            "times_not_ok": 1
+          },
+          "key": "k20"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k21"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k22"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k23"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k24"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k25"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k26"
+        },
+        {
+          "atlas": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "dashboard": {
+            "availability_percent": 100.0,
+            "minutes_not_ok": 0.0,
+            "times_not_ok": 0
+          },
+          "key": "k27"
+        }
+      ],
+      "tolerated": []
+    },
+    "superping_quality": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [],
+        "metrics": [
+          "avg_score",
+          "avg_rtt_ms"
+        ],
+        "source_id": "superping"
+      },
+      "atlas_sql_sha256": "1e99f9d1f3191f993c6a6858cbc1efb626e93400d13d9cea21c1d2bad0bf03fd",
+      "dashboard": "superping.json",
+      "family": "network",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "id": 23
+      },
+      "row_count": 1,
+      "rows": [
+        {
+          "atlas": {
+            "avg_rtt_ms": 4.78,
+            "avg_score": 100.0
+          },
+          "dashboard": {
+            "avg_rtt_ms": 4.78,
+            "avg_score": 100.0
+          },
+          "key": "k1"
+        }
+      ],
+      "tolerated": []
+    },
+    "zapping_total": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [],
+        "metrics": [
+          "zap_count"
+        ],
+        "source_id": "zapping"
+      },
+      "atlas_sql_sha256": "e126fbfbc5445513dc27bb84f2c887293ee86136928d7129ede9385f37e0a236",
+      "dashboard": "all-zapping-events.json",
+      "family": "script",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "id": 10
+      },
+      "row_count": 1,
+      "rows": [
+        {
+          "atlas": {
+            "zap_count": 44
+          },
+          "dashboard": {
+            "zap_count": 44
+          },
+          "key": "k1"
+        }
+      ],
+      "tolerated": []
+    }
+  },
+  "window": {
+    "from": "2026-09-17T00:00:00Z",
+    "to": "2026-10-03T00:00:00Z"
+  }
+}

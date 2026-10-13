@@ -11,6 +11,7 @@ from backend_server.src.lib.utils.completion_notifier import notify_completion
 from backend_server.src.lib.utils.lock_utils import release_device_lock
 from shared.src.lib.utils.build_url_utils import call_host
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import chunked_in
 from backend_server.src.routes.server_system_socket_routes import emit_system_update
 
 server_deployment_bp = Blueprint('server_deployment', __name__, url_prefix='/server/deployment')
@@ -619,17 +620,14 @@ def recent_executions():
             all_script_result_ids.extend(ce.get('script_result_ids') or [])
         scripts_by_id: Dict[str, Dict[str, Any]] = {}
         if all_script_result_ids:
-            unique_ids = list({sid for sid in all_script_result_ids if sid})
-            BATCH = 50
             sr_select = (
                 'id, script_name, success, started_at, completed_at, '
                 'execution_time_ms, html_report_r2_url, logs_r2_url, error_msg'
             )
-            for i in range(0, len(unique_ids), BATCH):
-                batch = unique_ids[i:i + BATCH]
-                sr_resp = supabase.table('script_results').select(sr_select).in_('id', batch).execute()
-                for row in sr_resp.data or []:
-                    scripts_by_id[row['id']] = row
+            for row in chunked_in(
+                    lambda chunk: supabase.table('script_results').select(sr_select).in_('id', chunk),
+                    {sid for sid in all_script_result_ids if sid}):
+                scripts_by_id[row['id']] = row
 
         # Wire DB-campaign matches back to their deployment_execution_id.
         for ce in db_matches:
@@ -891,28 +889,19 @@ def recent_executions():
             script_result_id = script_fallback.get('script_result_id')
             if script_result_id and not exec_row.get('script_result_id'):
                 update_payload['script_result_id'] = script_result_id
-            supabase.table('deployment_executions').update(update_payload).eq('id', exec_row['id']).execute()
-            kind = 'campaign' if campaign_status else 'script'
-            print(f"[@route:deployment:recent_executions] Reconciled stale {kind} execution {exec_row['id']} → {reconciled_status}")
+            # Conditional on status='running' so concurrent polls (every open
+            # browser refreshes on the same socket event) write the row once.
+            upd = supabase.table('deployment_executions').update(update_payload).eq(
+                'id', exec_row['id']
+            ).eq('status', 'running').execute()
+            if upd.data:
+                kind = 'campaign' if campaign_status else 'script'
+                print(f"[@route:deployment:recent_executions] Reconciled stale {kind} execution {exec_row['id']} → {reconciled_status}")
         except Exception as reconcile_error:
             print(f"[@route:deployment:recent_executions] Failed to reconcile execution {exec_row.get('id')}: {reconcile_error}")
-        # Release any stale device lock the scheduler never released
-        dep = exec_row.get('deployments') or {}
-        dep_host = dep.get('host_name')
-        dep_device = dep.get('device_id')
-        if dep_host and dep_device:
-            try:
-                rel = release_device_lock(
-                    host_name=dep_host, device_id=dep_device,
-                    owner_type='deployment_execution', force=True,
-                )
-                if rel.get('released'):
-                    emit_system_update('lock_changed', {
-                        'host_name': dep_host, 'device_id': dep_device,
-                        'is_locked': False, 'lock_info': rel.get('lock_info'),
-                    })
-            except Exception:
-                pass
+        # No device-lock release here: this row's lock may already belong to the
+        # next run or a manual-control session. Leftover locks are reaped by
+        # _check_stale_locks_for_host, which asks the host whether the device is busy.
     running = still_running
 
     # Strip fields the frontend doesn't read — the script_results embed alone is

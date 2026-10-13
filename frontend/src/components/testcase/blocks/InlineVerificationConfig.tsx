@@ -17,7 +17,7 @@ import { Box } from '@mui/material';
 
 import { VerificationsList } from '../../verification/VerificationsList';
 import { VerificationControlsLinkProps } from '../../verification/VerificationControls';
-import { useTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
+import { useOptionalTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
 import { useDeviceData } from '../../../contexts/device/DeviceDataContext';
 import { useVerification } from '../../../hooks/verification/useVerification';
 import { VerificationBlockData } from '../../../types/testcase/TestCase_Types';
@@ -42,12 +42,8 @@ export const InlineVerificationConfig: React.FC<InlineVerificationConfigProps> =
   linkProps,
   userinterfaceName: userinterfaceNameProp,
 }) => {
-  let contextData: any = null;
-  try {
-    contextData = useTestCaseBuilder();
-  } catch {
-    // Outside provider (shouldn't happen in the builder) — render with no refs.
-  }
+  // Outside a provider this is undefined and the dialog renders with no refs.
+  const contextData = useOptionalTestCaseBuilder();
 
   // Prefer the explicit prop (QuickTestBuilder has no TestCaseBuilderProvider);
   // fall back to the builder context for the TestCaseBuilder embedding.

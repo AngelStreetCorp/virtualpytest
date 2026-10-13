@@ -99,6 +99,8 @@ def main():
 
     for path in sorted(glob.glob(pattern)):
         name = os.path.basename(path)
+        if name == 'template.json':
+            continue  # Atlas dashboard template, not a dashboard
         raw = open(path, encoding='utf-8').read()
         try:
             title = json.loads(raw).get('title')

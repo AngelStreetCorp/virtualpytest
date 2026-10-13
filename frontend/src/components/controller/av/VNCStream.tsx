@@ -3,7 +3,6 @@
   VideoCall,
   StopCircle,
   Refresh,
-  OpenInFull,
   CloseFullscreen,
   KeyboardArrowDown,
   KeyboardArrowUp,
@@ -12,9 +11,11 @@
 import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 
+import { FullscreenIcon } from '../../common/icons/CustomIcons';
 import { getConfigurableAVPanelLayout, loadAVConfig } from '../../../config/av';
 import { useVNCState } from '../../../contexts/VNCStateContext';
 import { useVncStream, useStream } from '../../../hooks/controller';
+import { useHostSession } from '../../../hooks/useHostSession';
 import { Host } from '../../../types/common/Host_Types';
 import { getZIndex } from '../../../utils/zIndexUtils';
 import { calculateVncScaling } from '../../../utils/vncUtils';
@@ -37,18 +38,23 @@ interface VNCStreamProps {
   useAbsolutePositioning?: boolean;
   positionLeft?: string;
   positionBottom?: string;
+  /** Anchor to the right instead of the left (absolute positioning only). */
+  positionRight?: string;
   sx?: any;
 }
 
 // VNC Viewer Component for iframe display with dynamic scaling
-const VNCViewer = ({ 
-  streamUrl, 
+const VNCViewer = ({
+  streamUrl,
+  sessionReady,
   panelWidth,
   panelHeight,
-  sx = {} 
-}: { 
-  host: Host; 
-  streamUrl: string | null; 
+  sx = {},
+}: {
+  host: Host;
+  streamUrl: string | null;
+  /** False until the host-session cookie is minted: the iframe must not load before then. */
+  sessionReady: boolean;
   panelWidth: string;
   panelHeight: string;
   sx?: any;
@@ -91,7 +97,7 @@ const VNCViewer = ({
         backgroundColor: 'black',
       }}
     >
-      {isVncLoading && (
+      {(isVncLoading || !sessionReady) && (
         <Box
           sx={{
             position: 'absolute',
@@ -110,21 +116,24 @@ const VNCViewer = ({
         </Box>
       )}
 
-      {/* VNC iframe with dynamic scaling to fit panel */}
-      <iframe
-        src={streamUrl}
-        style={{
-          width: scaling.width,
-          height: scaling.height,
-          border: 'none',
-          backgroundColor: '#000',
-          transform: scaling.transform,
-          transformOrigin: scaling.transformOrigin,
-        }}
-        onLoad={handleVncLoad}
-        title="VNC Desktop Stream"
-        allow="fullscreen"
-      />
+      {/* VNC iframe with dynamic scaling to fit panel. Only mounted once the host-session
+          cookie exists: an earlier src would 401 at the proxy gate and leave the panel black. */}
+      {sessionReady && (
+        <iframe
+          src={streamUrl}
+          style={{
+            width: scaling.width,
+            height: scaling.height,
+            border: 'none',
+            backgroundColor: '#000',
+            transform: scaling.transform,
+            transformOrigin: scaling.transformOrigin,
+          }}
+          onLoad={handleVncLoad}
+          title="VNC Desktop Stream"
+          allow="fullscreen"
+        />
+      )}
     </Box>
   );
 };
@@ -142,6 +151,7 @@ export const VNCStream = React.memo(
     useAbsolutePositioning = false,
     positionLeft,
     positionBottom,
+    positionRight,
     sx = {},
   }: VNCStreamProps) {
     // VNC state from context
@@ -163,6 +173,13 @@ export const VNCStream = React.memo(
     // Use stream hook for VNC stream URL (for iframe)
     const { streamUrl, urlError } = useStream({ host, device_id: deviceId });
     const isStreamActive = !!streamUrl && !urlError; // VNC is active if we have a valid stream URL
+
+    // BUG-0107 step 2: the proxy's auth_request gate 401s /host/<name>/vnc_lite.html without
+    // the host-session cookie, so the iframe gets its src only once the mint resolves (as in
+    // RecStreamContainer and DevicePanel). Without it this panel stayed black in the
+    // Navigation editor unless another page had minted the cookie in the last 10 minutes.
+    // Not keepAlive: only the websocket handshake is gated, the connection then persists.
+    const vncSessionReady = useHostSession(streamUrl, false);
 
 
 
@@ -361,7 +378,7 @@ export const VNCStream = React.memo(
       ...(useAbsolutePositioning
         ? {
             bottom: positionBottom || '50px',
-            left: positionLeft || '10px',
+            ...(positionRight ? { right: positionRight } : { left: positionLeft || '10px' }),
           }
         : {
             bottom: panelLayout.collapsed.position.bottom || '20px',
@@ -532,7 +549,7 @@ export const VNCStream = React.memo(
                     {isVNCExpanded ? (
                       <CloseFullscreen fontSize="small" />
                     ) : (
-                      <OpenInFull fontSize="small" />
+                      <FullscreenIcon fontSize="small" />
                     )}
                   </IconButton>
                 </Tooltip>
@@ -552,6 +569,7 @@ export const VNCStream = React.memo(
                 <VNCViewer
                   host={host}
                   streamUrl={streamUrl}
+                  sessionReady={vncSessionReady}
                   panelWidth={getPanelWidth()}
                   panelHeight={getPanelHeight()}
                   sx={{
@@ -681,6 +699,7 @@ export const VNCStream = React.memo(
     const useAbsolutePositioningChanged = prevProps.useAbsolutePositioning !== nextProps.useAbsolutePositioning;
     const positionLeftChanged = prevProps.positionLeft !== nextProps.positionLeft;
     const positionBottomChanged = prevProps.positionBottom !== nextProps.positionBottom;
+    const positionRightChanged = prevProps.positionRight !== nextProps.positionRight;
 
     const shouldRerender =
       hostChanged ||
@@ -690,7 +709,8 @@ export const VNCStream = React.memo(
       onCaptureModeChangeChanged ||
       useAbsolutePositioningChanged ||
       positionLeftChanged ||
-      positionBottomChanged;
+      positionBottomChanged ||
+      positionRightChanged;
 
     if (shouldRerender) {
       console.log('[@component:VNCStream] Props changed, re-rendering:', {

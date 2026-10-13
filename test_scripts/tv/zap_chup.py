@@ -29,6 +29,17 @@ if project_root not in sys.path:
 from shared.src.lib.executors.script_decorators import script, get_context, get_args, get_device
 from shared.src.lib.executors.zap_executor import ZapExecutor
 
+# Script arguments - declared at module top because the backend param analyzer
+# only reads the first 300 lines of the file. Bound to main() at the bottom.
+_script_args = [
+    '--userinterface:str:example_mobile',
+    '--variant:str:',            # Optional named variant; empty = base
+    '--node:str:live_chup',      # Default action node
+    '--iterations:int:3',         # Default to 3 iterations
+    '--motion-threshold:float:1.0',   # Min frame-to-frame change % to count as motion
+    '--motion-window-s:float:2.0',    # Seconds between the two compared frames (max 2.0)
+]
+
 # Seconds to let the destination channel settle before checking motion. Without a
 # zapping-detection poll (zap_chup is a navigation/optimization test), this gives
 # the capture pipeline time to render + analyze the destination frames so we read
@@ -320,14 +331,7 @@ def main():
 
 
 # Script arguments
-main._script_args = [
-    '--userinterface:str:example_mobile',
-    '--variant:str:',            # Optional named variant; empty = base
-    '--node:str:live_chup',      # Default action node
-    '--iterations:int:3',         # Default to 3 iterations
-    '--motion-threshold:float:1.0',   # Min frame-to-frame change % to count as motion
-    '--motion-window-s:float:2.0',    # Seconds between the two compared frames (max 2.0)
-]
+main._script_args = _script_args
 main._script_description = "Execute channel zap action multiple times."
 main._arg_descriptions = {
     'userinterface': 'UI interface name',

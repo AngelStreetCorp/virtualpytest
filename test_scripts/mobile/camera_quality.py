@@ -32,6 +32,12 @@ from shared.src.lib.utils.report_step_formatter import format_single_step
 from shared.src.lib.utils.ai_utils import call_vision_ai
 from datetime import datetime
 
+# Script arguments - declared at module top because the backend param analyzer
+# only reads the first 300 lines of the file. Bound to main() at the bottom.
+_script_args = [
+    '--output:str:'  # Script-specific param (empty = temp file)
+]
+
 
 def _format_file_size(size_bytes: int) -> str:
     """Format file size in human-readable format"""
@@ -509,7 +515,7 @@ IMPORTANT GUIDELINES:
 Be honest about any discrepancies between technical metrics and visual quality."""
 
         # Call AI vision analysis
-        result = call_vision_ai(prompt, image_path, max_tokens=400, temperature=0.0)
+        result = call_vision_ai(prompt, image_path, 'vision.quality', max_tokens=400, temperature=0.0)
 
         if not result['success']:
             return {
@@ -765,9 +771,7 @@ def main():
 
 
 # Script arguments
-main._script_args = [
-    '--output:str:'  # Script-specific param (empty = temp file)
-]
+main._script_args = _script_args
 main._script_description = "Capture photo and analyze camera image quality."
 main._arg_descriptions = {
     'output': 'Output path for captured image',

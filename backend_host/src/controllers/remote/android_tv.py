@@ -80,9 +80,30 @@ class AndroidTVRemoteController(RemoteControllerInterface):
         self.android_device_id = self.adb_serial or f"{self.device_ip}:{self.device_port}"
         self.adb_utils = None
         self.device_resolution = None
-        
+
+        # Status-dot health (mirrors vega.py:82-85 / infrared.py:73-76).
+        # Drives the green/red LED in the Take Control panel header — same
+        # fields and semantics as the IR / Vega remotes so the frontend can
+        # render the dot with one shared code path.
+        self._last_send_ok: Optional[bool] = None
+        self._last_send_error: Optional[str] = None
+        self._last_send_ts: float = 0.0
+        self._health_cache: Optional[Dict[str, Any]] = None
+        self._health_cache_ts: float = 0.0
+
         print(f"[@controller:AndroidTVRemote] Initialized for {self.android_device_id}")
         self.connect()
+
+    def _record_send(self, ok: bool, error: Optional[str] = None) -> None:
+        """Record the outcome of the most recent ADB keyevent send (feeds the status dot).
+
+        Mirrors vega.py:_record_send — keep the (ok, error) signature and the
+        field names so the frontend's InfraredStatus-shaped payload can be
+        rendered with the same colour logic.
+        """
+        self._last_send_ok = ok
+        self._last_send_error = None if ok else (error or "send failed")
+        self._last_send_ts = time.time()
         
     def connect(self) -> bool:
         """Connect to the Android TV device via ADB."""
@@ -141,21 +162,23 @@ class AndroidTVRemoteController(RemoteControllerInterface):
         if not self.is_connected or not self.adb_utils:
             print(f"Remote[{self.device_type.upper()}]: ERROR - Not connected to device")
             return False
-            
+
         try:
             print(f"Remote[{self.device_type.upper()}]: Pressing key '{key}'")
-            
+
             success = self.adb_utils.execute_key_command(self.android_device_id, key)
-            
+
             if success:
                 print(f"Remote[{self.device_type.upper()}]: Successfully pressed key '{key}'")
             else:
                 print(f"Remote[{self.device_type.upper()}]: Failed to press key '{key}'")
-                
+
+            self._record_send(bool(success))
             return success
-            
+
         except Exception as e:
             print(f"Remote[{self.device_type.upper()}]: Key press error: {e}")
+            self._record_send(False, str(e))
             return False
             
     def input_text(self, text: str) -> bool:
@@ -342,7 +365,7 @@ class AndroidTVRemoteController(RemoteControllerInterface):
             self.last_error = error_msg
             return False
 
-    def get_installed_apps(self) -> List[AndroidApp]:
+    def get_installed_apps(self) -> List[AndroidApp]:  # noqa: F821 — lazy annotation, see top of file
         """Get list of launcher-visible apps on the device.
 
         Returns AndroidApp objects, not dicts — host_remote_routes.py's
@@ -397,6 +420,86 @@ class AndroidTVRemoteController(RemoteControllerInterface):
             print(f"Remote[{self.device_type.upper()}]: {error_msg}")
             return False, "", error_msg
         
+    def get_health(self) -> Dict[str, Any]:
+        """Non-destructive ADB presence + shell-echo probe for the Take Control status dot.
+
+        Mirrors vega.py:get_health() / infrared.py:get_ir_health(). Cached
+        5 s on the controller so the frontend's polling (`get_pairing_status`
+        every 1-5 s) doesn't fork `adb devices` on every tick. The
+        last_send_* fields are always read from the live instance, never
+        from the cache, so the LED reacts to the most recent press even
+        between cache refreshes.
+
+        Returned shape (same field names as InfraredStatus / VegaStatus):
+          adb_device, device_present, tx_probe_ok, last_send_ok,
+          last_send_error, last_send_ts, healthy, detail
+        """
+        now = time.time()
+        if self._health_cache is not None and (now - self._health_cache_ts) < 5:
+            cached = dict(self._health_cache)
+            cached["last_send_ok"] = self._last_send_ok
+            cached["last_send_error"] = self._last_send_error
+            cached["last_send_ts"] = self._last_send_ts
+            return cached
+
+        device_present = False
+        tx_probe_ok = False
+
+        # Step 1: is the ADB target listed as `device` (not `offline`/`unauthorized`)?
+        try:
+            adb_result = subprocess.run(
+                ["adb", "devices"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if adb_result.returncode == 0:
+                for line in adb_result.stdout.splitlines():
+                    parts = line.split("\t")
+                    if len(parts) >= 2 and parts[0].strip() == self.android_device_id and parts[1].strip() == "device":
+                        device_present = True
+                        break
+        except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+            print(f"Remote[{self.device_type.upper()}]: get_health adb devices probe failed: {e}")
+
+        # Step 2: round-trip a shell command — catches "listed but shell wedged" (e.g. adbd OOM).
+        if device_present:
+            try:
+                probe = subprocess.run(
+                    ["adb", "-s", self.android_device_id, "shell", "echo", "android-tv-ok"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                tx_probe_ok = probe.returncode == 0 and "android-tv-ok" in (probe.stdout or "")
+            except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+                print(f"Remote[{self.device_type.upper()}]: get_health shell probe failed: {e}")
+
+        healthy = bool(device_present and tx_probe_ok and self._last_send_ok is not False)
+
+        if not device_present:
+            detail = f"Android TV device {self.android_device_id} not in adb devices list"
+        elif not tx_probe_ok:
+            detail = f"Android TV device {self.android_device_id} unreachable (adb shell probe failed)"
+        elif self._last_send_ok is False:
+            detail = f"Last Android TV key press failed: {self._last_send_error}"
+        else:
+            detail = f"Android TV ready ({self.android_device_id})"
+
+        status = {
+            "adb_device": self.android_device_id,
+            "device_present": device_present,
+            "tx_probe_ok": tx_probe_ok,
+            "last_send_ok": self._last_send_ok,
+            "last_send_error": self._last_send_error,
+            "last_send_ts": self._last_send_ts,
+            "healthy": healthy,
+            "detail": detail,
+        }
+        self._health_cache = status
+        self._health_cache_ts = now
+        return status
+
     def get_status(self) -> Dict[str, Any]:
         """Get controller status information with ADB device verification."""
         try:
@@ -768,6 +871,14 @@ class AndroidTVRemoteController(RemoteControllerInterface):
         
         def _execute_specific_command():
             """Execute the specific command - centralized logic"""
+            # Read-only status-dot probe polled by the Take Control panel
+            # header. Mirrors vega.py:385-386 / infrared.py:162-165. NOTE:
+            # only `get_pairing_status` is mapped to the LED payload; the
+            # richer `get_status` (adb_status / adb_connected / available
+            # devices) stays untouched for its existing callers.
+            if command == 'get_pairing_status':
+                return {'success': True, 'status': self.get_health()}
+
             if command == 'press_key':
                 key = params.get('key')
                 success = self.press_key(key) if key else False

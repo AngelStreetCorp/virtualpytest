@@ -2,8 +2,6 @@ import {
   Add as AddIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
-  Save as SaveIcon,
-  Cancel as CancelIcon,
   Launch as LaunchIcon,
   ContentCopy as DuplicateIcon,
   Tune as TuneIcon,
@@ -12,6 +10,7 @@ import {
   Upload as ImportIcon,
   MoreVert as MoreIcon,
   Publish as PublishIcon,
+  ReportProblemOutlined as UnknownIcon,
 } from '@mui/icons-material';
 import {
   Box,
@@ -44,7 +43,11 @@ import {
   Divider,
   ToggleButton,
   ToggleButtonGroup,
+  Switch,
+  FormControlLabel,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { goldButtonSx, pageSurfaceSx, segmentedSx } from '../components/common/PageChrome';
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
@@ -60,10 +63,15 @@ import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { StyledDialog } from '../components/common/StyledDialog';
 import UserInterface_VariantsSection from '../components/userinterface/UserInterface_VariantsSection';
 import {
+  unknownCountFor,
+  useUnknownScreenCounts,
+} from '../hooks/pages/useUserInterfaceUnknown';
+import {
   UserInterface as UserInterfaceType,
   UserInterfaceCreatePayload,
 } from '../types/pages/UserInterface_Types';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { api } from '../utils/apiClient';
 
 // Collapse min/max into a single "min - max" cell to save a column.
 const formatVersionRange = (ui: UserInterfaceType): string => {
@@ -86,7 +94,7 @@ const ModeChip: React.FC<{ ui: UserInterfaceType }> = ({ ui }) => (
       ml: 0.5,
       '& .MuiChip-label': { px: 0.5, fontSize: '0.65rem', fontWeight: 600 },
       ...(isProd(ui)
-        ? { bgcolor: '#b8860b', color: '#fff' }
+        ? { bgcolor: '#b8860b', color: '#fff' } // gold = prod, same in both themes
         : { color: 'text.secondary' }),
     }}
   />
@@ -125,6 +133,7 @@ const VariantsCell: React.FC<{ userInterfaceId: string }> = ({ userInterfaceId }
 };
 
 const UserInterface: React.FC = () => {
+  const P = useAgentChatPalette();
   // Get navigation hook
   const navigate = useNavigate();
   const { isMobile } = useResponsiveMode();
@@ -143,12 +152,28 @@ const UserInterface: React.FC = () => {
 
   const [userInterfaces, setUserInterfaces] = useState<UserInterfaceType[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // Edit-in-popup state. Replaces the old inline `editingId`/`editForm` pair:
+  // the row actions ⋮ menu opens a single StyledDialog that owns every
+  // editable field at once, so there are no per-row conditional renderings.
+  // `editOpen` controls visibility; `editTarget` is the row being edited;
+  // `editForm` mirrors the Add-dialog payload shape (same fields, same
+  // "empty string means unset" conventions for company/is_media).
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<UserInterfaceType | null>(null);
   const [editForm, setEditForm] = useState({
     name: '',
     models: [] as string[],
     min_version: '',
     max_version: '',
+    // Empty string is the editor's "not set" state; the editor turns it back
+    // into NULL on save by omitting the key, so a cleared field does not
+    // persist a literal "".
+    company: '',
+    // Optional media-surface flag. `null` = "editor has not decided"; the
+    // switch shows OFF on null and ignores a null on save (the backend's
+    // presence-check then leaves the column untouched). `true` / `false`
+    // are explicit editorial choices persisted verbatim.
+    is_media: null as boolean | null,
   });
   const [openDialog, setOpenDialog] = useState(false);
   const [newInterface, setNewInterface] = useState({
@@ -156,6 +181,12 @@ const UserInterface: React.FC = () => {
     models: [] as string[],
     min_version: '',
     max_version: '',
+    company: '',
+    // Same convention as `company`: defaults to null (do not set) on create.
+    // The switch rides at false by default on the dialog so the editor sees
+    // an explicit OFF state — a new UI is not a media surface unless the
+    // editor says so.
+    is_media: false,
   });
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -183,6 +214,39 @@ const UserInterface: React.FC = () => {
     ui: UserInterfaceType;
   } | null>(null);
   const closeActionMenu = () => setActionMenu(null);
+
+  // Per-userinterface "DOM report has been generated at least once" flag, persisted in
+  // localStorage so the colour survives reloads and matches across tabs for this browser.
+  // Once a DOM report has been run, the Unknown-screens pill in the row's ⋮ menu drops its
+  // warning amber and renders white — the operator has already looked at the unknown screens
+  // in the DOM report, so the count is no longer a "needs your attention" signal regardless
+  // of how many remain. Keyed by userinterface name; the value is the ISO timestamp of the
+  // first generation (overwritten on each visit so the value is always the latest run).
+  const DOM_REPORT_LS_PREFIX = 'vpt:dom_report:';
+  const [domReportDone, setDomReportDone] = useState<Record<string, string>>(() => {
+    if (typeof window === 'undefined') return {};
+    const out: Record<string, string> = {};
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith(DOM_REPORT_LS_PREFIX)) {
+        const v = window.localStorage.getItem(k);
+        if (v) out[k.slice(DOM_REPORT_LS_PREFIX.length)] = v;
+      }
+    }
+    return out;
+  });
+  const markDomReportDone = (uiName: string) => {
+    const stamp = new Date().toISOString();
+    window.localStorage.setItem(`${DOM_REPORT_LS_PREFIX}${uiName}`, stamp);
+    setDomReportDone((prev) => ({ ...prev, [uiName]: stamp }));
+  };
+
+  // Unknown-screen counts: one request for the whole page, keyed by interface name.
+  // The page used to surface a "Unknown screens N" button in the action bar pointing
+  // at the worst-named interface, and an "Unknown" column next to Actions. Both have
+  // been folded into the row's ⋮ menu as "Unknown screens (N)" so the row stays
+  // uncluttered — the count travels with the row it belongs to.
+  const { counts: unknownCounts } = useUnknownScreenCounts();
 
   // Variants manager modal — Phase 2 of named-variant feature.
   // List page → modal pattern keeps the page additive (no detail route added).
@@ -239,37 +303,62 @@ const UserInterface: React.FC = () => {
     loadUserInterfaces();
   }, [getAllUserInterfaces]);
 
-  const handleEdit = (userInterface: UserInterfaceType) => {
-    setEditingId(userInterface.id);
+  const openEditModal = (userInterface: UserInterfaceType) => {
+    setEditTarget(userInterface);
     setEditForm({
       name: userInterface.name,
       models: userInterface.models,
       min_version: userInterface.min_version || '',
       max_version: userInterface.max_version || '',
+      company: userInterface.company || '',
+      is_media: (userInterface.is_media ?? null) as boolean | null,
     });
+    setEditOpen(true);
+  };
+
+  const closeEditModal = () => {
+    setEditOpen(false);
+    // Keep `editTarget` until next openEditModal so the dialog can still
+    // resolve the original row (e.g. for the Save spinner label) while the
+    // close animation runs.
   };
 
   const handleSaveEdit = async () => {
+    if (!editTarget) return;
     try {
       setSubmitting(true);
       setError(null);
 
+      // Empty `company` means "leave it as-is on the server" — the dialog
+      // shows an empty field, the backend keeps the existing value.
+      // A NON-empty value is the user's edit and goes through verbatim.
+      //
+      // `is_media` is a literal boolean on the wire: a missing key (null
+      // in the editor) is omitted entirely, the backend keeps the column
+      // untouched; `true` / `false` go through verbatim and clear the
+      // NULL default for a row that has never been set.
+      const is_media_payload =
+        editForm.is_media === null ? undefined : editForm.is_media;
       const payload: UserInterfaceCreatePayload = {
         name: editForm.name,
         models: editForm.models,
         min_version: editForm.min_version,
         max_version: editForm.max_version,
+        company: editForm.company.trim() || undefined,
+        is_media: is_media_payload,
       };
 
       const updatedInterface = await updateUserInterfaceWithValidation(
-        editingId!,
+        editTarget.id,
         payload,
         userInterfaces,
       );
 
       // Update local state
-      setUserInterfaces(userInterfaces.map((ui) => (ui.id === editingId ? updatedInterface : ui)));
-      setEditingId(null);
+      setUserInterfaces(
+        userInterfaces.map((ui) => (ui.id === editTarget.id ? updatedInterface : ui)),
+      );
+      setEditOpen(false);
       console.log(
         '[@component:UserInterface] Successfully updated user interface:',
         updatedInterface.name,
@@ -280,12 +369,6 @@ const UserInterface: React.FC = () => {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleCancelEdit = () => {
-    setEditingId(null);
-    setEditForm({ name: '', models: [], min_version: '', max_version: '' });
-    setError(null);
   };
 
   const handleDelete = async (id: string) => {
@@ -374,6 +457,31 @@ const UserInterface: React.FC = () => {
     }
   };
 
+  // Open the DOM report in a new tab. Mirrors the script-reports / openR2Url
+  // pattern (BUG-0459): the backend builds (or re-signs) the cached R2 artifact,
+  // returns a presigned URL against the public proxy, and the new-tab navigation
+  // carries the signature as its credential — no Authorization header, no
+  // vpt_jwt cookie, no cross-origin issue when the selected server is a sibling
+  // of the frontend.
+  const openDomReport = async (uiName: string) => {
+    try {
+      const res = await api.get<{ success: boolean; url?: string; message?: string }>(
+        buildServerUrl(
+          `/server/userinterface/domReport/url?userinterface=${encodeURIComponent(uiName)}`,
+        ),
+      );
+      if (res.success && res.url) {
+        window.open(res.url, '_blank');
+      } else {
+        console.error('[@component:UserInterface] DOM report URL failed:', res.message);
+        setError(res.message || 'Failed to open DOM report');
+      }
+    } catch (err) {
+      console.error('[@component:UserInterface] Error opening DOM report:', err);
+      setError(err instanceof Error ? err.message : 'Failed to open DOM report');
+    }
+  };
+
   const handleOpenImport = () => {
     setImportFile(null);
     setImportName('');
@@ -417,6 +525,13 @@ const UserInterface: React.FC = () => {
         models: newInterface.models,
         min_version: newInterface.min_version,
         max_version: newInterface.max_version,
+        // Same convention as edit: an empty input means "do not set company",
+        // which the backend persists as NULL — same as a row that pre-dates
+        // the column. A non-empty input is verbatim.
+        company: newInterface.company.trim() || undefined,
+        // New rows ride with is_media=false by default (the dialog switch is
+        // OFF on open); a non-false value is the explicit editorial choice.
+        is_media: newInterface.is_media,
       };
 
       const createdInterface = await createUserInterfaceWithValidation(
@@ -427,7 +542,14 @@ const UserInterface: React.FC = () => {
 
       // Update local state
       setUserInterfaces([...userInterfaces, createdInterface]);
-      setNewInterface({ name: '', models: [], min_version: '', max_version: '' });
+      setNewInterface({
+        name: '',
+        models: [],
+        min_version: '',
+        max_version: '',
+        company: '',
+        is_media: false,
+      });
       setOpenDialog(false);
       console.log(
         '[@component:UserInterface] Successfully created user interface:',
@@ -443,7 +565,14 @@ const UserInterface: React.FC = () => {
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
-    setNewInterface({ name: '', models: [], min_version: '', max_version: '' });
+    setNewInterface({
+      name: '',
+      models: [],
+      min_version: '',
+      max_version: '',
+      company: '',
+      is_media: false,
+    });
     setError(null);
   };
 
@@ -520,7 +649,7 @@ const UserInterface: React.FC = () => {
   );
 
   return (
-    <Box>
+    <Box sx={pageSurfaceSx(P)}>
       <Box
         sx={{
           mb: 2,
@@ -532,11 +661,10 @@ const UserInterface: React.FC = () => {
         }}
       >
         <Box>
-          <Typography variant={isMobile ? 'h5' : 'h4'} gutterBottom>
-            Interface
-          </Typography>
-          <Typography variant="body1" color="textSecondary">
-            Manage navigation and device compatibility for your test automation.
+          {/* Count sits next to the title so the H1 always answers "how many
+              do I have?" without a long explanatory subtitle underneath. */}
+          <Typography component="h1" sx={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 600, lineHeight: 1.3 }}>
+            Interface ({userInterfaces.length})
           </Typography>
         </Box>
         <Box
@@ -554,6 +682,7 @@ const UserInterface: React.FC = () => {
             onChange={(_, value) => value && setModeFilter(value)}
             size="small"
             aria-label="dev/prod filter"
+            sx={segmentedSx(P, 'sm')}
           >
             <ToggleButton value="all" sx={{ px: isMobile ? 0.75 : 1, py: 0.25 }}>
               All
@@ -572,10 +701,15 @@ const UserInterface: React.FC = () => {
             size="small"
             disabled={loading}
             aria-label="Import"
-            sx={isMobile ? { minWidth: 0, px: 1 } : undefined}
+            sx={{ textTransform: 'none', ...(isMobile ? { minWidth: 0, px: 1 } : {}) }}
           >
             {isMobile ? <ImportIcon fontSize="small" /> : 'Import'}
           </Button>
+          {/* The Unknown-screens cross-device entry point used to live here as an
+              outlined warning button. Moved into the row's ⋮ action menu so the
+              indication travels with the row it belongs to (no top bar clutter).
+              The counts request is still issued once per page via
+              `useUnknownScreenCounts`; the total surfaces in each row's menu. */}
           <Button
             variant="contained"
             startIcon={!isMobile ? <AddIcon /> : undefined}
@@ -583,7 +717,7 @@ const UserInterface: React.FC = () => {
             size="small"
             disabled={loading}
             aria-label="Add UI"
-            sx={isMobile ? { minWidth: 0, px: 1 } : undefined}
+            sx={{ ...(goldButtonSx(P) as object), ...(isMobile ? { minWidth: 0, px: 1 } : {}) }}
           >
             {isMobile ? <AddIcon fontSize="small" /> : 'Add UI'}
           </Button>
@@ -596,7 +730,7 @@ const UserInterface: React.FC = () => {
         </Alert>
       )}
 
-      <Card sx={{ boxShadow: 1 }}>
+      <Card>
         <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
           {loading ? (
             <LoadingState />
@@ -635,19 +769,19 @@ const UserInterface: React.FC = () => {
                       <strong>Models</strong>
                     </TableCell>
                     {!isMobile && (
-                      <TableCell sx={{ width: '10%' }}>
+                      <TableCell sx={{ width: '12%' }}>
                         <strong>Version</strong>
                       </TableCell>
                     )}
-                    <TableCell sx={{ width: isMobile ? '15%' : '16%' }}>
+                    <TableCell sx={{ width: isMobile ? '15%' : '13%' }}>
                       <strong>Variants</strong>
                     </TableCell>
                     {!isMobile && (
                       <>
-                        <TableCell align="center" sx={{ width: '9%', whiteSpace: 'nowrap' }}>
+                        <TableCell align="center" sx={{ width: '8%', whiteSpace: 'nowrap' }}>
                           <strong>Navigation</strong>
                         </TableCell>
-                        <TableCell align="center" sx={{ width: '9%', whiteSpace: 'nowrap' }}>
+                        <TableCell align="center" sx={{ width: '8%', whiteSpace: 'nowrap' }}>
                           <strong>References</strong>
                         </TableCell>
                       </>
@@ -662,120 +796,28 @@ const UserInterface: React.FC = () => {
                     <TableRow
                       key={userInterface.id}
                       onClick={
-                        isMobile && editingId !== userInterface.id
-                          ? () => handleEditNavigation(userInterface)
-                          : undefined
+                        isMobile ? () => handleEditNavigation(userInterface) : undefined
                       }
-                      sx={{ cursor: isMobile && editingId !== userInterface.id ? 'pointer' : 'default' }}
+                      sx={{ cursor: isMobile ? 'pointer' : 'default' }}
                     >
                       <TableCell>
-                        {editingId === userInterface.id ? (
-                          <TextField
-                            size="small"
-                            value={editForm.name}
-                            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
-                            fullWidth
-                            variant="outlined"
-                            sx={{
-                              '& .MuiInputBase-root': { height: '32px' },
-                              '& .MuiInputBase-input': { fontSize: '0.75rem', p: '4px 6px' },
-                            }}
-                          />
-                        ) : (
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
-                              {userInterface.name}
-                            </Typography>
-                            <ModeChip ui={userInterface} />
-                          </Box>
-                        )}
+                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                          <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
+                            {userInterface.name}
+                          </Typography>
+                          <ModeChip ui={userInterface} />
+                        </Box>
                       </TableCell>
                       <TableCell>
-                        {editingId === userInterface.id ? (
-                          <Autocomplete
-                            multiple
-                            size="small"
-                            options={availableModels}
-                            freeSolo
-                            value={editForm.models}
-                            onChange={(_, newValue) => {
-                              setEditForm({ ...editForm, models: newValue });
-                            }}
-                            renderTags={(value, getTagProps) =>
-                              value.map((option, index) => {
-                                const { key, ...chipProps } = getTagProps({ index });
-                                return (
-                                  <Chip
-                                    key={key}
-                                    variant="outlined"
-                                    label={option}
-                                    size="small"
-                                    {...chipProps}
-                                    sx={{
-                                      height: 20,
-                                      '& .MuiChip-label': { px: 0.5, fontSize: '0.75rem' },
-                                      '& .MuiChip-deleteIcon': { width: 14, height: 14 },
-                                    }}
-                                  />
-                                );
-                              })
-                            }
-                            renderInput={(params) => (
-                              <TextField
-                                {...params}
-                                variant="outlined"
-                                placeholder="Add models..."
-                                sx={{ '& .MuiInputBase-root': { minHeight: '32px' } }}
-                              />
-                            )}
-                          />
-                        ) : (
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {userInterface.models.map((model) => (
-                              <Chip key={model} label={model} size="small" variant="outlined" />
-                            ))}
-                          </Box>
-                        )}
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                          {userInterface.models.map((model) => (
+                            <Chip key={model} label={model} size="small" variant="outlined" />
+                          ))}
+                        </Box>
                       </TableCell>
                       {!isMobile && (
                       <TableCell>
-                        {editingId === userInterface.id ? (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <TextField
-                              size="small"
-                              value={editForm.min_version}
-                              onChange={(e) =>
-                                setEditForm({ ...editForm, min_version: e.target.value })
-                              }
-                              variant="outlined"
-                              placeholder="Min"
-                              sx={{
-                                flex: 1,
-                                minWidth: 0,
-                                '& .MuiInputBase-root': { height: '32px' },
-                                '& .MuiInputBase-input': { fontSize: '0.75rem', p: '4px 6px' },
-                              }}
-                            />
-                            <Box component="span" sx={{ color: 'text.secondary' }}>
-                              -
-                            </Box>
-                            <TextField
-                              size="small"
-                              value={editForm.max_version}
-                              onChange={(e) =>
-                                setEditForm({ ...editForm, max_version: e.target.value })
-                              }
-                              variant="outlined"
-                              placeholder="Max"
-                              sx={{
-                                flex: 1,
-                                minWidth: 0,
-                                '& .MuiInputBase-root': { height: '32px' },
-                                '& .MuiInputBase-input': { fontSize: '0.75rem', p: '4px 6px' },
-                              }}
-                            />
-                          </Box>
-                        ) : isProd(userInterface) ? (
+                        {isProd(userInterface) ? (
                           <Tooltip
                             title={
                               userInterface.published_at
@@ -840,51 +882,25 @@ const UserInterface: React.FC = () => {
                         </Tooltip>
                       </TableCell>
                       )}
+                      {/* The Unknown-screens pill used to live in its own column here; the
+                          count is now surfaced inside the row's ⋮ action menu
+                          (see "Unknown screens (N)" below). Name / Models /
+                          Company / Is media / Version are no longer inline-edited —
+                          the row's ⋮ menu opens a single Edit popup that owns all
+                          editable fields at once. */}
                       <TableCell align="center">
-                        {editingId === userInterface.id ? (
-                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                            <IconButton
-                              size="small"
-                              color="primary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleSaveEdit();
-                              }}
-                              disabled={submitting}
-                              sx={{ p: 0.5 }}
-                            >
-                              {submitting ? (
-                                <CircularProgress size={16} />
-                              ) : (
-                                <SaveIcon fontSize="small" />
-                              )}
-                            </IconButton>
-                            <IconButton
-                              size="small"
-                              color="secondary"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleCancelEdit();
-                              }}
-                              disabled={submitting}
-                              sx={{ p: 0.5 }}
-                            >
-                              <CancelIcon fontSize="small" />
-                            </IconButton>
-                          </Box>
-                        ) : (
-                          <IconButton
-                            size="small"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActionMenu({ anchorEl: e.currentTarget, ui: userInterface });
-                            }}
-                            sx={{ p: 0.5 }}
-                            title="Actions"
-                          >
-                            <MoreIcon fontSize="small" />
-                          </IconButton>
-                        )}
+                        <IconButton
+                          size="small"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setActionMenu({ anchorEl: e.currentTarget, ui: userInterface });
+                          }}
+                          sx={{ p: 0.5 }}
+                          title="Actions"
+                          aria-label={`Actions for ${userInterface.name}`}
+                        >
+                          <MoreIcon fontSize="small" />
+                        </IconButton>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -903,13 +919,41 @@ const UserInterface: React.FC = () => {
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
         transformOrigin={{ vertical: 'top', horizontal: 'right' }}
       >
+        {/* Unknown screens — surfaced here (not as its own column or top button) so
+            the count travels with the row it belongs to. Renders only when the
+            server reports at least one pending unknown for this interface. */}
+        {actionMenu && unknownCountFor(unknownCounts, actionMenu.ui.name) > 0 && (
+          <MenuItem
+            onClick={() => {
+              if (actionMenu) {
+                navigate(
+                  `/configuration/interface/${encodeURIComponent(actionMenu.ui.name)}/unknown`,
+                );
+              }
+              closeActionMenu();
+            }}
+            sx={{ color: domReportDone[actionMenu.ui.name] ? P.textPrimary : P.warning }}
+          >
+            <ListItemIcon
+              sx={{ color: domReportDone[actionMenu.ui.name] ? P.textPrimary : P.warning }}
+            >
+              <UnknownIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>
+              Unknown screens ({unknownCountFor(unknownCounts, actionMenu.ui.name)})
+            </ListItemText>
+          </MenuItem>
+        )}
+        {actionMenu &&
+          unknownCountFor(unknownCounts, actionMenu.ui.name) > 0 &&
+          !isProd(actionMenu.ui) && <Divider />}
         {/* Prod rows are read-only snapshots: no Edit / Manage variants / Publish
             / Export — just Duplicate (makes a plain dev copy) and Delete
             (= unpublish). */}
         {actionMenu && !isProd(actionMenu.ui) && (
           <MenuItem
             onClick={() => {
-              if (actionMenu) handleEdit(actionMenu.ui);
+              if (actionMenu) openEditModal(actionMenu.ui);
               closeActionMenu();
             }}
           >
@@ -975,14 +1019,8 @@ const UserInterface: React.FC = () => {
           <MenuItem
             onClick={() => {
               if (actionMenu) {
-                window.open(
-                  buildServerUrl(
-                    `/server/userinterface/domReport?userinterface=${encodeURIComponent(
-                      actionMenu.ui.name,
-                    )}`,
-                  ),
-                  '_blank',
-                );
+                markDomReportDone(actionMenu.ui.name);
+                openDomReport(actionMenu.ui.name);
               }
               closeActionMenu();
             }}
@@ -1091,6 +1129,42 @@ const UserInterface: React.FC = () => {
               size="small"
               placeholder="e.g., 2.0"
             />
+
+            <TextField
+              margin="dense"
+              label="Company"
+              fullWidth
+              variant="outlined"
+              value={newInterface.company}
+              onChange={(e) => setNewInterface({ ...newInterface, company: e.target.value })}
+              sx={{ mb: 1.5 }}
+              size="small"
+              placeholder="e.g., brand_a, brand_b, brand_c"
+            />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={!!newInterface.is_media}
+                  onChange={(_, checked) =>
+                    setNewInterface({ ...newInterface, is_media: checked })
+                  }
+                  inputProps={{ 'aria-label': 'is_media switch (new)' }}
+                />
+              }
+              label="Is media"
+              sx={{ mb: 1, ml: 0.5 }}
+            />
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', mb: 1.5, ml: 1.5 }}
+            >
+              Mark this UI as a media surface so the monitor's Tier-2 playback
+              arm answers <em>playing / paused / stopped</em>. Off (default) means
+              playback is <em>not_applicable</em> on this UI.
+            </Typography>
           </Box>
         </DialogContent>
         <DialogActions sx={{ pt: 1, pb: 2, px: 3, gap: 1 }}>
@@ -1105,6 +1179,154 @@ const UserInterface: React.FC = () => {
           >
             {submitting ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
             Add
+          </Button>
+        </DialogActions>
+      </StyledDialog>
+
+      {/* Edit popup — opened by the row's ⋮ action menu. Mirrors the Add
+          dialog field-by-field so an editor never sees a different shape
+          of form when editing vs. creating. */}
+      <StyledDialog open={editOpen} onClose={closeEditModal} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ pb: 1 }}>
+          Edit interface
+          {editTarget && (
+            <Typography
+              component="span"
+              variant="body2"
+              sx={{ ml: 1, color: P.textMuted, fontWeight: 400 }}
+            >
+              {editTarget.name}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Box sx={{ pt: 0.5 }}>
+            <TextField
+              autoFocus
+              margin="dense"
+              label="Name"
+              fullWidth
+              variant="outlined"
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              sx={{ mb: 1.5 }}
+              size="small"
+              placeholder="e.g., Main Navigation Tree"
+            />
+
+            <Autocomplete
+              multiple
+              size="small"
+              options={availableModels}
+              freeSolo
+              value={editForm.models}
+              onChange={(_, newValue) => {
+                setEditForm({ ...editForm, models: newValue });
+              }}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => {
+                  const { key, ...chipProps } = getTagProps({ index });
+                  return (
+                    <Chip
+                      key={key}
+                      variant="outlined"
+                      label={option}
+                      size="small"
+                      {...chipProps}
+                      sx={{
+                        height: 20,
+                        '& .MuiChip-label': { px: 0.5, fontSize: '0.75rem' },
+                        '& .MuiChip-deleteIcon': { width: 14, height: 14 },
+                      }}
+                    />
+                  );
+                })
+              }
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Models"
+                  variant="outlined"
+                  placeholder="Add device models..."
+                  margin="dense"
+                  sx={{ mb: 1.5 }}
+                />
+              )}
+            />
+
+            <TextField
+              margin="dense"
+              label="Min Version"
+              fullWidth
+              variant="outlined"
+              value={editForm.min_version}
+              onChange={(e) => setEditForm({ ...editForm, min_version: e.target.value })}
+              sx={{ mb: 1.5 }}
+              size="small"
+              placeholder="e.g., 1.0"
+            />
+
+            <TextField
+              margin="dense"
+              label="Max Version"
+              fullWidth
+              variant="outlined"
+              value={editForm.max_version}
+              onChange={(e) => setEditForm({ ...editForm, max_version: e.target.value })}
+              sx={{ mb: 1.5 }}
+              size="small"
+              placeholder="e.g., 2.0"
+            />
+
+            <TextField
+              margin="dense"
+              label="Company"
+              fullWidth
+              variant="outlined"
+              value={editForm.company}
+              onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
+              sx={{ mb: 1.5 }}
+              size="small"
+              placeholder="e.g., brand_a, brand_b, brand_c"
+            />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={editForm.is_media === true}
+                  onChange={(_, checked) =>
+                    setEditForm({ ...editForm, is_media: checked })
+                  }
+                  inputProps={{ 'aria-label': 'is_media switch (edit)' }}
+                />
+              }
+              label="Is media"
+              sx={{ mb: 1, ml: 0.5 }}
+            />
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ display: 'block', mb: 1.5, ml: 1.5 }}
+            >
+              Mark this UI as a media surface so the monitor's Tier-2 playback
+              arm answers <em>playing / paused / stopped</em>. Off (default) means
+              playback is <em>not_applicable</em> on this UI.
+            </Typography>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ pt: 1, pb: 2, px: 3, gap: 1 }}>
+          <Button onClick={closeEditModal} size="small" variant="outlined" disabled={submitting}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSaveEdit}
+            variant="contained"
+            size="small"
+            disabled={!editForm.name.trim() || editForm.models.length === 0 || submitting}
+          >
+            {submitting ? <CircularProgress size={16} sx={{ mr: 1 }} /> : null}
+            Save
           </Button>
         </DialogActions>
       </StyledDialog>

@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { Box, Typography, IconButton, Menu, MenuItem, CircularProgress } from '@mui/material';
 import { Headphones, Language } from '@mui/icons-material';
 
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+
 interface TranscriptOverlayProps {
   transcriptText: string;
   selectedLanguage?: string;
@@ -25,6 +27,7 @@ export const TranscriptOverlay: React.FC<TranscriptOverlayProps> = ({
   hasMp3,
   mp3Url,
 }) => {
+  const P = useAgentChatPalette();
   const [languageMenuAnchor, setLanguageMenuAnchor] = useState<null | HTMLElement>(null);
   
   if (!show || !transcriptText) {
@@ -81,7 +84,7 @@ export const TranscriptOverlay: React.FC<TranscriptOverlayProps> = ({
             gap: '12px',
           }}
         >
-          <CircularProgress size={20} sx={{ color: '#2196f3' }} />
+          <CircularProgress size={20} sx={{ color: P.accent }} />
           <Typography variant="caption" sx={{ fontSize: '13px', fontWeight: 500 }}>
             🤖 AI translating...
           </Typography>

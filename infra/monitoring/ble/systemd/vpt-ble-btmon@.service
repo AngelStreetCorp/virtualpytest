@@ -1,0 +1,53 @@
+[Unit]
+# vpt-ble-btmon@.service — per-adapter btmon ring-buffer (TASK-76 / step §7)
+#
+# Captures the raw HCI wire for ONE controller (the templated %i = hciN).
+# Default cap is 10 MB. The ring is restarted weekly by a logrotate rule
+# owned by the install step (out of scope for this PR) so the file never
+# exceeds the cap.
+#
+# BUG-0003 / §6.7.28 carry-over: btmon output CAN include encryption-key
+# material under some bluez builds (e.g. when the patched build logs the
+# LongTermKey in plain). When the post-mortem script
+# (`vpt-ble-hourly.sh --post-mortem`) copies the btmon ring off-host, the
+# redact_ltkirk() filter is applied first. The file on the host is left
+# untouched so an operator with root can drill in.
+#
+# IMPORTANT:
+#   - On a multi-adapter host (host3-style: hci0/hci1/hci2), enable ONE of
+#     these per adapter you want captured. The probe log section 02 prints
+#     every adapter but btmon is bounded by the one you deploy.
+#   - btmon hogs the HCI socket — only one consumer per adapter. The
+#     daemon `hid_remote@hci<N>.service` is on a DIFFERENT socket (D-Bus),
+#     so they coexist.
+#   - The Wed-2026-07-15 vpt-pi3 incident that motivated limiting btmon
+#     scope still stands: leave hci0 disabled if it is firmware-wedged,
+#     so we don't drown the buffer with 0x0C-class timeouts.
+
+Description=VPT BLE btmon ring-buffer on %i
+Documentation=https://...
+
+# We deliberately do NOT After=bluetooth.service — btmon captures the wire
+# from kernel boot and is robust to bluetooth restarts. After= would
+# create a race where the ring is empty across the post-bluetoothd-restart
+# recovery window which is exactly the one we want to keep alive for
+# post-mortems.
+After=syslog.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/btmon -i %i -w /var/log/vpt-ble/btmon/%i.bin
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+
+# Memory / disk guards — never tip the host over a runaway btmon.
+MemoryMax=64M
+TasksMax=4
+CPUQuota=20%
+
+[Install]
+WantedBy=multi-user.target

@@ -15,7 +15,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { apiClient } from '../../utils/apiClient';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 
-export interface NavigationNode {
+/**
+ * A node as offered in a picker: enough to label it and to identify which tree it
+ * belongs to. Deliberately not the `NavigationNode` row shape from
+ * types/pages/Navigation_Types — no position, no verifications, no data blob — and
+ * named apart from it so the difference is visible at the use site.
+ */
+export interface NavigationNodeOption {
   label: string;
   node_id: string;
   tree_id: string;
@@ -25,8 +31,8 @@ export interface NavigationNode {
 }
 
 // Cache key is "<ui>|<variant or __base__>" — same shape as useKpiActionSets.
-const cache = new Map<string, NavigationNode[]>();
-const inFlight = new Map<string, Promise<NavigationNode[]>>();
+const cache = new Map<string, NavigationNodeOption[]>();
+const inFlight = new Map<string, Promise<NavigationNodeOption[]>>();
 
 const buildCacheKey = (ui: string, variant?: string | null) =>
   `${ui}|${(variant || '').trim().toLowerCase() || '__base__'}`;
@@ -37,7 +43,7 @@ export function useNavigationNodes(userinterfaceName?: string, variant?: string 
   const initial = key ? cache.get(key) ?? [] : [];
   const hadCache = key ? cache.has(key) : false;
 
-  const [nodes, setNodes] = useState<NavigationNode[]>(initial);
+  const [nodes, setNodes] = useState<NavigationNodeOption[]>(initial);
   const [loading, setLoading] = useState(!hadCache && Boolean(key));
   const [error, setError] = useState<string | null>(null);
 
@@ -69,7 +75,7 @@ export function useNavigationNodes(userinterfaceName?: string, variant?: string 
           throw new Error(`Failed to load navigation nodes (${response.status})`);
         }
         const json = await response.json();
-        const list: NavigationNode[] = Array.isArray(json?.nodes) ? json.nodes : [];
+        const list: NavigationNodeOption[] = Array.isArray(json?.nodes) ? json.nodes : [];
         cache.set(key, list);
         return list;
       })().finally(() => {

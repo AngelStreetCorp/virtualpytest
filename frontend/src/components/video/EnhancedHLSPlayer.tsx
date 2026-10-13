@@ -2,16 +2,19 @@ import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { Box, Typography, CircularProgress } from '@mui/material';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { MonitoringOverlay } from '../monitoring/MonitoringOverlay';
+import { StreamStatsOverlay } from '../monitoring/StreamStatsOverlay';
 import { useStream } from '../../hooks/controller';
 import { buildStreamUrl } from '../../utils/buildUrlUtils';
 import { EnhancedHLSPlayerProps } from './EnhancedHLSPlayer.types';
 import { useArchivePlayer } from './hooks/useArchivePlayer';
+import { useLiveStreamStats } from './hooks/useLiveStreamStats';
 import { useLiveTranscriptFeed } from './hooks/useLiveTranscriptFeed';
 import { useTranscriptPlayer } from './hooks/useTranscriptPlayer';
 import { LiveTranscriptRail } from './overlays/LiveTranscriptRail';
 import { TimelineOverlay } from './overlays/TimelineOverlay';
 import { TranscriptOverlay } from './overlays/TranscriptOverlay';
 import { DEFAULT_DEVICE_RESOLUTION } from '../../config/deviceResolutions';
+import { featureVideoOverlays } from '../../config/features';
 
 export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
   deviceId,
@@ -42,6 +45,7 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
   archiveSeek,
   hideTimelineOverlay = false,
   freezeArchiveFrame = false,
+  latencyDebug = false,
 }) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const dubbedAudioRef = useRef<HTMLAudioElement>(null); // Dubbed audio player
@@ -120,13 +124,21 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
 
   // Live transcript rail. The archive TranscriptOverlay is live-mode-blind by design
   // (show={!isLiveMode}); this covers the live side by polling the chunk JSON the
-  // host writes progressively. Requires ENABLE_TRANSCRIPTION=true on that host.
+  // host writes progressively. Requires ENABLE_TRANSCRIPTION=true on that host;
+  // the rail (and its collapsed tab) only render once the feed has proven the
+  // service is transcribing. Keeps polling while dismissed so the tab stays.
   const liveTranscript = useLiveTranscriptFeed({
     isLiveMode,
     host,
     deviceId,
-    enabled: showLiveTranscriptRail && !liveRailDismissed,
+    enabled: showLiveTranscriptRail,
   });
+  const liveRailAvailable = showLiveTranscriptRail && isLiveMode && liveTranscript.isAvailable;
+
+  // Playback FPS / dropped frames / live-edge latency, read off the <video> every second.
+  // Monitoring-mode only: this is a triage aid for the operator watching a live run, not a
+  // permanent HUD, and a 1 Hz state update is not worth the re-renders outside that.
+  const liveStreamStats = useLiveStreamStats(videoRef, monitoringMode && isLiveMode, isLiveMode);
 
   // External archive seek (AVQ timeline click). Apply once the archive manifest
   // is loaded; if a seek arrives before metadata is ready, hold it pending and
@@ -575,6 +587,7 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
             isArchiveMode={!isLiveMode}
             shouldPause={shouldPause}
             layoutConfig={layoutConfig}
+            latencyDebug={latencyDebug}
             sx={{ width: '100%', height: '100%' }}
             onPlayerReady={onPlayerReady}
             onCurrentSegmentChange={onCurrentSegmentChange}
@@ -619,7 +632,7 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
               width: '100%',
               height: '100%',
               pointerEvents: 'none',
-              zIndex: 100,
+              zIndex: 1300, // monitoring cards stay on top of player bars and badges
             }}
           >
             <MonitoringOverlay
@@ -633,6 +646,10 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
               analysisTimestamp={analysisTimestamp || undefined}
               isAIAnalyzing={isAIAnalyzing}
             />
+
+            {/* Bottom-left: live playback numbers + the host heartbeat, each labelled with
+                the cadence it actually updates at. */}
+            <StreamStatsOverlay host={host} live={liveStreamStats} />
 
             {aiDescription && (
               <Box
@@ -673,6 +690,12 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
           </Box>
         )}
 
+        {/* Feature-drawn overlays (config/features.ts videoOverlays), e.g. the companion strip. */}
+        {featureVideoOverlays().map(({ Component }, i) => (
+          <Component key={i} hostName={hostName} deviceId={deviceId} isLiveMode={isLiveMode}
+            monitoringMode={!!monitoringMode} />
+        ))}
+
         <TranscriptOverlay
           transcriptText={transcript.getCurrentTranscriptText()}
           selectedLanguage={transcript.selectedLanguage}
@@ -687,11 +710,11 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
 
         <LiveTranscriptRail
           lines={liveTranscript.lines}
-          show={showLiveTranscriptRail && isLiveMode && !liveRailDismissed}
+          show={liveRailAvailable && !liveRailDismissed}
           onClose={() => setLiveRailDismissed(true)}
         />
 
-        {showLiveTranscriptRail && isLiveMode && liveRailDismissed && (
+        {liveRailAvailable && liveRailDismissed && (
           <Box
             onClick={() => setLiveRailDismissed(false)}
             sx={{

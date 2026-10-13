@@ -31,6 +31,19 @@ export interface PhoneAgentStatus {
   lastError?: string;
 }
 
+/**
+ * The installed APK against the one published for download (the `<apk>.json` sidecar, fetched
+ * natively so the APK's cross-site origin needs no CORS on the download server).
+ */
+export interface AppUpdateInfo {
+  installedVersion: string;
+  installedCode: number;
+  /** Absent when the build has no download URL baked in, or the sidecar could not be read. */
+  latestVersion?: string;
+  latestCode?: number;
+  updateAvailable: boolean;
+}
+
 export interface PhoneAgentPlugin {
   scanQr(): Promise<{ value: string }>; // native scanner; rejects on cancel
   applyConfig(opts: { payload: string }): Promise<PhoneAgentStatus>; // raw QR JSON, kind 'config' or 'pair'
@@ -48,6 +61,8 @@ export interface PhoneAgentPlugin {
   openBatterySettings(): Promise<void>;
   reloadApp(): Promise<void>;
   setActionOverlay(options: { enabled: boolean }): Promise<PhoneAgentStatus>;
+  checkUpdate(): Promise<AppUpdateInfo>;
+  openUpdate(): Promise<void>; // hands the APK URL to the browser, which downloads it
   addListener(eventName: 'statusChanged', cb: (s: PhoneAgentStatus) => void): Promise<{ remove: () => void }>;
 }
 
@@ -109,6 +124,8 @@ export const phoneAgent: PhoneAgentPlugin = {
   openBatterySettings: () => nativePlugin()?.openBatterySettings() ?? unavailable(),
   reloadApp: () => nativePlugin()?.reloadApp() ?? unavailable(),
   setActionOverlay: (options) => nativePlugin()?.setActionOverlay(options) ?? unavailable(),
+  checkUpdate: () => nativePlugin()?.checkUpdate() ?? unavailable(),
+  openUpdate: () => nativePlugin()?.openUpdate() ?? unavailable(),
   // Verified live on a real Capacitor Android bridge (CDP inspection, TASK-17): despite the
   // @capacitor/core web fallback and the TS types both promising Promise<{remove}>, the actual
   // native-bridge.js compiled into capacitor-android returns the listener handle SYNCHRONOUSLY

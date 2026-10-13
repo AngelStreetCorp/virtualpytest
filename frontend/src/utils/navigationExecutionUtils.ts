@@ -46,6 +46,100 @@ export interface NavigationExecuteResponse {
   message?: string; // ✅ Result message
 }
 
+// Terminal statuses the host reports for a navigation (host_navigation_routes.py and
+// TERMINAL_STATUSES in execution_event_utils.py). Anything else is progress.
+const TERMINAL_NAVIGATION_STATUSES = new Set(['completed', 'error', 'failed', 'aborted']);
+const STATUS_POLL_INTERVAL_MS = 2_000;
+const NAVIGATION_TIMEOUT_MS = 600_000;
+// How many consecutive "execution not found" answers end the wait: the host forgot the
+// run (restart) and it will never report an outcome.
+const MAX_NOT_FOUND_POLLS = 3;
+
+/**
+ * Wait for an async navigation to finish (BUG-0395).
+ *
+ * The socket event and the status endpoint are raced from the start. Before, the
+ * status endpoint was only read after the socket wait gave up — 120 s later — so any
+ * missed `execution_update` (socket refused or still connecting when the event fired,
+ * a fast navigation finishing before the socket joined) left the Go To panel on
+ * "Executing…" for two minutes after the device had arrived. Whichever source sees a
+ * terminal status first wins; the other is stopped. Rejects on timeout, so the caller
+ * always leaves its executing state.
+ */
+export async function waitForNavigationOutcome(
+  executionId: string,
+  hostName: string,
+  deviceId: string,
+  options: { pollIntervalMs?: number; timeoutMs?: number } = {},
+): Promise<ExecutionSocketEvent> {
+  const pollIntervalMs = options.pollIntervalMs ?? STATUS_POLL_INTERVAL_MS;
+  const timeoutMs = options.timeoutMs ?? NAVIGATION_TIMEOUT_MS;
+  const stop = new AbortController();
+
+  const statusUrl = buildServerUrl(
+    `/server/navigation/execution/${executionId}/status?host_name=${encodeURIComponent(hostName)}&device_id=${encodeURIComponent(deviceId)}`,
+  );
+
+  const sleep = (ms: number) =>
+    new Promise<void>((resolve) => {
+      const id = setTimeout(resolve, ms);
+      stop.signal.addEventListener('abort', () => { clearTimeout(id); resolve(); }, { once: true });
+    });
+
+  const poll = async (): Promise<ExecutionSocketEvent> => {
+    const deadline = Date.now() + timeoutMs;
+    let notFound = 0;
+    while (!stop.signal.aborted && Date.now() < deadline) {
+      try {
+        const resp = await fetch(statusUrl, { method: 'GET', signal: stop.signal });
+        const status = await resp.json().catch(() => null);
+        const s = String(status?.status || '').toLowerCase();
+        if (TERMINAL_NAVIGATION_STATUSES.has(s)) {
+          return {
+            type: 'execution_update',
+            execution_type: 'navigation',
+            execution_id: executionId,
+            status: s,
+            result: status?.result,
+            error: status?.error,
+            message: status?.message,
+          };
+        }
+        const missing = status?.success === false && /not found/i.test(String(status?.error || ''));
+        notFound = missing ? notFound + 1 : 0;
+        if (notFound >= MAX_NOT_FOUND_POLLS) {
+          throw new Error(`Navigation ${executionId} is no longer known to the host`);
+        }
+      } catch (err) {
+        if (stop.signal.aborted) break;
+        if (err instanceof Error && err.message.includes('no longer known')) throw err;
+        // transient network error — keep polling
+      }
+      await sleep(pollIntervalMs);
+    }
+    if (stop.signal.aborted) return new Promise<ExecutionSocketEvent>(() => {});
+    throw new Error(`Timed out waiting for navigation ${executionId}`);
+  };
+
+  // A socket failure is not an outcome: the poll keeps going, so never let it win the race.
+  const socket = waitForExecutionSocketEvent(executionId, ['navigation'], timeoutMs, stop.signal).catch(
+    (err) => {
+      if (!stop.signal.aborted) {
+        console.warn(
+          `[@navigationExecutionUtils] Socket wait for ${executionId} ended (${err instanceof Error ? err.message : err}); relying on status polling`,
+        );
+      }
+      return new Promise<ExecutionSocketEvent>(() => {});
+    },
+  );
+
+  try {
+    return await Promise.race([socket, poll()]);
+  } finally {
+    stop.abort();
+  }
+}
+
 /**
  * Execute navigation with async socket completion - reusable utility
  * 
@@ -142,56 +236,7 @@ export async function executeNavigationAsync(params: {
       onProgress(`Navigating to ${targetNodeLabel || targetNodeId}...`);
     }
 
-    let socketFallbackReason: string | null = null;
-
-    const pollExecutionStatus = async (): Promise<ExecutionSocketEvent> => {
-      const POLL_INTERVAL_MS = 2_000;
-      const POLL_TIMEOUT_MS = 600_000;
-      const deadline = Date.now() + POLL_TIMEOUT_MS;
-      const statusUrl = buildServerUrl(
-        `/server/navigation/execution/${executionId}/status?host_name=${encodeURIComponent(hostName)}&device_id=${encodeURIComponent(deviceId)}`,
-      );
-
-      while (Date.now() < deadline) {
-        try {
-          const resp = await fetch(statusUrl, { method: 'GET' });
-          if (resp.ok) {
-            const status = await resp.json();
-            const s = String(status?.status || '').toLowerCase();
-            if (s === 'completed' || s === 'error' || s === 'failed') {
-              return {
-                type: 'execution_update',
-                execution_type: 'navigation',
-                execution_id: executionId,
-                status: s,
-                result: status?.result,
-                error: status?.error,
-              };
-            }
-          }
-        } catch {
-          // transient — keep polling
-        }
-        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-      }
-      throw new Error(`Polling timed out waiting for navigation ${executionId}`);
-    };
-
-    const socketWaitPromise = waitForExecutionSocketEvent(
-      executionId,
-      ['navigation'],
-      120000,
-    ).catch((err) => {
-      socketFallbackReason = err instanceof Error ? err.message : 'socket wait failed';
-      return null;
-    });
-
-    const socketEvent = (await socketWaitPromise) ?? (await pollExecutionStatus());
-    if (socketFallbackReason) {
-      console.warn(
-        `[@navigationExecutionUtils] Navigation ${executionId} completed via polling fallback (socket issue: ${socketFallbackReason})`,
-      );
-    }
+    const socketEvent = await waitForNavigationOutcome(executionId, hostName, deviceId);
     const finalResult = socketEvent.result;
     if (!finalResult) {
       throw new Error(socketEvent.error || 'Navigation execution failed');

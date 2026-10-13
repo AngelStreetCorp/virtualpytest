@@ -50,11 +50,15 @@ TOPIC = {
     "platform": ("Platform & Admin",
         "Cross-cutting concerns — organisations, users & permissions, workspaces, server auth, UI/UX, and AVQ."),
     "ai": ("AI Agent System",
-        "The AI agent architecture — skills, memory, tool caching & auto-generation, Socket.IO, observability, and benchmarking."),
+        "The AI agent architecture — skills, memory, tool caching & auto-generation, Socket.IO, and observability."),
     "testgen": ("AI Test Generation",
         "AI-driven generation of deterministic test cases (graph_json) that run with zero AI tokens at runtime — pipeline phases, per-platform guides, and the roadmap."),
     "release": ("Release & Shipping",
         "Cutting a release/version tag, anonymizing client identifiers before anything goes public, and packaging offline customer update bundles."),
+    "game": ("Game Bots",
+        "Bots that play games on devices (web, phone, Nintendo Switch): the template, ratings, training, and per-console learnings."),
+    "research": ("Research Loops",
+        "Unattended improvement loops per TASK — one metric, one editable file, keep or revert, results.tsv lineage, /research:loop."),
 }
 
 # docs/agent/ is excluded wholesale from the public frontend build (see
@@ -68,8 +72,13 @@ STOP = {"the","a","an","and","or","of","to","for","in","on","with","how","via",
 stale = []  # --check findings
 
 
+def _rel(path, start):
+    """relpath with forward slashes so the index is identical on Windows and Linux."""
+    return os.path.relpath(path, start).replace(os.sep, "/")
+
+
 def rel(p):
-    return os.path.relpath(p, DOCS)
+    return _rel(p, DOCS)
 
 
 def emit(relpath, content):
@@ -81,7 +90,7 @@ def emit(relpath, content):
             stale.append(relpath)
         return
     os.makedirs(os.path.dirname(full), exist_ok=True)
-    open(full, "w", encoding="utf-8").write(content)
+    open(full, "w", encoding="utf-8", newline="\n").write(content)
 
 
 def git_date(relpath):
@@ -231,10 +240,10 @@ for p in sorted(glob.glob(os.path.join(AGENT, "**", "*.md"), recursive=True)):
         continue
     candidates.append(p)
 
-_rels = [os.path.relpath(p, REPO) for p in candidates]
+_rels = [_rel(p, REPO) for p in candidates]
 _skipped = _ignored(_rels)
 if _skipped:
-    candidates = [p for p in candidates if os.path.relpath(p, REPO) not in _skipped]
+    candidates = [p for p in candidates if _rel(p, REPO) not in _skipped]
     print(f"skipped {len(_skipped)} git-ignored local doc(s)")
 
 # ---- Pass 1: inject frontmatter where missing (skipped in --check) ----
@@ -298,7 +307,7 @@ for topic, (title, blurb) in TOPIC.items():
     body = [f"# Agent Docs — {title}", "", blurb, "",
             "| Doc | What it covers |", "|---|---|"]
     for e in sorted(rows, key=lambda x: x["path"]):
-        link = os.path.relpath(e["path"], f"agent/{topic}")
+        link = _rel(e["path"], f"agent/{topic}")
         if e["artifact"]:
             body.append(f"| [{os.path.basename(e['path'])}]({link}) ⚠ {e['size_kb']}KB artifact | "
                         f"Point-in-time report — do NOT read whole; open only when a human asks for it. |")
@@ -319,7 +328,7 @@ root_rows = [e for e in routing if e["topic"] == "root"]
 if root_rows:
     md += ["## Cross-cutting (agent/)", "", "| Doc | Summary | Keywords |", "|---|---|---|"]
     for e in sorted(root_rows, key=lambda x: x["path"]):
-        md.append(f"| {doc_cell(e, os.path.relpath(e['path'], 'agent'))} | {e['summary']} | {', '.join(e['keywords'][:6])} |")
+        md.append(f"| {doc_cell(e, _rel(e['path'], 'agent'))} | {e['summary']} | {', '.join(e['keywords'][:6])} |")
     md.append("")
 for topic, (title, _blurb) in TOPIC.items():
     rows = [e for e in routing if e["topic"] == topic]
@@ -327,7 +336,7 @@ for topic, (title, _blurb) in TOPIC.items():
         continue
     md += [f"## {title} (agent/{topic}/)", "", "| Doc | Summary | Keywords |", "|---|---|---|"]
     for e in sorted(rows, key=lambda x: x["path"]):
-        md.append(f"| {doc_cell(e, os.path.relpath(e['path'], 'agent'))} | {e['summary']} | {', '.join(e['keywords'][:6])} |")
+        md.append(f"| {doc_cell(e, _rel(e['path'], 'agent'))} | {e['summary']} | {', '.join(e['keywords'][:6])} |")
     md.append("")
 md += ["---", "← [Agent docs index](README.md)", ""]
 emit("agent/INDEX.md", "\n".join(md))

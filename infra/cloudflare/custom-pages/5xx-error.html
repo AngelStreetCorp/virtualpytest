@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>VirtualPyTest — Service temporarily unavailable</title>
+<style>
+  :root { color-scheme: dark light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh;
+    background: #1a1a1a; color: #f0f0f0;
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  @media (prefers-color-scheme: light) {
+    body { background: #f2f0ec; color: #141414; }
+    .card { background: #fff; border-color: #d9d4cc; }
+    .meta, .muted { color: #4a4a4a; }
+  }
+  .card {
+    max-width: 560px; width: 100%;
+    background: #242424; border: 1px solid #383838; border-radius: 12px;
+    padding: 32px;
+  }
+  .badge {
+    display: inline-block; padding: 2px 10px; border-radius: 999px;
+    background: #d4a57426; color: #d4a574;
+    font-size: 12px; font-weight: 600; letter-spacing: .04em;
+  }
+  h1 { margin: 16px 0 8px; font-size: 24px; font-weight: 600; }
+  p  { margin: 0 0 16px; color: #9a9a9a; }
+  .muted { color: #9a9a9a; font-size: 14px; }
+  button {
+    appearance: none; border: 0; cursor: pointer;
+    background: #d4a574; color: #1a1611;
+    padding: 10px 20px; border-radius: 6px; font-weight: 600;
+    font-size: 14px;
+  }
+  button:hover { background: #c49464; }
+  code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <span class="badge">VirtualPyTest</span>
+    <h1>Service temporarily unavailable</h1>
+    <p>The backend on the Hetzner server (proxmox VM → nginx → Flask) is not reachable from Cloudflare. This page replaces Cloudflare's generic "Connection timed out" so you know it's our end, not yours.</p>
+    <p class="muted">Most outages resolve in under a minute (server reboot, deploy, OOM). If you reached this page from a saved URL, just retry.</p>
+    <button onclick="location.reload()">Retry</button>
+    <p class="muted" style="margin-top:24px">
+      Reference: <code>virtualpytest.angelstreet.io</code> · Cloudflare error 522 / 524
+    </p>
+  </main>
+</body>
+</html>

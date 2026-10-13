@@ -4,11 +4,16 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import App from './App.tsx';
 import { CustomThemeProvider } from './contexts/ThemeContext';
 import { installFetchAuth } from './utils/installFetchAuth';
+import { initI18n } from './i18n';
+import { installHostImageSession } from './utils/installHostImageSession';
 import './index.css';
 
 // Attach the Supabase JWT (and auto-sign token) to all /server/* fetch calls,
 // covering both apiClient and raw fetch(). Must run before any request fires.
 installFetchAuth();
+
+// Mint the host-session cookie for gated <img> screenshots that no player page minted for.
+installHostImageSession();
 
 // Create a QueryClient instance for React Query
 const queryClient = new QueryClient({
@@ -35,10 +40,16 @@ window.addEventListener('vite:preloadError', (event) => {
   window.location.reload();
 });
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <QueryClientProvider client={queryClient}>
-    <CustomThemeProvider>
-      <App />
-    </CustomThemeProvider>
-  </QueryClientProvider>,
-);
+// Load the active language catalog before the first render so there is no English flash.
+// initI18n never rejects (it falls back to English), the catch is belt and braces.
+initI18n()
+  .catch(() => undefined)
+  .then(() => {
+    ReactDOM.createRoot(document.getElementById('root')!).render(
+      <QueryClientProvider client={queryClient}>
+        <CustomThemeProvider>
+          <App />
+        </CustomThemeProvider>
+      </QueryClientProvider>,
+    );
+  });

@@ -30,14 +30,14 @@ import {
 } from '@mui/icons-material';
 import { CampaignNode, CampaignDragData } from '../../../types/pages/CampaignGraph_Types';
 import { useCampaignBuilder } from '../../../contexts/campaign/CampaignBuilderContext';
-import { useTheme } from '../../../contexts/ThemeContext';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useHostControl } from '../../../hooks/useHostManager';
 import { BlockOutputHandles, OutputType } from '../../common/builder/BlockOutputHandles';
 
 export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNode['data']>) => {
   const { deleteNode, selectNode, linkOutputToInput, nodes, updateNode, executeBlock, state } = useCampaignBuilder();
   const { selectedHost, selectedDeviceId } = useHostControl();
-  const { actualMode } = useTheme();
+  const P = useAgentChatPalette();
   const [inputsExpanded, setInputsExpanded] = useState(false);
   const [outputsExpanded, setOutputsExpanded] = useState(false);
   const [isEditingLabel, setIsEditingLabel] = useState(false);
@@ -46,18 +46,17 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
   const isTerminal = ['start', 'success', 'failure'].includes(id);
   const isTestCase = data.executableType === 'testcase';
   const isScript = data.executableType === 'script';
-  const isDark = actualMode === 'dark';
   const readOnly = data.readOnly || false; // Check if viewer mode is enabled
   const globalUserInterface = data.selectedUserInterface; // Global userinterface from viewer
 
   // Get colors based on node type - muted, professional palette
   const getColors = () => {
-    if (id === 'start') return { accent: '#3b82f6', bg: isDark ? '#1e293b' : '#ffffff' };
-    if (id === 'success') return { accent: '#10b981', bg: isDark ? '#1e293b' : '#ffffff' };
-    if (id === 'failure') return { accent: '#ef4444', bg: isDark ? '#1e293b' : '#ffffff' };
-    if (isTestCase) return { accent: '#9c27b0', bg: isDark ? '#1e293b' : '#ffffff' };
-    if (isScript) return { accent: '#f97316', bg: isDark ? '#1e293b' : '#ffffff' };
-    return { accent: '#64748b', bg: isDark ? '#1e293b' : '#ffffff' };
+    if (id === 'start') return { accent: P.accent, bg: P.surface };
+    if (id === 'success') return { accent: P.success, bg: P.surface };
+    if (id === 'failure') return { accent: P.error, bg: P.surface };
+    if (isTestCase) return { accent: P.series[2], bg: P.surface };
+    if (isScript) return { accent: P.warning, bg: P.surface };
+    return { accent: P.textMuted, bg: P.surface };
   };
 
   const colors = getColors();
@@ -257,19 +256,15 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
         width: 280,
         minHeight: 100,
         background: colors.bg,
-        border: selected ? '2px solid #fbbf24' : `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+        border: selected ? `2px solid ${P.accent}` : `1px solid ${P.borderColor}`,
         borderLeft: `3px solid ${colors.accent}`, // Left accent bar like UniversalBlock
         borderRadius: 1.5,
-        boxShadow: isDark 
-          ? '0 2px 8px rgba(0,0,0,0.3)' 
-          : '0 2px 8px rgba(0,0,0,0.08)',
+        boxShadow: P.cardShadow,
         cursor: 'pointer',
         overflow: 'hidden',
         transition: 'all 0.2s ease',
         '&:hover': {
-          boxShadow: isDark 
-            ? '0 4px 16px rgba(0,0,0,0.4)' 
-            : '0 4px 16px rgba(0,0,0,0.12)',
+          boxShadow: P.cardShadow,
         },
       }}
       onClick={() => selectNode(id)}
@@ -303,8 +298,8 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
       <Box
         sx={{
           p: 1,
-          background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
-          borderBottom: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
+          background: P.hoverBg,
+          borderBottom: `1px solid ${P.borderColor}`,
           display: 'flex',
           alignItems: 'center',
           gap: 1,
@@ -365,16 +360,16 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                   onClick={handlePlayClick}
                   disabled={!selectedHost?.host_name || !selectedDeviceId || !(globalUserInterface || state.userinterface_name)}
                   sx={{
-                    color: !selectedHost?.host_name || !selectedDeviceId || !(globalUserInterface || state.userinterface_name) ? '#9ca3af' : '#22c55e',
+                    color: !selectedHost?.host_name || !selectedDeviceId || !(globalUserInterface || state.userinterface_name) ? P.textMuted : P.success,
                     padding: '2px',
                     '&:hover': {
                       backgroundColor: !selectedHost?.host_name || !selectedDeviceId || !(globalUserInterface || state.userinterface_name)
-                        ? 'rgba(156, 163, 175, 0.1)'
-                        : 'rgba(34, 197, 94, 0.1)',
-                      color: !selectedHost?.host_name || !selectedDeviceId || !(globalUserInterface || state.userinterface_name) ? '#9ca3af' : '#16a34a'
+                        ? P.hoverBg
+                        : `${P.success}1f`,
+                      color: !selectedHost?.host_name || !selectedDeviceId || !(globalUserInterface || state.userinterface_name) ? P.textMuted : P.success
                     },
                     '&.Mui-disabled': {
-                      color: '#9ca3af',
+                      color: P.textMuted,
                     }
                   }}
                   title={
@@ -405,7 +400,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
             sx={{
               color: 'text.secondary',
               padding: '4px',
-              '&:hover': { backgroundColor: 'action.hover', color: '#ef4444' }
+              '&:hover': { backgroundColor: 'action.hover', color: P.error }
             }}
           >
             <DeleteIcon sx={{ fontSize: 16 }} />
@@ -421,7 +416,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
           </Typography>
         )}
 
-        {/* INPUTS Section - dark mode aware */}
+        {/* INPUTS Section */}
         {data.inputs && data.inputs.length > 0 && (
           <Box sx={{ mb: 1 }}>
             <Box
@@ -430,7 +425,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 p: 0.5,
-                background: isDark ? 'rgba(6, 182, 212, 0.1)' : 'rgba(6, 182, 212, 0.05)',
+                background: `${P.series[1]}1f`,
                 borderRadius: 1,
                 cursor: 'pointer',
               }}
@@ -440,7 +435,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                 variant="caption" 
                 sx={{ 
                   fontWeight: 600, 
-                  color: '#06b6d4',
+                  color: P.series[1],
                   fontSize: '0.8rem',
                   letterSpacing: '0.5px'
                 }}
@@ -463,24 +458,24 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                       sx={{
                         p: 0.5,
                         background: linkedSource 
-                          ? (isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)') 
-                          : (isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)'),
+                          ? `${P.success}26` 
+                          : P.hoverBg,
                         borderRadius: 1,
-                        border: `1px dashed ${isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'}`,
+                        border: `1px dashed ${P.borderColor}`,
                         display: 'flex',
                         alignItems: 'center',
                         gap: 0.5,
                         '&:hover': {
-                          borderColor: '#06b6d4',
+                          borderColor: P.series[1],
                           background: linkedSource 
-                            ? (isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.15)') 
-                            : (isDark ? 'rgba(6, 182, 212, 0.1)' : 'rgba(6, 182, 212, 0.05)'),
+                            ? `${P.success}33` 
+                            : `${P.series[1]}1f`,
                         },
                       }}
                     >
                       <Typography variant="caption" sx={{ flex: 1, fontSize: '0.75rem' }}>
                         {input.name}
-                        {input.required && <span style={{ color: '#ef4444' }}>*</span>}
+                        {input.required && <span style={{ color: P.error }}>*</span>}
                       </Typography>
 
                       {linkedSource ? (
@@ -490,7 +485,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                             onClick={(e) => { e.stopPropagation(); handleLinkIconClick(input.name); }}
                             sx={{ p: 0.25 }}
                           >
-                            <LinkIcon fontSize="small" sx={{ color: '#10b981' }} />
+                            <LinkIcon fontSize="small" sx={{ color: P.success }} />
                           </IconButton>
                         </Tooltip>
                       ) : (
@@ -521,7 +516,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
           </Box>
         )}
 
-        {/* OUTPUTS Section - dark mode aware */}
+        {/* OUTPUTS Section */}
         {data.outputs && data.outputs.length > 0 && (
           <Box>
             <Box
@@ -530,7 +525,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 p: 0.5,
-                background: isDark ? 'rgba(249, 115, 22, 0.1)' : 'rgba(249, 115, 22, 0.05)',
+                background: `${P.warning}1f`,
                 borderRadius: 1,
                 cursor: 'pointer',
               }}
@@ -540,7 +535,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                 variant="caption" 
                 sx={{ 
                   fontWeight: 600, 
-                  color: '#f97316',
+                  color: P.warning,
                   fontSize: '0.8rem',
                   letterSpacing: '0.5px'
                 }}
@@ -560,14 +555,14 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                     draggable={!readOnly}
                     onDragStart={(e) => handleOutputDragStart(e, output.name, output.type)}
                     sx={{
-                      background: '#f97316',
+                      background: P.warning,
                       color: 'white',
                       cursor: readOnly ? 'default' : 'grab',
                       '&:active': {
                         cursor: readOnly ? 'default' : 'grabbing',
                       },
                       '&:hover': {
-                        background: readOnly ? '#f97316' : '#ea580c',
+                        background: P.warning,
                       },
                     }}
                   />
@@ -577,9 +572,9 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
           </Box>
         )}
 
-        {/* Execution State (during run) - dark mode aware */}
+        {/* Execution State (during run) */}
         {data.status && (
-          <Box sx={{ mt: 1, pt: 1, borderTop: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}` }}>
+          <Box sx={{ mt: 1, pt: 1, borderTop: `1px solid ${P.borderColor}` }}>
             <Chip
               label={data.status.toUpperCase()}
               size="small"

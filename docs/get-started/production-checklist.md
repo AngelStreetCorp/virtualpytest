@@ -58,7 +58,7 @@ only copy, so rotating means "generate, write to `.env`, restart the unit(s)".
 | `SERVER_PUBLIC_KEY` | `.env`, `frontend/.env` | no-login browser baseline | new value or unset; it is public by construction | `vpt-server`, frontend rebuild |
 | MinIO root, Redis, VNC, Postgres, Grafana admin, `GRAFANA_SECRET_KEY` | see section 1 | — | see section 1 | see section 1 |
 | `CLOUDFLARE_R2_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` | `.env` (+ hosts if they upload) | object storage when R2 is used instead of MinIO | Cloudflare dashboard → R2 API tokens → create new, delete old | `vpt-server`, hosts |
-| `OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `MINIMAX_API_KEY` | `.env` | AI agent, vision, text features | provider console; set spend limits | `vpt-server` |
+| AI provider API keys (Anthropic, OpenRouter, OpenAI, MiniMax, Google...) | `~/.config/virtualpytest/ai_secrets.json` on the server (`0600`), **not** `.env`; never on hosts | every AI call (agents, vision, text, public ask) via Settings → AI routing | provider console (set spend limits), then paste the new key in Settings → AI → Endpoints (write-only field) and press **Test** | nothing — applied on save |
 | Langfuse public/secret keys (if tracing is on) | `.env` | agent tracing | Langfuse project settings | `vpt-server` |
 | `GITHUB_TOKEN` (if the Run Command / CI features are enabled) | the `vpt-server` systemd unit `Environment=`, not `.env` | GitHub API from the server | GitHub → fine-grained token, minimal scopes, expiry set | `vpt-server` |
 | CI secrets (`E2E_*`, role JWTs, `CICD_INGEST_TOKEN`, `CI_REPORTS_SSH_KEY`, `LEAK_TERMS`) | GitHub repository secrets (Actions **and** Dependabot stores) | workflows | `gh secret set …` for both stores | — |

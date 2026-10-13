@@ -63,8 +63,8 @@ RUN useradd --system \
         --create-home \
         --comment "VirtualPyTest Service Account" \
         vpt_user && chmod 1777 /tmp \
-    && mkdir -p /var/log/supervisor \
-    && chown -R vpt_user:vpt_user /var/log/supervisor /app
+    && mkdir -p /var/log/supervisor /var/lib/vpt_user/.config/virtualpytest \
+    && chown -R vpt_user:vpt_user /var/log/supervisor /app /var/lib/vpt_user
 
 # Copy supervisor configuration from docker folder
 COPY backend_server/docker/supervisord.conf /etc/supervisor/conf.d/virtualpytest.conf

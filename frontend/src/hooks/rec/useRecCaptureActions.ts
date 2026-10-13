@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 
 import { useToast } from '../useToast';
 import { Host, Device } from '../../types/common/Host_Types';
-import { buildServerUrl, getCaptureUrlFromStream } from '../../utils/buildUrlUtils';
+import { buildServerUrl, getCaptureUrlFromStream, openHostUrl } from '../../utils/buildUrlUtils';
 
 export interface RecCaptureActionsState {
   capturedImageUrl: string | null;
@@ -57,7 +57,7 @@ export const useRecCaptureActions = (
         }
         const result = await response.json();
         if (result.success && result.screenshot_url) {
-          window.open(result.screenshot_url, '_blank');
+          await openHostUrl(result.screenshot_url);
         } else {
           showError('Failed to take screenshot');
         }
@@ -74,7 +74,7 @@ export const useRecCaptureActions = (
 
     const captureUrl = await getCaptureUrlFromStream(currentSegmentUrl, device ?? undefined, host);
     if (captureUrl) {
-      window.open(captureUrl, '_blank');
+      await openHostUrl(captureUrl);
     } else {
       showError('Could not determine current frame');
     }

@@ -39,7 +39,11 @@ def get_tools() -> List[Dict[str, Any]]:
                 },
                 "force_unlock": {
                     "type": "boolean",
-                    "description": "preempt existing lock if device is locked"
+                    "description": "stop a running script/testcase/deployment holding the device; another user's take-control is never taken"
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "session_id returned by take_control; the action runs under that lock (optional)"
                 },
                 "include_screenshot": {
                     "type": "boolean",

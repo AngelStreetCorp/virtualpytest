@@ -5,7 +5,7 @@
  * Handles loading, saving, and state management for settings.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 
 import { getEnv } from '../../config/constants';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
@@ -59,6 +59,60 @@ export interface DeviceConfig {
   DEVICE_POWER_IP: string;
 }
 
+// A capture card reported by the host's `/host/system/grabbers` endpoint.
+// `audio` is the ALSA plughw string that the host detected on the same USB
+// parent as the video node (e.g. an MS2109 has both UVC and UAC under one
+// USB device). `has_audio=false` means the host walked the USB tree and
+// found no companion sound card on that port (some capture dongles ship
+// video-only).
+export interface DetectedGrabber {
+  video: string;
+  audio: string;
+  has_audio: boolean;
+  usb_id: string;
+  usb_path: string;
+  vendor: string;
+  product: string;
+}
+
+export interface DetectedBluetooth {
+  name: string;
+  mac: string;
+  usb_id: string;
+  usb_path: string;
+}
+
+export interface DetectedInfrared {
+  name: string;
+  usb_id: string;
+  usb_path: string;
+}
+
+export interface DetectedGrabberReport {
+  grabbers: DetectedGrabber[];
+  bluetooth: DetectedBluetooth[];
+  infrared: DetectedInfrared[];
+}
+
+// Where the current DEVICE_VIDEO_AUDIO value is coming from, surfaced in the
+// form as a small caption under the audio field so the operator understands
+// whether the value was auto-derived or typed by hand.
+//
+//   detected : the host reports a UAC card on the same USB parent as the
+//              video node, and we have already auto-filled DEVICE_VIDEO_AUDIO
+//              from it. Editing the field would be a manual override that
+//              reverts on the next page load (loadGrabbers reapplies).
+//   env      : the .env had a value the operator typed previously; the host
+//              either reported no audio for this video, or the report hasn't
+//              loaded yet. Editing the field is the normal path.
+//   missing  : the .env had no value and the host reported no audio either —
+//              the field is empty by design. The operator can type a manual
+//              value (e.g. for a cross-port HDMI audio source) but that
+//              value will not survive a page reload if detection still says
+//              no audio. (If detection later finds audio, the field is
+//              auto-filled and `env` becomes `detected`.)
+export type AudioSource = 'detected' | 'env' | 'missing';
+
 export interface SettingsConfig {
   server: ServerConfig;
   serverSensitiveKeys: string[];
@@ -92,6 +146,28 @@ export interface UseSettingsReturn {
   deleteDevice: (deviceKey: string) => void;
   setError: (error: string | null) => void;
   setSuccess: (success: boolean) => void;
+  // Detected grabbers: the host reports UVC + paired UAC + bluetooth + IR
+  // through /server/settings/host-grabbers. The Settings page surfaces the
+  // capture cards in a "Detected Grabbers" panel with a one-click "Use"
+  // button that fills the next free device's DEVICE_VIDEO + DEVICE_VIDEO_AUDIO
+  // together. The list is per-host; loadGrabbers is called alongside
+  // loadHostConfig when the operator selects a host.
+  grabbers: DetectedGrabberReport;
+  grabbersLoading: boolean;
+  grabbersError: string | null;
+  loadGrabbers: (hostName: string) => Promise<boolean>;
+  // Returns the set of grabber `video` paths that are already referenced
+  // by some device on the current page (used to mark "in use" rows).
+  usedGrabberVideoPaths: () => Set<string>;
+  // Fills DEVICE_VIDEO + DEVICE_VIDEO_AUDIO on `deviceKey` from a grabber.
+  // If `deviceKey` is empty, the next device with no DEVICE_VIDEO set is
+  // picked (so a single "Use" on a fresh page just works).
+  applyGrabberToDevice: (grabber: DetectedGrabber, deviceKey?: string) => string | null;
+  // Tells the form which source is currently in effect for a device's
+  // DEVICE_VIDEO_AUDIO field. The form renders a small caption under the
+  // audio TextField so the operator can tell auto-detected values apart
+  // from operator-typed .env values at a glance.
+  getAudioSource: (deviceKey: string) => AudioSource;
 }
 
 // =====================================================
@@ -105,21 +181,6 @@ const getDefaultConfig = (): SettingsConfig => ({
     SERVER_PORT: '5109',
     DEBUG: '1',
     PYTHONUNBUFFERED: '1',
-    AI_PROVIDER: '',
-    AI_AGENT_PROVIDER: 'anthropic',
-    AI_AGENT_MODEL: 'claude-sonnet-4-20250514',
-    AI_VISION_PROVIDER: '',
-    AI_VISION_MODEL: '',
-    AI_TEXT_PROVIDER: '',
-    AI_TEXT_MODEL: '',
-    ANTHROPIC_API_KEY: '',
-    OPENROUTER_API_KEY: '',
-    OPENAI_API_KEY: '',
-    MINIMAX_API_KEY: '',
-    GOOGLE_API_KEY: '',
-    LOCAL_AI_BASE_URL: '',
-    LOCAL_AI_MODEL: '',
-    LOCAL_AI_API_KEY: '',
   },
   serverSensitiveKeys: [],
   frontend: {
@@ -158,6 +219,16 @@ export const useSettings = (): UseSettingsReturn => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [grabbers, setGrabbers] = useState<DetectedGrabberReport>({ grabbers: [], bluetooth: [], infrared: [] });
+  const [grabbersLoading, setGrabbersLoading] = useState(false);
+  const [grabbersError, setGrabbersError] = useState<string | null>(null);
+  // Ref-mirror of `grabbers` so the setConfig functional updaters in
+  // loadGrabbers and updateDeviceConfig can read the freshest detection
+  // without rebuilding the callback every time grabbers change. Without
+  // this, loadGrabbers's auto-fill pass would use the empty initial list
+  // (or the previous host's list) and miss the new host's devices.
+  const grabbersRef = useRef<DetectedGrabberReport>(grabbers);
+  useEffect(() => { grabbersRef.current = grabbers; }, [grabbers]);
 
   /**
    * Load configuration from backend
@@ -174,7 +245,7 @@ export const useSettings = (): UseSettingsReturn => {
       // Merge those values over runtime defaults so the page shows the deployed frontend config.
       const defaults = getDefaultConfig();
       const merged: SettingsConfig = {
-        server: { ...defaults.server, ...data.server },
+        server: { ...defaults.server, ...(data.server ?? {}) },
         serverSensitiveKeys: data.server_sensitive_keys ?? [],
         frontend: { ...defaults.frontend, ...(data.frontend ?? {}) },
         frontendSensitiveKeys: data.frontend_sensitive_keys ?? [],
@@ -198,7 +269,9 @@ export const useSettings = (): UseSettingsReturn => {
 
   const loadHostConfig = useCallback(async (hostName: string) => {
     if (!hostName) return false;
-    setLoading(true);
+    // No page-level `loading` here: the page swaps to a full spinner on it, so
+    // toggling it right after loadConfig made Settings visibly load twice.
+    // Callers track readiness themselves (Settings' hostConfigReady).
     setError(null);
     try {
       const data = await api.get(buildServerUrl(`/server/settings/host-config?host_name=${encodeURIComponent(hostName)}`));
@@ -207,10 +280,110 @@ export const useSettings = (): UseSettingsReturn => {
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to load configuration for ${hostName}`);
       return false;
-    } finally {
-      setLoading(false);
     }
   }, []);
+
+  const loadGrabbers = useCallback(async (hostName: string) => {
+    if (!hostName) return false;
+    setGrabbersLoading(true);
+    setGrabbersError(null);
+    try {
+      const data = await api.get(buildServerUrl(`/server/settings/host-grabbers?host_name=${encodeURIComponent(hostName)}`));
+      const fresh: DetectedGrabberReport = {
+        grabbers: data.grabbers ?? [],
+        bluetooth: data.bluetooth ?? [],
+        infrared: data.infrared ?? [],
+      };
+      setGrabbers(fresh);
+      grabbersRef.current = fresh;
+      // Auto-fill DEVICE_VIDEO_AUDIO for every device whose DEVICE_VIDEO
+      // matches a detected grabber, regardless of what the .env says.
+      // This is the "audio follows the dynamic mapping" rule: detection
+      // wins over the operator-typed .env value, and the .env only
+      // remains in effect when no detection exists for that video.
+      setConfig((prev) => {
+        const next = { ...prev.devices };
+        let changed = false;
+        for (const [k, dev] of Object.entries(next)) {
+          if (!dev.DEVICE_VIDEO) continue;
+          const detected = fresh.grabbers.find((g) => g.video === dev.DEVICE_VIDEO);
+          if (detected && detected.has_audio) {
+            if (dev.DEVICE_VIDEO_AUDIO !== detected.audio) {
+              next[k] = { ...dev, DEVICE_VIDEO_AUDIO: detected.audio };
+              changed = true;
+            }
+          }
+        }
+        return changed ? { ...prev, devices: next } : prev;
+      });
+      return true;
+    } catch (err) {
+      // Don't surface a hard error: a host running vpt-host as a user
+      // without the video group simply reports zero grabbers, which is
+      // the same shape the bash script produced before this fix.
+      // We still log it for the operator console.
+      const message = err instanceof Error ? err.message : `Failed to detect grabbers on ${hostName}`;
+      console.warn('[@hook:useSettings] grabber detection failed:', message);
+      setGrabbersError(message);
+      setGrabbers({ grabbers: [], bluetooth: [], infrared: [] });
+      grabbersRef.current = { grabbers: [], bluetooth: [], infrared: [] };
+      return false;
+    } finally {
+      setGrabbersLoading(false);
+    }
+  }, []);
+
+  const usedGrabberVideoPaths = useCallback((): Set<string> => {
+    const used = new Set<string>();
+    for (const device of Object.values(config.devices)) {
+      if (device.DEVICE_VIDEO) {
+        used.add(device.DEVICE_VIDEO);
+      }
+    }
+    return used;
+  }, [config.devices]);
+
+  const applyGrabberToDevice = useCallback((grabber: DetectedGrabber, deviceKey?: string): string | null => {
+    let targetKey = deviceKey;
+    if (!targetKey) {
+      // Pick the first device with no DEVICE_VIDEO yet; if all are filled,
+      // fall back to the lexicographically first device key so the operator
+      // can still see the result of clicking "Use" (and clear the field
+      // manually if they want a different one).
+      const keys = Object.keys(config.devices).sort();
+      targetKey = keys.find((k) => !config.devices[k].DEVICE_VIDEO) ?? keys[0];
+    }
+    if (!targetKey) {
+      return null;
+    }
+    setConfig((prev) => {
+      const existing = prev.devices[targetKey!] ?? {
+        DEVICE_NAME: '',
+        DEVICE_MODEL: '',
+        DEVICE_VIDEO: '',
+        DEVICE_VIDEO_STREAM_PATH: '',
+        DEVICE_VIDEO_CAPTURE_PATH: '',
+        DEVICE_VIDEO_FPS: '10',
+        DEVICE_VIDEO_AUDIO: '',
+        DEVICE_IP: '',
+        DEVICE_PORT: '',
+        DEVICE_POWER_NAME: '',
+        DEVICE_POWER_IP: '',
+      };
+      return {
+        ...prev,
+        devices: {
+          ...prev.devices,
+          [targetKey!]: {
+            ...existing,
+            DEVICE_VIDEO: grabber.video,
+            DEVICE_VIDEO_AUDIO: grabber.has_audio ? grabber.audio : '',
+          },
+        },
+      };
+    });
+    return targetKey;
+  }, [config.devices]);
 
   const saveHostConfig = useCallback(async (hostName: string) => {
     if (!hostName) {
@@ -295,19 +468,48 @@ export const useSettings = (): UseSettingsReturn => {
    */
   const updateDeviceConfig = useCallback(
     (deviceKey: string, field: keyof DeviceConfig, value: string) => {
-      setConfig((prev) => ({
-        ...prev,
-        devices: {
-          ...prev.devices,
-          [deviceKey]: {
-            ...prev.devices[deviceKey],
-            [field]: value,
+      setConfig((prev) => {
+        const updated = { ...prev.devices[deviceKey], [field]: value };
+        // When the operator changes DEVICE_VIDEO, mirror the audio from the
+        // detection so the field stays consistent. No detection → clear the
+        // audio so the operator sees they need to type one. We read
+        // grabbersRef rather than the closure `grabbers` to dodge stale
+        // callbacks when grabbers reload after a host switch.
+        if (field === 'DEVICE_VIDEO') {
+          const detected = grabbersRef.current.grabbers.find((g) => g.video === value);
+          updated.DEVICE_VIDEO_AUDIO = detected && detected.has_audio ? detected.audio : '';
+        }
+        return {
+          ...prev,
+          devices: {
+            ...prev.devices,
+            [deviceKey]: updated,
           },
-        },
-      }));
+        };
+      });
     },
     [],
   );
+
+  // Tell the form where the current DEVICE_VIDEO_AUDIO value came from, so
+  // it can render a "auto-detected from USB 3-1" / "from .env" / "no
+  // audio detected" caption. The rule: detection wins over .env, and the
+  // .env value is only in effect when no detection exists for this video.
+  const getAudioSource = useCallback((deviceKey: string): AudioSource => {
+    const dev = config.devices[deviceKey];
+    if (!dev || !dev.DEVICE_VIDEO) return 'missing';
+    const detected = grabbersRef.current.grabbers.find((g) => g.video === dev.DEVICE_VIDEO);
+    if (detected && detected.has_audio) {
+      // Detection exists. The form value is the detected one (either auto-
+      // filled on load or on the last DEVICE_VIDEO change). Anything else
+      // is a one-shot operator override that will revert on the next load.
+      if (dev.DEVICE_VIDEO_AUDIO === detected.audio) return 'detected';
+      return 'env';
+    }
+    // No detection for this video. Whatever the field says is from the
+    // .env (typed by the operator previously, or left empty).
+    return dev.DEVICE_VIDEO_AUDIO ? 'env' : 'missing';
+  }, [config.devices]);
 
   /**
    * Add a new device
@@ -371,5 +573,12 @@ export const useSettings = (): UseSettingsReturn => {
     deleteDevice,
     setError,
     setSuccess,
+    grabbers,
+    grabbersLoading,
+    grabbersError,
+    loadGrabbers,
+    usedGrabberVideoPaths,
+    applyGrabberToDevice,
+    getAudioSource,
   };
 };

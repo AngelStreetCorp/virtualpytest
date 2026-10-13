@@ -62,7 +62,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT host_name || ':' || device_id AS device, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz))) / NULLIF(EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)), 0) AS occupancy FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
+          "rawSql": "SELECT host_name || ':' || device_id AS device, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz))) / NULLIF(EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)), 0) AS occupancy FROM (SELECT * FROM (SELECT * FROM device_control_sessions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
         }
       ]
     },
@@ -157,7 +157,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "WITH agg AS (SELECT host_name || ':' || device_id AS device, EXTRACT(EPOCH FROM SUM(CASE WHEN owner_type = 'manual_control' THEN LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz) ELSE interval '0' END)) AS manual_s, EXTRACT(EPOCH FROM SUM(CASE WHEN owner_type <> 'manual_control' THEN LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz) ELSE interval '0' END)) AS script_s, EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)) AS range_s FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1) SELECT device, ROUND((100.0 * manual_s / range_s)::numeric, 2) AS manual, ROUND((100.0 * script_s / range_s)::numeric, 2) AS script, ROUND((100.0 * GREATEST(0, range_s - manual_s - script_s) / range_s)::numeric, 2) AS idle FROM agg ORDER BY 1"
+          "rawSql": "WITH agg AS (SELECT host_name || ':' || device_id AS device, EXTRACT(EPOCH FROM SUM(CASE WHEN owner_type = 'manual_control' THEN LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz) ELSE interval '0' END)) AS manual_s, EXTRACT(EPOCH FROM SUM(CASE WHEN owner_type <> 'manual_control' THEN LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz) ELSE interval '0' END)) AS script_s, EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)) AS range_s FROM (SELECT * FROM (SELECT * FROM device_control_sessions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1) SELECT device, ROUND((100.0 * manual_s / range_s)::numeric, 2) AS manual, ROUND((100.0 * script_s / range_s)::numeric, 2) AS script, ROUND((100.0 * GREATEST(0, range_s - manual_s - script_s) / range_s)::numeric, 2) AS idle FROM agg ORDER BY 1"
         }
       ]
     },
@@ -250,7 +250,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT owner_type, EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz)))::bigint AS seconds FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
+          "rawSql": "SELECT owner_type, EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz)))::bigint AS seconds FROM (SELECT * FROM (SELECT * FROM device_control_sessions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) device_control_sessions WHERE started_at < $__timeTo()::timestamptz AND COALESCE(ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
         }
       ]
     },
@@ -297,7 +297,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT COALESCE(p.full_name, p.email, 'user-' || LEFT(s.owner_user_id, 8), 'unknown') AS \"user\", EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(s.ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(s.started_at, $__timeFrom()::timestamptz)))::bigint AS seconds FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s LEFT JOIN profiles p ON p.id::text = s.owner_user_id WHERE s.owner_type = 'manual_control' AND s.started_at < $__timeTo()::timestamptz AND COALESCE(s.ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
+          "rawSql": "SELECT COALESCE(p.full_name, p.email, 'user-' || LEFT(s.owner_user_id, 8), 'unknown') AS \"user\", EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(s.ended_at, NOW()), $__timeTo()::timestamptz) - GREATEST(s.started_at, $__timeFrom()::timestamptz)))::bigint AS seconds FROM (SELECT * FROM (SELECT * FROM device_control_sessions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s LEFT JOIN profiles p ON p.id::text = s.owner_user_id WHERE s.owner_type = 'manual_control' AND s.started_at < $__timeTo()::timestamptz AND COALESCE(s.ended_at, NOW()) > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
         }
       ]
     },
@@ -378,7 +378,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT b.bucket AS time, s.host_name || ':' || s.device_id AS device, MAX(s.owner_type) AS state FROM (SELECT generate_series($__timeFrom()::timestamptz, $__timeTo()::timestamptz, interval '$__interval') AS bucket) b JOIN (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s ON s.started_at < b.bucket + interval '$__interval' AND COALESCE(s.ended_at, NOW()) > b.bucket GROUP BY 1, 2 ORDER BY 1"
+          "rawSql": "SELECT b.bucket AS time, s.host_name || ':' || s.device_id AS device, MAX(s.owner_type) AS state FROM (SELECT generate_series($__timeFrom()::timestamptz, $__timeTo()::timestamptz, interval '$__interval') AS bucket) b JOIN (SELECT * FROM (SELECT * FROM device_control_sessions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s ON s.started_at < b.bucket + interval '$__interval' AND COALESCE(s.ended_at, NOW()) > b.bucket GROUP BY 1, 2 ORDER BY 1"
         }
       ]
     },
@@ -424,7 +424,7 @@
         {
           "refId": "A",
           "format": "time_series",
-          "rawSql": "WITH buckets AS (SELECT generate_series(date_trunc('hour', $__timeFrom()::timestamptz), $__timeTo()::timestamptz, interval '1 hour') AS bucket) SELECT b.bucket AS time, s.host_name || ':' || s.device_id AS metric, LEAST(100.0, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(s.ended_at, NOW()), b.bucket + interval '1 hour') - GREATEST(s.started_at, b.bucket))) / 3600.0) AS occupancy FROM buckets b JOIN (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s ON s.started_at < b.bucket + interval '1 hour' AND COALESCE(s.ended_at, NOW()) > b.bucket GROUP BY 1, 2 ORDER BY 1"
+          "rawSql": "WITH buckets AS (SELECT generate_series(date_trunc('hour', $__timeFrom()::timestamptz), $__timeTo()::timestamptz, interval '1 hour') AS bucket) SELECT b.bucket AS time, s.host_name || ':' || s.device_id AS metric, LEAST(100.0, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(COALESCE(s.ended_at, NOW()), b.bucket + interval '1 hour') - GREATEST(s.started_at, b.bucket))) / 3600.0) AS occupancy FROM buckets b JOIN (SELECT * FROM (SELECT * FROM device_control_sessions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s ON s.started_at < b.bucket + interval '1 hour' AND COALESCE(s.ended_at, NOW()) > b.bucket GROUP BY 1, 2 ORDER BY 1"
         }
       ]
     },
@@ -470,7 +470,7 @@
         {
           "refId": "A",
           "format": "table",
-          "rawSql": "SELECT s.started_at, s.ended_at, s.host_name, s.device_id, s.owner_type, s.end_reason, s.lock_reason, COALESCE(p.full_name, p.email, s.owner_user_id) AS \"user\", EXTRACT(EPOCH FROM (COALESCE(s.ended_at, NOW()) - s.started_at))::bigint AS duration FROM (SELECT * FROM device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s LEFT JOIN profiles p ON p.id::text = s.owner_user_id WHERE $__timeFilter(s.started_at) ORDER BY s.started_at DESC LIMIT 300"
+          "rawSql": "SELECT s.started_at, s.ended_at, s.host_name, s.device_id, s.owner_type, s.end_reason, s.lock_reason, COALESCE(p.full_name, p.email, s.owner_user_id) AS \"user\", EXTRACT(EPOCH FROM (COALESCE(s.ended_at, NOW()) - s.started_at))::bigint AS duration FROM (SELECT * FROM (SELECT * FROM device_control_sessions /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_control_sessions WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = device_control_sessions.host_name AND df.device_id = device_control_sessions.device_id AND df.flags && string_to_array('${flag:csv}', ',')))) s LEFT JOIN profiles p ON p.id::text = s.owner_user_id WHERE $__timeFilter(s.started_at) ORDER BY s.started_at DESC LIMIT 300"
         }
       ]
     },
@@ -541,7 +541,7 @@
             {
               "refId": "A",
               "format": "table",
-              "rawSql": "SELECT host_name || ':' || COALESCE(device_name, 'device1') AS device, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(completed_at, $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz))) / NULLIF(EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)), 0) AS occupancy FROM (SELECT * FROM script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE started_at < $__timeTo()::timestamptz AND completed_at > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
+              "rawSql": "SELECT host_name || ':' || COALESCE(device_name, 'device1') AS device, 100.0 * EXTRACT(EPOCH FROM SUM(LEAST(completed_at, $__timeTo()::timestamptz) - GREATEST(started_at, $__timeFrom()::timestamptz))) / NULLIF(EXTRACT(EPOCH FROM ($__timeTo()::timestamptz - $__timeFrom()::timestamptz)), 0) AS occupancy FROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE started_at < $__timeTo()::timestamptz AND completed_at > $__timeFrom()::timestamptz GROUP BY 1 ORDER BY 2 DESC"
             }
           ]
         }
@@ -556,6 +556,44 @@
   ],
   "templating": {
     "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
       {
         "current": {
           "text": "All",
@@ -573,7 +611,7 @@
         "name": "flag",
         "options": [],
         "refresh": 2,
-        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "query": "SELECT DISTINCT f AS flag FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_flags, unnest(flags) f ORDER BY 1",
         "type": "query"
       }
     ]

@@ -14,6 +14,8 @@ import {
   Assignment as RequirementIcon,
   Build as BuildIcon,
   BugReport as TestingIcon,
+  Speed as QualityIcon,
+  Bookmarks as RunManagementIcon,
   BarChart as AnalyticsIcon,
   Campaign as CampaignIcon,
   CloudUpload as CodeDeployIcon,
@@ -146,6 +148,12 @@ export const TEST_GROUPS: NavGroup[] = [
         path: '/test-results/reports',
         icon: <ReportsIcon fontSize="small" />,
       },
+      { label: 'Quality', path: '/test-results/quality', icon: <QualityIcon fontSize="small" /> },
+      {
+        label: 'Run Management',
+        path: '/test-results/run-management',
+        icon: <RunManagementIcon fontSize="small" />,
+      },
       {
         label: 'Model Reports',
         path: '/test-results/model-reports',
@@ -184,6 +192,11 @@ export const MONITORING_ITEMS: NavItem[] = [
     label: 'AI Queue',
     path: '/monitoring/ai-queue',
     icon: <DashboardIcon fontSize="small" />,
+  },
+  {
+    label: 'AI usage',
+    path: '/monitoring/ai-usage',
+    icon: <AnalyticsIcon fontSize="small" />,
   },
   ...featureNavItems('monitoring'),
 ];
@@ -311,11 +324,14 @@ export const INTEGRATIONS_ITEMS: NavItem[] = [
  *   it stays as an internal link to `/langfuse-dashboard` (the config page).
  * - TestRail keeps its configuration page link and shows an external shortcut
  *   to the configured instance URL.
+ * - Grafana keeps its embedded dashboard page link and shows an external
+ *   shortcut to the Grafana dashboards list when `VITE_GRAFANA_URL` is set.
  */
 export function buildIntegrationsItems(params: {
   slackUrl: string;
   langfuseUrl?: string;
   testrailInstanceUrl?: string;
+  grafanaUrl?: string;
 }): NavItem[] {
   return INTEGRATIONS_ITEMS.map((item) => {
     if (item.label === 'Slack') {
@@ -323,6 +339,9 @@ export function buildIntegrationsItems(params: {
     }
     if (item.label === 'Langfuse' && params.langfuseUrl) {
       return { ...item, external: true, href: params.langfuseUrl };
+    }
+    if (item.label === 'Grafana' && params.grafanaUrl) {
+      return { ...item, externalHref: `${params.grafanaUrl}/dashboards` };
     }
     if (item.label === 'TestRail' && params.testrailInstanceUrl) {
       return { ...item, externalHref: params.testrailInstanceUrl };

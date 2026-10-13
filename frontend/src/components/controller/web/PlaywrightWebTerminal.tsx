@@ -26,6 +26,7 @@ import { createPortal } from 'react-dom';
 
 import { useVNCState } from '../../../contexts/VNCStateContext';
 import { usePlaywrightWeb } from '../../../hooks/controller/usePlaywrightWeb';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { Host } from '../../../types/common/Host_Types';
 import { WebElement } from '../../../types/controller/Web_Types';
 import { PlaywrightWebOverlay } from './PlaywrightWebOverlay';
@@ -41,6 +42,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
   isMinimized = false,
 }: PlaywrightWebTerminalProps) {
   // Get VNC state from context
+  const P = useAgentChatPalette();
   const { isVNCExpanded } = useVNCState();
   const {
     executeCommand,
@@ -1283,12 +1285,12 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
               ref={responseRef}
               sx={{
                 p: 1,
-                backgroundColor: '#1e1e1e',
-                color: '#00ff00',
+                backgroundColor: '#1e1e1e', // palette: drawn on the live page — keep dark console look
+                color: '#00ff00', // palette: drawn on the live page — keep CRT-green on dark
                 fontFamily: 'monospace',
                 fontSize: '0.75rem',
                 overflow: 'auto',
-                border: '1px solid #333',
+                border: '1px solid #333', // palette: drawn on the live page — keep terminal chrome look
                 maxHeight: '200px',
               }}
             >
@@ -1336,8 +1338,8 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
             width: 40,
             height: 40,
             borderRadius: '50%',
-            backgroundColor: 'rgba(33, 150, 243, 0.6)',
-            border: '2px solid #2196f3',
+            backgroundColor: 'rgba(33, 150, 243, 0.6)', // palette: drawn on the live page — keep saturated overlay colour
+            border: `2px solid ${P.accent}`,
             pointerEvents: 'none',
             zIndex: 9999,
             animation: 'ripple 1s ease-out',
@@ -1364,8 +1366,8 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
             top: elementHighlight.y,
             width: elementHighlight.width,
             height: elementHighlight.height,
-            backgroundColor: 'rgba(255, 193, 7, 0.3)',
-            border: '2px solid #ffc107',
+            backgroundColor: 'rgba(255, 193, 7, 0.3)', // palette: drawn on the live page — keep saturated overlay colour
+            border: '2px solid #ffc107', // palette: drawn on the live page — keep saturated overlay colour
             pointerEvents: 'none',
             zIndex: 9998,
             animation: 'highlight 2s ease-out',

@@ -1,8 +1,8 @@
 # VirtualPyTest MCP Server Documentation
 
-**Version**: 4.7.0  
-**Last Updated**: 2025-11-22  
-**Total Tools**: 75
+**Version**: 4.8.0  
+**Last Updated**: 2026-10-05  
+**Total Tools**: 77
 
 This documentation has been modularized for easier navigation and maintenance.
 
@@ -24,12 +24,12 @@ This documentation has been modularized for easier navigation and maintenance.
 - **[Screen Analysis Tools](mcp_tools_screen_analysis.md)** (2 tools) - `analyze_screen_for_action`, `analyze_screen_for_verification` 🆕 **Unified Selector Scoring**
 
 #### 🔧 Tree Building
-- **[🤖 AI Exploration Tools](mcp_tools_exploration.md)** (7 tools) - **RECOMMENDED** ⭐ Automated tree building (start_ai_exploration, approve_exploration_plan, validate_exploration_edges)
+- **[Map Builder Tool](mcp_tools_exploration.md)** (1 tool) - `auto_discover_screen`: rule-based map of the current screen (nodes, edges, each edge validated). Not an agent: no model on Android/web, a vision model on TV/STB only
 - **[Tree Tools](mcp_tools_tree.md)** (11 tools) - Manual primitives (create/update/delete nodes/edges, subtrees, execute_edge)
 
 #### 🧪 Test Management
-- **[TestCase Tools](mcp_tools_testcase.md)** (6 tools) - Save, load, list, execute, rename testcases
-- **[Script Tools](mcp_tools_script.md)** (2 tools) - `execute_script`, `list_scripts`
+- **[TestCase Tools](mcp_tools_testcase.md)** (7 tools) - Save, load, list, execute, rename testcases; `get_testcase_execution_status` reads a run
+- **[Script Tools](mcp_tools_script.md)** (3 tools) - `execute_script`, `get_script_execution_status`, `list_scripts`
 - **[AI Tools](mcp_tools_ai.md)** (2 tools) - `generate_test_graph`, `generate_and_save_testcase`
 
 #### 🎨 App & Requirements
@@ -77,15 +77,14 @@ This documentation has been modularized for easier navigation and maintenance.
 ```
 → See: [Control](mcp_tools_control.md) | [Navigation](mcp_tools_navigation.md) | [Screenshot](mcp_tools_screenshot.md)
 
-### Build Navigation Tree (Automated - RECOMMENDED)
+### Build Navigation Tree (Map Builder)
 ```
-1. create_userinterface (create app model)
-2. start_ai_exploration (AI analyzes screen)
-3. approve_exploration_plan (creates all nodes/edges)
-4. validate_exploration_edges (tests all edges)
-5. finalize_exploration (makes permanent)
+1. create_userinterface (create app model; give the entry edge its actions)
+2. auto_discover_screen (map the current screen: nodes, edges, each edge validated)
+3. update_edge / update_node (fix failed edges, add node verifications, drop _temp from labels)
 ```
-→ See: [AI Exploration](mcp_tools_exploration.md) | [UserInterface](mcp_tools_userinterface.md)
+The map builder is a tool, not an agent: an agent calling it still decides what to keep and fix.
+→ See: [Map Builder](mcp_tools_exploration.md) | [UserInterface](mcp_tools_userinterface.md)
 
 ### Build Navigation Tree (Manual - Advanced)
 ```
@@ -103,8 +102,9 @@ This documentation has been modularized for easier navigation and maintenance.
 2. create_requirement(code, name)         → define what to test
 3. Build graph_json yourself              → see save_testcase for format
 4. save_testcase(name, graph_json)        → store in VPT
-5. execute_testcase(name, host_name, device_id) → run tests
-6. capture_screenshot(host_name, device_id)     → grab results
+5. execute_testcase(name, host_name, device_id) → execution_id (returns at once)
+6. get_testcase_execution_status(execution_id, host_name) → repeat until done
+7. capture_screenshot(host_name, device_id)     → grab results
 ```
 
 > **For AI agents:** Do NOT use `generate_and_save_testcase` — that uses VPT's built-in AI
@@ -116,7 +116,7 @@ This documentation has been modularized for easier navigation and maintenance.
 ```
 1. generate_test_graph (from natural language)
 2. save_testcase (to database)
-3. execute_testcase (run test)
+3. execute_testcase (start test) + get_testcase_execution_status (read result)
 4. link_testcase_to_requirement (track coverage)
 ```
 
@@ -191,7 +191,7 @@ This documentation has been modularized for easier navigation and maintenance.
 - `create_node`, `update_node`, `delete_node`, `create_edge`, `update_edge`, `delete_edge`, `create_subtree`, `get_node`, `get_edge`, `save_node_screenshot`, `dump_ui_elements`
 
 **Test Management** (9 tools)
-- `save_testcase`, `load_testcase`, `list_testcases`, `rename_testcase`, `execute_testcase`, `execute_testcase_by_id`, `execute_script`, `list_scripts`, `generate_test_graph`, `generate_and_save_testcase`
+- `save_testcase`, `load_testcase`, `list_testcases`, `rename_testcase`, `execute_testcase`, `execute_testcase_by_id`, `get_testcase_execution_status`, `execute_script`, `get_script_execution_status`, `list_scripts`, `generate_test_graph`, `generate_and_save_testcase`
 
 **App & Requirements** (16 tools)
 - `create_userinterface`, `list_userinterfaces`, `delete_userinterface`, `list_nodes`, `list_edges`, `get_userinterface_complete`
@@ -239,7 +239,7 @@ Most tools support optional parameters with sensible defaults:
 
 ## 📊 Statistics
 
-- **Total Tools**: 75
+- **Total Tools**: 77
 - **Tool Categories**: 15
 - **Documentation Pages**: 15+
 - **Supported Integrations**: 3 (Cursor, Claude Desktop, MCP Playground)
@@ -304,6 +304,7 @@ Platform-specific automation prompts with AI Exploration:
 
 ## 📈 Version History
 
+- **v4.8.0** (2026-10-05): 77 tools (`execute_testcase` / `execute_script` return an `execution_id` at once; + `get_testcase_execution_status`, `get_script_execution_status`. No MCP call holds open for a whole run, so clients behind a proxy no longer get 524s)
 - **v4.7.0** (2025-11-22): 75 tools (+ AI Exploration: start_ai_exploration, approve_exploration_plan, validate_exploration_edges, get_node_verification_suggestions, approve_node_verifications, finalize_exploration, get_exploration_status)
 - **v4.6.0** (2025-11-21): 56 tools (+ analyze_screen_for_action, analyze_screen_for_verification - unified selector scoring + shared/src/lib/utils/selector_scoring.py)
 - **v4.5.0** (2025-11-18): 54 tools (+ generate_and_save_testcase, rename_testcase, get_compatible_hosts + MCP server refactor: 327 lines)
@@ -337,11 +338,11 @@ docs/
 │   ├── mcp_tools_action.md           # execute_device_action, list_actions
 │   ├── mcp_tools_navigation.md       # navigate_to_node, list_navigation_nodes
 │   ├── mcp_tools_verification.md     # verify_device_state, verify_node, list_verifications
-│   ├── mcp_tools_exploration.md      # 7 AI exploration tools (RECOMMENDED) ⭐
+│   ├── mcp_tools_exploration.md      # auto_discover_screen: map builder (not an agent)
 │   ├── mcp_tools_screen_analysis.md  # analyze_screen_for_action, analyze_screen_for_verification
 │   ├── mcp_tools_tree.md             # 11 primitive tools (create/update/delete node/edge)
 │   ├── mcp_tools_testcase.md         # save/load/list/execute testcases
-│   ├── mcp_tools_script.md           # execute_script, list_scripts
+│   ├── mcp_tools_script.md           # execute_script, get_script_execution_status, list_scripts
 │   ├── mcp_tools_ai.md               # generate_test_graph, generate_and_save_testcase
 │   ├── mcp_tools_screenshot.md       # capture_screenshot, save_node_screenshot
 │   ├── mcp_tools_userinterface.md    # create/list/delete userinterfaces

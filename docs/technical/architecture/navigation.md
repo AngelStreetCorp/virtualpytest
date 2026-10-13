@@ -75,7 +75,7 @@ def main():
 
 ```python
 from backend_host.src.services.navigation.navigation_pathfinding import find_optimal_edge_validation_sequence
-from backend_host.src.lib.utils.navigation_cache import get_cached_unified_graph
+from shared.src.lib.utils.navigation_cache import get_cached_unified_graph
 
 def complex_validation_logic():
     # MUST ensure tree is loaded first

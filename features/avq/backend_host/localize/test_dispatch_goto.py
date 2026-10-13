@@ -15,6 +15,7 @@ This validates dispatch+ring+wrap+candidate-localize before any NavigationExecut
 import argparse
 import importlib.util
 import json
+import os
 import time
 from pathlib import Path
 
@@ -55,8 +56,10 @@ def main():
     ap.add_argument("--targets", default="profile,system,info,accessibility,profile",
                     help="comma list of tab labels to goto in sequence (profile|accessibility|parentalcontrol|soundimage|system|info)")
     ap.add_argument("--mcp-config", default=".mcp.json")
-    ap.add_argument("--mcp-url", default="https://rpitest.angelstreet.io/server/mcp")
+    ap.add_argument("--mcp-url", default=os.getenv("VPT_MCP_URL"))
     args = ap.parse_args()
+    if not args.mcp_url:
+        ap.error("--mcp-url or the VPT_MCP_URL environment variable is required (e.g. https://<server>/server/mcp)")
 
     cands = load_candidates()
     idx_of = {c["label"]: c["idx"] for c in cands}

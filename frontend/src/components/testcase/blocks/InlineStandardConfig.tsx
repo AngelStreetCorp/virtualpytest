@@ -8,14 +8,14 @@
  * "summons" the individual operation inside it.
  *
  * The operation list + param schemas come from the builder context
- * (useBuilder().standardBlocks, loaded after taking control). Writes
+ * (useOptionalBuilder()?.standardBlocks, loaded after taking control). Writes
  * command / action_type / params / paramSchema back to the node.
  */
 
 import React, { useMemo } from 'react';
 import { Box, MenuItem, TextField } from '@mui/material';
 
-import { useBuilder } from '../../../contexts/builder/useBuilder';
+import { useOptionalBuilder } from '../../../contexts/builder/useBuilder';
 import { DynamicParamForm } from '../dialogs/DynamicParamForm';
 
 interface InlineStandardConfigProps {
@@ -24,12 +24,8 @@ interface InlineStandardConfigProps {
 }
 
 export const InlineStandardConfig: React.FC<InlineStandardConfigProps> = ({ data, onUpdate }) => {
-  let standardBlocks: any[] = [];
-  try {
-    standardBlocks = useBuilder().standardBlocks || [];
-  } catch {
-    // Outside provider — render an empty picker.
-  }
+  // Outside a provider this is undefined and the picker renders empty.
+  const standardBlocks: any[] = useOptionalBuilder()?.standardBlocks || [];
   const ops = useMemo(
     () => standardBlocks.filter((b) => b.category !== 'api'),
     [standardBlocks],

@@ -66,11 +66,7 @@ class AgentConfig(BaseModel):
     )
     background_queues: List[str] = Field(
         default_factory=list,
-        description="Redis queues for background processing (e.g., ['p1_alerts', 'p2_scripts'])"
-    )
-    dry_run: bool = Field(
-        default=False,
-        description="If true, background worker prints events but doesn't process (save tokens)"
+        description="Redis queues for background processing (e.g., ['p2_scripts'])"
     )
     max_parallel_tasks: int = Field(
         default=3,

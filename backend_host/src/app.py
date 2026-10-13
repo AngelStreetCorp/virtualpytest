@@ -159,6 +159,12 @@ def register_host_routes(app):
     from shared.src.lib.utils.features import register_feature_blueprints
     register_feature_blueprints(app, 'backend_host')
 
+    # TASK-78 PR 1: opt-in Mobility feature. A no-op unless
+    # VPT_MOBILITY_ENABLED=true. See backend_host/src/mobility/api.py
+    # and docs/features/mobility.md.
+    from backend_host.src.mobility.api import register as register_mobility
+    register_mobility(app)
+
     return True
 
 def setup_host_cleanup():
@@ -279,6 +285,26 @@ def setup_api_authentication(app):
         
         # Valid API key - allow request to proceed
         return None
+
+def install_ai_caller_binding(app):
+    """Bind the AI caller forwarded by the server (``X-VPT-Caller``, set by ``call_host``) for /host/* requests,
+    so a Rec "Ask AI" or a host-side verification is attributed to the user / script that asked (TASK-87)."""
+    from flask import request
+    from shared.src.lib.ai import caller as ai_caller
+
+    @app.before_request
+    def _bind_ai_caller():
+        if request.path.startswith('/host/'):
+            ai_caller.clear()
+            fields = ai_caller.parse_header(request.headers.get(ai_caller.HEADER))
+            if fields:
+                ai_caller.bind(**fields)
+        return None
+
+    @app.teardown_request
+    def _clear_ai_caller(_exc):
+        ai_caller.clear()
+
 
 def get_host_port():
     """Get the host port, prioritizing explicit environment settings"""
@@ -481,8 +507,6 @@ def main():
                     print(f"[@backend_host:main]   ✓ VerificationExecutor ready")
                 if hasattr(device, 'standard_block_executor') and device.standard_block_executor:
                     print(f"[@backend_host:main]   ✓ StandardBlockExecutor ready")
-                if hasattr(device, 'ai_executor') and device.ai_executor:
-                    print(f"[@backend_host:main]   ✓ AIExecutor ready")
 
             print(f"[@backend_host:main] ✅ Initialized {len(app.host_devices)} devices with executors")
 
@@ -499,6 +523,7 @@ def main():
     # STEP 3.5: Setup Global API Key Authentication
     print("[@backend_host:main] Step 3.5: Setting up API key authentication...")
     setup_api_authentication(app)
+    install_ai_caller_binding(app)
     print("[@backend_host:main] ✅ API key authentication enabled for all /host/* routes")
     
     # STEP 4: Start Host Services

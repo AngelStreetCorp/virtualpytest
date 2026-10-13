@@ -13,10 +13,12 @@ import re
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
-from shared.src.lib.ai.config import get_active_model
 from shared.src.lib.utils.ai_utils import call_text_ai
 from shared.src.lib.utils.cloudflare_utils import fetch_text_from_storage
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+
+from . import sherlock_args, sherlock_jev
+from .backoff import Backoff
 
 
 CLASSIFICATIONS = {
@@ -39,9 +41,13 @@ class SherlockHandler:
         self.repeat_every_fail = max(2, int(os.getenv("ANALYZER_REPEAT_EVERY_FAIL", "5")))
         self.success_sample_percent = min(100, max(0, int(os.getenv("ANALYZER_SUCCESS_SAMPLE_PERCENT", "10"))))
         self.fail_lookback = max(5, int(os.getenv("ANALYZER_FAIL_LOOKBACK", "20")))
-        # Default to the centralized 'text' task model; honour the explicit override.
-        self.model = os.getenv("ANALYZER_OPENROUTER_MODEL") or get_active_model(task="text")
+        # Jev decides alone at or above this confidence (TASK-38); above 1 turns the gate off.
+        self.jev_gate = float(os.getenv("ANALYZER_JEV_GATE", "0.9"))
+        # Share of Jev-decided results that still run the LLM, to keep measuring the gate.
+        self.jev_audit_percent = min(100, max(0, int(os.getenv("ANALYZER_JEV_AUDIT_PERCENT", "10"))))
         self._supabase = None
+        # Provider down: no LLM call for 1 h, 5 h, then 24 h (Jev's own back-off is in sherlock_jev).
+        self.llm_backoff = Backoff("analyzer.sherlock")
 
     def _get_supabase(self):
         if self._supabase is None:
@@ -204,8 +210,12 @@ class SherlockHandler:
         except Exception:
             return None
 
-    def _classify_with_llm(self, record: Dict[str, Any], review_markdown: str) -> Dict[str, Any]:
+    def _classify_with_llm(self, record: Dict[str, Any], review_markdown: str,
+                           arguments: Optional[list] = None) -> Dict[str, Any]:
+        if self.llm_backoff.blocked():
+            raise RuntimeError(self.llm_backoff.describe())
         success_text = "PASSED" if record.get("success") else "FAILED"
+        arguments_text = json.dumps(arguments, ensure_ascii=False) if arguments else "None"
         prompt = f"""You are classifying automated test executions for false positives.
 Return ONLY JSON:
 {{
@@ -218,12 +228,14 @@ Rules:
 - discard=true only for SCRIPT_ISSUE or SYSTEM_ISSUE
 - discard=false for VALID_PASS, VALID_FAIL, BUG, EXTERNAL_BLOCK
 - BUG means report says fail but visual/log evidence suggests real element/state exists
+- SCRIPT_ISSUE includes an argument whose value does not fit its meaning (see arguments): the run failed on its own setup, not the product
 
 Execution:
 - script_name: {record.get("script_name")}
 - result: {success_text}
 - error: {record.get("error_msg") or "None"}
 - execution_time_ms: {record.get("execution_time_ms")}
+- arguments (value the run got, default, meaning): {arguments_text}
 
 Verification review markdown:
 {(review_markdown or "No markdown available")[:16000]}
@@ -231,14 +243,23 @@ Verification review markdown:
         # 300 was enough for a non-reasoning model. Reasoning models (MiniMax-M2.7,
         # Claude with extended thinking) spend the budget on thinking blocks first and
         # return zero text blocks at 300 — the call then fails as "empty content".
-        ai_result = call_text_ai(
-            prompt=prompt,
-            max_tokens=int(os.getenv("ANALYZER_MAX_TOKENS", "1500")),
-            temperature=0.0,
-            model=self.model,
-        )
+        from shared.src.lib.ai import caller as ai_caller
+        with ai_caller.bound(origin='background', job='sherlock', script_name=record.get("script_name"),
+                             script_result_id=record.get("id"), host_name=record.get("host_name"),
+                             device_id=record.get("device_name")):
+            ai_result = call_text_ai(
+                prompt=prompt,
+                max_tokens=int(os.getenv("ANALYZER_MAX_TOKENS", "1500")),
+                temperature=0.0,
+                usage='analyzer.sherlock',
+                team_id=record.get("team_id") or None,
+            )
         if not ai_result.get("success"):
-            raise RuntimeError(ai_result.get("error", "AI call failed"))
+            error = ai_result.get("error", "AI call failed")
+            pause = self.llm_backoff.failed(str(error))
+            print(f"[{self.nickname}] ⏸️ analyzer.sherlock paused {pause // 3600} h after: {error}")
+            raise RuntimeError(error)
+        self.llm_backoff.succeeded()
 
         parsed = self._extract_json(ai_result.get("content", ""))
         if not parsed:
@@ -260,19 +281,31 @@ Verification review markdown:
             "explanation": explanation,
         }
 
+    def _jev_audited(self, script_result_id: str) -> bool:
+        key = f"jev-audit:{script_result_id}".encode("utf-8")
+        return int(hashlib.md5(key, usedforsecurity=False).hexdigest(), 16) % 100 < self.jev_audit_percent
+
     def _save_analysis(self, script_result_id: str, analysis: Dict[str, Any]) -> None:
         classification = analysis["classification"]
         discard = bool(analysis["discard"])
         explanation = analysis["explanation"]
         discard_comment = f"[{classification}] {explanation}"
         supabase = self._get_supabase()
-        supabase.table("script_results").update({
+        update = {
             "checked": True,
-            "check_type": "ai_auto_openrouter",
+            "check_type": analysis.get("check_type", "ai_auto_openrouter"),
             "discard": discard,
             "discard_comment": discard_comment,
             "updated_at": datetime.now(timezone.utc).isoformat()
-        }).eq("id", script_result_id).execute()
+        }
+        if analysis.get("jev"):  # why Jev decided: shown in the UI next to the comment
+            try:
+                row = supabase.table("script_results").select("metadata").eq("id", script_result_id).single().execute()
+                metadata = row.data.get("metadata") if row and row.data else None
+                update["metadata"] = {**(metadata if isinstance(metadata, dict) else {}), "jev": analysis["jev"]}
+            except Exception as e:
+                print(f"[{self.nickname}] ⚠️ Jev reasons not stored for {script_result_id}: {e}")
+        supabase.table("script_results").update(update).eq("id", script_result_id).execute()
 
     def process_task_direct(self, task_type: str, task_id: str, task_data: Dict[str, Any]) -> bool:
         """
@@ -288,19 +321,58 @@ Verification review markdown:
         if not record:
             return True
 
+        review_markdown, analysis, jev, arguments = "", None, None, []
         try:
             review_markdown = self._fetch_markdown(record)
-            analysis = self._classify_with_llm(record, review_markdown)
+            arguments = sherlock_args.for_record(record)
+            jev = sherlock_jev.ask(record, review_markdown, self.jev_gate, self.nickname, arguments)
+            if jev and jev.get("gated"):
+                self._save_analysis(task_id, sherlock_jev.as_analysis(jev, DISCARD_CLASSIFICATIONS, record, arguments, review_markdown))
+                print(f"[{self.nickname}] ✅ Jev analysis saved: {task_id} class={jev['choice']}")
+                if not self._jev_audited(task_id):
+                    return True
+                self._classify_with_llm_and_record(record, review_markdown, jev, arguments)
+                return True
+            analysis = self._classify_with_llm(record, review_markdown, arguments)
             self._save_analysis(task_id, analysis)
             print(
                 f"[{self.nickname}] ✅ direct analysis saved: {task_id} "
                 f"class={analysis['classification']} discard={analysis['discard']}"
             )
         except Exception as e:
+            if self._save_jev_fallback(task_id, record, review_markdown, jev, arguments):
+                print(f"[{self.nickname}] ✅ LLM failed ({e}); Jev analysis saved: {task_id}")
+                return True
             self._mark_ai_error(task_id, str(e))
             print(f"[{self.nickname}] ❌ direct analysis failed for {task_id}: {e}")
+        sherlock_jev.record_llm_verdict(jev, record, analysis, self.jev_gate, self.nickname)
 
         return True
+
+    def _save_jev_fallback(self, task_id: str, record: Dict[str, Any], review_markdown: str,
+                           jev: Optional[Dict[str, Any]], arguments: list) -> bool:
+        """The LLM path failed: keep Jev's verdict when it reaches the gate (same gate as the
+        gated path), asking again if Jev gave no answer the first time. False: leave ai_error."""
+        try:
+            if not (jev and jev.get("success")):
+                jev = sherlock_jev.ask(record, review_markdown, self.jev_gate, self.nickname, arguments)
+            if not (jev and jev.get("success") and jev.get("gated")):
+                return False
+            self._save_analysis(task_id, sherlock_jev.as_analysis(jev, DISCARD_CLASSIFICATIONS, record, arguments, review_markdown))
+            return True
+        except Exception as e:
+            print(f"[{self.nickname}] ⚠️ Jev fallback failed for {task_id}: {e}")
+            return False
+
+    def _classify_with_llm_and_record(self, record: Dict[str, Any], review_markdown: str,
+                                      jev: Dict[str, Any], arguments: list) -> None:
+        """Audit of a Jev-decided result: the LLM's verdict goes to the decision log only."""
+        try:
+            analysis = self._classify_with_llm(record, review_markdown, arguments)
+        except Exception as e:
+            print(f"[{self.nickname}] ⚠️ Jev audit LLM call failed for {record.get('id')}: {e}")
+            return
+        sherlock_jev.record_llm_verdict(jev, record, analysis, self.jev_gate, self.nickname)
 
     def build_task_message(self, task_type: str, task_id: str, task_data: Dict[str, Any]) -> str:
         """Legacy prompt path for non-direct mode/fallback."""

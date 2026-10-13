@@ -13,7 +13,7 @@ import os
 
 from flask import Blueprint, Response, jsonify
 
-from backend_server.src.lib.auth_middleware import require_user_auth, require_role
+from backend_server.src.lib.auth_middleware import require_permission, require_user_auth
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 
 server_security_bp = Blueprint('server_security', __name__, url_prefix='/server/security')
@@ -38,7 +38,7 @@ _ALLOWED_REPORTS = {
 
 @server_security_bp.route('/dashboard', methods=['GET'])
 @require_user_auth
-@require_role('admin')
+@require_permission('security:view')
 @handle_route_exceptions('server_security:dashboard')
 def get_security_dashboard():
     """Return the pre-rendered Bandit/Snyk/npm-audit HTML dashboard."""
@@ -52,7 +52,7 @@ def get_security_dashboard():
 
 @server_security_bp.route('/reports/<report_name>', methods=['GET'])
 @require_user_auth
-@require_role('admin')
+@require_permission('security:view')
 @handle_route_exceptions('server_security:report')
 def get_security_report(report_name: str):
     """Return one raw scan report as JSON (the dashboard's 'JSON ↗' links)."""

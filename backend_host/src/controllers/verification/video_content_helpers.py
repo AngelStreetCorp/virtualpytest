@@ -27,6 +27,7 @@ from shared.src.lib.utils.image_utils import (
     clean_ocr_text,
     detect_language
 )
+from shared.src.lib.utils import cv2_io
 
 # Simplified sampling patterns for performance optimization
 SAMPLING_PATTERNS = {
@@ -78,7 +79,7 @@ class VideoContentHelpers:
             Dictionary with zap analysis results
         """
         try:
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 return {'success': False, 'error': 'Failed to load image'}
             
@@ -112,7 +113,8 @@ class VideoContentHelpers:
                 dark_pixels = np.sum(top_region <= threshold)
                 dark_percentage = (dark_pixels / total_pixels) * 100
             
-            blackscreen = dark_percentage > 85
+            dark_percentage = float(dark_percentage)
+            blackscreen = bool(dark_percentage > 85)
             timings['blackscreen'] = (time.perf_counter() - start) * 1000
             
             # === STEP 3: Bottom Content Check (ONLY if blackscreen) ===
@@ -120,8 +122,8 @@ class VideoContentHelpers:
             if blackscreen:
                 # Check bottom 30% for banner/channel info (zap confirmation)
                 edges_bottom = edges[split_y:img_height, :]
-                bottom_edge_density = np.sum(edges_bottom > 0) / edges_bottom.size * 100
-                has_bottom_content = 3 < bottom_edge_density < 20
+                bottom_edge_density = float(np.sum(edges_bottom > 0) / edges_bottom.size * 100)
+                has_bottom_content = bool(3 < bottom_edge_density < 20)
                 timings['bottom_content'] = (time.perf_counter() - start) * 1000
             else:
                 # No blackscreen = no need to check for zapping
@@ -186,12 +188,12 @@ class VideoContentHelpers:
             
             # Load image if edges not provided
             if edges is None:
-                img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+                img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
                 if img is None:
                     return {'success': False, 'error': 'Failed to load image'}
                 edges = cv2.Canny(img, 50, 150)
             else:
-                img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+                img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
                 if img is None:
                     return {'success': False, 'error': 'Failed to load image'}
             
@@ -273,7 +275,7 @@ class VideoContentHelpers:
         try:
             start = time.perf_counter()
             
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 return {'success': False, 'error': 'Failed to load image'}
             
@@ -370,7 +372,7 @@ class VideoContentHelpers:
                     'image_path': image_path
                 }
             
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 return {
                     'success': False,
@@ -489,8 +491,8 @@ class VideoContentHelpers:
                         'freeze_detected': False
                     }
                 
-                img1 = cv2.imread(img1_path, cv2.IMREAD_GRAYSCALE)
-                img2 = cv2.imread(img2_path, cv2.IMREAD_GRAYSCALE)
+                img1 = cv2_io.imread(img1_path, cv2.IMREAD_GRAYSCALE)
+                img2 = cv2_io.imread(img2_path, cv2.IMREAD_GRAYSCALE)
                 
                 if img1 is None or img2 is None:
                     return {
@@ -651,7 +653,7 @@ class VideoContentHelpers:
                 continue
             
             try:
-                img = cv2.imread(image_path)
+                img = cv2_io.imread(image_path)
                 if img is None:
                     results.append({
                         'image_path': image_path,
@@ -741,7 +743,7 @@ class VideoContentHelpers:
                 continue
             
             try:
-                img = cv2.imread(image_path)
+                img = cv2_io.imread(image_path)
                 if img is None:
                     results.append({
                         'image_path': image_path,
@@ -964,7 +966,7 @@ class VideoContentHelpers:
     def _analyze_macroblocks_simple(self, image_path: str) -> Tuple[bool, float]:
         """Conservative macroblock detection - same algorithm as analyze_audio_video.py"""
         try:
-            img = cv2.imread(image_path)
+            img = cv2_io.imread(image_path)
             if img is None:
                 return False, 0.0
             
@@ -1607,7 +1609,7 @@ class VideoContentHelpers:
             Tuple of (is_blackscreen, blackscreen_percentage)
         """
         try:
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            img = cv2_io.imread(image_path, cv2.IMREAD_GRAYSCALE)
             if img is None:
                 return False, 0.0
             
@@ -1675,9 +1677,11 @@ class VideoContentHelpers:
             else:
                 blackscreen_threshold = 85  # Desktop/STB: 85% threshold (minimal UI overlay)
             
-            is_blackscreen = dark_percentage > blackscreen_threshold
+            # np.sum gives numpy scalars; return plain types so the zap/blackscreen
+            # results can be JSON-encoded (np.bool_ is not serializable).
+            is_blackscreen = bool(dark_percentage > blackscreen_threshold)
             
-            return is_blackscreen, dark_percentage
+            return is_blackscreen, float(dark_percentage)
             
         except Exception as e:
             print(f"VideoContent[{self.device_name}]: Blackscreen analysis error: {e}")

@@ -20,6 +20,17 @@ auto_proxy_bp = Blueprint('auto_proxy', __name__)
 _stream_url_cache = {}  # {cache_key: {'data': {...}, 'timestamp': time.time()}}
 _cache_lock = threading.Lock()
 
+
+def invalidate_stream_url_cache(host_name: str) -> int:
+    """Drop a host's cached stream URLs. Called on (re-)registration: the host may have
+    changed DEVICEn_VIDEO_STREAM_PATH, and a 24h-old URL then 404s for every viewer."""
+    prefix = f"{host_name}:"
+    with _cache_lock:
+        stale = [k for k in _stream_url_cache if k.startswith(prefix)]
+        for k in stale:
+            del _stream_url_cache[k]
+    return len(stale)
+
 @auto_proxy_bp.route('/server/<path:endpoint>', methods=['GET', 'POST', 'PUT', 'DELETE'])
 @handle_route_exceptions('auto_proxy')
 def auto_proxy(endpoint):
@@ -40,6 +51,10 @@ def auto_proxy(endpoint):
     - /server/executable/* (handled by server_executable_bp - no host_name needed for listing)
     - /server/mcp/* (handled by mcp_bp - registered BEFORE auto_proxy, takes precedence)
     """
+    # Dot segments would let /server/x/../y reach a host path other than /host/<endpoint>
+    # once the HTTP client normalises the URL.
+    if any(seg in ('.', '..') for seg in endpoint.split('/')):
+        return jsonify({'success': False, 'error': 'Invalid endpoint path'}), 400
     # Normalize endpoint: handle double /server/ prefix
     if endpoint.startswith('server/'):
         endpoint = endpoint[7:]
@@ -104,6 +119,9 @@ def auto_proxy(endpoint):
         timeout = 300
     elif 'crawl/app' in endpoint:
         timeout = 180
+    elif endpoint == 'av/loadVideo':
+        # May download the video to the host first (curl, up to 600 s).
+        timeout = 600
     else:
         timeout = HTTP_CONFIG['DEFAULT_TIMEOUT']
     print(f"[@auto_proxy] 📡 Proxying {target_method} /server/{endpoint} -> {host_endpoint} with timeout={timeout}s")

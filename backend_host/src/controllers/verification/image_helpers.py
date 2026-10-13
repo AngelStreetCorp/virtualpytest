@@ -19,8 +19,12 @@ import cv2
 import numpy as np
 import shutil
 import subprocess
+from shared.src.lib.utils.tesseract_env import tesseract_env
 from typing import Dict, Any, Optional, Tuple, List
 from urllib.parse import urlparse
+
+from shared.src.lib.utils.image_hash import dhash_hex, dhash_hamming
+from shared.src.lib.utils import cv2_io
 
 
 class ImageHelpers:
@@ -184,8 +188,8 @@ class ImageHelpers:
     def match_template_in_area(self, image_source_path: str, template_path: str,
                               area: Dict[str, Any] = None, threshold: float = 0.8) -> Dict[str, Any]:
         try:
-            source_img = cv2.imread(image_source_path)
-            template_img = cv2.imread(template_path)
+            source_img = cv2_io.imread(image_source_path)
+            template_img = cv2_io.imread(template_path)
 
             if source_img is None or template_img is None:
                 return {'found': False, 'error': 'Failed to load images', 'confidence': 0.0}
@@ -676,6 +680,11 @@ class ImageHelpers:
     FP_FULL_REGION = (0.0, 1.0, 0.0, 1.0)   # [y0,y1,x0,x1] default
     FP_CANDIDATE_MARGIN = 14           # nodes within (best + this) of the nearest = candidates (ties)
     FP_EXCLUDE_MARGIN = 28             # nodes beyond (best + this) = confidently excluded
+    # How many ranked nodes `ranked` carries for the popover's screen list. The matcher
+    # scores EVERY node but reports only the survivors, so the tail is otherwise a bare
+    # count ("excluded 66 of 67") and the UI cannot show what the frame also resembled.
+    # Display-only: `ranked[0]` is the same node `best_excluded` reports.
+    FP_RANKED_PREVIEW_N = 8
     # Minimum confidence to report a match. Applied in identify_screen (the shared
     # algo) so BOTH the Localize button and the monitor overlay abstain identically
     # on weak matches — a nearest node still far in dHash (live video / no real
@@ -705,18 +714,12 @@ class ImageHelpers:
 
     def _dhash_hex(self, gray: np.ndarray) -> str:
         """256-bit difference hash of a grayscale frame, as a 64-char hex string."""
-        g = self.FP_DHASH_GRID
-        r = cv2.resize(gray, (g + 1, g), interpolation=cv2.INTER_AREA)
-        bits = (r[:, 1:] > r[:, :-1]).flatten()
-        val = 0
-        for b in bits:
-            val = (val << 1) | int(b)
-        return format(val, 'x').zfill(self.FP_DHASH_BITS // 4)
+        return dhash_hex(gray, self.FP_DHASH_GRID, self.FP_DHASH_BITS)
 
     @staticmethod
     def _dhash_hamming(hex_a: str, hex_b: str) -> int:
         """Hamming distance between two dHash hex strings."""
-        return bin(int(hex_a, 16) ^ int(hex_b, 16)).count('1')
+        return dhash_hamming(hex_a, hex_b)
 
     FP_REGION_MIN_BITS = 20   # a region dHash with fewer set bits than this is near-uniform (black /
                               # empty) — non-discriminative: it matches ANY black region at ~0 (youtube_home's
@@ -828,9 +831,9 @@ class ImageHelpers:
         try:
             tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
             tmp.close()
-            cv2.imwrite(tmp.name, gray)
+            cv2_io.imwrite(tmp.name, gray)
             out = subprocess.run(['tesseract', tmp.name, 'stdout', '--psm', '7'],
-                                 capture_output=True, text=True, timeout=15)
+                                 capture_output=True, text=True, timeout=15, env=tesseract_env())
             text = ' '.join(out.stdout.split()).lower() if out.returncode == 0 else ''
             return text[:24]
         except Exception as e:
@@ -989,12 +992,16 @@ class ImageHelpers:
         }
 
     def compute_fingerprint(self, img_bgr: np.ndarray, region=None) -> Optional[Dict[str, Any]]:
-        """Compute the Localize fingerprint for a device frame (v4).
+        """Compute the Localize fingerprint for a device frame (v6).
 
-        Two layers: full-frame dHash = the screen FAMILY; focus signature = the
-        SIBLING discriminator (nav-underline x+width, or focused box). The per-node
-        region model was dropped (Option B) — `region` is accepted but ignored so
-        existing callers don't break. Returns None on bad input.
+        Layers: full-frame dHash = the screen FAMILY; per-region dHashes (v5) =
+        content-churn and language robustness on structured screens; the focused-tile
+        crop dHash (v6) = app-grid sibling discriminator; the focus signature = the
+        SIBLING discriminator (nav-underline x+width, or focused box); `title`/`text` =
+        OCR layers in the raw device language.
+
+        `region` is accepted but ignored — it is kept only so existing callers don't break.
+        Returns None on bad input. See docs/agent/navigation/FINGERPRINT.md.
         """
         if img_bgr is None or img_bgr.size == 0:
             return None
@@ -1003,7 +1010,7 @@ class ImageHelpers:
             'v': self.FINGERPRINT_VERSION,
             'dhash': self._dhash_hex(gray),
             'regions': self._region_dhashes(gray), # v5: per-region dHashes (screen identity, content-churn
-                                                    # & language robust on structured screens; see FINGERPRINT)
+                                                    # & language robust on structured screens; see docs/agent/navigation/FINGERPRINT.md)
             'crop': self._focus_crop_hex(img_bgr),  # v6: focused-tile logo dHash (app-grid sibling); may be None
             'focus': self._focus_signature(img_bgr),
             'title': self._title_text(img_bgr),      # layer 3: which screen (raw, device language)
@@ -1024,9 +1031,9 @@ class ImageHelpers:
         try:
             tmp = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
             tmp.close()
-            cv2.imwrite(tmp.name, gray)
+            cv2_io.imwrite(tmp.name, gray)
             args = ['tesseract', tmp.name, 'stdout'] + (['tsv'] if mode == 'tsv' else ['--psm', mode])
-            out = subprocess.run(args, capture_output=True, text=True, timeout=15)
+            out = subprocess.run(args, capture_output=True, text=True, timeout=15, env=tesseract_env())
             return out.stdout if out.returncode == 0 else ''
         except Exception as e:
             print(f"[@fingerprint] tesseract({mode}) failed: {e}")
@@ -1306,6 +1313,31 @@ class ImageHelpers:
         self._pivot_cache[text] = out
         return out
 
+    # ── abstain-door reasons for the doors 4/5/6 of identify_screen (TASK-68 row 7) ──
+    # Doors 1-3 already carry a reason string (match_fingerprint_v5's `_pack5` for 1 and 2,
+    # the NAV far-region gate for 3); doors 4, 5 and 6 dropped candidates silently, so a
+    # reader could not tell WHICH door an abstain came out of — the one number EXPERIMENT-01
+    # needs (only 2, 5 and 6 are model-addressable). Same lowercase prose style, same
+    # "how many candidates this door removed" detail the existing strings carry.
+    REASON_DOOR4_NARROWED = 'title disambiguation: {n} candidate(s) below title_score 0.5'
+    REASON_DOOR5_NARROWED = ('dHash fallback narrowing: {n} candidate(s) beyond best + '
+                             'FP_CANDIDATE_MARGIN {margin}')
+    REASON_DOOR6_DROPPED = ('confidence floor: {n} candidate(s) below FP_MIN_CONFIDENCE '
+                            '{floor} (best {best})')
+
+    @staticmethod
+    def _note_reason(result: Dict[str, Any], note: str) -> None:
+        """Append one abstain-door note to ``result['reason']`` — never overwrite.
+
+        Same convention ``match_fingerprint_v6`` already uses for its ``' +v6crop'`` marker:
+        a door that fires AFTER another one appends, so the chain reads in execution order and
+        the LAST note is the door that actually emptied the candidate list. Overwriting would
+        destroy exactly the attribution this exists for (e.g. door 5 narrowing, then door 6
+        dropping what was left would both have to be legible).
+        """
+        prev = result.get('reason')
+        result['reason'] = f'{prev} +{note}' if prev else note
+
     def identify_screen(self, img_bgr: np.ndarray, node_fps: List[Dict[str, Any]]) -> Dict[str, Any]:
         """THE Localize identification: which node does this frame match?
 
@@ -1319,7 +1351,21 @@ class ImageHelpers:
 
         Returns the match_fingerprint dict (candidates ranked by confidence,
         excluded_count, total) plus `live_focus` and, when nothing matched,
-        `state`/`state_label`/`state_hint`. No confidence floor — like the button.
+        `state`/`state_label`/`state_hint`.
+
+        There IS a confidence floor: candidates below `FP_MIN_CONFIDENCE` (0.55) are
+        dropped before returning, so an empty candidate list means "abstained", not
+        "ranked but weak". A nearest match that is still far in dHash (live video, no
+        real match) scores low and is not a real match. See the six abstain doors in
+        docs/agent/navigation/FINGERPRINT.md.
+
+        `reason` names the doors that dropped candidates, in execution order, joined by
+        `' +'` (`_note_reason`, never an overwrite). Doors 1-3 carry a full sentence the
+        moment they empty the list; doors 4-6 add a note for every drop, narrowing or
+        terminal, because doors 4 and 5 are fail-safe by construction and can NEVER empty
+        the list on their own — a note is the only record that they fired. So a result
+        that still matched MAY carry a narrowing note; the LAST note of an abstained result
+        is the door that emptied the list.
         """
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         live_focus = self._focus_signature(img_bgr)
@@ -1352,9 +1398,15 @@ class ImageHelpers:
                 for c in cands:
                     c['title_score'] = self.title_score(
                         live_title, self.title_pivot(fp_by_id.get(c['node_id'], {}).get('title', '')))
+            n_before = len(cands)
             kept = [c for c in cands if c.get('title_score', 0.0) >= 0.5]
-            if len(kept) < len(cands):
-                result['excluded_count'] = result.get('excluded_count', 0) + (len(cands) - len(kept))
+            if len(kept) < n_before:
+                result['excluded_count'] = result.get('excluded_count', 0) + (n_before - len(kept))
+                if kept:
+                    # The title DID corroborate some nodes, so door 3 does not fire and the frame
+                    # keeps its candidates — but the ones it dropped are still door 4's, and that
+                    # is what a later floor drop has to be read against.
+                    self._note_reason(result, self.REASON_DOOR4_NARROWED.format(n=n_before - len(kept)))
             result['candidates'] = kept
             cands = kept
             if not kept:
@@ -1387,17 +1439,23 @@ class ImageHelpers:
                 if 0 < len(kept) < len(cands):
                     result['excluded_count'] = result.get('excluded_count', 0) + (len(cands) - len(kept))
                     result['candidates'] = kept
+                    self._note_reason(result, self.REASON_DOOR4_NARROWED.format(n=len(cands) - len(kept)))
 
         # Fallback dHash narrowing — when the title couldn't decide (no title / tie),
         # fall back to the dHash near-band so a clean single-frame match still resolves
         # to one. Title first, dHash only on what it left ambiguous.
         cands = result.get('candidates') or []
         if len(cands) > 1 and all(c.get('dhash_dist') is not None for c in cands):
-            best_d = min(c['dhash_dist'] for c in cands)
-            near = [c for c in cands if c['dhash_dist'] <= best_d + self.FP_CANDIDATE_MARGIN]
+            # Two best regions, not one: pages of one website share a header, so the best region alone
+            # is ~0 for every page and nothing is ruled out (BUG-0418). Nav-path candidates carry no 'second'.
+            def _d(c): return c['dhash_dist'] + c.get('second', c['dhash_dist'])
+            best_d = min(_d(c) for c in cands)
+            near = [c for c in cands if _d(c) <= best_d + self.FP_CANDIDATE_MARGIN]
             if 0 < len(near) < len(cands):
                 result['excluded_count'] = result.get('excluded_count', 0) + (len(cands) - len(near))
                 result['candidates'] = near
+                self._note_reason(result, self.REASON_DOOR5_NARROWED.format(
+                    n=len(cands) - len(near), margin=self.FP_CANDIDATE_MARGIN))
 
         # NAV-path confidence. A menu's full-frame dHash is content noise — it differs
         # ~half its bits from its own reference as promos/tiles/carousels rotate — so
@@ -1424,6 +1482,9 @@ class ImageHelpers:
             if len(keep) < len(cands):
                 result['excluded_count'] = result.get('excluded_count', 0) + (len(cands) - len(keep))
                 result['candidates'] = keep
+                self._note_reason(result, self.REASON_DOOR6_DROPPED.format(
+                    n=len(cands) - len(keep), floor=self.FP_MIN_CONFIDENCE,
+                    best=max(c.get('confidence', 0) for c in cands)))
 
         # Named capture-side state when nothing matched (no/black signal) instead of
         # a bare "unknown". Device/UI-agnostic; only ever appears on an empty result.
@@ -1451,12 +1512,45 @@ class ImageHelpers:
         """
         live_focus = live_focus or {}
         n = len(node_fps)
-        def _pack5(cands, reason=None):                     # full v4-compatible contract for callers
+        def _best_excluded(scored_list):
+            """Single closest node, even if it was excluded — for the UI's 'almost matched'
+            hint. Returns None when no node could be scored (e.g. the dark-frame abstain).
+            Carries node_id, label, dhash_dist — the same shape the candidates use, so the
+            popover can render one tile from either list with no branching.
+            """
+            if not scored_list:
+                return None
+            best = min(scored_list, key=lambda s: s.get('score', 999))
+            score = best.get('score', 999)
+            return {
+                'node_id': best.get('node_id'),
+                'label': best.get('label'),
+                'dhash_dist': score,
+                'confidence': round(max(0.0, 1.0 - score / self.FP_DHASH_BITS), 3),
+            }
+        def _preview(entries):
+            """Top-N of the FULL ranking, for the popover's screen list.
+
+            `best_excluded` is the single closest node; this is the same judgement as a
+            list, so the UI can show WHAT ELSE the frame resembled instead of only a
+            count. Purely additive — `candidates`, `excluded_count` and every abstain
+            door are untouched, and `ranked[0]` is always the node `best_excluded`
+            reports. `entries` need `node_id`/`label`/`dist`.
+            """
+            top = sorted(entries, key=lambda e: e['dist'])[:self.FP_RANKED_PREVIEW_N]
+            return [{'node_id': e['node_id'], 'label': e['label'], 'dist': e['dist'],
+                     'dhash_dist': e['dist'],
+                     'confidence': round(max(0.0, 1.0 - e['dist'] / self.FP_DHASH_BITS), 3)}
+                    for e in top]
+        def _pack5(cands, reason=None, best=None, ranked=None):  # full v4-compatible contract for callers
             out = [{'node_id': c['node_id'], 'label': c['label'], 'dist': c['dist'], 'dhash_dist': c['dist'],
-                    'confidence': round(max(0.0, 1.0 - c['dist'] / self.FP_DHASH_BITS), 3)} for c in cands]
-            return {'candidates': out, 'excluded_count': n - len(out), 'total': n, 'reason': reason}
+                    'confidence': round(max(0.0, 1.0 - c['dist'] / self.FP_DHASH_BITS), 3),
+                    **({'second': c['second']} if 'second' in c else {})} for c in cands]
+            return {'candidates': out, 'excluded_count': n - len(out), 'total': n, 'reason': reason,
+                    'best_excluded': best, 'ranked': ranked}
         if float(cv2.Canny(live_gray, 50, 150).mean()) < self.FP_DARK_EDGE_MIN:
-            return _pack5([], 'low-content frame')
+            # dark frame: no regions scored, no 'almost matched' hint possible
+            return _pack5([], 'low-content frame', best=None)
         def _regs_of(nf):
             fp = nf.get('fingerprint') or {}
             r = fp.get('regions') or {}
@@ -1470,7 +1564,7 @@ class ImageHelpers:
             agree = [nf for nf in node_fps
                      if self._focus_agreement(live_focus, (nf.get('fingerprint') or {}).get('focus') or {}) >= 0.99]
             if not agree:
-                return _pack5([], 'nav underline matched no node')
+                return _pack5([], 'nav underline matched no node', best=None)
             # Return all underline-agreeing siblings ranked by region distance (the 'dist'
             # field). The far-region SANITY GATE that rejects a spurious underline on
             # non-menu content (red logo over live video) lives in identify_screen, NOT
@@ -1478,8 +1572,15 @@ class ImageHelpers:
             # (home: a huge rotating hero drifts the region to ~70 even when correct),
             # and the matcher is title-agnostic by design.
             agree.sort(key=_region_score)
+            # One scored pass over every node serves both the best_excluded hint and the
+            # ranked preview: `score` is the region distance, so it is the 'dist' _preview wants.
+            all_scored = [{'node_id': nf.get('node_id'), 'label': nf.get('label'),
+                           'score': _region_score(nf)} for nf in node_fps]
             return _pack5([{'node_id': nf.get('node_id'), 'label': nf.get('label'), 'dist': _region_score(nf)}
-                           for nf in agree])
+                           for nf in agree],
+                          best=_best_excluded(all_scored),
+                          ranked=_preview([{'node_id': s['node_id'], 'label': s['label'],
+                                            'dist': s['score']} for s in all_scored]))
         # ── dHASH PATH (multi-region)
         scored = []
         for nf in node_fps:
@@ -1490,7 +1591,7 @@ class ImageHelpers:
                            'score': d[0], 'second': d[1] if len(d) > 1 else d[0],
                            'focus': (nf.get('fingerprint') or {}).get('focus')})
         if not scored:
-            return _pack5([], 'no v5 region fingerprints')
+            return _pack5([], 'no v5 region fingerprints', best=None)
         # Qualify: ONE region matches tightly (≤ floor) AND a 2nd region is not a different screen
         # (≤ floor + FP_2ND_REGION_SLACK). The 2nd-region guard rejects a single low-content/black-region
         # coincidence (a dark area matching at 0 while the frames are 70+ apart full-frame) WITHOUT
@@ -1498,7 +1599,12 @@ class ImageHelpers:
         qual = [s for s in scored if s['score'] <= self.FP_SELF_DRIFT_FLOOR
                 and s['second'] <= self.FP_SELF_DRIFT_FLOOR + self.FP_2ND_REGION_SLACK]
         if not qual:
-            return _pack5([], f"no qualifying screen (best region {min(s['score'] for s in scored)})")
+            # Nothing qualified, but `scored` holds the full ranking — ship it so the UI can
+            # show the near-misses under "no confident match" instead of a bare 0.
+            return _pack5([], f"no qualifying screen (best region {min(s['score'] for s in scored)})",
+                           best=_best_excluded(scored),
+                           ranked=_preview([{'node_id': s['node_id'], 'label': s['label'],
+                                             'dist': s['score']} for s in scored]))
         qual.sort(key=lambda s: s['score'])
         band = qual[0]['score'] + self.FP_CANDIDATE_MARGIN
         screen = [s for s in qual if s['score'] <= band]
@@ -1506,8 +1612,11 @@ class ImageHelpers:
             refined = [s for s in screen if self._focus_agreement(live_focus, s.get('focus') or {}) >= 0.99]
             if refined:
                 screen = refined
-        return _pack5([{'node_id': s['node_id'], 'label': s['label'], 'dist': s['score']}
-                       for s in sorted(screen, key=lambda s: s['score'])])
+        return _pack5([{'node_id': s['node_id'], 'label': s['label'], 'dist': s['score'], 'second': s['second']}
+                       for s in sorted(screen, key=lambda s: s['score'])],
+                      best=_best_excluded(scored),
+                      ranked=_preview([{'node_id': s['node_id'], 'label': s['label'],
+                                        'dist': s['score']} for s in scored]))
 
     def match_fingerprint_v6(self, live_gray: np.ndarray, live_regions: Dict[str, str],
                              live_focus: Dict[str, Any], live_crop: Optional[str],
@@ -1764,7 +1873,7 @@ class ImageHelpers:
                 return False
             
             # Load image
-            img = cv2.imread(image_source_path)
+            img = cv2_io.imread(image_source_path)
             if img is None:
                 print(f"[@image_helpers] Failed to load image: {image_source_path}")
                 return False
@@ -1785,9 +1894,8 @@ class ImageHelpers:
             cropped_img = img[y:y+height, x:x+width]
             
             # Save cropped image
-            success = cv2.imwrite(image_cropped_path, cropped_img)
+            success = cv2_io.imwrite(image_cropped_path, cropped_img)
             if success:
-                print(f"[@image_helpers] Successfully cropped image: {image_cropped_path}")
                 return True
             else:
                 print(f"[@image_helpers] Failed to save cropped image: {image_cropped_path}")
@@ -1813,7 +1921,7 @@ class ImageHelpers:
                 return True  # No filtering needed
                 
             # Read image
-            img = cv2.imread(image_path)
+            img = cv2_io.imread(image_path)
             if img is None:
                 print(f"[@image_helpers] Failed to load image for filtering: {image_path}")
                 return False
@@ -1837,7 +1945,7 @@ class ImageHelpers:
                 return False
             
             # Save processed image
-            success = cv2.imwrite(image_path, processed_img)
+            success = cv2_io.imwrite(image_path, processed_img)
             if success:
                 print(f"[@image_helpers] Applied {filter_type} filter to: {image_path}")
             else:
@@ -1877,7 +1985,7 @@ class ImageHelpers:
         """Remove background using OpenCV-based method."""
         try:
             # Load image
-            img = cv2.imread(image_path)
+            img = cv2_io.imread(image_path)
             if img is None:
                 return False
             
@@ -1900,7 +2008,7 @@ class ImageHelpers:
             result_rgba[:, :, 3] = mask_inv  # Set alpha channel
             
             # Save as PNG to preserve transparency
-            success = cv2.imwrite(image_path, result_rgba)
+            success = cv2_io.imwrite(image_path, result_rgba)
             if success:
                 print(f"[@image_helpers] Background removed using OpenCV: {image_path}")
             

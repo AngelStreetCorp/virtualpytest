@@ -7,7 +7,7 @@ import os
 from flask import Blueprint, send_from_directory, request, current_app, jsonify
 from werkzeug.utils import secure_filename
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
-from shared.src.lib.utils.storage_path_utils import get_capture_folder, get_capture_storage_path, get_stream_base_path, sanitize_folder_name
+from shared.src.lib.utils.storage_path_utils import get_capture_folder, get_capture_storage_path, get_stream_base_path, sanitize_folder_name, ARCHIVE_STAGE_ROOT
 from shared.src.lib.utils.app_utils import cors_allowed_origins
 from backend_host.src.lib.utils.host_session import host_session_denied
 
@@ -153,7 +153,9 @@ def serve_stream_file(device_folder, content_type, filename):
         else:
             # Fallback to cold storage
             cold_file = os.path.join(cold_path, filename)
-            if os.path.exists(cold_file) and os.path.isfile(cold_file) and _is_under(base_path, cold_file):
+            # An open 10-min chunk is a symlink from the cold tree into the archiver's RAM stage.
+            if os.path.exists(cold_file) and os.path.isfile(cold_file) and (
+                    _is_under(base_path, cold_file) or _is_under(ARCHIVE_STAGE_ROOT, cold_file)):
                 file_path = cold_file
                 storage_type = 'cold'
                 directory = cold_path
@@ -227,6 +229,10 @@ def serve_stream_file(device_folder, content_type, filename):
             response.headers.add('Cache-Control', 'no-cache, no-store, must-revalidate')
             response.headers.add('Pragma', 'no-cache')
             response.headers.add('Expires', '0')
+        elif filename == 'latest.jpg':
+            # TASK-48: the always-current frame ffmpeg rewrites 5x/s in place; the
+            # image branch's max-age would freeze every tile on a stale picture.
+            response.headers.add('Cache-Control', 'no-store')
         elif filename.endswith('.ts') or filename.endswith('.m4s'):
             # Segments are immutable once written — safe to cache briefly
             response.headers.add('Cache-Control', 'public, max-age=30')

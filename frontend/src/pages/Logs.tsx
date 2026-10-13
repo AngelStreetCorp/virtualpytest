@@ -4,6 +4,8 @@ import {
   Tab, Tabs, Table, TableBody, TableCell, TableHead, TableRow, TextField,
   Tooltip, Typography,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import { Refresh } from '@mui/icons-material';
 import { apiClient } from '../utils/apiClient';
 import { buildServerUrl } from '../utils/buildUrlUtils';
@@ -60,6 +62,7 @@ const HOST_LOG_SERVICES = [
 ];
 
 const Logs: React.FC = () => {
+  const P = useAgentChatPalette();
   // Tab order: MCP, API, ASK AI, Server, Host.
   const [tab, setTab] = useState(0);
   const [days, setDays] = useState(30);
@@ -83,8 +86,12 @@ const Logs: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [refreshed, setRefreshed] = useState<Date | null>(null);
-  const { serverHostsData } = useServerManager();
-  const hosts = useMemo(() => serverHostsData.flatMap((server) => server.hosts), [serverHostsData]);
+  const { serverHostsData, selectedServer } = useServerManager();
+  // Only the hosts registered on the selected server: log requests go to that server.
+  const hosts = useMemo(() => {
+    const own = serverHostsData.find((server) => server.server_info.server_url === selectedServer);
+    return (own ? [own] : serverHostsData).flatMap((server) => server.hosts);
+  }, [serverHostsData, selectedServer]);
   const requestController = useRef<AbortController | null>(null);
 
   const load = useCallback(async () => {
@@ -173,14 +180,17 @@ const Logs: React.FC = () => {
     '& .MuiTableHead-root, & .MuiTableCell-head': { backgroundColor: 'rgba(255,255,255,0.06) !important' },
   };
   useEffect(() => {
-    if (!selectedHost && hosts.length > 0) setSelectedHost(hosts[0].host_name);
+    if (hosts.length > 0 && !hosts.some((h) => h.host_name === selectedHost)) setSelectedHost(hosts[0].host_name);
   }, [hosts, selectedHost]);
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ ...(pageSurfaceSx(P) as object), p: 3 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-        <Typography variant="h4" sx={{ flex: 1 }}>Logs</Typography>
-        {refreshed && <Typography variant="caption" color="text.secondary">Last refreshed: {refreshed.toLocaleString('en-GB')}</Typography>}
+        <Typography component="h1" sx={{ ...PAGE_TITLE_SX, flex: 1 }}>Logs</Typography>
+        {/* Fixed slot: the text appears after the first load and changes on every refresh. */}
+        <Typography variant="caption" color="text.secondary" sx={{ width: 230, textAlign: 'right', fontVariantNumeric: 'tabular-nums', visibility: refreshed ? 'visible' : 'hidden' }}>
+          Last refreshed: {refreshed ? refreshed.toLocaleString('en-GB') : ''}
+        </Typography>
         <Tooltip title="Refresh">
           <span><IconButton aria-label="Refresh logs" onClick={() => void load()} disabled={loading}><Refresh /></IconButton></span>
         </Tooltip>
@@ -221,7 +231,7 @@ const Logs: React.FC = () => {
           </TextField>
           <TextField label="Search logs" size="small" value={apiSearch} onChange={(event) => setApiSearch(event.target.value)} sx={{ width: 240 }} />
         </Box>
-        <Paper sx={{ p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', bgcolor: 'grey.900', color: 'grey.100', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+        <Paper sx={{ p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
           {apiLogs.split('\n').filter((line) => line.toLowerCase().includes(apiSearch.toLowerCase())).join('\n') || <Typography color="grey.500">No API service logs found for this range.</Typography>}
         </Paper>
       </>}
@@ -293,7 +303,7 @@ const Logs: React.FC = () => {
           </TextField>
           <TextField label="Search logs" size="small" value={apiSearch} onChange={(event) => setApiSearch(event.target.value)} sx={{ width: 220 }} />
         </Box>
-        <Paper sx={{ p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', bgcolor: 'grey.900', color: 'grey.100', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+        <Paper sx={{ p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
           {serverLogs.split('\n').filter((line) => line.toLowerCase().includes(apiSearch.toLowerCase())).join('\n') || <Typography color="grey.500">No server logs found for this range.</Typography>}
         </Paper>
       </>}
@@ -308,7 +318,7 @@ const Logs: React.FC = () => {
         <TextField label="Search logs" size="small" value={hostSearch} onChange={(event) => setHostSearch(event.target.value)} sx={{ width: 220 }} />
       </Box>}
 
-      {!loading && tab === 4 && <Paper sx={{ mt: 1.5, p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', bgcolor: 'grey.900', color: 'grey.100', fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+      {!loading && tab === 4 && <Paper sx={{ mt: 1.5, p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
         {hostLogs.split('\n').filter((line) => line.toLowerCase().includes(hostSearch.toLowerCase())).join('\n') || <Typography color="grey.500">No active host services or no host logs found for this range.</Typography>}
       </Paper>}
 

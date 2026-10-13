@@ -1,0 +1,23 @@
+{
+  "id": "kids",
+  "category": "kids",
+  "hints": "a children's programme or cartoon: animation, puppets, young presenters",
+  "entity": [
+    "title",
+    "season",
+    "episode"
+  ],
+  "identify_interval_s": 120,
+  "track": {
+    "type": "time_window"
+  },
+  "render": "title",
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "synopsis": "what this programme is about, one or two sentences",
+      "age": "recommended age, if stated",
+      "network": "original channel or platform"
+    }
+  }
+}

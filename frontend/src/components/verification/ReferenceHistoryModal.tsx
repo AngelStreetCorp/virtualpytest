@@ -114,6 +114,7 @@ export const ReferenceHistoryModal: React.FC<ReferenceHistoryModalProps> = ({
             <Table
               size="small"
               sx={{
+                tableLayout: 'fixed',
                 '& .MuiTableBody-root .MuiTableRow-root:hover': {
                   backgroundColor: 'transparent !important',
                 },

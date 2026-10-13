@@ -186,7 +186,7 @@
           "format": "table",
           "hide": false,
           "rawQuery": true,
-          "rawSql": "SELECT \n  -- Channel number as first column for sorting\n  COALESCE(NULLIF(zr.channel_number, ''), 'N/A') as \"Ch#\",\n  \n  -- Channel name as second column\n  zr.channel_name as \"Channel\",\n  \n  -- Device model\n  COALESCE(zr.device_model, 'unknown') as \"Platform\",\n  \n  -- Individual feature metrics (Motion, Audio, Subtitles order)\n  ROUND((SUM(CASE WHEN zr.motion_detected THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as \"Motion %\",\n  ROUND((SUM(CASE WHEN zr.audio_speech_detected THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as \"Audio %\",\n  ROUND((SUM(CASE WHEN zr.subtitles_detected THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as \"Subtitles %\",\n  \n  COUNT(*) as \"Tests\"\n  \nFROM zap_results zr\nWHERE $__timeFilter(zr.started_at)\n  AND zr.channel_name IS NOT NULL\n  AND (zr.script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = zr.script_result_id AND sr_env.environment IN ($environment)))\nGROUP BY 1, 2, 3\nORDER BY \n  \"Channel\", \n  \"Platform\"",
+          "rawSql": "SELECT \n  -- Channel number as first column for sorting\n  COALESCE(NULLIF(zr.channel_number, ''), 'N/A') as \"Ch#\",\n  \n  -- Channel name as second column\n  zr.channel_name as \"Channel\",\n  \n  -- Device model\n  COALESCE(zr.device_model, 'unknown') as \"Platform\",\n  \n  -- Individual feature metrics (Motion, Audio, Subtitles order)\n  ROUND((SUM(CASE WHEN zr.motion_detected THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as \"Motion %\",\n  ROUND((SUM(CASE WHEN zr.audio_speech_detected THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as \"Audio %\",\n  ROUND((SUM(CASE WHEN zr.subtitles_detected THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) as \"Subtitles %\",\n  \n  COUNT(*) as \"Tests\"\n  \nFROM (SELECT * FROM zap_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) zr\nWHERE $__timeFilter(zr.started_at)\n  AND zr.channel_name IS NOT NULL\n  AND (zr.script_result_id IS NULL OR EXISTS (SELECT 1 FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr_env WHERE sr_env.id = zr.script_result_id AND sr_env.environment IN ($environment)))\nGROUP BY 1, 2, 3\nORDER BY \n  \"Channel\", \n  \"Platform\"",
           "refId": "B",
           "sql": {
             "columns": [
@@ -481,7 +481,7 @@
           "format": "table",
           "hide": false,
           "rawQuery": true,
-          "rawSql": "SELECT script_result_id, host_name, device_name, started_at, completed_at, iteration_index, device_model, duration_seconds, blackscreen_freeze_detected, blackscreen_freeze_duration_seconds, motion_detected, subtitles_detected, subtitle_language, audio_speech_detected, audio_language, channel_name, channel_number, program_name, program_start_time, program_end_time FROM zap_results WHERE $__timeFilter(started_at) AND (script_result_id IS NULL OR EXISTS (SELECT 1 FROM script_results sr_env WHERE sr_env.id = script_result_id AND sr_env.environment IN ($environment))) ORDER BY started_at DESC LIMIT 100 ",
+          "rawSql": "SELECT script_result_id, host_name, device_name, started_at, completed_at, iteration_index, device_model, duration_seconds, blackscreen_freeze_detected, blackscreen_freeze_duration_seconds, motion_detected, subtitles_detected, subtitle_language, audio_speech_detected, audio_language, channel_name, channel_number, program_name, program_start_time, program_end_time FROM (SELECT * FROM zap_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) zap_results WHERE $__timeFilter(started_at) AND (script_result_id IS NULL OR EXISTS (SELECT 1 FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr_env WHERE sr_env.id = script_result_id AND sr_env.environment IN ($environment))) ORDER BY started_at DESC LIMIT 100 ",
           "refId": "B",
           "sql": {
             "columns": [
@@ -691,6 +691,44 @@
   ],
   "templating": {
     "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
       {
         "current": {
           "selected": true,

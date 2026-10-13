@@ -31,7 +31,7 @@ def get_all_userinterfaces(team_id: str) -> List[Dict]:
         print(f"[@db:userinterface_db:get_all_userinterfaces] Querying for team_id: {team_id}")
         result = supabase.table('userinterfaces').select(
             'id', 'name', 'models', 'min_version', 'max_version', 'team_id', 'created_at', 'updated_at',
-            'mode', 'dev_userinterface_id', 'published_at', 'published_version'
+            'mode', 'dev_userinterface_id', 'published_at', 'published_version', 'company', 'is_media'
         ).eq('team_id', team_id).order('created_at', desc=False).execute()
 
         print(f"[@db:userinterface_db:get_all_userinterfaces] Query successful, got {len(result.data) if result.data else 0} results")
@@ -51,6 +51,16 @@ def get_all_userinterfaces(team_id: str) -> List[Dict]:
                 'dev_userinterface_id': ui.get('dev_userinterface_id'),
                 'published_at': ui.get('published_at'),
                 'published_version': ui.get('published_version'),
+                # Free-text company label, NULL when unknown. Surfaced by the
+                # UI editor as an optional input; consumed by the monitor to
+                # boost brand-specific OCR keywords. NULL = today behaviour.
+                'company': ui.get('company'),
+                # Boolean media-surface flag, NULL when the editor has not
+                # made an explicit choice. Consumed by the monitor's Tier-2
+                # `playback` arm: TRUE -> video state can be claimed, FALSE ->
+                # 'not_applicable' is the honest answer, NULL -> today
+                # behaviour (the monitor abstains to 'unknown').
+                'is_media': ui.get('is_media'),
             })
 
         return userinterfaces
@@ -66,7 +76,7 @@ def get_userinterface(interface_id: str, team_id: str) -> Optional[Dict]:
     try:
         result = supabase.table('userinterfaces').select(
             'id', 'name', 'models', 'min_version', 'max_version', 'team_id', 'created_at', 'updated_at',
-            'mode', 'dev_userinterface_id', 'published_at', 'published_version'
+            'mode', 'dev_userinterface_id', 'published_at', 'published_version', 'company', 'is_media'
         ).eq('id', interface_id).eq('team_id', team_id).single().execute()
 
         if result.data:
@@ -84,6 +94,8 @@ def get_userinterface(interface_id: str, team_id: str) -> Optional[Dict]:
                 'dev_userinterface_id': ui.get('dev_userinterface_id'),
                 'published_at': ui.get('published_at'),
                 'published_version': ui.get('published_version'),
+                'company': ui.get('company'),
+                'is_media': ui.get('is_media'),
             }
         return None
     except Exception as e:
@@ -101,7 +113,7 @@ def get_userinterface_by_name(interface_name: str, team_id: str, mode: str = 'de
     supabase = get_supabase()
     try:
         result = supabase.table('userinterfaces').select(
-            'id', 'name', 'models', 'mode', 'dev_userinterface_id', 'published_version'
+            'id', 'name', 'models', 'mode', 'dev_userinterface_id', 'published_version', 'company', 'is_media'
         ).eq('name', interface_name).eq('team_id', team_id).eq('mode', mode).limit(1).execute()
 
         if result.data:
@@ -113,6 +125,8 @@ def get_userinterface_by_name(interface_name: str, team_id: str, mode: str = 'de
                 'mode': ui.get('mode', 'dev'),
                 'dev_userinterface_id': ui.get('dev_userinterface_id'),
                 'published_version': ui.get('published_version'),
+                'company': ui.get('company'),
+                'is_media': ui.get('is_media'),
             }
         return None
     except Exception as e:
@@ -132,6 +146,20 @@ def create_userinterface(interface_data: Dict, team_id: str, creator_id: str = N
             'created_at': datetime.now(timezone.utc).isoformat(),
             'updated_at': datetime.now(timezone.utc).isoformat()
         }
+        # Optional `company` (free-text label, NULL when absent). Only write
+        # the key when the caller actually supplied a non-empty string —
+        # leaving the key out means a NULL row, which is the safe default.
+        company = interface_data.get('company')
+        if company:
+            insert_data['company'] = company
+        # Optional `is_media` (boolean media-surface flag, NULL when absent).
+        # Only write when the caller actually supplied a real boolean — the
+        # route's PUT body uses NULL-or-boolean, and a missing key means a
+        # NULL row, which is the safe default ('playback' abstains to
+        # 'unknown', same as a row that pre-dates the column).
+        is_media = interface_data.get('is_media')
+        if isinstance(is_media, bool):
+            insert_data['is_media'] = is_media
 
         result = supabase.table('userinterfaces').insert(insert_data).execute()
 
@@ -145,7 +173,9 @@ def create_userinterface(interface_data: Dict, team_id: str, creator_id: str = N
                 'max_version': ui.get('max_version', ''),
                 'team_id': ui['team_id'],
                 'created_at': ui['created_at'],
-                'updated_at': ui['updated_at']
+                'updated_at': ui['updated_at'],
+                'company': ui.get('company'),
+                'is_media': ui.get('is_media'),
             }
         return None
     except Exception as e:
@@ -168,6 +198,25 @@ def update_userinterface(interface_id: str, interface_data: Dict, team_id: str) 
             update_data['max_version'] = interface_data.get('max_version', '')
         if 'models' in interface_data:
             update_data['models'] = interface_data['models']
+        # `company` is optional: a missing key leaves the row unchanged, an
+        # explicit empty string is a request to clear it (NULL it out — the
+        # column is nullable and "unknown" is the safe default). The
+        # presence check is on the key, not the value, so the editor can
+        # distinguish "don't touch it" from "clear it".
+        if 'company' in interface_data:
+            company = interface_data.get('company')
+            update_data['company'] = company if company else None
+        # `is_media` is optional: a missing key leaves the row unchanged,
+        # an explicit boolean sets the flag, an explicit None clears it
+        # (back to the safe default). The presence check is on the key, so
+        # the editor can flip the switch on or off without an accidental
+        # reset on a partial save; only `True` / `False` are accepted values
+        # — anything else (truthy string, etc.) is ignored, which keeps the
+        # JSON body safe from a POST that forgot to serialise a bool.
+        if 'is_media' in interface_data:
+            is_media = interface_data.get('is_media')
+            if isinstance(is_media, bool) or is_media is None:
+                update_data['is_media'] = is_media
 
         result = supabase.table('userinterfaces').update(update_data).eq('id', interface_id).eq('team_id', team_id).execute()
 
@@ -176,6 +225,13 @@ def update_userinterface(interface_id: str, interface_data: Dict, team_id: str) 
 
             # Same-name invariant: a prod snapshot always carries its dev
             # source's name, so renaming a dev row renames its prod row too.
+            # Company metadata is NOT propagated: a published prod snapshot
+            # is supposed to be a fingerprint of what the device actually
+            # showed, and an editor changing the dev row's company is a UI
+            # metadata change, not a behaviour change the prod snapshot
+            # needs to mirror. Same goes for `is_media` — a prod snapshot
+            # is a fingerprint of what the device showed, and the editor's
+            # later flip on a dev row is metadata, not a behaviour change.
             if 'name' in update_data and ui.get('mode', 'dev') == 'dev':
                 try:
                     supabase.table('userinterfaces').update(
@@ -192,7 +248,9 @@ def update_userinterface(interface_id: str, interface_data: Dict, team_id: str) 
                 'max_version': ui.get('max_version', ''),
                 'team_id': ui['team_id'],
                 'created_at': ui['created_at'],
-                'updated_at': ui['updated_at']
+                'updated_at': ui['updated_at'],
+                'company': ui.get('company'),
+                'is_media': ui.get('is_media'),
             }
         return None
     except Exception as e:
@@ -269,6 +327,28 @@ def list_variants(team_id: str, userinterface_id: str) -> List[Dict]:
     except Exception as e:
         print(f"[@db:userinterface_db:list_variants] Error: {e}")
         return []
+
+
+def variant_name_id_map(team_id: str, userinterface_id: str) -> Dict[str, str]:
+    """{variant_name: variant_id} for a userinterface — ids and names only.
+
+    `list_variants` also selects `node_overrides` / `edge_overrides`, which is the
+    whole point of it and completely wasted when the caller only needs to resolve a
+    name to an id. The navigation cache does exactly that on every scoped graph
+    read, so it used to pull every variant's full override JSON per read
+    (BUG-0203). Empty dict on error, so callers fall back to name-based keys.
+    """
+    supabase = get_supabase()
+    if supabase is None:
+        return {}
+    try:
+        result = supabase.table('userinterface_variants').select(
+            'id, name'
+        ).eq('team_id', team_id).eq('userinterface_id', userinterface_id).execute()
+        return {row['name']: row.get('id') for row in (result.data or []) if row.get('name')}
+    except Exception as e:
+        print(f"[@db:userinterface_db:variant_name_id_map] Error: {e}")
+        return {}
 
 
 def list_variants_for_team(team_id: str) -> Dict[str, List[Dict]]:

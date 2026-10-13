@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-VirtualPyTest analyzer/discard background worker.
+VirtualPyTest discard background worker (two systemd services, both installed disabled).
 
-Runs Sherlock queue processing as a standalone systemd service (`vpt-discard-scripts`).
+- `vpt-discard-scripts`:   `discard_worker.py`              — Sherlock on the Redis queue p2_scripts.
+- `vpt-discard-incidents`: `discard_worker.py --incidents`  — Nightwatch alert triage: polls the
+  `alerts` table every ALERT_DISCARD_POLL_S (30) seconds (backend_server/src/agent/core/nightwatch_handler.py).
 """
 
 import os
@@ -34,6 +36,27 @@ def _handle_signal(signum, _frame):
     RUNNING = False
 
 
+def _run_incidents() -> int:
+    """Alert triage loop: no Redis, the alerts table is the queue."""
+    from agent.core.nightwatch_handler import NightwatchHandler
+
+    poll_s = max(5, int(os.getenv("ALERT_DISCARD_POLL_S", "30")))
+    handler = NightwatchHandler()
+    print(f"[@discard_worker] Alert triage started: poll={poll_s}s min_duration={handler.min_duration_s}s "
+          f"repeat_window={handler.repeat_window_h}h daily_max={handler.daily_max}")
+    while RUNNING:
+        try:
+            handler.run_once()
+        except Exception as e:
+            print(f"[@discard_worker] Alert triage cycle failed: {e}")
+        for _ in range(poll_s):
+            if not RUNNING:
+                break
+            time.sleep(1)
+    print("[@discard_worker] Worker stopped")
+    return 0
+
+
 def main() -> int:
     project_root = _setup_paths()
 
@@ -45,15 +68,24 @@ def main() -> int:
         print(f"[@discard_worker] Warning: failed to load env file: {e}")
 
     from agent.core.manager import QAManagerAgent
+    from shared.src.lib.ai import gateway as ai_gateway
+
+    # Runs on the server: resolve AI routes and call providers in-process (TASK-30).
+    ai_gateway.use_local_routing()
+    # Every AI call of this worker is background monitoring work (TASK-87 call log); per-alert host / device
+    # and the script result of a Sherlock review are bound where the call is made.
+    from shared.src.lib.ai import caller as ai_caller
+    ai_caller.set_process_default(origin='monitoring', job='discard_worker')
 
     signal.signal(signal.SIGINT, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
+    if "--incidents" in sys.argv[1:]:
+        return _run_incidents()
+
     redis_url = os.getenv("REDIS_URL", "")
-    openrouter_key = os.getenv("OPENROUTER_API_KEY", "")
     print("[@discard_worker] Starting analyzer worker")
     print(f"[@discard_worker] REDIS_URL configured: {bool(redis_url)}")
-    print(f"[@discard_worker] OPENROUTER_API_KEY configured: {bool(openrouter_key)}")
 
     agent = QAManagerAgent(agent_id="analyzer", is_background=True)
 

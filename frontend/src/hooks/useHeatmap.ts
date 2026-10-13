@@ -7,6 +7,7 @@
 
 import { useState, useEffect } from 'react';
 import { useHostData } from './useHostManager';
+import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 import { buildServerUrl, buildServerUrlForServer } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { getR2Url, openR2Url } from '../utils/infrastructure/cloudflareUtils';
@@ -17,8 +18,8 @@ export interface TimelineItem {
   displayTime: Date;      // Full date for display
   isToday: boolean;       // Whether this time is from today
   mosaicUrl: string;      // Direct R2 URL to mosaic image
-  mosaicOkUrl: string;    // Direct R2 URL to OK-only mosaic
-  mosaicKoUrl: string;    // Direct R2 URL to KO-only mosaic
+  mosaicOkUrl?: string;   // Direct R2 URL to OK-only mosaic (absent in workspace mode)
+  mosaicKoUrl?: string;   // Direct R2 URL to KO-only mosaic (absent in workspace mode)
   analysisUrl: string;    // Direct R2 URL to analysis JSON
 }
 
@@ -62,8 +63,36 @@ const isFrameFromSlot = (timestamp: string | undefined, item: TimelineItem): boo
   return Math.abs(frameTime - item.displayTime.getTime()) <= SLOT_MATCH_TOLERANCE_MS;
 };
 
+// The workspace id is a storage key segment: only a UUID may reach a URL.
+const WORKSPACE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const SERVER_NAME_CACHE_KEY = 'virtualpytest:heatmap-server-name';
+
+const readCachedServerName = (server: unknown): string | null => {
+  try {
+    const raw = localStorage.getItem(`${SERVER_NAME_CACHE_KEY}:${String(server)}`);
+    return raw && raw !== 'default' ? raw : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeCachedServerName = (server: unknown, name: string) => {
+  try {
+    if (name !== 'default') localStorage.setItem(`${SERVER_NAME_CACHE_KEY}:${String(server)}`, name);
+  } catch {
+    /* storage unavailable */
+  }
+};
+
 export const useHeatmap = () => {
   const { selectedServer } = useHostData();
+  // "All" is no workspace (null): the global heatmap. A workspace has its own mosaic + json
+  // per minute under heatmaps/<server>/ws/<id>/, with no _ok/_ko variants.
+  const { activeWorkspace } = useWorkspaceContext();
+  const workspaceId = activeWorkspace && WORKSPACE_ID_RE.test(activeWorkspace.id)
+    ? activeWorkspace.id.toLowerCase()
+    : null;
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(1438); // Start at current-1 minute
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
@@ -126,15 +155,18 @@ export const useHeatmap = () => {
       const timeKey = `${time.getUTCHours().toString().padStart(2, '0')}${time.getUTCMinutes().toString().padStart(2, '0')}`;
       
       // Construct paths without leading slashes (for both public and private bucket modes)
-      const heatmapPath = `heatmaps/${serverPath}/${timeKey}`;
+      const heatmapPath = workspaceId
+        ? `heatmaps/${serverPath}/ws/${workspaceId}/${timeKey}`
+        : `heatmaps/${serverPath}/${timeKey}`;
       
       items.push({
         timeKey,
         displayTime: time,
         isToday: time.toDateString() === now.toDateString(),
         mosaicUrl: baseUrl ? `${baseUrl}/${heatmapPath}.jpg` : `${heatmapPath}.jpg`,
-        mosaicOkUrl: baseUrl ? `${baseUrl}/${heatmapPath}_ok.jpg` : `${heatmapPath}_ok.jpg`,
-        mosaicKoUrl: baseUrl ? `${baseUrl}/${heatmapPath}_ko.jpg` : `${heatmapPath}_ko.jpg`,
+        // No OK/KO mosaics per workspace: point at the ALL mosaic so no 404 URL is ever built
+        mosaicOkUrl: workspaceId ? undefined : (baseUrl ? `${baseUrl}/${heatmapPath}_ok.jpg` : `${heatmapPath}_ok.jpg`),
+        mosaicKoUrl: workspaceId ? undefined : (baseUrl ? `${baseUrl}/${heatmapPath}_ko.jpg` : `${heatmapPath}_ko.jpg`),
         analysisUrl: baseUrl ? `${baseUrl}/${heatmapPath}.json` : `${heatmapPath}.json`
       });
     }
@@ -250,22 +282,38 @@ export const useHeatmap = () => {
    */
   useEffect(() => {
     const initTimeline = async () => {
-      // Fetch server name first
+      // Switching workspace/server: drop the previous frame so it is never shown for the new scope
+      setAnalysisData(null);
+      setLoadedItem(null);
+      setHasDataError(false);
+      setCorsBlocked(false);
+
+      // Use the last known server name at once so the timeline shows on refresh;
+      // revalidate it in the background and rebuild only if it changed.
+      const cached = readCachedServerName(selectedServer);
+      if (cached) {
+        setServerName(cached);
+        const cachedTimeline = generateTimeline(cached);
+        setTimeline(cachedTimeline);
+        if (cachedTimeline[currentIndex]) {
+          loadAnalysisData(cachedTimeline[currentIndex]);
+        }
+      }
+
       const name = await fetchServerName();
+      writeCachedServerName(selectedServer, name);
+      if (cached === name) return;
       setServerName(name);
-      
-      // Generate timeline with server name (pass directly, don't read state)
+
       const newTimeline = generateTimeline(name);
       setTimeline(newTimeline);
-      
-      // Load analysis for initial item
       if (newTimeline[currentIndex]) {
         loadAnalysisData(newTimeline[currentIndex]);
       }
     };
-    
+
     initTimeline();
-  }, [selectedServer]);
+  }, [selectedServer, workspaceId]);
   
   /**
    * Refresh timeline every minute to get latest data
@@ -286,7 +334,7 @@ export const useHeatmap = () => {
     }, 60000); // Refresh every minute
     
     return () => clearInterval(interval);
-  }, [currentIndex, selectedServer, serverName]);
+  }, [currentIndex, selectedServer, serverName, workspaceId]);
   
   /**
    * Load analysis when timeline position changes (but NOT when timeline regenerates)
@@ -338,7 +386,7 @@ export const useHeatmap = () => {
               loadAnalysisData(timeline[i], 0);
               return;
             }
-          } catch (error) {
+          } catch {
             // Continue searching
             continue;
           }
@@ -400,8 +448,8 @@ export const useHeatmap = () => {
     if (!item) return '';
     
     switch (filter) {
-      case 'OK': return item.mosaicOkUrl;
-      case 'KO': return item.mosaicKoUrl;
+      case 'OK': return item.mosaicOkUrl ?? item.mosaicUrl;
+      case 'KO': return item.mosaicKoUrl ?? item.mosaicUrl;
       default: return item.mosaicUrl;
     }
   };
@@ -480,6 +528,7 @@ export const useHeatmap = () => {
     generateReport,
     getMosaicUrl,
     getFilteredDevices,
+    isWorkspaceMode: workspaceId !== null,
     
     // Timeline info
     totalMinutes: timeline.length,

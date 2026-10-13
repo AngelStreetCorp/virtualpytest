@@ -10,6 +10,7 @@ import json
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Any
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import chunked_in
 from shared.src.lib.database.folder_tag_db import (
     get_or_create_tag,
     set_executable_tags,
@@ -583,22 +584,23 @@ def list_campaigns(team_id: str, include_config: bool = False) -> List[Dict[str,
         if not result.data:
             return []
 
-        # OPTIMIZED: Batch fetch execution stats for ALL campaigns in a single query
+        # Batch fetch execution stats for ALL campaigns (one query per IN_FILTER_CHUNK names)
         campaign_names = [c['campaign_name'] for c in result.data]
         exec_map = {}
 
         if campaign_names:
             try:
                 # Fetch all execution records for these campaigns
-                exec_result = supabase.table('campaign_executions')\
-                    .select('campaign_name,success,started_at')\
-                    .eq('team_id', team_id)\
-                    .in_('campaign_name', campaign_names)\
-                    .order('started_at', desc=True)\
-                    .execute()
+                exec_rows = chunked_in(
+                    lambda chunk: supabase.table('campaign_executions')
+                    .select('campaign_name,success,started_at')
+                    .eq('team_id', team_id)
+                    .in_('campaign_name', chunk)
+                    .order('started_at', desc=True),
+                    campaign_names)
 
                 # Build execution map (campaign_name -> {count, last_success})
-                for record in exec_result.data:
+                for record in exec_rows:
                     name = record['campaign_name']
                     if name not in exec_map:
                         exec_map[name] = {

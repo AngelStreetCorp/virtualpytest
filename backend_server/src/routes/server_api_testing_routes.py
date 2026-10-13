@@ -14,6 +14,8 @@ from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 import requests
 import subprocess
 
+from shared.src.lib.utils.report_theme import report_theme_head
+
 # Create blueprint
 server_api_testing_bp = Blueprint('server_api_testing', __name__, url_prefix='/server/api-testing')
 
@@ -489,20 +491,22 @@ def generate_html_report(report_data):
     failed = sum(1 for r in report_data['results'] if r['status'] == 'fail')
     percentage = int((passed / len(report_data['results'])) * 100) if report_data['results'] else 0
     
+    theme_head = report_theme_head()
     html = f"""<!DOCTYPE html>
 <html>
 <head>
     <title>API Test Report - {report_data['timestamp']}</title>
+    {theme_head}
     <style>
-        body {{ font-family: Arial, sans-serif; margin: 20px; }}
-        .summary {{ background: #f5f5f5; padding: 20px; border-radius: 5px; margin-bottom: 20px; }}
-        .pass {{ color: #4caf50; font-weight: bold; }}
-        .fail {{ color: #f44336; font-weight: bold; }}
+        body {{ font-family: Arial, sans-serif; margin: 20px; background: var(--vpt-page); color: var(--vpt-text); }}
+        .summary {{ background: var(--vpt-surface); border: 1px solid var(--vpt-border); padding: 20px; border-radius: 5px; margin-bottom: 20px; }}
+        .pass {{ color: var(--vpt-success); font-weight: bold; }}
+        .fail {{ color: var(--vpt-error); font-weight: bold; }}
         table {{ width: 100%; border-collapse: collapse; }}
-        th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
-        th {{ background-color: #f2f2f2; }}
-        .status-pass {{ background-color: #e8f5e8; }}
-        .status-fail {{ background-color: #ffeaea; }}
+        th, td {{ padding: 10px; text-align: left; border-bottom: 1px solid var(--vpt-border); }}
+        th {{ background-color: var(--vpt-subtle); }}
+        .status-pass {{ background-color: var(--vpt-success-tint); }}
+        .status-fail {{ background-color: var(--vpt-error-tint); }}
     </style>
 </head>
 <body>

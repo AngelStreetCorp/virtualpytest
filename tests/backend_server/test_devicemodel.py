@@ -6,8 +6,9 @@ manages device model CRUD, with a 24h in-memory cache on the list endpoint.
 
 Endpoints:
   GET    /server/devicemodel/getAllModels             -> bare JSON list
+  GET    /server/devicemodel/getSupportedModels       -> {"models": [names a host can run]}
   GET    /server/devicemodel/getDeviceModel/<id>       -> model dict or 404
-  POST   /server/devicemodel/createDeviceModel         -> requires name + types
+  POST   /server/devicemodel/createDeviceModel         -> requires name + types; name must be a host model
   PUT    /server/devicemodel/updateDeviceModel/<id>    -> requires name + types
   DELETE /server/devicemodel/deleteDeviceModel/<id>    -> 200 or 404 (403 if default model)
 
@@ -98,3 +99,27 @@ def test_delete_device_model_not_found(base_url, api_headers, team_id, verify_ss
     assert response.status_code == 404, response.text
     body = response.json()
     assert body.get("error") == "Device model not found or failed to delete"
+
+
+def test_get_supported_models_lists_host_models(get, api_headers, team_id):
+    response = get(
+        "/server/devicemodel/getSupportedModels",
+        headers=api_headers,
+        params={"team_id": team_id},
+    )
+    assert response.status_code == 200, response.text
+    models = response.json().get("models")
+    assert "stb" in models and "android_tv" in models
+
+
+def test_create_device_model_rejects_unsupported_name(base_url, api_headers, team_id, verify_ssl, request_timeout):
+    response = requests.post(
+        f"{base_url}/server/devicemodel/createDeviceModel",
+        params={"team_id": team_id},
+        json={"name": "__smoke_test_model__", "types": ["mobile"]},
+        headers=api_headers,
+        timeout=request_timeout,
+        verify=verify_ssl,
+    )
+    assert response.status_code == 400, response.text
+    assert "is not a model a host can run" in response.json().get("error", "")

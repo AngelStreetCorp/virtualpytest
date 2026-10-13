@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box } from '@mui/material';
+import { AGENT_CHAT_PALETTE, AGENT_CHAT_PALETTE_LIGHT } from '../../../constants/agentChatTheme';
 
 /**
  * BuilderHeaderContainer - Header container
@@ -7,7 +8,7 @@ import { Box } from '@mui/material';
  * CONTAINER ONLY - styling matches TestCaseBuilder exactly.
  * Content is passed as children (device controls, buttons, etc.).
  * 
- * Styling: height: 46px, background: dark #111827 / light #ffffff
+ * Styling: height: 46px, background: palette surface
  */
 
 interface BuilderHeaderContainerProps {
@@ -29,7 +30,7 @@ export const BuilderHeaderContainer: React.FC<BuilderHeaderContainerProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        background: actualMode === 'dark' ? '#111827' : '#ffffff',
+        background: actualMode === 'dark' ? AGENT_CHAT_PALETTE.surface : AGENT_CHAT_PALETTE_LIGHT.surface,
         height: '46px',
         flexShrink: 0,
       }}

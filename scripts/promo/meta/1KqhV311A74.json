@@ -1,0 +1,22 @@
+{
+ "id": "1KqhV311A74",
+ "title": "AI Test Prompting: natural language to a test, replay without AI",
+ "description": "AI Test Prompting: use natural language to generate a test, save it, and replay it without AI. Here, \"Go to live TV, zap 3 times and check the picture moves after each zap\" becomes a test on a real set-top box: three zaps, a motion check after each. It passes, you save it, and every run after that replays the saved steps with no AI call.\n\nOpen source and free.\n\nChapters\n00:00 Intro\n00:04 The sentence\n00:10 The AI writes the test\n00:32 Save\n00:40 Run again, no AI\n00:52 Same steps, every time\n00:57 End",
+ "tags": [
+  "AI test automation",
+  "test prompt",
+  "natural language testing",
+  "set-top box testing",
+  "IPTV testing",
+  "channel zapping",
+  "motion detection",
+  "no-code testing",
+  "agentic AI",
+  "regression testing",
+  "open source",
+  "VirtualPyTest"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

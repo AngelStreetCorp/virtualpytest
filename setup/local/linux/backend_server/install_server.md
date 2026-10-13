@@ -43,7 +43,8 @@ This script installs and configures the VirtualPyTest Backend Server, including 
 
 ## Next Steps
 1. Configure Supabase URI in `/opt/virtualpytest/.env` (project root)
-2. Configure `OPENROUTER_API_KEY` in `/opt/virtualpytest/.env` for analyzer
+2. Enter an AI provider key in Settings → AI → Endpoints (the analyzer uses the `analyzer.sherlock`
+   route; keys are stored server-side, not in `.env`)
 2. Run `./setup/local/launch_server.sh` to start the server
 3. Start services:
    - `sudo systemctl start vpt-heatmap`

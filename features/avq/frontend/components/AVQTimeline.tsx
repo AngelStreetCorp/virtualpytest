@@ -1,6 +1,7 @@
 import { Box, Tooltip, Typography } from '@mui/material';
 import React, { useMemo, useState } from 'react';
 
+import { AGENT_CHAT_PALETTE, useAgentChatPalette } from '../../../../frontend/src/constants/agentChatTheme';
 import {
   AVQMetric,
   PositionKind,
@@ -22,33 +23,36 @@ interface MetricRow {
   unit?: string;
 }
 
+// Metric row colors: chart sparkline categories read on both light and dark — use the
+// static dark palette (series + status) so the lines stay legible regardless of theme.
+// palette: categorical chart palette — see UI_STYLE.md §3.
 const METRIC_ROWS: MetricRow[] = [
-  { key: 'video_mos', label: 'Video MOS', color: '#4caf50', domain: [1, 5] },
-  { key: 'blurriness_score', label: 'Blur', color: '#9c27b0' },
-  { key: 'blockiness_score', label: 'Blockiness', color: '#e91e63' },
-  { key: 'blackscreen_seconds', label: 'Blackscreen', color: '#9e9e9e', domain: [0, 60], unit: 's' },
-  { key: 'freeze_seconds', label: 'Freeze', color: '#f44336', domain: [0, 60], unit: 's' },
-  { key: 'macroblocks_seconds', label: 'Macroblocks', color: '#ab47bc', domain: [0, 60], unit: 's' },
-  { key: 'audio_mos', label: 'Audio MOS', color: '#2196f3', domain: [1, 5] },
-  { key: 'loudness_lkfs', label: 'Loudness', color: '#00bcd4', unit: ' LKFS' },
-  { key: 'silence_seconds', label: 'Silence', color: '#ff9800', domain: [0, 60], unit: 's' },
+  { key: 'video_mos', label: 'Video MOS', color: AGENT_CHAT_PALETTE.success, domain: [1, 5] },
+  { key: 'blurriness_score', label: 'Blur', color: AGENT_CHAT_PALETTE.series[2] },
+  { key: 'blockiness_score', label: 'Blockiness', color: AGENT_CHAT_PALETTE.series[3] },
+  { key: 'blackscreen_seconds', label: 'Blackscreen', color: AGENT_CHAT_PALETTE.textMuted, domain: [0, 60], unit: 's' },
+  { key: 'freeze_seconds', label: 'Freeze', color: AGENT_CHAT_PALETTE.error, domain: [0, 60], unit: 's' },
+  { key: 'macroblocks_seconds', label: 'Macroblocks', color: AGENT_CHAT_PALETTE.series[4], domain: [0, 60], unit: 's' },
+  { key: 'audio_mos', label: 'Audio MOS', color: AGENT_CHAT_PALETTE.accent, domain: [1, 5] },
+  { key: 'loudness_lkfs', label: 'Loudness', color: AGENT_CHAT_PALETTE.series[1], unit: ' LKFS' },
+  { key: 'silence_seconds', label: 'Silence', color: AGENT_CHAT_PALETTE.warning, domain: [0, 60], unit: 's' },
 ];
 
 const INCIDENT_COLORS: Record<string, string> = {
-  blackscreen: '#000000',
-  freeze: '#f44336',
-  audio_loss: '#ff9800',
-  macroblocks: '#9c27b0',
+  blackscreen: AGENT_CHAT_PALETTE.textMuted,
+  freeze: AGENT_CHAT_PALETTE.error,
+  audio_loss: AGENT_CHAT_PALETTE.warning,
+  macroblocks: AGENT_CHAT_PALETTE.series[4],
 };
 
 // Position lane (Localize "where am I"): green = confident single node, yellow =
 // ambiguous (low confidence / look-alike menus the title layer would break),
 // plus named capture states. 'unknown' is NOT drawn — the grey lane shows through.
 const POSITION_COLORS: Record<PositionKind, string> = {
-  confident: '#4caf50',
-  ambiguous: '#ffc107',
-  no_signal: '#ff7043',
-  blackscreen: '#000000',
+  confident: AGENT_CHAT_PALETTE.success,
+  ambiguous: AGENT_CHAT_PALETTE.warning,
+  no_signal: AGENT_CHAT_PALETTE.series[3],
+  blackscreen: AGENT_CHAT_PALETTE.textMuted,
   unknown: 'transparent',
 };
 const positionLabel = (p: TimelinePosition): string =>
@@ -62,9 +66,6 @@ const ROW_H = 30;
 const LANE_H = 20;
 const LABEL_W = 88;
 const AXIS_H = 22;
-// Alternating row stripe — applied coherently across metric rows AND lanes (and the
-// label column) so every row is easy to track left-to-right.
-const ROW_STRIPE = 'rgba(255,255,255,0.05)';
 const LANE_LABELS = ['Position', 'Events', 'Scripts', 'Zaps', 'Transcript', 'Subtitles'];
 
 interface AVQTimelineProps {
@@ -92,6 +93,11 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
   onSeek,
   selectedTime,
 }) => {
+  // Alternating row stripe — applied coherently across metric rows AND lanes (and the
+  // label column) so every row is easy to track left-to-right. Uses the theme hover
+  // background so it reads on both light and dark.
+  const P = useAgentChatPalette();
+  const ROW_STRIPE = `${P.hoverBg}80`;
   // Measure the available width so the timeline fills the panel (responsive).
   const wrapRef = React.useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
@@ -266,7 +272,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
         >
           {/* hour gridlines */}
           {ticks.map((t, i) => (
-            <line key={i} x1={x(t)} y1={0} x2={x(t)} y2={totalH - AXIS_H} stroke="#333" strokeWidth={1} />
+            <line key={i} x1={x(t)} y1={0} x2={x(t)} y2={totalH - AXIS_H} stroke={P.borderColor} strokeWidth={1} />
           ))}
 
           {/* metric rows */}
@@ -281,13 +287,13 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
               <g key={r.key as string} transform={`translate(0,${top})`}>
                 <rect x={0} y={0} width={width} height={ROW_H} fill={i % 2 ? ROW_STRIPE : 'transparent'} />
                 {/* row separator — same dashed stroke as the empty-metric rows */}
-                <line x1={0} y1={ROW_H} x2={width} y2={ROW_H} stroke="#444" strokeWidth={1} strokeDasharray="3 3" />
+                <line x1={0} y1={ROW_H} x2={width} y2={ROW_H} stroke={P.borderColor} strokeWidth={1} strokeDasharray="3 3" />
                 {path ? (
                   <path d={path} fill="none" stroke={r.color} strokeWidth={1.4} />
                 ) : (
-                  <line x1={0} y1={ROW_H / 2} x2={width} y2={ROW_H / 2} stroke="#555" strokeDasharray="3 3" />
+                  <line x1={0} y1={ROW_H / 2} x2={width} y2={ROW_H / 2} stroke={P.borderColor} strokeDasharray="3 3" />
                 )}
-                <text x={width - 4} y={12} textAnchor="end" fontSize={10} fill="#aaa">
+                <text x={width - 4} y={12} textAnchor="end" fontSize={10} fill={P.textMuted}>
                   {lastVal(r)}
                 </text>
                 {/* pinned value on the yellow (selected) playhead — always shown */}
@@ -299,7 +305,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
                     fontSize={10}
                     fontWeight={700}
                     fill={r.color}
-                    stroke="#000"
+                    stroke={P.background}
                     strokeWidth={3}
                     style={{ paintOrder: 'stroke' }}
                   >
@@ -314,7 +320,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
                     fontSize={10}
                     fontWeight={600}
                     fill={r.color}
-                    stroke="#000"
+                    stroke={P.background}
                     strokeWidth={3}
                     style={{ paintOrder: 'stroke' }}
                   >
@@ -345,7 +351,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
               y1={METRIC_ROWS.length * ROW_H + n * (LANE_H + 6)}
               x2={width}
               y2={METRIC_ROWS.length * ROW_H + n * (LANE_H + 6)}
-              stroke="#444"
+              stroke={P.borderColor}
               strokeWidth={1}
               strokeDasharray="3 3"
             />
@@ -382,7 +388,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
                       x={xs + 3}
                       y={LANE_H / 2 + 2}
                       fontSize={9}
-                      fill={p.kind === 'blackscreen' ? '#ccc' : '#000'}
+                      fill={p.kind === 'blackscreen' ? P.textMuted : P.textPrimary}
                       style={{ pointerEvents: 'none' }}
                     >
                       {label.length > w / 6 ? label.slice(0, Math.max(1, Math.floor(w / 6))) : label}
@@ -405,7 +411,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
                   y={2}
                   width={Math.max(2, xe - xs)}
                   height={LANE_H - 4}
-                  fill={INCIDENT_COLORS[inc.type] || '#888'}
+                  fill={INCIDENT_COLORS[inc.type] || P.textMuted}
                   opacity={0.85}
                   rx={1}
                 >
@@ -427,7 +433,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
                   y={2}
                   width={Math.max(3, xe - xs)}
                   height={LANE_H - 4}
-                  fill={s.success === false ? '#f44336' : s.success ? '#4caf50' : '#9e9e9e'}
+                  fill={s.success === false ? P.error : s.success ? P.success : P.textMuted}
                   opacity={0.8}
                   rx={2}
                 >
@@ -442,7 +448,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
             {zaps.map((z) => {
               const cx = x(z.t);
               if (cx < 0 || cx > width) return null;
-              const color = z.transition === 'freeze' ? '#2196f3' : z.transition === 'blackscreen' ? '#bbbbbb' : '#9c27b0';
+              const color = z.transition === 'freeze' ? P.series[1] : z.transition === 'blackscreen' ? P.textMuted : P.series[2];
               const active = hoverZap?.id === z.id;
               return (
                 <g key={z.id}>
@@ -453,7 +459,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
                     y={0}
                     width={12}
                     height={LANE_H}
-                    fill={active ? '#ffffff22' : 'transparent'}
+                    fill={active ? `${P.accent}22` : 'transparent'}
                     style={{ cursor: 'pointer' }}
                     onMouseEnter={() => openZap(z)}
                     onMouseLeave={closeZapSoon}
@@ -469,7 +475,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
               const xs = Math.max(0, x(s));
               const xe = Math.min(width, x(e));
               return (
-                <rect key={i} x={xs} y={2} width={Math.max(2, xe - xs)} height={LANE_H - 4} fill="#26a69a" opacity={0.8} rx={1}>
+                <rect key={i} x={xs} y={2} width={Math.max(2, xe - xs)} height={LANE_H - 4} fill={P.series[3]} opacity={0.8} rx={1}>
                   <title>transcript available</title>
                 </rect>
               );
@@ -482,7 +488,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
               const xs = Math.max(0, x(s));
               const xe = Math.min(width, x(e));
               return (
-                <rect key={i} x={xs} y={2} width={Math.max(2, xe - xs)} height={LANE_H - 4} fill="#7e57c2" opacity={0.8} rx={1}>
+                <rect key={i} x={xs} y={2} width={Math.max(2, xe - xs)} height={LANE_H - 4} fill={P.series[2]} opacity={0.8} rx={1}>
                   <title>subtitles available</title>
                 </rect>
               );
@@ -491,7 +497,7 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
 
           {/* hour axis labels */}
           {ticks.map((t, i) => (
-            <text key={i} x={x(t)} y={totalH - 6} textAnchor="middle" fontSize={10} fill="#888">
+            <text key={i} x={x(t)} y={totalH - 6} textAnchor="middle" fontSize={10} fill={P.textMuted}>
               {new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
             </text>
           ))}
@@ -503,14 +509,14 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
               y1={0}
               x2={x(selectedTime)}
               y2={totalH - AXIS_H}
-              stroke="#ffeb3b"
+              stroke={P.accent}
               strokeWidth={1.5}
             />
           )}
 
           {/* hover playhead */}
           {hoverX !== null && hoverX >= 0 && hoverX <= width && (
-            <line x1={hoverX} y1={0} x2={hoverX} y2={totalH - AXIS_H} stroke="#fff" strokeWidth={1} opacity={0.5} />
+            <line x1={hoverX} y1={0} x2={hoverX} y2={totalH - AXIS_H} stroke={P.textMuted} strokeWidth={1} opacity={0.5} />
           )}
         </svg>
         {hoverX !== null && hoverX >= 0 && hoverX <= width && (
@@ -580,12 +586,12 @@ export const AVQTimeline: React.FC<AVQTimelineProps> = ({
                   href={hoverZap.reportUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  style={{ color: '#90caf9', textDecoration: 'underline' }}
+                  style={{ color: P.accentText, textDecoration: 'underline' }}
                 >
                   Open zap report ↗
                 </a>
               ) : (
-                <span style={{ color: '#777' }}>No report available</span>
+                <span style={{ color: P.textMuted }}>No report available</span>
               )}
             </Box>
           </Box>

@@ -5,16 +5,18 @@ import { Link, useLocation } from 'react-router-dom';
 
 import { getNavVisibility } from '../../config/featureFlags';
 import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
+import { useI18n } from '../../i18n/useI18n';
 import type { NavigationItem } from '../../types/pages/Navigation_Types';
 
 import { NavigationGroupedDropdownProps } from '../../types/pages/Navigation_Types';
+import { navItemSx } from './Navigation_ItemStyle';
 
 const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ label, groups }) => {
+  const { t } = useI18n();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const location = useLocation();
   const { isPathHidden } = useWorkspaceContext();
   const open = Boolean(anchorEl);
-  const navItemWidth = 108;
 
   // Workspace hidden_pages take precedence over env-level flags.
   const itemVisibility = (item: NavigationItem) =>
@@ -46,21 +48,7 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
       <Button
         onClick={handleClick}
         endIcon={<KeyboardArrowDown />}
-        sx={{
-          color: isDropdownActive ? 'secondary.main' : 'inherit',
-          fontWeight: isDropdownActive ? 600 : 400,
-          minWidth: navItemWidth,
-          flexShrink: 0,
-          justifyContent: 'center',
-          textTransform: 'none',
-          px: 1,
-          py: 0.875,
-          textAlign: 'center',
-          whiteSpace: 'nowrap',
-          '&:hover': {
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-          },
-        }}
+        sx={navItemSx(isDropdownActive)}
       >
         {label}
       </Button>
@@ -96,7 +84,7 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
         >
           {visibleGroups.map((group, groupIndex) => (
             <Box
-              key={group.sectionLabel}
+              key={t(group.sectionLabel)}
               sx={{
                 borderRight: groupIndex < visibleGroups.length - 1 ? '1px solid rgba(0, 0, 0, 0.08)' : 'none',
               }}
@@ -120,7 +108,7 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
                     textTransform: 'uppercase',
                   }}
                 >
-                  {group.sectionLabel}
+                  {t(group.sectionLabel)}
                 </Typography>
               </Box>
 
@@ -136,14 +124,11 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
                     to={isDisabled ? undefined : item.path}
                     onClick={isDisabled ? undefined : handleClose}
                     disabled={isDisabled}
+                    selected={location.pathname === item.path}
                     sx={{
                       py: 0.75,
                       px: 2,
                       fontSize: '0.875rem',
-                      backgroundColor: location.pathname === item.path ? 'action.selected' : 'transparent',
-                      '&:hover': {
-                        backgroundColor: isDisabled ? 'transparent' : 'action.hover',
-                      },
                       opacity: isDisabled ? 0.5 : 1,
                       cursor: isDisabled ? 'default' : 'pointer',
                     }}
@@ -151,10 +136,10 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
                     <Box display="flex" alignItems="center" gap={1} width="100%">
                       {item.icon}
                       <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                        {item.label}
+                        {t(item.label)}
                       </Typography>
                       {visibility === 'coming-soon' && (
-                        <Chip label="Soon" size="small" sx={{ ml: 'auto', height: 16, fontSize: '0.6rem' }} />
+                        <Chip label={t('Soon')} size="small" sx={{ ml: 'auto', height: 16, fontSize: '0.6rem' }} />
                       )}
                     </Box>
                   </MenuItem>

@@ -65,7 +65,6 @@ class SecurityConfig:
 class ExternalServicesConfig:
     supabase_url: str
     supabase_anon_key: str
-    openrouter_api_key: Optional[str]
     cloudflare_r2_endpoint: Optional[str]
     cloudflare_r2_access_key: Optional[str]
     cloudflare_r2_secret_key: Optional[str]
@@ -97,7 +96,6 @@ class SharedConfig:
         return ExternalServicesConfig(
             supabase_url=os.environ.get('SUPABASE_URL', ''),
             supabase_anon_key=os.environ.get('SUPABASE_ANON_KEY', ''),
-            openrouter_api_key=os.environ.get('OPENROUTER_API_KEY'),
             cloudflare_r2_endpoint=os.environ.get('CLOUDFLARE_R2_ENDPOINT'),
             cloudflare_r2_access_key=os.environ.get('CLOUDFLARE_R2_ACCESS_KEY_ID'),
             cloudflare_r2_secret_key=os.environ.get('CLOUDFLARE_R2_SECRET_ACCESS_KEY')

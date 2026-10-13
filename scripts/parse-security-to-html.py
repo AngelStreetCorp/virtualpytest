@@ -5,6 +5,7 @@ Parse security reports into interactive HTML with filters and collapsible sectio
 """
 
 import fnmatch
+import sys
 import json
 from datetime import datetime
 from pathlib import Path
@@ -358,18 +359,22 @@ def generate_html_report():
     snyk_server_issue_rows = generate_snyk_rows(snyk_server_results)
     snyk_shared_issue_rows = generate_snyk_rows(snyk_shared_results)
     
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from shared.src.lib.utils.report_theme import report_theme_head
+    theme_head = report_theme_head()
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Security Report</title>
+    {theme_head}
     <style>
         * {{ margin: 0; padding: 0; box-sizing: border-box; }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            background: #1a1a2e;
-            color: #e0e0e0;
+            background: var(--vpt-page);
+            color: var(--vpt-text);
             padding: 12px;
             font-size: 12px;
         }}
@@ -379,19 +384,19 @@ def generate_html_report():
             align-items: center;
             margin-bottom: 10px;
         }}
-        .header h1 {{ font-size: 14px; color: #fff; }}
-        .timestamp {{ font-size: 10px; color: #666; }}
+        .header h1 {{ font-size: 14px; color: var(--vpt-text); }}
+        .timestamp {{ font-size: 10px; color: var(--vpt-muted); }}
         
         /* Summary Card */
         .summary {{
-            background: #252540;
+            background: var(--vpt-surface);
             border-radius: 6px;
             padding: 12px 16px;
             margin-bottom: 10px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border: 1px solid #333;
+            border: 1px solid var(--vpt-border);
         }}
         .summary-metrics {{
             display: flex;
@@ -399,12 +404,12 @@ def generate_html_report():
         }}
         .metric {{ text-align: center; }}
         .metric-value {{ font-size: 28px; font-weight: 700; line-height: 1; }}
-        .metric-label {{ font-size: 9px; color: #666; text-transform: uppercase; margin-top: 2px; }}
-        .summary-info {{ font-size: 10px; color: #555; }}
+        .metric-label {{ font-size: 9px; color: var(--vpt-muted); text-transform: uppercase; margin-top: 2px; }}
+        .summary-info {{ font-size: 10px; color: var(--vpt-muted); }}
         
-        .high {{ color: #ff6b6b; }}
-        .medium {{ color: #ffd93d; }}
-        .low {{ color: #6bcb77; }}
+        .high {{ color: var(--vpt-error); }}
+        .medium {{ color: var(--vpt-warning); }}
+        .low {{ color: var(--vpt-success); }}
         
         /* Filters */
         .filters {{
@@ -414,26 +419,26 @@ def generate_html_report():
         }}
         .filter-btn {{
             padding: 4px 10px;
-            border: 1px solid #444;
+            border: 1px solid var(--vpt-border);
             border-radius: 4px;
             background: transparent;
-            color: #888;
+            color: var(--vpt-text-2);
             font-size: 10px;
             cursor: pointer;
             transition: all 0.2s;
         }}
-        .filter-btn:hover {{ border-color: #666; color: #fff; }}
-        .filter-btn.active {{ background: #333; color: #fff; border-color: #555; }}
-        .filter-btn.active.high {{ border-color: #ff6b6b; color: #ff6b6b; }}
-        .filter-btn.active.medium {{ border-color: #ffd93d; color: #ffd93d; }}
-        .filter-btn.active.low {{ border-color: #6bcb77; color: #6bcb77; }}
+        .filter-btn:hover {{ border-color: var(--vpt-muted); color: var(--vpt-text); }}
+        .filter-btn.active {{ background: var(--vpt-subtle); color: var(--vpt-text); border-color: var(--vpt-muted); }}
+        .filter-btn.active.high {{ border-color: var(--vpt-error); color: var(--vpt-error); }}
+        .filter-btn.active.medium {{ border-color: var(--vpt-warning); color: var(--vpt-warning); }}
+        .filter-btn.active.low {{ border-color: var(--vpt-success); color: var(--vpt-success); }}
         
         /* Sections */
         .section {{
-            background: #252540;
+            background: var(--vpt-surface);
             border-radius: 6px;
             margin-bottom: 8px;
-            border: 1px solid #333;
+            border: 1px solid var(--vpt-border);
             overflow: hidden;
         }}
         .section-header {{
@@ -444,7 +449,7 @@ def generate_html_report():
             cursor: pointer;
             user-select: none;
         }}
-        .section-header:hover {{ background: #2a2a4a; }}
+        .section-header:hover {{ background: var(--vpt-subtle); }}
         .section-left {{
             display: flex;
             align-items: center;
@@ -452,14 +457,14 @@ def generate_html_report():
         }}
         .section-arrow {{
             font-size: 10px;
-            color: #666;
+            color: var(--vpt-muted);
             transition: transform 0.2s;
         }}
         .section.expanded .section-arrow {{ transform: rotate(90deg); }}
         .section-title {{
             font-size: 11px;
             font-weight: 600;
-            color: #aaa;
+            color: var(--vpt-text-2);
             text-transform: uppercase;
         }}
         .section-counts {{
@@ -468,22 +473,22 @@ def generate_html_report():
             font-size: 11px;
         }}
         .section-counts span {{ opacity: 0.8; }}
-        .section-counts .ignored {{ color: #888; font-weight: 400; margin-left: 4px; }}
+        .section-counts .ignored {{ color: var(--vpt-text-2); font-weight: 400; margin-left: 4px; }}
         .json-link {{
             font-size: 10px;
-            color: #4dabf7;
+            color: var(--vpt-accent-text);
             text-decoration: none;
             padding: 2px 6px;
             border-radius: 3px;
         }}
-        .json-link:hover {{ background: #333; }}
+        .json-link:hover {{ background: var(--vpt-subtle); }}
         
         /* Issue list */
         .issues {{
             display: none;
             max-height: 300px;
             overflow-y: auto;
-            border-top: 1px solid #333;
+            border-top: 1px solid var(--vpt-border);
         }}
         .section.expanded .issues {{ display: block; }}
         .issue {{
@@ -491,47 +496,47 @@ def generate_html_report():
             align-items: center;
             gap: 10px;
             padding: 6px 12px;
-            border-left: 3px solid #444;
+            border-left: 3px solid var(--vpt-border);
             font-size: 11px;
         }}
-        .issue:nth-child(odd) {{ background: rgba(0,0,0,0.1); }}
-        .issue.high {{ border-left-color: #ff6b6b; }}
-        .issue.medium {{ border-left-color: #ffd93d; }}
-        .issue.low {{ border-left-color: #6bcb77; }}
+        .issue:nth-child(odd) {{ background: var(--vpt-subtle); }}
+        .issue.high {{ border-left-color: var(--vpt-error); }}
+        .issue.medium {{ border-left-color: var(--vpt-warning); }}
+        .issue.low {{ border-left-color: var(--vpt-success); }}
         .issue.hidden {{ display: none; }}
         .issue-id {{
             font-weight: 600;
-            color: #aaa;
+            color: var(--vpt-text-2);
             min-width: 50px;
         }}
         .issue-loc {{
-            color: #666;
+            color: var(--vpt-muted);
             font-family: monospace;
             font-size: 10px;
             min-width: 200px;
         }}
         .issue-text {{
-            color: #888;
+            color: var(--vpt-text-2);
             flex: 1;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
         }}
         .issue-fix {{
-            color: #6bcb77;
+            color: var(--vpt-success);
             font-size: 10px;
         }}
         .no-issues {{
             padding: 12px;
-            color: #555;
+            color: var(--vpt-muted);
             text-align: center;
             font-style: italic;
         }}
         
         /* Scrollbar */
         .issues::-webkit-scrollbar {{ width: 6px; }}
-        .issues::-webkit-scrollbar-track {{ background: #1a1a2e; }}
-        .issues::-webkit-scrollbar-thumb {{ background: #444; border-radius: 3px; }}
+        .issues::-webkit-scrollbar-track {{ background: var(--vpt-page); }}
+        .issues::-webkit-scrollbar-thumb {{ background: var(--vpt-border); border-radius: 3px; }}
     </style>
 </head>
 <body>

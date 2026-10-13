@@ -1,0 +1,36 @@
+{
+  "id": "sport/basketball",
+  "category": "sport",
+  "subcategory": "basketball",
+  "hints": "basketball court, hoops, players in vests; score bug with two team codes, scores often above 50, quarter and a countdown clock",
+  "entity": [
+    "home_team",
+    "away_team",
+    "competition"
+  ],
+  "identify_interval_s": 60,
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "home_team_name": "full name of the home team (the first team shown)",
+      "away_team_name": "full name of the away team",
+      "competition": "league or competition and round",
+      "venue": "arena and city",
+      "tipoff": "tip-off time with timezone",
+      "home_starters": "list of the home starting five",
+      "away_starters": "list of the away starting five",
+      "standings": "the current table of this competition (for a league phase or group: that table), as a list of {rank, team, played, won, lost, points_for, points_against, win_pct}: the top 8 rows plus the rows of both teams of this match"
+    }
+  },
+  "track": {
+    "type": "scoreboard",
+    "interval_s": 10,
+    "clock": "down",
+    "steps": {
+      "1": null,
+      "2": null,
+      "3": null
+    }
+  },
+  "render": "match"
+}

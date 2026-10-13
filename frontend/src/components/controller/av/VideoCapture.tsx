@@ -2,6 +2,7 @@ import { PlayArrow, Pause } from '@mui/icons-material';
 import { Box, Slider, IconButton, Typography } from '@mui/material';
 import React, { useState, useEffect, useRef } from 'react';
 
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { getStreamViewerLayout } from '../../../config/layoutConfig';
 import { getZIndex } from '../../../utils/zIndexUtils';
 
@@ -48,6 +49,7 @@ export function VideoCapture({
   allowFuzzy = true,
   sx = {},
 }: VideoCaptureProps) {
+  const P = useAgentChatPalette();
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentValue, setCurrentValue] = useState(currentFrame);
   // While the user is dragging an area selection we hide the playback controls
@@ -194,7 +196,7 @@ export function VideoCapture({
             // Add placeholder styling
             const img = e.target as HTMLImageElement;
             img.style.backgroundColor = 'transparent';
-            img.style.border = '1px solid #E0E0E0';
+            img.style.border = `1px solid ${P.borderColor}`;
             img.style.maxWidth = '100%';
             img.style.maxHeight = '100%';
             img.style.width = 'auto';
@@ -230,14 +232,17 @@ export function VideoCapture({
                 width: 8,
                 height: 8,
                 borderRadius: '50%',
+                // palette: drawn on video/screenshot — capture-status dot over imagery
                 backgroundColor: '#4caf50',
                 marginRight: 1,
               }}
             />
+            {/* palette: drawn on video/screenshot — overlay label over imagery */}
             <Typography variant="caption" sx={{ color: '#ffffff', fontSize: '10px' }}>
               CAPTURED FRAMES
             </Typography>
           </Box>
+          {/* palette: drawn on video/screenshot — overlay label over imagery */}
           <Typography variant="caption" sx={{ color: '#cccccc', fontSize: '10px' }}>
             {totalFrames} frames
           </Typography>
@@ -278,10 +283,10 @@ export function VideoCapture({
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: 'transparent',
-            border: '1px solid #333333',
+            border: `1px solid ${P.borderColor}`,
           }}
         >
-          <Typography variant="caption" sx={{ color: '#666666' }}>
+          <Typography variant="caption" sx={{ color: P.textMuted }}>
             No Captured Frames Available
           </Typography>
         </Box>

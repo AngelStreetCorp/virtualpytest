@@ -84,7 +84,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "SELECT COUNT(*) as \"Active Alerts\" FROM alerts WHERE status = 'active'",
+          "rawSql": "SELECT COUNT(*) as \"Active Alerts\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE status = 'active'",
           "refId": "A"
         }
       ],
@@ -145,7 +145,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "SELECT COUNT(*) as \"Total Alerts\" FROM alerts",
+          "rawSql": "SELECT COUNT(*) as \"Total Alerts\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts",
           "refId": "A"
         }
       ],
@@ -206,7 +206,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "SELECT COUNT(*) as \"Resolved Alerts\" FROM alerts WHERE status = 'resolved'",
+          "rawSql": "SELECT COUNT(*) as \"Resolved Alerts\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE status = 'resolved'",
           "refId": "A"
         }
       ],
@@ -275,7 +275,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "SELECT COUNT(*) as \"Blackscreen\" FROM alerts WHERE incident_type = 'blackscreen' AND status = 'active'",
+          "rawSql": "SELECT COUNT(*) as \"Blackscreen\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE incident_type = 'blackscreen' AND status = 'active'",
           "refId": "A"
         }
       ],
@@ -344,7 +344,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "SELECT COUNT(*) as \"Freeze\" FROM alerts WHERE incident_type = 'freeze' AND status = 'active'",
+          "rawSql": "SELECT COUNT(*) as \"Freeze\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE incident_type = 'freeze' AND status = 'active'",
           "refId": "A"
         }
       ],
@@ -413,7 +413,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "SELECT COUNT(*) as \"Audio Loss\" FROM alerts WHERE incident_type = 'audio_loss' AND status = 'active'",
+          "rawSql": "SELECT COUNT(*) as \"Audio Loss\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE incident_type = 'audio_loss' AND status = 'active'",
           "refId": "A"
         }
       ],
@@ -521,7 +521,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n    host_name || '-' || device_name as \"metric\",\n    CASE \n        WHEN active_count > 0 THEN 1\n        ELSE 0\n    END as \"value\"\nFROM (\n    SELECT \n        all_devices.host_name,\n        all_devices.device_name,\n        COALESCE(active_alerts.alert_count, 0) as active_count\n    FROM (\n        SELECT DISTINCT host_name, device_name \n        FROM alerts \n        WHERE device_name IS NOT NULL \n          AND host_name IS NOT NULL\n    ) all_devices\n    LEFT JOIN (\n        SELECT host_name, device_name, COUNT(*) as alert_count\n        FROM alerts \n        WHERE status = 'active'\n        GROUP BY host_name, device_name\n    ) active_alerts ON (\n        all_devices.host_name = active_alerts.host_name \n        AND all_devices.device_name = active_alerts.device_name\n    )\n) device_status\nORDER BY host_name, device_name",
+          "rawSql": "SELECT \n    host_name || '-' || device_name as \"metric\",\n    CASE \n        WHEN active_count > 0 THEN 1\n        ELSE 0\n    END as \"value\"\nFROM (\n    SELECT \n        all_devices.host_name,\n        all_devices.device_name,\n        COALESCE(active_alerts.alert_count, 0) as active_count\n    FROM (\n        SELECT DISTINCT host_name, device_name \n        FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts \n        WHERE device_name IS NOT NULL \n          AND host_name IS NOT NULL\n    ) all_devices\n    LEFT JOIN (\n        SELECT host_name, device_name, COUNT(*) as alert_count\n        FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts \n        WHERE status = 'active'\n        GROUP BY host_name, device_name\n    ) active_alerts ON (\n        all_devices.host_name = active_alerts.host_name \n        AND all_devices.device_name = active_alerts.device_name\n    )\n) device_status\nORDER BY host_name, device_name",
           "refId": "A"
         }
       ],
@@ -615,7 +615,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM alerts WHERE status = 'active' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
+          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE status = 'active' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
           "refId": "A",
           "sql": {
             "columns": [
@@ -720,7 +720,7 @@
             "uid": "supabase-postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM alerts WHERE device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
+          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
           "refId": "A"
         }
       ],
@@ -808,7 +808,7 @@
             "uid": "supabase-postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM alerts WHERE status = 'resolved' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
+          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE status = 'resolved' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
           "refId": "A"
         }
       ],
@@ -904,7 +904,7 @@
             "uid": "supabase-postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM alerts WHERE incident_type = 'blackscreen' AND status = 'active' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
+          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE incident_type = 'blackscreen' AND status = 'active' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
           "refId": "A"
         }
       ],
@@ -1000,7 +1000,7 @@
             "uid": "supabase-postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM alerts WHERE incident_type = 'freeze' AND status = 'active' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
+          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE incident_type = 'freeze' AND status = 'active' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
           "refId": "A"
         }
       ],
@@ -1096,7 +1096,7 @@
             "uid": "supabase-postgres"
           },
           "format": "time_series",
-          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM alerts WHERE incident_type = 'audio_loss' AND status = 'active' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
+          "rawSql": "SELECT NOW() as time, device_name as metric, COUNT(*) as value FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE incident_type = 'audio_loss' AND status = 'active' AND device_name IS NOT NULL GROUP BY device_name ORDER BY device_name",
           "refId": "A"
         }
       ],
@@ -1195,7 +1195,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "WITH time_buckets AS (\n  SELECT generate_series(\n    date_trunc('minute', $__timeFrom()::timestamp),\n    date_trunc('minute', $__timeTo()::timestamp),\n    '1 minute'::interval\n  ) AS time\n),\nall_devices AS (\n  SELECT DISTINCT host_name, device_name\n  FROM alerts\n  WHERE device_name IS NOT NULL\n    AND host_name IS NOT NULL\n    AND start_time >= $__timeFrom()::timestamp - INTERVAL '1 hour'\n),\nincident_counts AS (\n  SELECT\n    tb.time,\n    ad.host_name,\n    ad.device_name,\n    COUNT(a.id) as total_count\n  FROM time_buckets tb\n  CROSS JOIN all_devices ad\n  LEFT JOIN alerts a ON (\n    a.host_name = ad.host_name\n    AND a.device_name = ad.device_name\n    AND a.start_time <= tb.time\n    AND (a.end_time IS NULL OR a.end_time > tb.time)\n  )\n  GROUP BY tb.time, ad.host_name, ad.device_name\n)\nSELECT\n  ic.time,\n  ic.host_name || '-' || ic.device_name as metric,\n  ic.total_count as value\nFROM incident_counts ic\nORDER BY ic.time, ic.host_name, ic.device_name",
+          "rawSql": "WITH time_buckets AS (\n  SELECT generate_series(\n    date_trunc('minute', $__timeFrom()::timestamp),\n    date_trunc('minute', $__timeTo()::timestamp),\n    '1 minute'::interval\n  ) AS time\n),\nall_devices AS (\n  SELECT DISTINCT host_name, device_name\n  FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts\n  WHERE device_name IS NOT NULL\n    AND host_name IS NOT NULL\n    AND start_time >= $__timeFrom()::timestamp - INTERVAL '1 hour'\n),\nincident_counts AS (\n  SELECT\n    tb.time,\n    ad.host_name,\n    ad.device_name,\n    COUNT(a.id) as total_count\n  FROM time_buckets tb\n  CROSS JOIN all_devices ad\n  LEFT JOIN (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) a ON (\n    a.host_name = ad.host_name\n    AND a.device_name = ad.device_name\n    AND a.start_time <= tb.time\n    AND (a.end_time IS NULL OR a.end_time > tb.time)\n  )\n  GROUP BY tb.time, ad.host_name, ad.device_name\n)\nSELECT\n  ic.time,\n  ic.host_name || '-' || ic.device_name as metric,\n  ic.total_count as value\nFROM incident_counts ic\nORDER BY ic.time, ic.host_name, ic.device_name",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1283,7 +1283,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT host_name as \"Host\", device_name as \"Device\", incident_type as \"Type\", TO_CHAR(start_time, 'YYYY-MM-DD HH24:MI:SS') as \"Detected At\", ROUND(EXTRACT(EPOCH FROM (NOW() - start_time))/60, 1) as \"Duration (min)\" FROM alerts WHERE status = 'active' ORDER BY start_time DESC LIMIT 50",
+          "rawSql": "SELECT host_name as \"Host\", device_name as \"Device\", incident_type as \"Type\", TO_CHAR(start_time, 'YYYY-MM-DD HH24:MI:SS') as \"Detected At\", ROUND(EXTRACT(EPOCH FROM (NOW() - start_time))/60, 1) as \"Duration (min)\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE status = 'active' ORDER BY start_time DESC LIMIT 50",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1376,7 +1376,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT \n    all_devices.device_name as \"metric\",\n    CASE \n        WHEN COUNT(active_alerts.id) > 0 THEN 1\n        ELSE 0\n    END as \"value\"\nFROM (\n    SELECT DISTINCT device_name FROM alerts WHERE device_name IS NOT NULL\n) all_devices\nLEFT JOIN alerts active_alerts ON (\n    all_devices.device_name = active_alerts.device_name \n    AND active_alerts.status = 'active'\n)\nGROUP BY all_devices.device_name\nORDER BY all_devices.device_name",
+          "rawSql": "SELECT \n    all_devices.device_name as \"metric\",\n    CASE \n        WHEN COUNT(active_alerts.id) > 0 THEN 1\n        ELSE 0\n    END as \"value\"\nFROM (\n    SELECT DISTINCT device_name FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE device_name IS NOT NULL\n) all_devices\nLEFT JOIN (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) active_alerts ON (\n    all_devices.device_name = active_alerts.device_name \n    AND active_alerts.status = 'active'\n)\nGROUP BY all_devices.device_name\nORDER BY all_devices.device_name",
           "refId": "A",
           "sql": {
             "columns": [
@@ -1411,7 +1411,46 @@
     "devices"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      }
+    ]
   },
   "time": {
     "from": "now-24h",

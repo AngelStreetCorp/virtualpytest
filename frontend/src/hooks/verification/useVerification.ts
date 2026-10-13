@@ -4,9 +4,9 @@ import { useDeviceData } from '../../contexts/device/DeviceDataContext';
 import { useToastContext } from '../../contexts/ToastContext';
 import { Verification } from '../../types/verification/Verification_Types';
 
-import { buildServerUrl } from '../../utils/buildUrlUtils';
+import { buildServerUrl, buildServerUrlWithParams } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
-import { waitForExecutionSocketEvent } from '../../utils/executionSocketWait';
+import { ExecutionSocketEvent, waitForExecutionSocketEvent } from '../../utils/executionSocketWait';
 // Define interfaces for verification data structures
 interface ImageComparisonDialogData {
   open: boolean;
@@ -49,11 +49,17 @@ export const useVerification = ({
   recordAs,
   userinterfaceName,
   verificationPassCondition,
+  variant,
 }: {
   captureSourcePath?: string;
   recordAs: RecordAs;
   userinterfaceName?: string;  // Optional but recommended for proper reference resolution
   verificationPassCondition?: string;  // 'all' or 'any' - determines pass logic
+  // Run scope. Edges have always stamped this (useEdge.ts:37); node verification
+  // did not, so the host fell back to whatever variant a previous unrelated
+  // request had left on the device — which is what got written to node_metrics
+  // and which unified graph localize read. BUG-0200.
+  variant?: string | null;
 }) => {
   // Get verification data from centralized context
   const { getAvailableVerificationTypes, currentDeviceId, currentHost } = useDeviceData();
@@ -200,6 +206,15 @@ export const useVerification = ({
         console.log(`[useVerification] Verification ${index}: No search term specified`);
         return false;
       }
+    } else if (verification.verification_type === 'web' && verification.command !== 'getMenuInfo') {
+      const value =
+        verification.command === 'waitForTitleToAppear'
+          ? verification.params?.title
+          : verification.params?.search_term;
+      if (!value || value.trim() === '') {
+        console.log(`[useVerification] Verification ${index}: No ${verification.command === 'waitForTitleToAppear' ? 'title' : 'search term'} specified`);
+        return false;
+      }
     }
 
     return true;
@@ -277,6 +292,9 @@ export const useVerification = ({
           ...(recordAs.kind === 'node-visit'
             ? { tree_id: recordAs.treeId, node_id: recordAs.nodeId, is_test: true }
             : {}),
+          // Declared for every run, not just node-visits: it scopes the
+          // node_metrics row AND the unified graph localize resolves against.
+          ...(variant ? { variant } : {}),
           image_source_url: image_source_url,
         };
 
@@ -322,14 +340,99 @@ export const useVerification = ({
             300000,
           );
           console.log('[useVerification] Socket wait timeout(ms):', socketTimeoutMs);
-          const socketEvent = await waitForExecutionSocketEvent(
-            result.execution_id,
+
+          // The socket is primary, but a host's execution event only reaches the
+          // browser if the host's POST to /server/system/executionEvent lands. When
+          // that callback fails — a stale server credential answers 401, or
+          // SERVER_URL is unreachable from the host's network — nothing is ever
+          // broadcast and a socket-only wait can do nothing but time out. Poll the
+          // host's status endpoint alongside it, exactly as useAction and
+          // navigationExecutionUtils already do, so a missed event costs one poll
+          // interval instead of the whole budget. BUG-0197.
+          const executionId: string = result.execution_id;
+          const controller = new AbortController();
+          let socketIssue: string | null = null;
+
+          const pollExecutionStatus = async (): Promise<ExecutionSocketEvent> => {
+            const POLL_INTERVAL_MS = 1000;
+            // Polling owns the deadline (socket budget + slack), so the socket
+            // timing out never delays the answer.
+            const deadline = Date.now() + socketTimeoutMs + 30000;
+            const terminalStatuses = new Set(['completed', 'error', 'failed', 'aborted']);
+            const statusUrl = buildServerUrlWithParams(
+              `/server/verification/execution/${executionId}/status`,
+              {
+                host_name: currentHost?.host_name,
+                // Explicit: the host route defaults to 'device1' when absent, which
+                // would read another device's execution store on a multi-device host.
+                device_id: currentDeviceId || undefined,
+              },
+            );
+
+            while (Date.now() < deadline) {
+              if (controller.signal.aborted) {
+                throw new DOMException('Execution aborted', 'AbortError');
+              }
+              try {
+                const status = await api.get<any>(statusUrl, { signal: controller.signal });
+                const currentStatus = String(status?.status || '').toLowerCase();
+                if (terminalStatuses.has(currentStatus)) {
+                  return {
+                    type: 'execution_update',
+                    execution_type: 'verification',
+                    execution_id: executionId,
+                    status: currentStatus,
+                    result: status?.result,
+                    error: status?.error,
+                  };
+                }
+              } catch (statusError: any) {
+                if (statusError?.name === 'AbortError') {
+                  throw statusError;
+                }
+                // Transient (host busy, execution not registered yet) — keep polling.
+              }
+              await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+            }
+            throw new Error(`Execution timeout for ${executionId}`);
+          };
+
+          const socketPromise = waitForExecutionSocketEvent(
+            executionId,
             ['verification'],
             socketTimeoutMs,
-          );
+            controller.signal,
+          ).catch((err: unknown) => {
+            socketIssue = err instanceof Error ? err.message : 'socket wait failed';
+            return null; // let polling decide the outcome
+          });
+          const pollPromise = pollExecutionStatus();
+          // Whichever loses the race is aborted below; its rejection must never
+          // surface as an unhandled promise rejection.
+          pollPromise.catch(() => {});
+
+          let socketEvent: ExecutionSocketEvent;
+          try {
+            socketEvent = (await Promise.race([socketPromise, pollPromise])) ?? (await pollPromise);
+          } finally {
+            controller.abort();
+          }
+          if (socketIssue) {
+            console.warn(
+              `[useVerification] ${executionId} resolved by status polling (socket issue: ${socketIssue})`,
+            );
+          }
           const finalResult = socketEvent.result;
           if (!finalResult) {
             throw new Error(socketEvent.error || 'Verification execution failed');
+          }
+          // The batch could not run for an infrastructure reason (host out of disk).
+          // Reporting "0/N passed" here blames the device for a full filesystem, so
+          // surface the cause instead and keep no results (BUG-0198).
+          if (finalResult.execution_error) {
+            throw new Error(
+              finalResult.error || finalResult.message || 'Verification could not run on the host',
+            );
           }
           setTestResults(finalResult.results || []);
           setLocalizeCheck(finalResult.localize || null);
@@ -358,16 +461,17 @@ export const useVerification = ({
         console.error('[useVerification] Error during verification test:', error);
         const message =
           error instanceof Error ? error.message : 'Unknown error during verification test';
-        setError(message);
-        // Surface socket-wait timeouts and other failures so they don't disappear
-        // into the console — the user otherwise sees the spinner stop with no
-        // explanation of why no test results appeared.
+        // One phrasing for the toast AND the panel: the toast fades, so the same
+        // sentence has to stand on its own where the results would have been.
         const isTimeout = /Execution timeout/i.test(message);
-        showError(
-          isTimeout
-            ? `Verification timed out — host did not respond in time`
-            : `Verification failed: ${message}`,
-        );
+        const isHostOutOfSpace = /out of disk space/i.test(message);
+        const reason = isHostOutOfSpace
+          ? `Verification could not run: ${message}`
+          : isTimeout
+            ? `Verification timed out — the host did not report a result in time (${message})`
+            : `Verification failed: ${message}`;
+        setError(reason);
+        showError(reason);
       } finally {
         setLoading(false);
         setRunningVerificationIndex(null);

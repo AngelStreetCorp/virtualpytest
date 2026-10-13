@@ -26,11 +26,46 @@ if [ -f "$ENV_FILE" ]; then
 fi
 HOST_TYPE_FROM_ENV="${HOST_TYPE_FROM_ENV:-host_vnc}"
 
+# HOST_PROFILE=lite: one capture device on a 1 GB board (docs/tasks/TASK-83-lite-host-1gb.md).
+# Only vpt-host/stream/monitor/archiver, no desktop/VNC/browser packages, 512 MB zram.
+# Read from .env BEFORE anything is installed, so set it in backend_host/src/.env first.
+HOST_PROFILE_FROM_ENV=""
+if [ -f "$ENV_FILE" ]; then
+    HOST_PROFILE_FROM_ENV=$(grep -E '^HOST_PROFILE=' "$ENV_FILE" | cut -d= -f2 | tr -d '[:space:]' || true)
+fi
+IS_LITE=0
+if [ "$HOST_PROFILE_FROM_ENV" = "lite" ]; then
+    IS_LITE=1
+    echo ""
+    echo "🪶 Lite host profile (HOST_PROFILE=lite) — one device, core services only"
+fi
+
 IS_RUNNER=0
 if [[ "$HOST_TYPE_FROM_ENV" == runner_* ]]; then
     IS_RUNNER=1
     echo ""
     echo "🏃 Runner host detected (HOST_TYPE=$HOST_TYPE_FROM_ENV) — skipping VNC/stream services"
+fi
+
+# ── Platform detection: Raspberry Pi vs generic x86 (e.g. Minisforum) ───────
+# Only a Pi has a GPIO and the Pi kernel modules for the IR paths (gpio-ir-tx via
+# /boot/firmware/config.txt, or the kernel ir_toy HID driver that turns the
+# 04d8:fd08 USB dongle into /dev/lirc0). An x86 host has neither, and its stock
+# Debian kernel ships no CONFIG_IR_TOY / CONFIG_RAW_RC, so the IR hardware must be
+# driven a different way — see STEP 4.
+IS_PI=0
+if [ -f /proc/device-tree/model ] && grep -qi 'raspberry' /proc/device-tree/model 2>/dev/null; then
+    IS_PI=1
+elif command -v vcgencmd >/dev/null 2>&1; then
+    IS_PI=1
+fi
+
+if [ $IS_PI -eq 1 ]; then
+    echo ""
+    echo "🍓 Raspberry Pi detected — IR via the kernel node (/dev/lirc*)"
+else
+    echo ""
+    echo "🖥️  Non-Pi host detected — IR via the USB IR Toy serial transport if the dongle is present"
 fi
 
 cd "$PROJECT_ROOT"
@@ -112,6 +147,46 @@ if [ $IS_RUNNER -eq 1 ]; then
         echo "   → $HOST_TYPE_FROM_ENV: installing ADB..."
         apt_noninteractive install -y --no-install-recommends android-tools-adb 2>&1 | grep -v "is already the newest" || true
     fi
+elif [ $IS_LITE -eq 1 ]; then
+    # Lite host: capture, detection, remotes. No desktop, VNC, PulseAudio or browsers.
+    apt_noninteractive install -y --no-install-recommends \
+        ffmpeg                   \
+        imagemagick              \
+        tesseract-ocr            \
+        tesseract-ocr-eng        \
+        tesseract-ocr-fra        \
+        tesseract-ocr-deu        \
+        tesseract-ocr-ita        \
+        bluez                    \
+        python3-dbus             \
+        v4l-utils                \
+        alsa-utils               \
+        dnsutils                 \
+        network-manager          \
+        wpasupplicant            \
+        zram-tools               \
+        lirc                     2>&1 | grep -v "is already the newest" || true
+
+    if systemctl list-unit-files NetworkManager.service >/dev/null 2>&1; then
+        sudo systemctl enable NetworkManager || true
+        sudo systemctl restart NetworkManager || true
+    fi
+
+    # 512 MB compressed swap in RAM; never swap to the SD card.
+    if ! grep -q '^/dev/zram' /proc/swaps 2>/dev/null; then
+        sudo tee /etc/default/zramswap > /dev/null << 'EOF'
+# Managed by setup/local/linux/backend_host/install_host.sh (HOST_PROFILE=lite, TASK-83).
+ALGO=zstd
+SIZE=512
+PRIORITY=100
+EOF
+        sudo systemctl enable zramswap.service 2>/dev/null || true
+        sudo systemctl restart zramswap.service 2>/dev/null || true
+    fi
+    if systemctl list-unit-files dphys-swapfile.service >/dev/null 2>&1; then
+        sudo systemctl disable --now dphys-swapfile.service 2>/dev/null || true
+    fi
+    echo "✅ Swap: $(grep '^/dev/zram' /proc/swaps | awk '{print $1, $3/1024 " MB"}')"
 else
     # Full host: all packages
     apt_noninteractive install -y --no-install-recommends \
@@ -280,25 +355,53 @@ echo "✅ Python dependencies and Playwright installed"
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "📡 STEP 4: Configuring LIRC for IR remote control..."
+echo "📡 STEP 4: Configuring IR remote control..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 if [ $IS_RUNNER -eq 1 ]; then
-    echo "   → Runner host — skipping LIRC configuration"
+    echo "   → Runner host — skipping IR configuration"
 fi
 
 LIRC_CONFIG="/etc/lirc/lirc_options.conf"
+# lircd ships in /usr/sbin, which is not on a non-login PATH. Without this the
+# installer silently took the "lirc not installed" branch when run without sudo.
+LIRCD_BIN=$(command -v lircd || echo /usr/sbin/lircd)
+
+# ── Is the USB IR Toy / Irdroid (04d8:fd08) dongle attached? ────────────────
+# On a non-Pi host this is the only IR transmitter that works, because the stock
+# Debian kernel ships no CONFIG_IR_TOY: nothing claims the dongle for IR, cdc_acm
+# takes it as /dev/ttyACM*, and no /dev/lirc* can exist for ir-ctl to address.
+IRTOY_VID_PID="04d8:fd08"
+IRTOY_UDEV_RULE="$SCRIPT_DIR/udev/95-vpt-irtoy.rules"
+HAS_IRTOY=0
+if lsusb 2>/dev/null | grep -qi "$IRTOY_VID_PID"; then
+    HAS_IRTOY=1
+fi
 
 if [ -f "$LIRC_CONFIG" ]; then
     sudo cp "$LIRC_CONFIG" "$LIRC_CONFIG.backup.$(date +%Y%m%d_%H%M%S)"
 fi
 
 if [ $IS_RUNNER -eq 1 ]; then
-    : # skip LIRC for runners
-elif command -v lircd >/dev/null 2>&1; then
+    : # skip IR for runners
+elif [ ! -x "$LIRCD_BIN" ] && [ ! -f "$LIRC_CONFIG" ]; then
+    echo "⚠️ lirc not installed — skipping lircd configuration"
+else
     PLUGIN_ARCH=$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || uname -m)
     sudo tee "$LIRC_CONFIG" > /dev/null << EOF
 # LIRC configuration for VirtualPyTest IR remote control
+#
+# Generated by setup/local/linux/backend_host/install_host.sh
+# Platform: $([ $IS_PI -eq 1 ] && echo "Raspberry Pi" || echo "non-Pi (x86)")
+#
+# On a Pi this feeds IRRemoteController: the kernel publishes /dev/lirc* and
+# VPT sends with `ir-ctl --device <IR_PATH> --send`.
+#
+# On a non-Pi host there is no kernel IR node to find, so lircd's devinput
+# fallback would just sit on an idle keyboard. When the USB IR Toy is present we
+# drive the dongle directly over its CDC serial port instead — see
+# backend_host/src/controllers/remote/irtoy.py. IR is then selected by
+# DEVICE{n}_IR_SERIAL=/dev/irtoy, not DEVICE{n}_IR_PATH.
 [lircd]
 nodaemon        = False
 driver          = default
@@ -323,8 +426,42 @@ EOF
     else
         echo "⚠️ LIRC service failed to start"
     fi
-else
-    echo "⚠️ lirc not installed — skipping IR configuration"
+fi
+
+# ── IRToy serial transport (non-Pi hosts) ───────────────────────────────────
+if [ $IS_RUNNER -eq 0 ] && [ $IS_PI -eq 0 ] && [ $HAS_IRTOY -eq 1 ]; then
+    echo ""
+    echo "   → USB IR Toy ($IRTOY_VID_PID) detected — installing the serial transport"
+
+    if [ -f "$IRTOY_UDEV_RULE" ]; then
+        sudo cp "$IRTOY_UDEV_RULE" /etc/udev/rules.d/95-vpt-irtoy.rules
+        sudo udevadm control --reload-rules || true
+        sudo udevadm trigger --subsystem-match=tty || true
+        echo "   → Installed /etc/udev/rules.d/95-vpt-irtoy.rules"
+    else
+        echo "   ⚠️ udev rule not found at $IRTOY_UDEV_RULE — /dev/irtoy will not exist"
+    fi
+
+    # ttyACM nodes are root:dialout 0660; the host service runs as vpt_user.
+    if getent group dialout >/dev/null 2>&1; then
+        sudo usermod -aG dialout vpt_user 2>/dev/null || true
+        echo "   → Added vpt_user to the dialout group"
+    fi
+
+    echo ""
+    echo "   ⚠️  lircd must NOT hold this dongle while the serial transport is in use"
+    echo "      (both want /dev/ttyACM*). If you see 'device reports readiness to write'"
+    echo "      failures, stop it:  sudo systemctl disable --now lircd"
+    echo ""
+    echo "   → To enable IR for a device, add to $ENV_FILE:"
+    echo "        DEVICE1_IR_SERIAL=/dev/irtoy"
+    echo "        DEVICE1_IR_TYPE=stb"
+    echo ""
+    echo "      Only add these if the device really has an IR transmitter attached."
+elif [ $IS_RUNNER -eq 0 ] && [ $IS_PI -eq 0 ]; then
+    echo "   → No USB IR Toy ($IRTOY_VID_PID) attached"
+    echo "     For IR on this host, either plug the dongle in and re-run this installer,"
+    echo "     or use a networked IRTrans box via DEVICE{n}_IR_IP (see docs/agent/devices/INFRARED.md § 2b)."
 fi
 
 echo ""
@@ -465,13 +602,17 @@ else
     ensure_executable "backend_host/scripts/hot_cold_archiver.py"
     ensure_executable "backend_host/scripts/transcript_accumulator.py"
     ensure_executable "backend_host/scripts/kpi_executor.py"
-    SERVICES=("host" "stream" "monitor" "archiver" "transcript" "kpi" "vnc" "websockify")
+    if [ $IS_LITE -eq 1 ]; then
+        SERVICES=("host" "stream" "monitor" "archiver")
+    else
+        SERVICES=("host" "stream" "monitor" "archiver" "transcript" "kpi" "vnc" "websockify")
+    fi
 fi
 
 # Optional feature services (features/<name>/backend_host/services/*.service, see
 # docs/technical/FEATURES.md). Only folders present on disk are considered — a disabled
 # feature is not deployed at all — and DISABLED_FEATURES is honoured for local installs.
-if [ $IS_RUNNER -eq 0 ]; then
+if [ $IS_RUNNER -eq 0 ] && [ $IS_LITE -eq 0 ]; then
     for feature_unit in ./features/*/backend_host/services/*.service; do
         [ -f "$feature_unit" ] || continue
         feature_name="$(basename "$(dirname "$(dirname "$(dirname "$feature_unit")")")")"
@@ -480,6 +621,16 @@ if [ $IS_RUNNER -eq 0 ]; then
         unit_name="$(basename "$feature_unit" .service)"
         case "$unit_name" in *@) continue ;; esac   # templated units are enabled per-instance by hand
         SERVICES+=("$unit_name")
+    done
+fi
+
+# A host switched to lite keeps its other units on disk, but they must not run (or hold RAM).
+if [ $IS_LITE -eq 1 ]; then
+    for unit in transcript kpi vnc websockify subtitle rtsp mediamtx avq companion; do
+        if systemctl list-unit-files "vpt-${unit}.service" 2>/dev/null | grep -q "vpt-${unit}.service"; then
+            sudo systemctl disable --now "vpt-${unit}.service" 2>/dev/null || true
+            echo "⏹️  vpt-${unit} stopped and disabled (lite profile)"
+        fi
     done
 fi
 
@@ -530,8 +681,8 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "🖥️  STEP 8: Configuring VNC server..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-if [ $IS_RUNNER -eq 1 ]; then
-    echo "   → Runner host — skipping VNC configuration"
+if [ $IS_RUNNER -eq 1 ] || [ $IS_LITE -eq 1 ]; then
+    echo "   → Runner or lite host — skipping VNC configuration"
 else
 
 set +e
@@ -684,6 +835,12 @@ vpt_user ALL=(root) NOPASSWD: SETENV: $PROJECT_ROOT/backend_host/src/controllers
 vpt_user ALL=(root) NOPASSWD: SETENV: $PROJECT_ROOT/backend_host/src/controllers/remote/bluetooth/resume.sh
 vpt_user ALL=(root) NOPASSWD: /usr/bin/journalctl -u hid-remote-*.service *, /usr/bin/journalctl -u hid-agent-*.service *, /usr/bin/journalctl -u vpt-ble-remote@*.service *
 vpt_user ALL=(root) NOPASSWD: /usr/bin/cat /var/lib/bluetooth/*/*/info
+# Tello pairing (TASK-32) — polkit refuses `nmcli device wifi connect` for any
+# non-network-group user, so /host/drone/tello/pair could not join the drone's
+# AP. Only the Wi-Fi connect (SSID pinned to TELLO-*) and rescan verbs are
+# allowed; rationale in setup/local/linux/backend_host/sudoers.d/tello-wifi.
+vpt_user ALL=(root) NOPASSWD: /usr/bin/nmcli device wifi rescan, /bin/nmcli device wifi rescan
+vpt_user ALL=(root) NOPASSWD: /usr/bin/nmcli device wifi connect TELLO-*, /bin/nmcli device wifi connect TELLO-*
 EOF
 sudo chmod 440 /etc/sudoers.d/virtualpytest
 
@@ -772,8 +929,8 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "🖥️  STEP 10: Configuring XFCE4 startup..."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-if [ $IS_RUNNER -eq 1 ]; then
-    echo "   → Runner host — skipping XFCE4 configuration"
+if [ $IS_RUNNER -eq 1 ] || [ $IS_LITE -eq 1 ]; then
+    echo "   → Runner or lite host — skipping XFCE4 configuration"
 else
 
 XINITRC_FILE="$HOME/.xinitrc"
@@ -906,6 +1063,7 @@ echo ""
 echo "📋 Configuration:"
 echo "   Config File: $PROJECT_ROOT/backend_host/src/.env"
 echo "   Host Type:   $HOST_TYPE_FROM_ENV"
+echo "   Profile:     ${HOST_PROFILE_FROM_ENV:-full}"
 if [ $IS_RUNNER -eq 0 ]; then
 STORAGE_REAL=$(readlink -f /var/www/html/stream 2>/dev/null || echo "/var/www/html/stream")
 if [ "$STORAGE_REAL" != "/var/www/html/stream" ]; then

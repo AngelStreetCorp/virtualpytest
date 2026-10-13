@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low                                                          |
 | Area      | backend_host Playwright controller                           |
-| Fixed in  | Unreleased (the cut sets the build — never copy VERSION.txt)  |
+| Fixed in  | Unreleased                                                   |
 | Commit    | 7b3a2fb2b                                                    |
 
 ---

@@ -456,36 +456,6 @@ def finalize_structure():
         'message': f'Finalized: {nodes_updated} node labels and {edges_updated} edge labels updated'
     })
         
-@host_ai_exploration_bp.route('/approve-generation', methods=['POST'])
-@route_exception_handler()
-def approve_generation():
-    data = request.get_json() or {}
-    team_id = request.args.get('team_id')
-    device_id = data.get('device_id', 'device1')
-    
-    tree_id = data.get('tree_id')
-    approved_nodes = data.get('approved_nodes', [])
-    approved_edges = data.get('approved_edges', [])
-    
-    if not team_id:
-        return jsonify({'success': False, 'error': 'team_id required'}), 400
-    
-    # Get device
-    if device_id not in current_app.host_devices:
-        return jsonify({'success': False, 'error': f'Device {device_id} not found'}), 404
-    
-    device = current_app.host_devices[device_id]
-    
-    # Delegate to exploration executor
-    result = device.exploration_executor.approve_generation(
-        tree_id=tree_id,
-        approved_nodes=approved_nodes,
-        approved_edges=approved_edges,
-        team_id=team_id
-    )
-    
-    return jsonify(result)
-    
 @host_ai_exploration_bp.route('/cancel-exploration', methods=['POST'])
 @route_exception_handler()
 def cancel_exploration():

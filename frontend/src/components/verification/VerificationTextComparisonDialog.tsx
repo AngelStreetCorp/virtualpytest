@@ -7,6 +7,7 @@ import {
   Typography,
 } from '@mui/material';
 import React from 'react';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 import { useHostControl } from '../../hooks/useHostManager';
 import { buildVerificationResultUrl } from '../../utils/buildUrlUtils';
@@ -39,19 +40,20 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
   focusThreshold,
   onClose,
 }) => {
+  const P = useAgentChatPalette();
   // Use registration context to get selected host
   const { selectedHost } = useHostControl();
 
   const getResultColor = () => {
     switch (resultType) {
       case 'PASS':
-        return '#4caf50';
+        return P.success;
       case 'FAIL':
-        return '#f44336';
+        return P.error;
       case 'ERROR':
-        return '#ff9800';
+        return P.warning;
       default:
-        return '#757575';
+        return P.textMuted;
     }
   };
 
@@ -183,7 +185,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
               <Typography
                 variant="caption"
                 sx={{
-                  color: '#666',
+                  color: P.textMuted,
                   padding: '2px 6px',
                   backgroundColor: 'transparent',
                   borderRadius: 1,
@@ -196,7 +198,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
               <Typography
                 variant="caption"
                 sx={{
-                  color: '#ffb74d',
+                  color: P.warning,
                   padding: '2px 6px',
                   backgroundColor: 'transparent',
                   borderRadius: 1,
@@ -213,14 +215,14 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                 sx={{
                   color:
                     focusThreshold !== undefined && focusScore >= focusThreshold
-                      ? '#4caf50'
-                      : '#f44336',
+                      ? P.success
+                      : P.error,
                   fontWeight: 'bold',
                   padding: '4px 8px',
                   border: `2px solid ${
                     focusThreshold !== undefined && focusScore >= focusThreshold
-                      ? '#4caf50'
-                      : '#f44336'
+                      ? P.success
+                      : P.error
                   }`,
                   borderRadius: 1,
                 }}
@@ -250,7 +252,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                   minHeight: '300px',
                   overflow: 'hidden',
                   backgroundColor: 'transparent',
-                  border: '1px solid #ddd',
+                  border: `1px solid ${P.borderColor}`,
                   borderRadius: 1,
                 }}
               >
@@ -289,9 +291,9 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                 flexDirection: 'column',
                 gap: 2,
                 padding: 2,
-                border: '1px solid #ddd',
+                border: `1px solid ${P.borderColor}`,
                 borderRadius: 1,
-                backgroundColor: 'rgba(0,0,0,0.05)',
+                backgroundColor: P.hoverBg,
                 minHeight: '300px',
               }}
             >
@@ -299,15 +301,15 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
               <Box>
                 <Typography
                   variant="subtitle1"
-                  sx={{ fontSize: '1rem', fontWeight: 600, mb: 1, color: '#90caf9' }}
+                  sx={{ fontSize: '1rem', fontWeight: 600, mb: 1, color: P.series[1] }}
                 >
                   Searched Text:
                 </Typography>
                 <Box
                   sx={{
                     padding: 2,
-                    backgroundColor: 'rgba(144, 202, 249, 0.1)',
-                    border: '1px solid #90caf9',
+                    backgroundColor: `${P.series[1]}1a`,
+                    border: `1px solid ${P.series[1]}`,
                     borderRadius: 1,
                     minHeight: '80px',
                   }}
@@ -318,7 +320,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                       fontFamily: 'monospace',
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
-                      color: '#90caf9',
+                      color: P.series[1],
                       fontSize: '0.9rem',
                     }}
                   >
@@ -335,7 +337,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                     fontSize: '1rem',
                     fontWeight: 600,
                     mb: 1,
-                    color: resultType === 'PASS' ? '#4caf50' : '#f44336',
+                    color: resultType === 'PASS' ? P.success : P.error,
                   }}
                 >
                   Found Text:
@@ -344,8 +346,8 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                   sx={{
                     padding: 2,
                     backgroundColor:
-                      resultType === 'PASS' ? 'rgba(76, 175, 80, 0.1)' : 'rgba(244, 67, 54, 0.1)',
-                    border: `1px solid ${resultType === 'PASS' ? '#4caf50' : '#f44336'}`,
+                      resultType === 'PASS' ? `${P.success}1a` : `${P.error}1a`,
+                    border: `1px solid ${resultType === 'PASS' ? P.success : P.error}`,
                     borderRadius: 1,
                     minHeight: '80px',
                   }}
@@ -356,7 +358,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                       fontFamily: 'monospace',
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
-                      color: resultType === 'PASS' ? '#4caf50' : '#f44336',
+                      color: resultType === 'PASS' ? P.success : P.error,
                       fontSize: '0.9rem',
                     }}
                   >

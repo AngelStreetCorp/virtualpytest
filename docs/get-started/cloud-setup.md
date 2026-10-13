@@ -270,11 +270,12 @@ DEVICE2_AUDIO=plughw:3,0
 DEVICE2_VIDEO_CAPTURE_PATH=/var/www/html/stream/capture2
 DEVICE2_FPS=10
 
-# Optional: Cloud Storage & AI
+# Optional: Cloud Storage
 CLOUDFLARE_R2_ENDPOINT=your_r2_endpoint
 CLOUDFLARE_R2_ACCESS_KEY_ID=your_access_key
 CLOUDFLARE_R2_SECRET_ACCESS_KEY=your_secret_key
-OPENROUTER_API_KEY=your_openrouter_key
+# AI: no key on hosts. Hosts call models through the server (/server/ai/complete);
+# models and API keys are set in the web app under Settings → AI.
 ```
 
 **Note**: Backend Host automatically detects which services to start based on your configuration:

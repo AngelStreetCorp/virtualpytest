@@ -21,6 +21,7 @@ from typing import Dict, Any, Optional
 from shared.src.lib.utils.build_url_utils import call_host
 from backend_server.src.lib.utils.server_utils import get_host_manager
 from backend_server.src.lib.utils.lock_utils import (
+    resolve_lock_owner,
     abort_and_force_unlock,
     abort_running_execution,
     acquire_device_lock,
@@ -45,7 +46,7 @@ MANUAL_LOCK_TIMEOUT_SECONDS = 180
 # forever. Script locks never heartbeat, so this is a pure max-runtime ceiling:
 # set it comfortably above the longest real run so a live script is never killed.
 SCRIPT_LOCK_TIMEOUT_SECONDS = int(os.environ.get('SCRIPT_LOCK_MAX_AGE_SECONDS', 7200))
-SCRIPT_LOCK_OWNER_TYPES = ('script_execution', 'deployment_execution')
+SCRIPT_LOCK_OWNER_TYPES = ('script_execution', 'deployment_execution', 'testcase_execution')
 
 # =====================================================
 # SERVER-SIDE DEVICE CONTROL ENDPOINTS
@@ -155,7 +156,19 @@ def _try_populate_navigation_cache(
 
     if tree_id and team_id:
         print(f"🗺️ [CONTROL] Populating navigation cache for tree: {tree_id}")
-        cache_success = populate_navigation_cache_for_control(tree_id, team_id, host_name)
+        # Forward the scope. Without it the host cannot derive one (it falls back to
+        # the device's navigation_context, which take-control precedes), so the
+        # warm-up landed on __base__ while a variant run read the variant key and
+        # rebuilt the whole hierarchy mid-run. The helper's own docstring asks
+        # callers who know the upcoming scope to pass it; this one does (BUG-0202).
+        raw_variant = data.get('variant')
+        warm_variant = (raw_variant.strip().lower()
+                        if isinstance(raw_variant, str) and raw_variant.strip() else None)
+        cache_success = populate_navigation_cache_for_control(
+            tree_id, team_id, host_name,
+            device_id=(data.get('device_id') or '').strip() or None,
+            variant=warm_variant,
+        )
         if not cache_success:
             return {
                 'success': False,
@@ -303,8 +316,7 @@ def take_control():
         return jsonify({'error': 'host_name and device_id are required'}), 400
 
     session_id = _get_or_create_session_id(data.get('session_id'))
-    user_id = data.get('user_id') or request.headers.get('X-User-ID')
-    user_name = data.get('user_name')
+    user_id, user_name = resolve_lock_owner(data)
     client_ip = get_client_ip()
 
     print(f"🎮 [CONTROL] Taking control of host: {host_name}, device: {device_id} (session: {session_id}, user: {user_name or user_id}, IP: {client_ip})")
@@ -500,7 +512,7 @@ def heartbeat():
     data = request.get_json() or {}
     devices = data.get('devices', [])
     session_id = _get_or_create_session_id(data.get('session_id'))
-    user_id = data.get('user_id') or request.headers.get('X-User-ID')
+    user_id, _ = resolve_lock_owner(data)
 
     if not devices:
         return jsonify({'error': 'devices array is required'}), 400
@@ -570,7 +582,7 @@ def takeover_control():
     host_name = data.get('host_name')
     device_id = (data.get('device_id') or '').strip()
     requested_by_session = _get_or_create_session_id(data.get('requested_by_session'))
-    requested_by_user = data.get('requested_by_user') or data.get('user_id') or request.headers.get('X-User-ID')
+    requested_by_user, _ = resolve_lock_owner(data, user_key='requested_by_user')
     stop_running_execution = bool(data.get('stop_running_execution', False))
     reason = data.get('reason') or 'manual_takeover'
 
@@ -606,7 +618,7 @@ def takeover_control():
             f"prev_user={existing_lock.get('owner_user_id')})"
         )
 
-    if existing_lock and existing_lock.get('owner_type') in ('script_execution', 'deployment_execution'):
+    if existing_lock and existing_lock.get('owner_type') in ('script_execution', 'deployment_execution', 'testcase_execution'):
         if not stop_running_execution:
             return jsonify({
                 'success': False,
@@ -959,6 +971,14 @@ def get_all_controllers():
                 'implementation': 'tapo',
                 'status': 'available',
                 'parameters': ['hub_location', 'port_number']
+            },
+            {
+                'id': 'wol',
+                'name': 'Wake-on-LAN Power Control',
+                'description': 'Wake-on-LAN magic packet to switch on, SSH shutdown to switch off',
+                'implementation': 'wol',
+                'status': 'available',
+                'parameters': ['mac', 'device_ip', 'ssh_user', 'ssh_port', 'broadcast']
             }
         ]
     }

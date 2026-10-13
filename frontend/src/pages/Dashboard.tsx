@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { buildServerUrl, buildServerUrlForServer } from '../utils/buildUrlUtils';
 import { formatToLocalTime } from '../utils/dateUtils';
@@ -39,6 +39,7 @@ import {
   AccordionSummary,
   AccordionDetails,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { DeviceFilterBar } from '../components/common/DeviceFilterBar';
@@ -54,12 +55,20 @@ import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 import { usePermissionContext } from '../contexts/auth/PermissionContext';
 import { useRec } from '../hooks/pages/useRec';
 import { useToast } from '../hooks/useToast';
+import { getDeviceTargetLabel, useDeviceFilters } from '../hooks/useDeviceFilters';
 import { usePersistedState } from '../hooks/usePersistedState';
+import { useI18n } from '../i18n/useI18n';
 import { STORAGE_KEYS } from '../config/constants';
 import { Host } from '../types/common/Host_Types';
 import { api } from '../utils/apiClient';
+import { WidgetAddButton, WidgetArea } from '../mods/core/components/widgets/WidgetArea';
+
+const finiteMetric = (value: unknown): number | null =>
+  typeof value === 'number' && Number.isFinite(value) ? value : null;
 
 const Dashboard: React.FC = () => {
+  const { t, tn } = useI18n();
+  const P = useAgentChatPalette();
   const { isMobile, isTablet } = useResponsiveMode();
   const navigate = useNavigate();
   const { getAllHosts } = useHostData();
@@ -67,13 +76,11 @@ const Dashboard: React.FC = () => {
   const { isDeviceAllowed } = useWorkspaceContext();
   const { hasPermission } = usePermissionContext();
   // Host controls (start/stop/restart a service, restart vpt-host, reboot, restart
-  // streams) all map to backend routes guarded by @require_role('admin'). Viewers
-  // can see host status / service health but must not see the buttons that would
-  // 403 them. `device_control:execute` is held by tester + admin only — viewer
-  // does NOT have it, so this gates correctly. Keeping a single local flag rather
-  // than sprinkling hasPermission() through the render so the read-only viewer
-  // experience stays easy to grep for.
-  const canControlHosts = hasPermission('device_control:execute');
+  // streams) all map to backend routes gated by `system.services:restart`. Anyone
+  // without it can still see host status / service health, just not the buttons
+  // that would 403 them. Keeping a single local flag rather than sprinkling
+  // hasPermission() through the render.
+  const canControlHosts = hasPermission('system.services:restart');
   const rawAvailableHosts = useMemo(() => getAllHosts(), [getAllHosts]);
   // Drop workspace-filtered devices from each host, then drop hosts with no
   // remaining devices — restart/reboot actions only operate on what the user
@@ -129,25 +136,17 @@ const Dashboard: React.FC = () => {
       .filter((sd) => sd.hosts.length > 0);
   }, [serverHostsData, selectedServer, isDeviceAllowed]);
 
-  // Filter states — persisted to localStorage so the selection survives
-  // refresh and page navigation (kept separate from the Device page).
-  const [targetFilter, setTargetFilter] = usePersistedState<string[]>(
-    `${STORAGE_KEYS.DASHBOARD_FILTERS}_target`,
-    [],
-  );
-  const [deviceModelFilter, setDeviceModelFilter] = usePersistedState<string[]>(
-    `${STORAGE_KEYS.DASHBOARD_FILTERS}_model`,
-    [],
-  );
-  const [flagFilter, setFlagFilter] = usePersistedState<string[]>(
-    `${STORAGE_KEYS.DASHBOARD_FILTERS}_flag`,
-    [],
-  );
-  // 'AND' = device must carry every selected tag; 'OR' = any one. Default AND.
-  const [flagMatchMode, setFlagMatchMode] = usePersistedState<'AND' | 'OR'>(
-    `${STORAGE_KEYS.DASHBOARD_FILTERS}_flagMode`,
-    'AND',
-  );
+  // Target/model/tag filters — persisted and shared with the Device Control page.
+  const {
+    targetFilter,
+    setTargetFilter,
+    deviceModelFilter,
+    setDeviceModelFilter,
+    flagFilter,
+    setFlagFilter,
+    flagMatchMode,
+    setFlagMatchMode,
+  } = useDeviceFilters();
   // "Errors only" toggle — driven by the error badge in the header. When on,
   // the dashboard shows only hosts currently in an error/degraded state.
   const [errorOnly, setErrorOnly] = usePersistedState<boolean>(
@@ -166,22 +165,39 @@ const Dashboard: React.FC = () => {
     setErrorOnly(false);
   }, []);
 
+  // Drop every filter when the user picks a different server in the Server
+  // dropdown. The "All Targets / Models / Tags" picks and the "errors only"
+  // toggle are all server-scoped (a target on vpt-pi1 is not a target on
+  // vpt-pi3), so carrying the old selection over leaves the new server with
+  // an empty result set and no obvious way back. Skipped on the very first
+  // mount so the persisted state survives a page reload.
+  const previousServerRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (
+      previousServerRef.current !== undefined &&
+      previousServerRef.current !== selectedServer
+    ) {
+      clearFilters();
+    }
+    previousServerRef.current = selectedServer;
+  }, [selectedServer, clearFilters]);
+
   // Compute unique values for filter controls
   const { targetOptions, uniqueDeviceModels } = useMemo(() => {
-    const hosts = new Set<string>();
+    const targets = new Set<string>();
     const deviceModels = new Set<string>();
 
     selectedServerData.forEach((serverData) => {
       serverData.hosts.forEach((host) => {
-        hosts.add(host.host_name);
         host.devices.forEach((device) => {
+          targets.add(getDeviceTargetLabel(host, device));
           if (device.device_model) deviceModels.add(device.device_model);
         });
       });
     });
 
     return {
-      targetOptions: Array.from(hosts).sort(),
+      targetOptions: Array.from(targets).sort(),
       uniqueDeviceModels: Array.from(deviceModels).sort(),
     };
   }, [selectedServerData]);
@@ -193,11 +209,10 @@ const Dashboard: React.FC = () => {
     return selectedServerData.map((serverData) => ({
       ...serverData,
       hosts: serverData.hosts.filter((host) => {
-        if (targetFilter.length > 0 && !targetFilter.some(t => host.host_name.toLowerCase().includes(t.toLowerCase()))) {
-          return false;
-        }
-
+        // Targets are device labels (shared with Device Control): a host stays
+        // when at least one of its devices matches every active filter.
         const hasMatchingDevice = host.devices.some((device) => {
+          if (targetFilter.length > 0 && !targetFilter.includes(getDeviceTargetLabel(host, device))) return false;
           if (deviceModelFilter.length > 0 && (!device.device_model || !deviceModelFilter.includes(device.device_model))) return false;
           if (flagFilter.length > 0) {
             const df = deviceFlags.find(
@@ -575,6 +590,12 @@ const Dashboard: React.FC = () => {
     // so the modal can render one tab per device.
     streamDevices?: { device_id: string; device_name?: string }[];
   }>({ open: false, serviceLabel: '', logService: '' });
+  const couldNotText = (hostName: string, action: 'start' | 'stop' | 'restart', service: string): string =>
+    action === 'start'
+      ? t('{host}: could not start {service}', { host: hostName, service })
+      : action === 'stop'
+        ? t('{host}: could not stop {service}', { host: hostName, service })
+        : t('{host}: could not restart {service}', { host: hostName, service });
   const controlService = useCallback(
     async (
       hostName: string,
@@ -583,8 +604,7 @@ const Dashboard: React.FC = () => {
     ) => {
       if (pendingService || isHostBusy(hostName)) return;
       const key = `${hostName}::${service.name}`;
-      const past = { start: 'started', stop: 'stopped', restart: 'restarted' }[action];
-      setPendingService(key);
+            setPendingService(key);
       try {
         const resp = await fetch(buildServerUrl('/server/system/controlHostService'), {
           method: 'POST',
@@ -598,11 +618,17 @@ const Dashboard: React.FC = () => {
         const result = await resp.json();
         if (!result.success) {
           showError(
-            `${hostName}: could not ${action} ${service.label}${result.error ? ` — ${result.error}` : ''}`,
+            `${couldNotText(hostName, action, service.label)}${result.error ? ` — ${result.error}` : ''}`,
           );
           return;
         }
-        showSuccess(`${hostName}: ${past} ${service.label}`);
+        showSuccess(
+          action === 'start'
+            ? t('{host}: started {service}', { host: hostName, service: service.label })
+            : action === 'stop'
+              ? t('{host}: stopped {service}', { host: hostName, service: service.label })
+              : t('{host}: restarted {service}', { host: hostName, service: service.label }),
+        );
         // Flip the displayed status now — don't make the user refresh/wait.
         setOptimisticStatus((p) => ({
           ...p,
@@ -620,13 +646,13 @@ const Dashboard: React.FC = () => {
         );
       } catch (error) {
         console.error('Service control error:', error);
-        showError(`${hostName}: could not ${action} ${service.label}`);
+        showError(couldNotText(hostName, action, service.label));
       } finally {
         setPendingService(null);
         refreshServerData(true);
       }
     },
-    [pendingService, isHostBusy, showSuccess, showError, refreshServerData, waitForServiceStatus],
+    [pendingService, isHostBusy, showSuccess, showError, refreshServerData, waitForServiceStatus, t],
   );
 
   // Autofix: restart each down service one at a time. The spinner moves
@@ -663,8 +689,8 @@ const Dashboard: React.FC = () => {
           } catch (error) {
             console.error('Autofix error:', error);
           }
-          if (fixed) showSuccess(`${host.host_name}: fixed ${svc.label}`);
-          else showError(`${host.host_name}: could not fix ${svc.label}`);
+          if (fixed) showSuccess(t('{host}: fixed {service}', { host: host.host_name, service: svc.label }));
+          else showError(t('{host}: could not fix {service}', { host: host.host_name, service: svc.label }));
         }
       } finally {
         setPendingService(null);
@@ -735,39 +761,39 @@ const Dashboard: React.FC = () => {
   // confirmation dialog before the request is fired.
   const confirmRebootHost = useCallback((hostName: string) => {
     confirm({
-      title: 'Reboot',
-      message: `Reboot "${hostName}"?\n\nIt will be unreachable for ~1-2 minutes while it restarts.`,
-      confirmText: 'Reboot',
+      title: t('Reboot'),
+      message: t('Reboot "{name}"?\n\nIt will be unreachable for ~1-2 minutes while it restarts.', { name: hostName }),
+      confirmText: t('Reboot'),
       confirmColor: 'error',
       onConfirm: () => {
         void rebootHost(hostName);
       },
     });
-  }, [confirm, rebootHost]);
+  }, [confirm, rebootHost, t]);
 
   const confirmRebootAllHosts = useCallback(() => {
     confirm({
-      title: 'Reboot All Hosts',
-      message: `Reboot ALL hosts?\n\nEvery host will be unreachable for ~1-2 minutes while it restarts.`,
-      confirmText: 'Reboot',
+      title: t('Reboot All Hosts'),
+      message: t('Reboot ALL hosts?\n\nEvery host will be unreachable for ~1-2 minutes while it restarts.'),
+      confirmText: t('Reboot'),
       confirmColor: 'error',
       onConfirm: () => {
         void rebootAllHosts();
       },
     });
-  }, [confirm, rebootAllHosts]);
+  }, [confirm, rebootAllHosts, t]);
 
   const confirmRebootServer = useCallback((serverUrl: string) => {
     confirm({
-      title: 'Reboot Server',
-      message: `Reboot server "${serverUrl}"?\n\nThe server will be unreachable for ~1-2 minutes while it restarts.`,
-      confirmText: 'Reboot',
+      title: t('Reboot Server'),
+      message: t('Reboot server "{name}"?\n\nThe server will be unreachable for ~1-2 minutes while it restarts.', { name: serverUrl }),
+      confirmText: t('Reboot'),
       confirmColor: 'error',
       onConfirm: () => {
         void handleRebootServer(serverUrl);
       },
     });
-  }, [confirm, handleRebootServer]);
+  }, [confirm, handleRebootServer, t]);
 
   const getDeviceIcon = (deviceModel: string) => {
     switch (deviceModel) {
@@ -776,7 +802,7 @@ const Dashboard: React.FC = () => {
       case 'android_tv':
         return <TvIcon color="secondary" />;
       default:
-        return <ComputerIcon color="info" />;
+        return <ComputerIcon sx={{ color: P.textSecondary }} />;
     }
   };
 
@@ -803,16 +829,16 @@ const Dashboard: React.FC = () => {
   const formatLastSeen = (timestamp: unknown) => {
     const parsedTimestamp = toUnixSeconds(timestamp);
     if (parsedTimestamp === null) {
-      return 'Unknown';
+      return t('Unknown');
     }
 
     const now = Date.now() / 1000;
     const diff = Math.max(0, now - parsedTimestamp);
 
-    if (diff < 60) return 'Just now';
-    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-    return `${Math.floor(diff / 86400)}d ago`;
+    if (diff < 60) return t('Just now');
+    if (diff < 3600) return t('{count}m ago', { count: Math.floor(diff / 60) });
+    if (diff < 86400) return t('{count}h ago', { count: Math.floor(diff / 3600) });
+    return t('{count}d ago', { count: Math.floor(diff / 86400) });
   };
 
   // Normalize a deployed_version string to its comparable build id (the
@@ -874,7 +900,14 @@ const Dashboard: React.FC = () => {
           {displayVersion(version)}
         </Typography>
         {mismatch && (
-          <Tooltip title={`${referenceLabel} version differs (${displayVersion(reference)})`}>
+          <Tooltip
+            title={t('{reference} version differs ({version})', { reference: t(referenceLabel), version: displayVersion(reference) })}
+            componentsProps={{
+              tooltip: {
+                sx: { whiteSpace: 'nowrap', maxWidth: 'none' },
+              },
+            }}
+          >
             <VersionMismatchIcon color="error" sx={{ fontSize: 14 }} />
           </Tooltip>
         )}
@@ -884,12 +917,12 @@ const Dashboard: React.FC = () => {
 
   const formatRegisteredAt = (dateString: unknown) => {
     if (typeof dateString !== 'string' || dateString.trim() === '') {
-      return 'Unknown';
+      return t('Unknown');
     }
 
     const formatted = formatToLocalTime(dateString);
     if (!formatted || formatted === '-' || formatted.toLowerCase() === 'invalid date') {
-      return 'Unknown';
+      return t('Unknown');
     }
 
     return formatted;
@@ -898,7 +931,6 @@ const Dashboard: React.FC = () => {
   const getUsageColor = (percentage: number) => {
     if (percentage >= 90) return 'error';
     if (percentage >= 75) return 'warning';
-    if (percentage >= 50) return 'info';
     return 'success';
   };
 
@@ -941,20 +973,76 @@ const Dashboard: React.FC = () => {
   // hidden behind an em-dash — the chip is already red, the literal word
   // "not_installed" on a card reads as developer noise to a tester. The same
   // treatment covers 'failed' which previously printed as a raw verb.
+  const statusText = (status: string): string => {
+    switch (status) {
+      case 'online': return t('online');
+      case 'degraded': return t('degraded');
+      case 'error': return t('error');
+      case 'unknown': return t('unknown');
+      case 'active': return t('active');
+      case 'inactive': return t('inactive');
+      case 'stopped': return t('stopped');
+      case 'stuck': return t('stuck');
+      case 'failed': return t('failed');
+      case 'offline': return t('offline');
+      default: return status;
+    }
+  };
   const getServiceStatusLabel = (status: string): string => {
     if (status === 'not_installed') return '—';
-    if (status === 'failed') return 'failed';
-    return status;
+    return statusText(status);
+  };
+
+  // Server services as a tile grid: status dot, name, status word. Stopped/failed tiles carry a tinted border.
+  const renderServiceTiles = (
+    services: Array<{ name: string; label: string; status: string; optional: boolean; detail?: string }>,
+    keyPrefix: string,
+  ) => {
+    const tone = { success: P.success, warning: P.warning, error: P.error, default: P.textMuted };
+    return (
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: 1, py: 0.5 }}>
+        {services.map((service) => {
+          const c = tone[getServiceStatusColor(service.status, service.optional)];
+          const bad = c === P.error || c === P.warning;
+          return (
+            <Tooltip key={`${keyPrefix}-${service.name}`} title={service.detail || service.status}>
+              <Box
+                sx={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 1.25,
+                  py: 0.9,
+                  borderRadius: 2,
+                  bgcolor: P.surface,
+                  border: `1px solid ${bad ? c : P.borderColor}`,
+                }}
+              >
+                <Box sx={{ width: 9, height: 9, borderRadius: '50%', bgcolor: c, flexShrink: 0 }} />
+                <Typography sx={{ fontSize: '0.85rem', fontWeight: 500, flex: 1, overflowWrap: 'anywhere' }}>
+                  {service.label}
+                </Typography>
+                <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: c, flexShrink: 0 }}>
+                  {getServiceStatusLabel(service.status)}
+                </Typography>
+              </Box>
+            </Tooltip>
+          );
+        })}
+      </Box>
+    );
   };
 
   const SystemStatsDisplay: React.FC<{ stats: Host['system_stats']; compact?: boolean }> = ({
     stats: systemStats,
     compact = false,
   }) => {
-    if (!systemStats) {
+    // The lightweight /getAllHosts payload carries a partial system_stats
+    // (platform/hardware_encode/archive_video, no usage numbers) — treat it as absent.
+    if (!systemStats || typeof systemStats.cpu_percent !== 'number') {
       return (
         <Typography variant="caption" color="error">
-          No system stats available
+          {t('No system stats available')}
         </Typography>
       );
     }
@@ -967,22 +1055,28 @@ const Dashboard: React.FC = () => {
       );
     }
 
+    // Telemetry can be briefly partial while a host/server is restarting during
+    // deployment. Treat absent metrics as unavailable instead of crashing the
+    // whole Dashboard on `undefined.toFixed()`.
+    const cpuPercent = finiteMetric(systemStats.cpu_percent);
+    const memoryPercent = finiteMetric(systemStats.memory_percent);
+    const diskPercent = finiteMetric(systemStats.disk_percent);
+    const loadAverage = finiteMetric(systemStats.load_average_1m);
+
     return (
       <Box display="grid" gridTemplateColumns="1fr 1fr" gap={0.5}>
         {/* CPU */}
         <Box display="flex" alignItems="center" gap={0.5}>
-          <Typography variant="caption" color="textSecondary">
-            CPU:
-          </Typography>
+          <Typography variant="caption" color="textSecondary">CPU: {/* i18n-ignore */}</Typography>
           <Typography variant="caption" fontWeight="bold" sx={{ minWidth: 32, textAlign: 'right' }}>
-            {systemStats.cpu_percent}%
+            {cpuPercent === null ? '—' : `${cpuPercent.toFixed(0)}%`}
           </Typography>
-          <Box sx={{ width: 30, height: 3, backgroundColor: 'grey.300', borderRadius: 1 }}>
+          <Box sx={{ width: 30, height: 3, backgroundColor: P.borderColor, borderRadius: 1 }}>
             <Box
               sx={{
-                width: `${Math.min(systemStats.cpu_percent, 100)}%`,
+                width: `${Math.min(cpuPercent ?? 0, 100)}%`,
                 height: '100%',
-                backgroundColor: `${getUsageColor(systemStats.cpu_percent)}.main`,
+                backgroundColor: `${getUsageColor(cpuPercent ?? 0)}.main`,
                 borderRadius: 1,
               }}
             />
@@ -991,18 +1085,16 @@ const Dashboard: React.FC = () => {
 
         {/* Memory */}
         <Box display="flex" alignItems="center" gap={0.5}>
-          <Typography variant="caption" color="textSecondary">
-            RAM:
-          </Typography>
+          <Typography variant="caption" color="textSecondary">RAM: {/* i18n-ignore */}</Typography>
           <Typography variant="caption" fontWeight="bold" sx={{ minWidth: 32, textAlign: 'right' }}>
-            {systemStats.memory_percent}%
+            {memoryPercent === null ? '—' : `${memoryPercent.toFixed(0)}%`}
           </Typography>
-          <Box sx={{ width: 30, height: 3, backgroundColor: 'grey.300', borderRadius: 1 }}>
+          <Box sx={{ width: 30, height: 3, backgroundColor: P.borderColor, borderRadius: 1 }}>
             <Box
               sx={{
-                width: `${Math.min(systemStats.memory_percent, 100)}%`,
+                width: `${Math.min(memoryPercent ?? 0, 100)}%`,
                 height: '100%',
-                backgroundColor: `${getUsageColor(systemStats.memory_percent)}.main`,
+                backgroundColor: `${getUsageColor(memoryPercent ?? 0)}.main`,
                 borderRadius: 1,
               }}
             />
@@ -1013,18 +1105,25 @@ const Dashboard: React.FC = () => {
           <>
             {/* Disk */}
             <Box display="flex" alignItems="center" gap={0.5}>
-              <Typography variant="caption" color="textSecondary">
-                Disk:
+              <Typography variant="caption" color="textSecondary">{t('Disk:')}</Typography>
+              <Typography
+                variant="caption"
+                fontWeight="bold"
+                sx={{ minWidth: 32, textAlign: 'right' }}
+                title={
+                  systemStats.disk_worst_mount
+                    ? t('Fullest monitored mount: {mount}', { mount: systemStats.disk_worst_mount })
+                    : undefined
+                }
+              >
+                {diskPercent === null ? '—' : `${diskPercent.toFixed(0)}%`}
               </Typography>
-              <Typography variant="caption" fontWeight="bold" sx={{ minWidth: 32, textAlign: 'right' }}>
-                {systemStats.disk_percent}%
-              </Typography>
-              <Box sx={{ width: 30, height: 3, backgroundColor: 'grey.300', borderRadius: 1 }}>
+              <Box sx={{ width: 30, height: 3, backgroundColor: P.borderColor, borderRadius: 1 }}>
                 <Box
                   sx={{
-                    width: `${Math.min(systemStats.disk_percent, 100)}%`,
+                    width: `${Math.min(diskPercent ?? 0, 100)}%`,
                     height: '100%',
-                    backgroundColor: `${getUsageColor(systemStats.disk_percent)}.main`,
+                    backgroundColor: `${getUsageColor(diskPercent ?? 0)}.main`,
                     borderRadius: 1,
                   }}
                 />
@@ -1032,13 +1131,11 @@ const Dashboard: React.FC = () => {
             </Box>
 
             {/* Load Average */}
-            {systemStats.load_average_1m !== undefined && (
+            {loadAverage !== null && (
               <Box display="flex" alignItems="center" gap={0.5}>
-                <Typography variant="caption" color="textSecondary">
-                  Load:
-                </Typography>
+                <Typography variant="caption" color="textSecondary">{t('Load:')}</Typography>
                 <Typography variant="caption" fontWeight="bold" sx={{ minWidth: 32, textAlign: 'right' }}>
-                  {systemStats.load_average_1m.toFixed(1)}
+                  {loadAverage.toFixed(1)}
                 </Typography>
               </Box>
             )}
@@ -1048,8 +1145,50 @@ const Dashboard: React.FC = () => {
     );
   };
 
+  // The System Stats header answers "what machine is this?". A vpt-host running
+  // in Docker Desktop on a Windows PC reports platform 'Linux' — that is the
+  // container kernel, not the PC under it — so a bare "Linux (x86_64)" actively
+  // misleads. Show the physical OS, and badge the container runtime so it is
+  // obvious *why* a Windows box looks Linux. Hosts with no detection data (older
+  // hosts, or a bare-metal box) fall back to the plain label.
+  const PlatformLabel: React.FC<{ stats?: Host['system_stats'] }> = ({ stats }) => {
+    if (!stats) return null;
+    const physical = stats.physical_platform || stats.platform;
+    const runtime = stats.container_runtime;
+    const label = `${physical} (${stats.architecture})`;
+    if (!stats.in_container) {
+      return (
+        <Typography variant="caption" color="textSecondary">
+          {label}
+        </Typography>
+      );
+    }
+    const runtimeName = runtime ? runtime.charAt(0).toUpperCase() + runtime.slice(1) : 'Container';
+    const hint = stats.os_mismatch
+      ? t('The host machine runs {os}, with vpt-host running in a {runtime} container.', {
+          os: physical,
+          runtime: runtimeName,
+        })
+      : t('vpt-host runs in a {runtime} container on this host.', { runtime: runtimeName });
+    return (
+      <Box display="flex" alignItems="center" gap={0.75} sx={{ minWidth: 0 }}>
+        <Tooltip title={hint}>
+          <Chip
+            label={runtimeName}
+            size="small"
+            variant="outlined"
+            sx={{ height: 18, fontSize: '0.65rem', flexShrink: 0 }}
+          />
+        </Tooltip>
+        <Typography variant="caption" color="textSecondary" noWrap>
+          {label}
+        </Typography>
+      </Box>
+    );
+  };
+
   const renderHostCard = (host: Host, serverVersion?: string | null) => (
-    <Card variant="outlined" sx={{ height: '100%' }}>
+    <Card variant="outlined" sx={{ height: '100%', borderRadius: 3, borderColor: P.borderColor, bgcolor: P.surface }}>
       <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
         {(() => {
           const operationalStatus = getHostOperationalStatus(host);
@@ -1060,14 +1199,14 @@ const Dashboard: React.FC = () => {
         {/* Host Header */}
         <Box display="flex" alignItems="center" justifyContent="space-between" mb={1.5}>
           <Box display="flex" alignItems="center" gap={1}>
-            <ComputerIcon color="primary" />
+            <ComputerIcon sx={{ color: P.accentText }} />
             <Typography variant="h6" component="div" noWrap>
               {host.host_name}
             </Typography>
           </Box>
           <Box display="flex" alignItems="center" gap={1}>
             <Chip
-              label={operationalStatus}
+              label={statusText(operationalStatus)}
               size="small"
               color={getOperationalStatusColor(operationalStatus)}
               variant="outlined"
@@ -1088,11 +1227,9 @@ const Dashboard: React.FC = () => {
             sx={{ mb: 0.5 }}
           >
             <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-              System Stats
+              {t('System Stats')}
             </Typography>
-            <Typography variant="caption" color="textSecondary">
-              {host.system_stats?.platform} ({host.system_stats?.architecture})
-            </Typography>
+            <PlatformLabel stats={host.system_stats} />
           </Box>
           <SystemStatsDisplay stats={host.system_stats} />
         </Box>
@@ -1102,8 +1239,8 @@ const Dashboard: React.FC = () => {
           sx={{
             mb: 1.5,
             boxShadow: 'none',
-            border: '1px solid #e0e0e0',
-            backgroundColor: 'transparent',
+            border: `1px solid ${P.borderColor}`, borderRadius: '8px',
+            backgroundColor: P.background,
             '&:before': { display: 'none' },
           }}
         >
@@ -1116,7 +1253,7 @@ const Dashboard: React.FC = () => {
             }}
           >
             <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-              Devices ({host.device_count})
+              {t('Devices ({count})', { count: host.device_count })}
             </Typography>
           </AccordionSummary>
           <AccordionDetails sx={{ pt: 0, pb: 0.5, px: 1, backgroundColor: 'transparent' }}>
@@ -1184,8 +1321,8 @@ const Dashboard: React.FC = () => {
           sx={{
             mb: 1.5,
             boxShadow: 'none',
-            border: '1px solid #e0e0e0',
-            backgroundColor: 'transparent',
+            border: `1px solid ${P.borderColor}`, borderRadius: '8px',
+            backgroundColor: P.background,
             '&:before': { display: 'none' },
           }}
         >
@@ -1199,14 +1336,12 @@ const Dashboard: React.FC = () => {
           >
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                Services ({services.length})
+                {t('Services ({count})', { count: services.length })}
               </Typography>
-              {/* Single, fixed-position activity spinner: shown while any
-                  service/host action on this host is in flight, until the
-                  success/failure toast. Icons never move or hide. */}
-              {(pendingService?.startsWith(`${host.host_name}::`) ||
-                autofixHost === host.host_name ||
-                isHostBusy(host.host_name)) && (
+              {/* Spinner only for a single-service action (its row icons stay put).
+                  Host actions and autofix spin on their own button below — one
+                  spinner at a time. */}
+              {pendingService?.startsWith(`${host.host_name}::`) && (
                 <CircularProgress size={14} thickness={5} />
               )}
             </Box>
@@ -1215,7 +1350,7 @@ const Dashboard: React.FC = () => {
             <Box sx={{ backgroundColor: 'transparent' }}>
               {services.length === 0 ? (
                 <Typography variant="caption" color="textSecondary">
-                  Service details not available
+                  {t('Service details not available')}
                 </Typography>
               ) : (
                 services.map((service) => {
@@ -1258,8 +1393,8 @@ const Dashboard: React.FC = () => {
                       <Tooltip
                         title={
                           ['stopped', 'inactive', 'not_installed'].includes(dispStatus)
-                            ? 'No logs — service is not running'
-                            : 'View logs'
+                            ? t('No logs — service is not running')
+                            : t('View logs')
                         }
                       >
                         <span>
@@ -1328,8 +1463,7 @@ const Dashboard: React.FC = () => {
                             </IconButton>
                             <IconButton
                               size="small"
-                              color="info"
-                              sx={{ p: 0.25 }}
+                              sx={{ p: 0.25, color: P.textSecondary }}
                               disabled={busy}
                               onClick={() =>
                                 isVptHost
@@ -1357,7 +1491,7 @@ const Dashboard: React.FC = () => {
             anyway, so hiding for non-admin is consistent with the server. */}
         {canControlHosts && (
         <Box display="flex" alignItems="center" justifyContent="center" gap={0.5} sx={{ mb: 1 }}>
-          <Tooltip title="Restart vpt-host service">
+          <Tooltip title={t('Restart vpt-host service')}>
             <span>
               <IconButton
                 onClick={() => restartHostService(host.host_name)}
@@ -1369,7 +1503,7 @@ const Dashboard: React.FC = () => {
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title="Reboot">
+          <Tooltip title={t('Reboot')}>
             <span>
               <IconButton
                 onClick={() => confirmRebootHost(host.host_name)}
@@ -1381,23 +1515,28 @@ const Dashboard: React.FC = () => {
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title="Restart streams">
+          <Tooltip title={t('Restart streams')}>
             <span>
               <IconButton
                 onClick={() => handleRestartStreams(host.host_name)}
                 disabled={isHostBusy(host.host_name)}
                 size="small"
-                color="info"
+                sx={{ color: P.textSecondary }}
               >
-                {getHostActionType(host.host_name) === 'stream' ? <CircularProgress size={18} color="info" /> : <RestartStreamIcon fontSize="small" />}
+                {getHostActionType(host.host_name) === 'stream' ? <CircularProgress size={18} sx={{ color: P.accent }} /> : <RestartStreamIcon fontSize="small" />}
               </IconButton>
             </span>
           </Tooltip>
           <Tooltip
             title={
               downServices.length > 0
-                ? `Auto-fix ${downServices.length} down service${downServices.length > 1 ? 's' : ''}: ${downServices.map((s) => s.label).join(', ')}`
-                : 'All services healthy'
+                ? tn(
+                    downServices.length,
+                    'Auto-fix {count} down service: {services}',
+                    'Auto-fix {count} down services: {services}',
+                    { services: downServices.map((s) => s.label).join(', ') },
+                  )
+                : t('All services healthy')
             }
           >
             <span>
@@ -1422,11 +1561,11 @@ const Dashboard: React.FC = () => {
         {renderVersionLine('', host.deployed_version, serverVersion)}
 
         <Typography color="textSecondary" variant="caption" display="block">
-          Last seen: {formatLastSeen(host.last_seen)}
+          {t('Last seen: {time}', { time: formatLastSeen(host.last_seen) })}
         </Typography>
 
         <Typography color="textSecondary" variant="caption" display="block">
-          Registered: {formatRegisteredAt(host.registered_at)}
+          {t('Registered: {time}', { time: formatRegisteredAt(host.registered_at) })}
         </Typography>
             </>
           );
@@ -1448,7 +1587,7 @@ const Dashboard: React.FC = () => {
       <Box>
         {!isMobile && (
           <Typography variant="h4" component="h1" mb={1}>
-            Dashboard
+            {t('Dashboard')}
           </Typography>
         )}
 
@@ -1458,9 +1597,9 @@ const Dashboard: React.FC = () => {
           </Alert>
         )}
 
-        {/* The AppBar's ServerSelector is the single source of truth on every
-            screen size (incl. mobile/tablet) — do NOT render a second one here,
-            or mobile users see two stacked dropdowns for the same picker. */}
+        {/* The server picker comes from AppHeader (AppBar on tablet, MobileServerBar
+            on mobile) — do NOT render a second one here, or users see two stacked
+            dropdowns for the same picker. */}
 
         <Box sx={{ mb: 1 }}>
           <DeviceFilterBar
@@ -1483,13 +1622,13 @@ const Dashboard: React.FC = () => {
         <Paper sx={{ p: 1.25 }}>
           <Box display="flex" alignItems="center" justifyContent="space-between" mb={1}>
             <Box display="flex" alignItems="center" gap={1}>
-              <Typography variant="subtitle1">Hosts</Typography>
+              <Typography variant="subtitle1">{t('Hosts')}</Typography>
               {(errorHostCount > 0 || errorOnly) && (
                 <Tooltip
                   title={
                     errorOnly
-                      ? 'Showing only hosts with errors — tap to show all'
-                      : 'Show only hosts with errors'
+                      ? t('Showing only hosts with errors — tap to show all')
+                      : t('Show only hosts with errors')
                   }
                 >
                   <Chip
@@ -1507,16 +1646,16 @@ const Dashboard: React.FC = () => {
             <Box display="flex" gap={0.5}>
               {canControlHosts && (
               <>
-              <Tooltip title="Restart host service">
+              <Tooltip title={t('Restart host service')}>
                 <span>
                   <IconButton onClick={() => restartAllServices()} disabled={isRestartingService} size="small" color="warning">
                     <RestartServiceIcon fontSize="small" />
                   </IconButton>
                 </span>
               </Tooltip>
-              <Tooltip title="Restart streams">
+              <Tooltip title={t('Restart streams')}>
                 <span>
-                  <IconButton onClick={() => restartAllStreams()} disabled={isRestarting} size="small" color="info">
+                  <IconButton onClick={() => restartAllStreams()} disabled={isRestarting} size="small" sx={{ color: P.textSecondary }}>
                     <RestartStreamIcon fontSize="small" />
                   </IconButton>
                 </span>
@@ -1527,7 +1666,7 @@ const Dashboard: React.FC = () => {
           </Box>
 
           {filteredServerHostsData.length === 0 ? (
-            <Alert severity="info">{hasActiveFilters ? 'No hosts match the selected filters.' : 'No servers connected'}</Alert>
+            <Alert severity="info">{hasActiveFilters ? t('No hosts match the selected filters.') : t('No servers connected')}</Alert>
           ) : (
             <>
               <Box sx={{ mb: 1.5 }}>
@@ -1542,8 +1681,8 @@ const Dashboard: React.FC = () => {
                       sx={{
                         mb: 1,
                         boxShadow: 'none',
-                        border: '1px solid #e0e0e0',
-                        backgroundColor: 'transparent',
+                        border: `1px solid ${P.borderColor}`, borderRadius: '8px',
+                        backgroundColor: P.background,
                         '&:before': { display: 'none' },
                       }}
                     >
@@ -1557,10 +1696,10 @@ const Dashboard: React.FC = () => {
                       >
                         <Box display="flex" alignItems="center" gap={1} flexWrap="wrap">
                           <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                            {serverData.server_info.server_name} Services ({services.length})
+                            {t('{server} Services ({count})', { server: serverData.server_info.server_name, count: services.length })}
                           </Typography>
                           <Chip
-                            label={serviceHealth.overall_status || 'unknown'}
+                            label={statusText(serviceHealth.overall_status || 'unknown')}
                             size="small"
                             color={getOperationalStatusColor(serviceHealth.overall_status || 'unknown')}
                             variant="outlined"
@@ -1569,34 +1708,7 @@ const Dashboard: React.FC = () => {
                         </Box>
                       </AccordionSummary>
                       <AccordionDetails sx={{ pt: 0, pb: 0.5, px: 1, backgroundColor: 'transparent' }}>
-                        {services.map((service) => (
-                          <Box
-                            key={`${serverData.server_info.server_url}-${service.name}`}
-                            sx={{
-                              display: 'flex',
-                              alignItems: 'center',
-                              gap: 1,
-                              py: 0.2,
-                              px: 0,
-                              borderRadius: 1,
-                              backgroundColor: 'transparent',
-                            }}
-                          >
-                            <Typography
-                              variant="body2"
-                              sx={{ minWidth: '110px', fontWeight: 500, fontSize: '0.8rem' }}
-                            >
-                              {service.label}
-                            </Typography>
-                            <Chip
-                              label={getServiceStatusLabel(service.status)}
-                              size="small"
-                              color={getServiceStatusColor(service.status, service.optional)}
-                              variant="outlined"
-                              sx={{ fontSize: '0.6rem', height: '18px' }}
-                            />
-                          </Box>
-                        ))}
+                        {renderServiceTiles(services, `m-${serverData.server_info.server_url}`)}
                       </AccordionDetails>
                     </Accordion>
                   );
@@ -1614,7 +1726,7 @@ const Dashboard: React.FC = () => {
                             <Box display="flex" justifyContent="space-between" alignItems="center" gap={1}>
                               <Typography variant="subtitle1" noWrap>{host.host_name}</Typography>
                               <Chip
-                                label={operationalStatus}
+                                label={statusText(operationalStatus)}
                                 size="small"
                                 color={getOperationalStatusColor(operationalStatus)}
                                 variant="outlined"
@@ -1631,7 +1743,7 @@ const Dashboard: React.FC = () => {
                                 />
                               ))}
                               {host.devices.length > 2 ? (
-                                <Chip size="small" label={`+${host.devices.length - 2} more`} />
+                                <Chip size="small" label={t('+{count} more', { count: host.devices.length - 2 })} />
                               ) : null}
                             </Box>
                             <Box sx={{ mt: 0.75 }}>
@@ -1659,10 +1771,13 @@ const Dashboard: React.FC = () => {
   return (
     <Box>
       {/* Dashboard Header + Filters */}
-      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-        <Typography variant="h4" component="h1">
-          Dashboard
-        </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, mb: 1, flexWrap: 'wrap' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+          <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+            {t('Dashboard')}
+          </Typography>
+          <WidgetAddButton area="dashboard" />
+        </Box>
         <DeviceFilterBar
           targetFilter={targetFilter}
           onTargetFilterChange={setTargetFilter}
@@ -1681,6 +1796,9 @@ const Dashboard: React.FC = () => {
         />
       </Box>
 
+      {/* Widgets the user placed (mods, TASK-77); nothing shows when no mod offers one */}
+      <WidgetArea area="dashboard" />
+
       {error && (
         <Alert severity="error" sx={{ mb: 1 }}>
           {error}
@@ -1688,20 +1806,20 @@ const Dashboard: React.FC = () => {
       )}
 
       {/* Connected Devices */}
-      <Paper sx={{ p: 2, mt: 3 }}>
+      <Paper sx={{ p: 2, mt: 2, borderRadius: 3, border: `1px solid ${P.borderColor}`, boxShadow: 'none' }}>
         <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
           <Box display="flex" alignItems="center" gap={1.5}>
             {(errorHostCount > 0 || errorOnly) && (
               <Tooltip
                 title={
                   errorOnly
-                    ? 'Showing only hosts with errors — click to show all'
-                    : 'Show only hosts with errors'
+                    ? t('Showing only hosts with errors — click to show all')
+                    : t('Show only hosts with errors')
                 }
               >
                 <Chip
                   icon={<ErrorBadgeIcon />}
-                  label={`${errorHostCount} in error`}
+                  label={t('{count} in error', { count: errorHostCount })}
                   size="small"
                   color="error"
                   variant={errorOnly ? 'filled' : 'outlined'}
@@ -1715,7 +1833,7 @@ const Dashboard: React.FC = () => {
             {/* Global System Controls — viewer must not see the "restart / reboot all" row. */}
             {canControlHosts && (
             <>
-            <Tooltip title="Restart vpt-host service on all hosts">
+            <Tooltip title={t('Restart vpt-host service on all hosts')}>
               <span>
                 <IconButton
                   onClick={() => restartAllServices()}
@@ -1727,7 +1845,7 @@ const Dashboard: React.FC = () => {
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="Reboot all hosts">
+            <Tooltip title={t('Reboot all hosts')}>
               <span>
                 <IconButton
                   onClick={() => confirmRebootAllHosts()}
@@ -1739,13 +1857,13 @@ const Dashboard: React.FC = () => {
                 </IconButton>
               </span>
             </Tooltip>
-            <Tooltip title="Restart streams on all hosts">
+            <Tooltip title={t('Restart streams on all hosts')}>
               <span>
                 <IconButton
                   onClick={() => restartAllStreams()}
                   disabled={isRestarting}
                   size="small"
-                  color="info"
+                  sx={{ color: P.textSecondary }}
                 >
                   <RestartStreamIcon />
                 </IconButton>
@@ -1753,8 +1871,8 @@ const Dashboard: React.FC = () => {
             </Tooltip>
             </>
             )}
-            
-            <Tooltip title="Hosts automatically refresh">
+
+            <Tooltip title={t('Hosts automatically refresh')}>
               <span>
                 <IconButton disabled size="small">
                   <RefreshIcon />
@@ -1773,18 +1891,18 @@ const Dashboard: React.FC = () => {
               <Box 
                 key={index} 
                 sx={{ 
-                  backgroundColor: 'transparent', 
+                  backgroundColor: P.background, 
                   borderRadius: 2, 
                   p: 2, 
                   mb: 2,
                   border: '1px solid',
-                  borderColor: 'grey.200'
+                  borderColor: P.borderColor
                 }}
               >
                 <Box display="flex" alignItems="center" justifyContent="space-between" mb={2}>
                   <Box display="flex" alignItems="center" gap={2}>
                     <Typography variant="h6">
-                      Server: {serverData.server_info.server_url_display}
+                      {serverData.server_info.server_url_display}
                     </Typography>
                     {/* Server version inline (the source of truth). Turns red
                         with a badge if the frontend bundle is on a different
@@ -1795,73 +1913,24 @@ const Dashboard: React.FC = () => {
                       frontendVersion,
                       'Frontend',
                     )}
-                    {/* Compact Server Stats */}
-                    {serverData.server_info.system_stats && (
-                      <Box display="flex" alignItems="center" gap={1}>
-                        <Chip 
-                          label={`CPU: ${serverData.server_info.system_stats.cpu_percent.toFixed(0)}%`}
-                          size="small"
-                          sx={{ 
-                            height: 20, 
-                            fontSize: '0.7rem',
-                            bgcolor: `${getUsageColor(serverData.server_info.system_stats.cpu_percent)}.100`,
-                            color: 'text.primary'
-                          }}
-                        />
-                        <Chip 
-                          label={`RAM: ${serverData.server_info.system_stats.memory_percent.toFixed(0)}%`}
-                          size="small"
-                          sx={{ 
-                            height: 20, 
-                            fontSize: '0.7rem',
-                            bgcolor: `${getUsageColor(serverData.server_info.system_stats.memory_percent)}.100`,
-                            color: 'text.primary'
-                          }}
-                        />
-                        <Chip 
-                          label={`Disk: ${serverData.server_info.system_stats.disk_percent.toFixed(0)}%`}
-                          size="small"
-                          sx={{ 
-                            height: 20, 
-                            fontSize: '0.7rem',
-                            bgcolor: `${getUsageColor(serverData.server_info.system_stats.disk_percent)}.100`,
-                            color: 'text.primary'
-                          }}
-                        />
-                        {serverData.server_info.system_stats.cpu_temperature_celsius && (
-                          <Chip 
-                            label={`${serverData.server_info.system_stats.cpu_temperature_celsius.toFixed(0)}°C`}
-                            size="small"
-                            sx={{ height: 20, fontSize: '0.7rem' }}
-                          />
-                        )}
-                        {serverData.server_info.system_stats.load_average_1m !== undefined && (
-                          <Chip 
-                            label={`Load: ${serverData.server_info.system_stats.load_average_1m.toFixed(1)}`}
-                            size="small"
-                            sx={{ height: 20, fontSize: '0.7rem' }}
-                          />
-                        )}
-                      </Box>
-                    )}
                   </Box>
                   <Box display="flex" alignItems="center" gap={2}>
-                    <Chip 
-                      label={`${hostCount} host${hostCount !== 1 ? 's' : ''}`}
+                    <Chip
+                      label={tn(hostCount, '{count} host', '{count} hosts')}
                       size="small"
                       variant="outlined"
                       color="primary"
                     />
-                    <Chip 
-                      label={`${deviceCount} device${deviceCount !== 1 ? 's' : ''}`}
+                    <Chip
+                      label={tn(deviceCount, '{count} device', '{count} devices')}
                       size="small"
                       variant="outlined"
                       color="secondary"
                     />
-                    <Tooltip title="Restart vpt-server service">
+                    <Tooltip title={t('Restart vpt-server service')}>
                       <span>
-                        <IconButton 
-                          onClick={() => handleRestartServerService(serverData.server_info.server_url)} 
+                        <IconButton
+                          onClick={() => handleRestartServerService(serverData.server_info.server_url)}
                           disabled={isRestartingServerService}
                           size="small"
                           color="warning"
@@ -1870,9 +1939,9 @@ const Dashboard: React.FC = () => {
                         </IconButton>
                       </span>
                     </Tooltip>
-                    <Tooltip title="Reboot server">
+                    <Tooltip title={t('Reboot server')}>
                       <span>
-                        <IconButton 
+                        <IconButton
                           onClick={() => confirmRebootServer(serverData.server_info.server_url)}
                           disabled={isRebootingServer}
                           size="small"
@@ -1891,8 +1960,8 @@ const Dashboard: React.FC = () => {
                     sx={{
                       mb: 2,
                       boxShadow: 'none',
-                      border: '1px solid #e0e0e0',
-                      backgroundColor: 'transparent',
+                      border: `1px solid ${P.borderColor}`, borderRadius: '8px',
+                      backgroundColor: P.surface,
                       '&:before': { display: 'none' },
                     }}
                   >
@@ -1901,59 +1970,108 @@ const Dashboard: React.FC = () => {
                       sx={{
                         minHeight: '36px',
                         backgroundColor: 'transparent',
-                        '& .MuiAccordionSummary-content': { margin: '6px 0' }
+                        '& .MuiAccordionSummary-content': { margin: '6px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 2 }
                       }}
                     >
                       <Box display="flex" alignItems="center" gap={1}>
                         <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-                          Server Services ({serverData.server_info.service_health.services?.length || 0})
+                          {t('Server Services ({count})', { count: serverData.server_info.service_health.services?.length || 0 })}
                         </Typography>
                         <Chip
-                          label={serverData.server_info.service_health.overall_status || 'unknown'}
+                          label={statusText(serverData.server_info.service_health.overall_status || 'unknown')}
                           size="small"
                           color={getOperationalStatusColor(serverData.server_info.service_health.overall_status || 'unknown')}
                           variant="outlined"
                           sx={{ fontSize: '0.65rem', height: '18px' }}
                         />
                       </Box>
+                      {/* Compact Server Stats — sit to the right of the "online" chip
+                          and to the left of the expand icon. Only shown when the
+                          backend actually returned system_stats for this server
+                          (see the SERVER_NAME store/read mismatch note in
+                          backend_server/src/lib/server/gunicorn_app.py). */}
+                      {serverData.server_info.system_stats && (() => {
+                        const stats = serverData.server_info.system_stats;
+                        const cpuPercent = finiteMetric(stats.cpu_percent);
+                        const memoryPercent = finiteMetric(stats.memory_percent);
+                        const diskPercent = finiteMetric(stats.disk_percent);
+                        const cpuTemperature = finiteMetric(stats.cpu_temperature_celsius);
+                        const loadAverage = finiteMetric(stats.load_average_1m);
+
+                        if (
+                          cpuPercent === null &&
+                          memoryPercent === null &&
+                          diskPercent === null &&
+                          cpuTemperature === null &&
+                          loadAverage === null
+                        ) {
+                          return null;
+                        }
+
+                        return (
+                          <Box display="flex" alignItems="center" gap={1} sx={{ mr: 1 }}>
+                            {cpuPercent !== null && (
+                              <Chip
+                                label={`CPU: ${cpuPercent.toFixed(0)}%`}
+                                size="small"
+                                sx={{
+                                  height: 20,
+                                  fontSize: '0.7rem',
+                                  bgcolor: `${getUsageColor(cpuPercent)}.100`,
+                                  color: 'text.primary'
+                                }}
+                              />
+                            )}
+                          {memoryPercent !== null && (
+                            <Chip
+                              label={`RAM: ${memoryPercent.toFixed(0)}%`}
+                              size="small"
+                              sx={{
+                                height: 20,
+                                fontSize: '0.7rem',
+                                bgcolor: `${getUsageColor(memoryPercent)}.100`,
+                                color: 'text.primary'
+                              }}
+                            />
+                          )}
+                          {diskPercent !== null && (
+                            <Chip
+                              label={t('Disk: {value}', { value: `${diskPercent.toFixed(0)}%` })}
+                              size="small"
+                              sx={{
+                                height: 20,
+                                fontSize: '0.7rem',
+                                bgcolor: `${getUsageColor(diskPercent)}.100`,
+                                color: 'text.primary'
+                              }}
+                            />
+                          )}
+                          {cpuTemperature !== null && (
+                            <Chip
+                              label={`${cpuTemperature.toFixed(0)}°C`}
+                              size="small"
+                              sx={{ height: 20, fontSize: '0.7rem' }}
+                            />
+                          )}
+                          {loadAverage !== null && (
+                            <Chip
+                              label={t('Load: {value}', { value: loadAverage.toFixed(1) })}
+                              size="small"
+                              sx={{ height: 20, fontSize: '0.7rem' }}
+                            />
+                          )}
+                          </Box>
+                        );
+                      })()}
                     </AccordionSummary>
                     <AccordionDetails sx={{ pt: 0, pb: 0.5, px: 1, backgroundColor: 'transparent' }}>
                       <Box sx={{ backgroundColor: 'transparent' }}>
                         {(serverData.server_info.service_health.services || []).length === 0 ? (
                           <Typography variant="caption" color="textSecondary">
-                            Service details not available
+                            {t('Service details not available')}
                           </Typography>
                         ) : (
-                          (serverData.server_info.service_health.services || []).map((service) => (
-                            <Box
-                              key={service.name}
-                              sx={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: 1,
-                                py: 0.2,
-                                px: 0,
-                                borderRadius: 1,
-                                backgroundColor: 'transparent',
-                              }}
-                            >
-                              <Typography
-                                variant="body2"
-                                sx={{ minWidth: '110px', fontWeight: 500, fontSize: '0.8rem' }}
-                              >
-                                {service.label}
-                              </Typography>
-                              <Tooltip title={service.detail || ''}>
-                                <Chip
-                                  label={service.status}
-                                  size="small"
-                                  color={getServiceStatusColor(service.status, service.optional)}
-                                  variant="outlined"
-                                  sx={{ fontSize: '0.6rem', height: '18px' }}
-                                />
-                              </Tooltip>
-                            </Box>
-                          ))
+                          renderServiceTiles(serverData.server_info.service_health.services || [], serverData.server_info.server_url)
                         )}
                       </Box>
                     </AccordionDetails>
@@ -1969,7 +2087,7 @@ const Dashboard: React.FC = () => {
                   ))}
                 </Grid>
               ) : (
-                <Typography color="textSecondary">No hosts connected to this server</Typography>
+                <Typography color="textSecondary">{t('No hosts connected to this server')}</Typography>
               )}
             </Box>
           )})
@@ -1977,7 +2095,7 @@ const Dashboard: React.FC = () => {
           <Box textAlign="center" py={4}>
             <DevicesIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
             <Typography color="textSecondary" variant="h6" gutterBottom>
-              {hasActiveFilters ? 'No hosts match the selected filters' : 'No servers connected'}
+              {hasActiveFilters ? t('No hosts match the selected filters') : t('No servers connected')}
             </Typography>
           </Box>
         )}
@@ -1989,13 +2107,13 @@ const Dashboard: React.FC = () => {
           <Grid item xs={12} sm={6} md={3} key="api-server">
             <Box display="flex" alignItems="center" gap={1}>
               <SuccessIcon color="success" />
-              <Typography>API Server: Online</Typography>
+              <Typography>{t('API Server: Online')}</Typography>
             </Box>
           </Grid>
           <Grid item xs={12} sm={6} md={3} key="database">
             <Box display="flex" alignItems="center" gap={1}>
               <SuccessIcon color="success" />
-              <Typography>Database: Connected</Typography>
+              <Typography>{t('Database: Connected')}</Typography>
             </Box>
           </Grid>
         </Grid>

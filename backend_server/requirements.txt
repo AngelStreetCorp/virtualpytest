@@ -24,7 +24,7 @@ anyio==4.15.1
 sniffio==1.3.1
 idna==3.15
 certifi==2025.8.3
-aiohttp>=3.8.0
+aiohttp>=3.14.3
 
 # Graph processing for navigation
 networkx>=3.0.0
@@ -34,7 +34,7 @@ pymongo>=4.3.0
 sqlalchemy>=2.0.0
 
 # Authentication and security - pinned to working Linux versions
-PyJWT==2.13.0
+PyJWT==2.15.0
 bcrypt>=4.0.0
 
 # Process management
@@ -99,11 +99,11 @@ packaging==24.2
 browser-use>=0.1.0
 
 # Desktop automation and computer vision
-# Fixed versions for numpy binary compatibility
-numpy>=1.24.0,<2.0.0
+# numpy 2 + opencv 4.13 (see backend_host/requirements.txt, BUG-0474)
+numpy>=2.0.0,<3.0.0
 pyautogui>=0.9.54
-opencv-python>=4.8.0,<5.0.0
-Pillow>=10.0.0,<11.0.0
+opencv-python>=4.13.0,<5.0.0
+Pillow>=12.3.0,<13.0.0
 
 # Grafana and monitoring integration
 psycopg2-binary>=2.9.0  # PostgreSQL adapter for Python
@@ -117,7 +117,7 @@ mcp>=1.0.0
 jsonschema>=4.0.0
 
 # AI Agent SDK (Claude)
-anthropic>=0.40.0
+anthropic>=0.40.0,<1.0  # 1.x moved to httpx2 and broke client construction (BUG-0289); raise only after testing
 langfuse>=2.0.0,<3 # v2 SDK required: observability.py uses the v2 API (langfuse.trace) and the self-hosted server is v2; SDK v3+/v4 breaks both (auto-enabled when LANGFUSE_HOST is set)
 
 # Slack integration

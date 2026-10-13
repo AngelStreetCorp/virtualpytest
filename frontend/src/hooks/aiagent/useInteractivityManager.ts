@@ -8,6 +8,7 @@
 import { useCallback, useState } from 'react';
 import { analyzeTextForEntities, getRecommendedUIActions, DetectedEntities, AvailableEntities } from '../../utils/entityDetection';
 import { useHostData } from '../useHostManager';
+import type { ContentTab } from '../../components/agent-chat/ContentViewer';
 
 export interface InteractivityState {
   isAnalyzing: boolean;
@@ -26,7 +27,7 @@ export interface UIUpdateActions {
   setSelectedTestCase: (testcase: string) => void;
   setSelectedCampaign: (campaign: string) => void;
   setShowContentViewer: (show: boolean) => void;
-  setActiveContentTab: (tab: 'device-preview' | 'navigation' | 'testcase' | 'campaign' | 'heatmap' | 'alerts') => void;
+  setActiveContentTab: (tab: ContentTab) => void;
 }
 
 export const useInteractivityManager = (

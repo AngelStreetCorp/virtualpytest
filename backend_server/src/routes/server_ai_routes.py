@@ -21,25 +21,10 @@ def _proxy_ai_post(endpoint: str):
     response_data, status_code = proxy_to_host_with_params(endpoint, 'POST', data, query_params)
     return jsonify(response_data), status_code
 
-@server_ai_bp.route('/analyzeCompatibility', methods=['POST'])
-def analyze_compatibility():
-    """Analyze AI task compatibility"""
-    return _proxy_ai_post('/host/ai/analyzeCompatibility')
-
 @server_ai_bp.route('/generatePlan', methods=['POST'])
 def generate_plan():
     """Generate AI execution plan"""
     return _proxy_ai_post('/host/ai/generatePlan')
-
-@server_ai_bp.route('/getStatus', methods=['POST'])
-def get_status():
-    """Get AI execution status"""
-    return _proxy_ai_post('/host/ai/getStatus')
-
-@server_ai_bp.route('/stopExecution', methods=['POST'])
-def stop_execution():
-    """Stop AI execution"""
-    return _proxy_ai_post('/host/ai/stopExecution')
 
 @server_ai_bp.route('/resetCache', methods=['POST'])
 def reset_cache():
@@ -70,25 +55,3 @@ def reset_cache():
         'message': f'Cache cleared: {deleted_count} graphs deleted',
         'deleted_count': deleted_count
     }), 200
-
-@server_ai_bp.route('/analyzePrompt', methods=['POST'])
-def analyze_prompt():
-    """Pre-analyze prompt for disambiguation"""
-    return _proxy_ai_post('/host/ai/analyzePrompt')
-
-@server_ai_bp.route('/saveDisambiguation', methods=['POST'])
-def save_disambiguation():
-    """Save disambiguation preferences"""
-    json_error = require_json()
-    if json_error:
-        return validation_error_response('No JSON data provided')
-    data = request.get_json()
-    
-    team_id = request.args.get('team_id')
-    query_params = {'team_id': team_id} if team_id else {}
-    
-    response_data, status_code = proxy_to_host_with_params(
-        '/host/ai/saveDisambiguation', 'POST', data, query_params
-    )
-    return jsonify(response_data), status_code
-

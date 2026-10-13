@@ -7,7 +7,8 @@
     "build:web": "cd ../../../frontend && ./node_modules/.bin/vite build",
     "sync": "npx cap sync android",
     "apk": "bash scripts/apk.sh",
-    "apk:release": "bash scripts/apk-release.sh"
+    "apk:release": "bash scripts/apk-release.sh",
+    "publish": "bash scripts/publish-apk.sh"
   },
   "dependencies": {
     "@capacitor/android": "7.6.9",

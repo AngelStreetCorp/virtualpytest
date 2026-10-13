@@ -9,7 +9,7 @@ import os
 import json
 from html import escape
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from .report_formatting import (
     create_compact_step_results_section,
     format_console_summary_for_html,
@@ -22,6 +22,12 @@ from .report_formatting import (
 from .report_template_html import create_themed_html_template
 from .script_identity_utils import normalize_script_ref, resolve_script_source_path
 from .cloudflare_utils import _build_script_artifact_folder_name, get_cloudflare_utils
+from .report_icons import icon
+from .phase_timing import t0 as _phase_t0, log_phase as _log_phase
+from ..i18n.report_i18n import (
+    build_catalog, catalog_script_tag, clean_script_strings, load_script_strings, script_i18n_path, t, t_attr, tx, tx_lines,
+    use_report_catalog,
+)
 
 
 def _build_report_link_row(label: str, url: str) -> str:
@@ -56,31 +62,27 @@ def _read_code_version() -> str:
         return ''
 
 
-def _build_report_links_bar(links: list) -> str:
-    """Build a stacked block of artifact links with no gap between them."""
+def _build_report_links_bar(links: list, meta_rows: list = ()) -> str:
+    """Artifact links and run facts as one aligned list: icon | label | link (or value).
+
+    `links` holds (icon_key, label, url); a row without a URL is dropped. `meta_rows` holds
+    (icon_key, label, value_html) for facts such as the code version. Icons come from report_icons
+    (one monochrome set), labels are plain translated text, all in the report's body font.
+    """
+    from .report_icons import icon
     rows = []
-    for label, url in links:
+    for icon_key, label, url in links:
         if url:
             safe_url = escape(url, quote=True)
-            rows.append(
-                '<div style="padding: 2px 10px; line-height: 1.3; '
-                'background-color: var(--background-secondary); '
-                'border-left: 3px solid var(--info-color);">'
-                f'{escape(label)}: '
-                f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer" '
-                'style="color: var(--link-color); text-decoration: none; font-weight: bold;">'
-                'Click here'
-                '</a>'
-                '</div>'
-            )
+            rows.append(f'<span class="rl-icon">{icon(icon_key)}</span><span class="rl-label">{label}</span>'
+                        f'<a href="{safe_url}" target="_blank" rel="noopener noreferrer">{t("link.click_here")}</a>')
+    for icon_key, label, value_html in meta_rows:
+        if value_html:
+            rows.append(f'<span class="rl-icon">{icon(icon_key)}</span><span class="rl-label">{label}</span>'
+                        f'<span class="rl-value">{value_html}</span>')
     if not rows:
         return ''
-    return (
-        '<div style="margin-top: 4px; border-radius: 4px; overflow: hidden; '
-        'display: flex; flex-direction: column; gap: 0;">'
-        + ''.join(rows)
-        + '</div>'
-    )
+    return '<div class="report-links">' + ''.join(rows) + '</div>'
 
 
 def _build_dom_captures_section(dom_captures: list) -> str:
@@ -107,7 +109,7 @@ def _build_dom_captures_section(dom_captures: list) -> str:
         'background-color: var(--background-secondary); '
         'border-left: 3px solid var(--info-color);">'
         '<summary style="padding: 2px 10px; line-height: 1.3; cursor: pointer; font-weight: bold;">'
-        f'🌐 DOM captures ({len(rows)})</summary>'
+        + t('link.dom_captures', n=len(rows)) + '</summary>'
         '<div style="padding: 0 10px 6px 24px;">'
         + ''.join(rows)
         + '</div></details>'
@@ -124,11 +126,11 @@ def _build_mosaic_section(mosaic_url: str, tiles: int = 0) -> str:
     if not mosaic_url:
         return ''
     safe_url = escape(mosaic_url, quote=True)
-    count = f' ({tiles} steps)' if tiles else ''
+    title = icon('mosaic', 18) + ' ' + ((t('mosaic.title_one') if tiles == 1 else t('mosaic.title_steps', tiles=tiles)) if tiles else t('mosaic.title'))
     return f"""
             <div class="section">
                 <div class="section-header" onclick="toggleSection('mosaic-content')">
-                    <h2>🧩 Test Mosaic{count}</h2>
+                    <h2>{title}</h2>
                     <button class="toggle-btn">▶</button>
                 </div>
                 <div id="mosaic-content" class="collapsible-content">
@@ -159,7 +161,7 @@ def _build_default_overview_section(
     if initial_screenshot_html:
         grid_items.append(f"""
                 <div class="state-video-grid-item">
-                    <h3>Initial State</h3>
+                    <h3>{t("state.initial")}</h3>
                     <div class="screenshot-container">
                         {initial_screenshot_html}
                     </div>
@@ -167,7 +169,7 @@ def _build_default_overview_section(
     if final_screenshot_html:
         grid_items.append(f"""
                 <div class="state-video-grid-item">
-                    <h3>Final State</h3>
+                    <h3>{t("state.final")}</h3>
                     <div class="screenshot-container">
                         {final_screenshot_html}
                     </div>
@@ -175,7 +177,7 @@ def _build_default_overview_section(
     if test_video_html:
         grid_items.append(f"""
                 <div class="state-video-grid-item">
-                    <h3>Test Execution Video</h3>
+                    <h3>{t("state.video")}</h3>
                     <div class="test-video-content">
                         {test_video_html}
                     </div>
@@ -191,7 +193,7 @@ def _build_default_overview_section(
     return f"""
             {grid_section}
             <div class="execution-summary-section">
-                <h3>Execution Summary</h3>
+                <h3>{t("section.execution_summary")}</h3>
                 <div class="execution-summary-content">
                     {execution_summary_html}
                     {logs_link_html}
@@ -201,16 +203,60 @@ def _build_default_overview_section(
     """
 
 
+def _build_report_catalog(report_data: Dict):
+    """Language catalog for one report: platform strings + the script's `<script>.i18n.json`.
+
+    report_data may carry `i18n_script_catalog` (a ready dict, tests/harnesses) or
+    `script_i18n_path` (explicit file); otherwise the file is found through the script name.
+    `script_i18n_inline` (the script's `main._i18n`) is merged over the file.
+    """
+    override = report_data.get('i18n_script_catalog')
+    if isinstance(override, dict):
+        return build_catalog(script_strings=override)
+    identity = report_data.get('script_identity')
+    script_ref = (identity.get('script_ref') if isinstance(identity, dict) else '') or report_data.get('script_name', '')
+    strings = load_script_strings(report_data.get('script_i18n_path') or script_i18n_path(script_ref))
+    # `main._i18n` in the script source (the only option for a virtual script) wins entry by entry.
+    strings.update(clean_script_strings(report_data.get('script_i18n_inline')))
+    return build_catalog(script_strings=strings)
+
+
+def _inject_catalog(page: str) -> str:
+    """Draw emoji as report icons, then embed the emoji-icon map and the used-keys catalog
+    just before </body> (the page script redraws icons after a language switch)."""
+    from .report_icons import emoji_icons_script_tag, iconify_html
+    page = iconify_html(page)
+    index = page.rfind('</body>')
+    if index < 0:
+        return page
+    tags = emoji_icons_script_tag() + '\n' + catalog_script_tag()
+    return page[:index] + tags + '\n' + page[index:]
+
+
 def generate_validation_report(report_data: Dict) -> str:
     """
     Generate HTML validation report with embedded CSS and screenshots.
-    
+
+    The page is translatable (EN/FR/DE switcher): the catalog is active for the whole build and
+    its used keys are embedded before </body>.
+
     Args:
         report_data: Dictionary containing all report information
-        
+
     Returns:
         Complete HTML report as string
     """
+    try:
+        catalog = _build_report_catalog(report_data)
+    except Exception as e:
+        print(f"[@utils:report_utils:generate_validation_report] i18n catalog unavailable: {e}")
+        catalog = None
+    with use_report_catalog(catalog):
+        return _inject_catalog(_generate_validation_report_html(report_data))
+
+
+def _generate_validation_report_html(report_data: Dict) -> str:
+    """Build the report HTML (runs inside the active language catalog)."""
     try:
         print(f"[@utils:report_utils:generate_validation_report] Generating report for {report_data.get('script_name')}")
         
@@ -252,14 +298,14 @@ def generate_validation_report(report_data: Dict) -> str:
             zap_summary_section = f"""
             <div class="section">
                 <div class="section-header" onclick="toggleSection('zap-summary-content')">
-                    <h2>🎯 Zap Execution Summary</h2>
+                    <h2>{icon('zap', 18)} {t("zap.title")}</h2>
                     <button class="toggle-btn">▶</button>
                 </div>
                 <div id="zap-summary-content" class="collapsible-content">
                     <div class="execution-summary-section">
-                        <h3>Zap Execution Summary</h3>
+                        <h3>{t("zap.heading")}</h3>
                         <div class="execution-summary-content">
-                            <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; margin: 0;">{zap_detailed_summary}</pre>
+                            <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; margin: 0;">{tx_lines(zap_detailed_summary)}</pre>
                         </div>
                     </div>
                 </div>
@@ -279,13 +325,13 @@ def generate_validation_report(report_data: Dict) -> str:
             edge_results_section = f"""
             <div class="section">
                 <div class="section-header" onclick="toggleSection('edge-results-content')">
-                    <h2>🧭 Edge Results (✅ {ok_n} · ❌ {fail_n} · ⏭️ {skip_n})</h2>
+                    <h2>{icon('edge', 18)} {t("edge.title", ok=ok_n, fail=fail_n, skip=skip_n)}</h2>
                     <button class="toggle-btn">▶</button>
                 </div>
                 <div id="edge-results-content" class="collapsible-content">
                     <div class="execution-summary-section">
                         <div class="execution-summary-content">
-                            <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; margin: 0;">{escape(edge_results_summary)}</pre>
+                            <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; margin: 0;">{tx_lines(edge_results_summary, escape_markup=True)}</pre>
                         </div>
                     </div>
                 </div>
@@ -300,44 +346,30 @@ def generate_validation_report(report_data: Dict) -> str:
         # into custom_data). _build_report_links_bar drops empty-URL entries, so this only
         # shows for zap runs that produced a report.
         zap_report_url = (report_data.get('custom_data') or {}).get('zap_report_url', '')
-        links_bar = _build_report_links_bar([
-            ('📝 Execution Logs', report_data.get('logs_url', '')),
-            ('📦 Metadata', metadata_url),
-            ('📝 Verification review', verification_review_url),
-            # Only present when a selector missed; _build_report_links_bar drops empty URLs.
-            ('🔍 UI dumps', report_data.get('ui_dumps_url', '')),
-            ('📝 Code Source', script_source_url),
-            ('📺 Zap Report', zap_report_url),
-            ('🧩 Mosaic', report_data.get('mosaic_url', '')),
-        ])
-        links_bar += _build_dom_captures_section(report_data.get('dom_captures'))
-
+        subtitle_report_url = (report_data.get('custom_data') or {}).get('subtitle_report_url', '')  # subtitle_qa.py
         code_version = report_data.get('code_version') or _read_code_version()
-        code_version_html = ''
-        if code_version:
-            code_version_html = (
-                '<div style="padding: 2px 10px; line-height: 1.3; '
-                'background-color: var(--background-secondary); '
-                'border-left: 3px solid var(--info-color); font-family: monospace;">'
-                f'🏷️ Code version: <strong>{escape(code_version)}</strong>'
-                '</div>'
-            )
-
         trigger = report_data.get('trigger') or {}
         trigger_html = ''
         if isinstance(trigger, dict) and trigger.get('type'):
-            trigger_bits = [f"type=<strong>{escape(str(trigger.get('type')))}</strong>"]
+            trigger_bits = [f"type <strong>{escape(str(trigger.get('type')))}</strong>"]
             if trigger.get('caller_user'):
-                trigger_bits.append(f"user=<strong>{escape(str(trigger.get('caller_user')))}</strong>")
-            if trigger.get('caller_ip'):
-                trigger_bits.append(f"ip=<strong>{escape(str(trigger.get('caller_ip')))}</strong>")
-            trigger_html = (
-                '<div style="padding: 2px 10px; line-height: 1.3; '
-                'background-color: var(--background-secondary); '
-                'border-left: 3px solid var(--info-color); font-family: monospace;">'
-                '🎯 Trigger: ' + ' | '.join(trigger_bits) +
-                '</div>'
-            )
+                trigger_bits.append(f"user <strong>{escape(str(trigger.get('caller_user')))}</strong>")
+            trigger_html = ' · '.join(trigger_bits)
+        links_bar = _build_report_links_bar([
+            ('logs', t('link.logs'), report_data.get('logs_url', '')),
+            ('metadata', t('link.metadata'), metadata_url),
+            ('review', t('link.verification_review'), verification_review_url),
+            # Only present when a selector missed; _build_report_links_bar drops empty URLs.
+            ('ui_dumps', t('link.ui_dumps'), report_data.get('ui_dumps_url', '')),
+            ('code', t('link.code_source'), script_source_url),
+            ('zap', t('link.zap_report'), zap_report_url),
+            ('subtitle', t('link.subtitle_report'), subtitle_report_url),
+            ('mosaic', t('link.mosaic'), report_data.get('mosaic_url', '')),
+        ], meta_rows=[
+            ('version', t('meta.code_version'), f'<code>{escape(code_version)}</code>' if code_version else ''),
+            ('trigger', t('meta.trigger'), trigger_html),
+        ])
+        links_bar += _build_dom_captures_section(report_data.get('dom_captures'))
 
         initial_screenshot_html = get_thumbnail_screenshot_html(screenshots.get('initial'))
         final_screenshot_html = get_thumbnail_screenshot_html(screenshots.get('final'))
@@ -345,7 +377,7 @@ def generate_validation_report(report_data: Dict) -> str:
         execution_summary_html = format_console_summary_for_html(report_data.get('execution_summary', ''))
         overview_section = _build_default_overview_section(
             execution_summary_html=execution_summary_html,
-            logs_link_html=links_bar + code_version_html + trigger_html,
+            logs_link_html=links_bar,
             script_source_link_html='',
             initial_screenshot_html=initial_screenshot_html,
             final_screenshot_html=final_screenshot_html,
@@ -356,15 +388,25 @@ def generate_validation_report(report_data: Dict) -> str:
         testcase_id = report_data.get('testcase_id')
         testcase_builder_link = report_data.get('testcase_builder_link', '')
         if not testcase_builder_link and testcase_id:
-            testcase_builder_link = f' | <a href="/builder/test-builder?testcase_id={testcase_id}" style="color: #60a5fa; text-decoration: none;">📋 Open in TestCase Builder</a>'
+            testcase_builder_link = f' | <a href="/builder/test-builder?testcase_id={testcase_id}" style="color: #60a5fa; text-decoration: none;">{icon("open", 14)} {t("header.open_testcase_builder")}</a>'
+
+        # Share button: opens the share dialog of the web app for this run (same origin as the
+        # report; an outside viewer of a snapshot never gets it, the builder drops it).
+        script_result_id = report_data.get('script_result_id')
+        share_button = (
+            f'<a class="header-icon-btn report-share-btn" href="/test-results/reports?share={script_result_id}" '
+            f'target="_blank" rel="noopener" data-i18n-title="header.share_snapshot" '
+            f'title="{t_attr("header.share_snapshot")}" aria-label="{t_attr("header.share_snapshot")}">{icon("share", 18)}</a>'
+        ) if script_result_id else ''
 
         # Replace placeholders with actual content
         html_content = html_template.format(
+            share_button=share_button,
             script_name=script_name,
             execution_date=format_execution_date(start_time),
             start_time=format_timestamp(start_time),
             end_time=format_timestamp(end_time),
-            success_status="PASS" if success else "FAIL",
+            success_status=t('badge.pass') if success else t('badge.fail'),
             success_class="success" if success else "failure",
             execution_time=format_execution_time(execution_time),
             device_name=device_info.get('device_name', 'Unknown Device'),
@@ -373,15 +415,17 @@ def generate_validation_report(report_data: Dict) -> str:
             total_steps=total_steps,
             passed_steps=passed_steps,
             failed_steps=failed_steps,
+            success_steps_text=t('summary.steps', n=passed_steps, total=total_steps),
+            failure_steps_text=t('summary.steps', n=failed_steps, total=total_steps),
             step_results_html=create_compact_step_results_section(step_results, screenshots),
-            error_section=create_error_section(error_msg) if error_msg else '',
+            error_section=create_error_section(tx(error_msg)) if error_msg else '',
             overview_section=overview_section,
             zap_summary_section=zap_summary_section,
             edge_results_section=edge_results_section,
             mosaic_section=_build_mosaic_section(report_data.get('mosaic_url', ''), report_data.get('mosaic_tiles', 0)),
             logs_link=links_bar,
             script_source_link='',
-            steps_section_title=f"Test Steps ({passed_steps}/{total_steps} passed)",
+            steps_section_title=t('steps.title', passed=passed_steps, total=total_steps),
             testcase_builder_link=testcase_builder_link,
         )
         
@@ -423,9 +467,17 @@ def generate_and_upload_script_report(
     trigger: Dict[str, Any] = None,
     mosaic_local_path: str = "",
     mosaic_tile_count: int = 0,
+    dom_captures: Optional[List[Dict[str, Any]]] = None,
+    ui_dumps: Optional[Tuple[str, int]] = None,
+    script_i18n: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Dict[str, str]:
     """
     Generate HTML report and upload to R2 storage - extracted from validation.py
+
+    script_i18n: the script's `main._i18n` translations (merged over its `<script>.i18n.json`).
+    dom_captures / ui_dumps: this execution's DOM captures and (UI dump file, count) when the
+    caller froze them earlier (a testcase report built in the background, after the next run
+    reset the process-global sessions). None reads the sessions, as always.
     Can be used by any script execution (validation, simple scripts, etc.)
     
     Returns:
@@ -520,6 +572,7 @@ def generate_and_upload_script_report(
         logs_path = ""
         if stdout and stdout.strip():
             print(f"[@utils:report_utils:generate_and_upload_script_report] Uploading script logs...")
+            _t = _phase_t0()
             logs_upload_result = upload_script_logs(
                 log_content=stdout,
                 device_model=device_info.get('device_model', 'unknown'),
@@ -527,6 +580,7 @@ def generate_and_upload_script_report(
                 timestamp=upload_timestamp,
                 script_result_id=script_result_id
             )
+            _log_phase('report.logs_upload', _t, f"bytes={len(stdout)}")
             
             if logs_upload_result['success']:
                 logs_url = logs_upload_result['url']
@@ -553,8 +607,9 @@ def generate_and_upload_script_report(
         # script/executor plumbing is needed. Empty for non-web scripts.
         dom_capture_links = []
         try:
-            from .dom_capture import get_dom_captures
-            dom_captures = get_dom_captures()
+            if dom_captures is None:
+                from .dom_capture import get_dom_captures
+                dom_captures = get_dom_captures()
             dom_file_mappings = [
                 {
                     'local_path': capture['path'],
@@ -566,7 +621,9 @@ def generate_and_upload_script_report(
             ]
             if dom_file_mappings:
                 print(f"[@utils:report_utils:generate_and_upload_script_report] Uploading {len(dom_file_mappings)} DOM capture(s)...")
+                _t = _phase_t0()
                 dom_upload_result = get_cloudflare_utils().upload_files(dom_file_mappings, for_report_assets=True)
+                _log_phase('report.dom_captures_upload', _t, f"files={len(dom_file_mappings)}")
                 dom_url_by_local = {f['local_path']: f['url'] for f in dom_upload_result.get('uploaded_files', [])}
                 for capture in dom_captures:
                     dom_url = dom_url_by_local.get(capture.get('path', ''))
@@ -586,17 +643,22 @@ def generate_and_upload_script_report(
         # missed a selector, and for web scripts.
         ui_dumps_url = ''
         try:
-            from .ui_dump_capture import get_ui_dump_count, get_ui_dump_file
-            ui_dumps_path = get_ui_dump_file()
+            if ui_dumps is None:
+                from .ui_dump_capture import get_ui_dump_count, get_ui_dump_file
+                ui_dumps_path = get_ui_dump_file()
+                dump_count = get_ui_dump_count() if ui_dumps_path else 0
+            else:
+                ui_dumps_path, dump_count = ui_dumps
             if ui_dumps_path:
-                dump_count = get_ui_dump_count()
                 print(f"[@utils:report_utils:generate_and_upload_script_report] "
                       f"Uploading {dump_count} UI dump trace(s)...")
+                _t = _phase_t0()
                 ui_dumps_result = get_cloudflare_utils().upload_files([{
                     'local_path': ui_dumps_path,
                     'remote_path': f"{artifact_folder_path}/ui_dumps.txt",
                     'content_type': 'text/plain; charset=utf-8',
                 }], for_report_assets=True)
+                _log_phase('report.ui_dumps_upload', _t)
                 uploaded = ui_dumps_result.get('uploaded_files', [])
                 ui_dumps_url = uploaded[0]['url'] if uploaded else ''
                 try:
@@ -617,6 +679,7 @@ def generate_and_upload_script_report(
         local_script_source_path = resolve_script_source_path(script_source_ref)
         if local_script_source_path:
             print(f"[@utils:report_utils:generate_and_upload_script_report] Uploading script source artifact...")
+            _t = _phase_t0()
             source_upload_result = upload_script_source_artifact(
                 local_source_path=local_script_source_path,
                 device_model=device_info.get('device_model', 'unknown'),
@@ -625,6 +688,7 @@ def generate_and_upload_script_report(
                 script_result_id=script_result_id,
                 remote_path=f"{artifact_folder_path}/script_source.py",
             )
+            _log_phase('report.script_source_upload', _t)
             if source_upload_result['success']:
                 script_source_url = source_upload_result['url']
                 script_source_path = source_upload_result['path']
@@ -640,6 +704,8 @@ def generate_and_upload_script_report(
             # Check if it's a local file path that needs to be uploaded
             if os.path.exists(test_video_url) and test_video_url.endswith('.mp4'):
                 print(f"[@utils:report_utils:generate_and_upload_script_report] Uploading test video: {test_video_url}")
+                _t = _phase_t0()
+                _video_bytes = os.path.getsize(test_video_url)
                 video_upload_result = upload_test_video(
                     local_video_path=test_video_url,
                     device_model=device_info.get('device_model', 'unknown'),
@@ -647,6 +713,7 @@ def generate_and_upload_script_report(
                     timestamp=upload_timestamp,
                     script_result_id=script_result_id
                 )
+                _log_phase('report.video_upload', _t, f"bytes={_video_bytes}")
                 
                 if video_upload_result['success']:
                     uploaded_test_video_url = video_upload_result['video_url']
@@ -715,10 +782,12 @@ def generate_and_upload_script_report(
                     script_name.replace('.py', ''), upload_timestamp, script_result_id,
                 )
                 mosaic_r2_path = f"script-reports/{device_info.get('device_model', 'unknown')}/{report_folder_name}/mosaic.jpg"
+                _t = _phase_t0()
                 mosaic_upload = get_cloudflare_utils().upload_files(
                     [{'local_path': built_mosaic_path, 'remote_path': mosaic_r2_path, 'content_type': 'image/jpeg'}],
                     for_report_assets=True,
                 )
+                _log_phase('report.mosaic_upload', _t)
                 if mosaic_upload.get('uploaded_files'):
                     mosaic_url = mosaic_upload['uploaded_files'][0]['url']
                     print(f"[@utils:report_utils:generate_and_upload_script_report] Mosaic uploaded ({mosaic_tiles} tiles): {mosaic_url}")
@@ -735,6 +804,7 @@ def generate_and_upload_script_report(
         # Prepare report data (same structure as validation.py) - now with R2 URLs and correct timestamps
         report_data = {
             'script_name': script_name,
+            'script_i18n_inline': script_i18n,
             'device_info': device_info,
             'host_info': host_info,
             'execution_time': execution_time,
@@ -765,7 +835,8 @@ def generate_and_upload_script_report(
             'logs_url': logs_url,  # Add logs URL for clickable link in report
             'script_identity': script_identity or {},
             'testcase_id': testcase_id,
-            'testcase_builder_link': f' | <a href="/builder/test-builder?testcase_id={testcase_id}" style="color: #60a5fa; text-decoration: none;">📋 Open in TestCase Builder</a>' if testcase_id else '',
+            # Built by generate_validation_report from testcase_id (it needs the language catalog).
+            'testcase_builder_link': '',
             'script_source_url': script_source_url,
             'verification_review_url': verification_review_url,
             'metadata_url': metadata_url,
@@ -777,9 +848,12 @@ def generate_and_upload_script_report(
             'mosaic_tiles': mosaic_tiles,
         }
         
+        _t = _phase_t0()
         html_content = generate_validation_report(report_data)
+        _log_phase('report.html_build', _t, f"bytes={len(html_content or '')}")
         
         # Upload report to R2
+        _t = _phase_t0()
         upload_result = upload_script_report(
             html_content=html_content,
             device_model=device_info.get('device_model', 'unknown'),
@@ -788,6 +862,7 @@ def generate_and_upload_script_report(
             script_result_id=script_result_id
         )
        
+        _log_phase('report.html_upload', _t)
         if upload_result['success']:
             report_url = upload_result['report_url']
             report_path = upload_result['report_path']
@@ -832,7 +907,15 @@ def generate_and_upload_script_report(
 
 
 def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
-    """Generate campaign orchestrator HTML using the shared themed report template."""
+    """Generate campaign orchestrator HTML using the shared themed report template.
+
+    Platform words are translatable (EN/FR/DE switcher); campaigns have no per-script file.
+    """
+    with use_report_catalog(build_catalog(script_strings={})):
+        return _inject_catalog(_generate_campaign_orchestrator_report_html(report_data))
+
+
+def _generate_campaign_orchestrator_report_html(report_data: Dict[str, Any]) -> str:
     campaign_name = report_data.get('campaign_name', 'Campaign')
     campaign_id = report_data.get('campaign_id', '')
     execution_id = report_data.get('campaign_execution_id', '')
@@ -858,8 +941,8 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
         safe_logs_url = escape(logs_url, quote=True)
         logs_link_html = f"""
             <div style="margin-top: 8px; background-color: var(--background-secondary); border-radius: 4px; border-left: 3px solid var(--info-color); padding: 8px 10px;">
-                <div style="font-weight: 600; margin-bottom: 2px;">Campaign Logs</div>
-                <a href="{safe_logs_url}" target="_blank" style="color: var(--link-color); text-decoration: none; font-weight: bold;">Open logs</a>
+                <div style="font-weight: 600; margin-bottom: 2px;">{t("campaign.logs")}</div>
+                <a href="{safe_logs_url}" target="_blank" style="color: var(--link-color); text-decoration: none; font-weight: bold;">{t("campaign.open_logs")}</a>
             </div>
         """
 
@@ -871,7 +954,7 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
     ])
     overview_section = f"""
             <div class="execution-summary-section">
-                <h3>Campaign Overview</h3>
+                <h3>{t("campaign.overview")}</h3>
                 <div class="execution-summary-content">
                     {format_console_summary_for_html(summary_text)}
                     {logs_link_html}
@@ -895,7 +978,7 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
 
         source_url = str(script.get('script_source_url') or '')
 
-        status_label = 'SKIP' if skipped else ('PASS' if success else 'FAIL')
+        status_label = t('badge.skip') if skipped else (t('badge.pass') if success else t('badge.fail'))
         status_class = 'skipped' if skipped else ('success' if success else 'failure')
 
         # Everything scalar lives on the row itself (two lines, links on the
@@ -904,7 +987,7 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
         # inputs / outputs JSON and the error text.
         link_style = 'color: var(--link-color); text-decoration: none; font-size: 0.85em;'
         row_links: List[str] = []
-        for label, url in (('Report', report_url), ('Logs', per_script_logs_url), ('Source', source_url)):
+        for label, url in ((t('campaign.report'), report_url), (t('campaign.logs_short'), per_script_logs_url), (t('campaign.source'), source_url)):
             if url:
                 row_links.append(
                     f'<a href="{escape(url, quote=True)}" target="_blank" style="{link_style}" '
@@ -917,7 +1000,7 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
 
         meta_parts = [escape(script_type), escape(format_execution_time(execution_time_ms))]
         if script_result_id:
-            meta_parts.append(f'result {escape(script_result_id)}')
+            meta_parts.append(t('campaign.result', id=script_result_id))
         if script_error:
             meta_parts.append(
                 f'<span style="color: var(--failure-text);">{escape(script_error[:120])}'
@@ -928,14 +1011,14 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
         detail_blocks: List[str] = []
         if script_inputs:
             detail_blocks.append(
-                f'<div class="action-item"><strong>Input:</strong><pre style="white-space: pre-wrap; margin-top: 6px;">{escape(json.dumps(script_inputs, indent=2, sort_keys=True, default=str))}</pre></div>'
+                f'<div class="action-item"><strong>{t("campaign.input")}</strong><pre style="white-space: pre-wrap; margin-top: 6px;">{escape(json.dumps(script_inputs, indent=2, sort_keys=True, default=str))}</pre></div>'
             )
         if script_outputs:
             detail_blocks.append(
-                f'<div class="action-item"><strong>Outputs:</strong><pre style="white-space: pre-wrap; margin-top: 6px;">{escape(json.dumps(script_outputs, indent=2, sort_keys=True, default=str))}</pre></div>'
+                f'<div class="action-item"><strong>{t("campaign.outputs")}</strong><pre style="white-space: pre-wrap; margin-top: 6px;">{escape(json.dumps(script_outputs, indent=2, sort_keys=True, default=str))}</pre></div>'
             )
         if script_error:
-            detail_blocks.append(f'<div class="failure-action-item executed"><strong>Error:</strong> {escape(script_error)}</div>')
+            detail_blocks.append(f'<div class="failure-action-item executed"><strong>{t("campaign.error")}</strong> {tx(script_error, escape_markup=True)}</div>')
 
         if detail_blocks:
             item_attrs = f' onclick="toggleStep(\'campaign-script-{idx}\')"'
@@ -947,7 +1030,7 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
                     </div>
                 </div>
             </div>"""
-            expand_hint = '<span style="font-size: 0.8em; color: var(--text-secondary); white-space: nowrap; padding-left: 16px;">▸ details</span>'
+            expand_hint = '<span style="font-size: 0.8em; color: var(--text-secondary); white-space: nowrap; padding-left: 16px;">' + t('campaign.details') + '</span>'
         else:
             item_attrs = ' style="cursor: default;"'
             details_html = ''
@@ -974,11 +1057,12 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
 
     html_template = create_themed_html_template()
     return html_template.format(
+        share_button='',
         script_name=escape(campaign_name),
         execution_date=format_execution_date(started_at),
         start_time=format_timestamp(started_at),
         end_time=format_timestamp(ended_at),
-        success_status="PASS" if overall_success else "FAIL",
+        success_status=t('badge.pass') if overall_success else t('badge.fail'),
         success_class="success" if overall_success else "failure",
         execution_time=format_execution_time(execution_time),
         device_name=escape(device_name),
@@ -987,8 +1071,10 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
         total_steps=total_scripts,
         passed_steps=successful_scripts,
         failed_steps=failed_scripts,
+        success_steps_text=t('summary.steps', n=successful_scripts, total=total_scripts),
+        failure_steps_text=t('summary.steps', n=failed_scripts, total=total_scripts),
         step_results_html=''.join(items_html),
-        error_section=create_error_section(escape(error_msg)) if error_msg else '',
+        error_section=create_error_section(tx(error_msg, escape_markup=True)) if error_msg else '',
         overview_section=overview_section,
         zap_summary_section='',
         edge_results_section='',
@@ -999,7 +1085,7 @@ def generate_campaign_orchestrator_report(report_data: Dict[str, Any]) -> str:
         # placeholder. Campaign orchestrator reports cover multiple scripts
         # and never have a single testcase id, so always pass empty.
         testcase_builder_link='',
-        steps_section_title=f"Campaign Scripts ({successful_scripts}/{total_scripts} passed, {skipped_scripts} skipped)"
+        steps_section_title=t('campaign.title', ok=successful_scripts, total=total_scripts, skipped=skipped_scripts)
     )
 
 

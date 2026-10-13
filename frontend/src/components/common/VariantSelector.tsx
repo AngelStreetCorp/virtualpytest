@@ -22,12 +22,11 @@ import {
   Select,
   MenuItem,
   Checkbox,
-  useTheme,
 } from '@mui/material';
 
 import { useUserInterface } from '../../hooks/pages/useUserInterface';
 import { useUserInterfaceVariants } from '../../hooks/userinterface/useUserInterfaceVariants';
-import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface VariantSelectorProps {
   userinterfaceName?: string;
@@ -60,9 +59,7 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
   size = 'small',
   fullWidth = true,
 }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
-  const PALETTE = AGENT_CHAT_PALETTE;
+  const PALETTE = useAgentChatPalette();
 
   const { getUserInterfaceByName } = useUserInterface();
   const [userinterfaceId, setUserinterfaceId] = useState<string | null>(null);
@@ -122,10 +119,10 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
   const styles = {
     height: size === 'small' ? 32 : 40,
     fontSize: size === 'small' ? '0.85rem' : '0.875rem',
-    bgcolor: isDarkMode ? PALETTE.inputBg : '#fff',
+    bgcolor: PALETTE.inputBg,
     borderRadius: 1.5,
     '& .MuiOutlinedInput-notchedOutline': {
-      borderColor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+      borderColor: PALETTE.borderColor,
     },
   };
 

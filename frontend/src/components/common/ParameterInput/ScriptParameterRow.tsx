@@ -95,6 +95,10 @@ const pickUserinterface = (allValues: Record<string, string>): string => (
 // wake internally, so all it needs is the into-standby direction. Filter on the
 // destination node label rather than a whole-label substring so a variant that
 // re-wires the source (e.g. home → standby) still surfaces the edge.
+// The script times the REVERSE (wake) direction, so the picker judges each edge
+// by that reverse KPI (requireReverseKpi): an edge whose wake has no KPI is
+// shown red and can't be picked, instead of running and failing with
+// "No KPI measurements recorded".
 const STANDBY_EDGE_TO_LABEL = 'standby';
 
 // standby_measurement.py's standby-mode node picker only offers the mode nodes
@@ -222,6 +226,7 @@ export const ScriptParameterRow: React.FC<ScriptParameterRowProps> = ({
           onChange={onChange}
           label={param.name}
           toLabelEquals={STANDBY_EDGE_TO_LABEL}
+          requireReverseKpi
           size="small"
           fullWidth
         />

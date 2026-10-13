@@ -35,6 +35,7 @@ EXPECTED_SURFACE = {
     '/server/integrations/slack/events': 'Slack request signature, fail-closed when unset',
     '/server/host-session/authorize': 'host-session cookie or shared X-API-Key',
     '/server/cicd/ingest': 'CICD_INGEST_TOKEN bearer',
+    '/server/share': 'secret 128-bit link key (+ HMAC password cookie, rate-limited unlock)',
 }
 
 HOST_CALLBACKS = (
@@ -82,7 +83,10 @@ class TestHostCallbacksSendCredentials:
 
     @pytest.mark.parametrize('relative_path', CALLERS)
     def test_no_uncredentialed_post_to_a_callback_url(self, relative_path):
-        source = (Path(__file__).resolve().parents[2] / relative_path).read_text()
+        # Explicit UTF-8: source files carry non-ASCII log-message characters (e.g. an
+        # emoji in deployment_scheduler.py) that aren't valid under a platform default
+        # encoding like Windows' cp1252.
+        source = (Path(__file__).resolve().parents[2] / relative_path).read_text(encoding='utf-8')
         # A POST to callback_url that does not pass headers= is a callback the server will 401.
         # This is the failure mode of BUG-0151: a 401 is a response, not an exception, so the
         # host logs nothing and the page waits out its full socket timeout.

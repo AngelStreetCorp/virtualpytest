@@ -3,6 +3,10 @@ import { MarkerType, addEdge, Connection } from 'reactflow';
 
 import { useNavigationConfig } from '../../contexts/navigation/NavigationConfigContext';
 import NavigationContext from '../../contexts/navigation/NavigationContext';
+// Conditional edges are a categorical kind; the colour must read on light + dark
+// backgrounds inside the React Flow SVG, so we use the static dark-palette
+// colour (no hooks in this .ts module).
+import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
 import { useHostData, useHostControl } from '../useHostManager';
 import { useConfirmDialog } from '../useConfirmDialog';
 import { UINavigationEdge, UINavigationNode } from '../../types/pages/Navigation_Types';
@@ -108,6 +112,17 @@ export const useNavigationEditor = () => {
           variant: options?.variant ?? null,
         });
         
+        // A failed request (network error, 5xx, or a server error payload) comes
+        // back as null: NavigationConfigContext logs the server error and stores it
+        // in its error state instead of throwing. Guard it here - reading
+        // `result.success` off null raised `TypeError: Cannot read properties of
+        // null`, which left the editor blank with no usable error (BUG-0189).
+        if (!result) {
+          throw new Error(
+            'The server could not load this navigation tree (see the browser console for the server error)',
+          );
+        }
+
         if (result.success && result.tree) {
           const treeData = result.tree;
           const frontendNodes = mapNodesToFrontend(treeData.metadata?.nodes || []) as unknown as UINavigationNode[];
@@ -346,12 +361,12 @@ export const useNavigationEditor = () => {
         type: 'navigation',
         animated: false,
         style: {
-          stroke: conditionalActionSetId ? '#2196f3' : '#555',  // 🎨 BLUE for conditional, gray for normal
+          stroke: conditionalActionSetId ? AGENT_CHAT_PALETTE.series[1] : '#555',  // palette: steel for conditional, gray for normal
           strokeWidth: 2,
         },
         markerEnd: {
           type: MarkerType.ArrowClosed,
-          color: conditionalActionSetId ? '#2196f3' : '#555',  // 🎨 Match marker color
+          color: conditionalActionSetId ? AGENT_CHAT_PALETTE.series[1] : '#555',  // palette: match marker colour to stroke
         },
         data: createEdgeData(
           sourceNode?.data?.label || 'unknown',

@@ -65,6 +65,11 @@ if backend_server_dir not in sys.path:
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
+# The server resolves AI routes and calls providers itself (hosts go through its
+# /server/ai/complete gateway) — TASK-30.
+from shared.src.lib.ai import gateway as _ai_gateway  # noqa: E402
+_ai_gateway.use_local_routing()
+
 # Import from shared library (using clear import paths)
 try:
     from shared.src.lib.utils.app_utils import (
@@ -186,6 +191,14 @@ UNAUTHENTICATED_SERVER_PREFIXES: tuple = (
     # malformed JWT before the route ever saw it, so the endpoint was unreachable by
     # its only caller.
     '/server/cicd/ingest',
+    # Public viewer of one shared report snapshot (TASK-49). Authenticates itself with the
+    # secret 128-bit link key in the path (only its SHA-256 is stored) plus, when the link has
+    # one, an HMAC-signed password cookie; unlock attempts are rate limited. It serves only
+    # frozen copies from shared-snapshots/ and never reads a team_id from the request.
+    # Also covers the TASK-42 run snapshot GET /server/share/run/<snapshot_id>, which checks
+    # the snapshot id together with the hash of its X-Share-Token header, expiry and revocation,
+    # is rate limited and only returns the stored sanitized payload.
+    '/server/share',
 )
 
 
@@ -214,7 +227,12 @@ def configure_global_frontend_auth_guard(app):
         if not path.startswith('/server/'):
             return None
 
-        if any(path == prefix or path.startswith(f'{prefix}/') for prefix in unauthenticated_prefixes):
+        # The prefix exempts the dedicated route only. A path under it that no dedicated route
+        # matches (`/server/share/a/b/c`, `/server/health/%2e%2e/actions/executeBatch`) falls
+        # through to the auto_proxy catch-all, which forwards to a host with the server's key:
+        # it must authenticate like any other path (security review of TASK-49).
+        if (any(path == prefix or path.startswith(f'{prefix}/') for prefix in unauthenticated_prefixes)
+                and request.endpoint and not request.endpoint.startswith('auto_proxy.')):
             return None
 
         denied = enforce_user_auth_if_enabled_for_request()
@@ -252,10 +270,14 @@ def register_all_server_routes(app):
             server_pathfinding_routes,
             server_alerts_routes,
             server_analytics_routes,
+            server_atlas_analytics_routes,
             server_verification_routes,
             server_navigation_execution_routes,
             server_devicemodel_routes,
+            server_drone_routes,
+            server_remote_routes,
             server_ai_routes,
+            server_ai_routing_routes,
             server_testcase_routes,
             server_stream_proxy_routes,
             server_validation_routes,
@@ -279,6 +301,7 @@ def register_all_server_routes(app):
             server_device_flags_routes,
             server_restart_routes,
             server_deployment_routes,
+            server_masterchief_routes,
             server_builder_routes,
             server_settings_routes,
             mcp_routes,
@@ -301,14 +324,24 @@ def register_all_server_routes(app):
             server_device_info_overrides_routes,
             server_agent_routes,
             agent_registry_routes,
-            agent_runtime_routes,
+            agent_activity_routes,
             event_routes,
-            agent_benchmark_routes,
             agent_skill_routes,
             server_branding_routes,
             server_permissions_routes,
             server_security_routes,
             server_host_session_routes,
+            # TASK-42 — run management / governance / share / quality / manual / live
+            server_run_management_routes,
+            server_defects_routes,
+            server_run_share_routes,
+            server_quality_routes,
+            server_custom_reports_routes,
+            server_tql_routes,
+            server_manual_routes,
+            server_live_routes,
+            server_report_snapshots_routes,
+            server_share_public_routes,
         )
         # Import via absolute package path to avoid module alias split with emit callers
         # that import backend_server.src.routes.server_system_socket_routes.
@@ -327,10 +360,15 @@ def register_all_server_routes(app):
             (server_navigation_trees_routes.server_navigation_trees_bp, 'Navigation trees'),
             (server_pathfinding_routes.server_pathfinding_bp, 'Navigation pathfinding'),
             (server_alerts_routes.server_alerts_bp, 'Alert management'),
+            (server_atlas_analytics_routes.server_atlas_analytics_bp, 'Atlas analytics: database half for servers without a datasource (service key only)'),
             (server_analytics_routes.server_analytics_bp, 'Monitoring > Analytics aggregates (before auto_proxy: it would proxy an unknown section to a host)'),
             (server_verification_routes.server_verification_bp, 'Verification operations'),
             (server_devicemodel_routes.server_devicemodel_bp, 'Device model management'),
+            (server_drone_routes.server_drone_bp, 'Drone proxy (Tello skill for AI agents, TASK-32 + phase 2)'),
+            (server_remote_routes.server_remote_bp, 'Remote control proxy (must register BEFORE auto_proxy so /server/remote/executeCommandGroup is not swallowed by the generic proxy)'),
             (server_ai_routes.server_ai_bp, 'AI operations'),
+            (server_ai_routing_routes.server_ai_routing_bp, 'AI usage routing: endpoints/profiles/routes + gateway (TASK-30)'),
+            (server_masterchief_routes.server_masterchief_bp, 'Masterchief ops (TASK-71): narrow elevated-op surface, service key rejected, audit row per attempt'),
             # server_ai_testcase_routes DELETED - replaced by unified /server/testcase/execute-from-prompt
             (server_stream_proxy_routes.server_stream_proxy_bp, 'Stream proxy'),
             (server_validation_routes.server_validation_bp, 'Validation operations'),
@@ -384,15 +422,28 @@ def register_all_server_routes(app):
             (server_agent_routes.server_agent_bp, 'AI Agent chat (QA Manager + specialist agents)'),
             
             # Multi-Agent Platform (Event-Driven)
-            (agent_registry_routes.server_agent_registry_bp, 'Agent Registry (versioning, import/export)'),
-            (agent_runtime_routes.server_agent_runtime_bp, 'Agent Runtime (instance management)'),
+            (agent_registry_routes.server_agent_registry_bp, 'Agent Registry (versioning)'),
+            (agent_activity_routes.server_agent_activity_bp, 'Agent Activity (overview, logs, turns, usage, feedback)'),
             (agent_skill_routes.server_agent_skill_bp, 'Agent Skills (reload, testing, management)'),
             (event_routes.server_event_bp, 'Event System (manual triggers, stats)'),
-            (agent_benchmark_routes.server_agent_benchmark_bp, 'Agent Benchmarks & Feedback'),
             (server_branding_routes.server_branding_bp, 'Runtime branding (name, logo, favicon)'),
             (server_permissions_routes.server_permissions_bp, 'Fine-grained permissions (matrix, user effective)'),
             (server_security_routes.server_security_bp, 'Security scan reports (admin-only; Bandit/Snyk/npm-audit)'),
             (server_host_session_routes.server_host_session_bp, 'Host session gate for proxied VNC/HLS/phone-link paths (BUG-0107 step 2)'),
+            # TASK-42 — run management / governance / share / quality / manual / live
+            (server_run_management_routes.server_run_management_bp, 'Run summary + run-groups/milestones/labels/assignments (TASK-42)'),
+            (server_run_management_routes.server_run_groups_bp, 'Run groups CRUD + archive/restore/rerun (TASK-42)'),
+            (server_run_management_routes.server_milestones_bp, 'Milestones CRUD + archive/restore (TASK-42)'),
+            (server_run_management_routes.server_run_labels_bp, 'Run labels CRUD + delete (TASK-42)'),
+            (server_defects_routes.server_defects_bp, 'Defects + evidence + Jira push stub (TASK-42)'),
+            (server_run_share_routes.server_run_share_bp, 'Public share snapshots + token-only GET + export (TASK-42)'),
+            (server_quality_routes.server_quality_bp, 'Flaky / slow / never-executed endpoints (TASK-42)'),
+            (server_custom_reports_routes.server_custom_reports_bp, 'Custom reports CRUD (TASK-42)'),
+            (server_tql_routes.server_tql_bp, 'TQL parser validation (TASK-42)'),
+            (server_manual_routes.server_manual_bp, 'Manual session lifecycle + finalize (TASK-42)'),
+            (server_live_routes.server_live_bp, 'Live task status + stop (TASK-42)'),
+            (server_report_snapshots_routes.server_report_snapshots_bp, 'Report snapshots: create / list / revoke a shared link (TASK-49)'),
+            (server_share_public_routes.server_share_public_bp, 'Public viewer of a shared report snapshot (secret link key, TASK-49)'),
         ]
         
         registered_count = 0
@@ -421,6 +472,13 @@ def register_all_server_routes(app):
             # accepts everyone. Guard it too (BUG-0156).
             server_system_socket_routes.register_default_namespace_guard(app.socketio)
         
+        # Expired / revoked report snapshots lose their stored objects within ~15 min.
+        # Starts only when REPORT_SHARING_ENABLED; never fatal.
+        try:
+            server_report_snapshots_routes.start_snapshot_sweeper()
+        except Exception as e:
+            print(f"⚠️  Report snapshot sweeper not started (expired links stay until the ILM backstop): {e}")
+
         # Keep the Analytics sections warm from boot so the first person to open the
         # page after a deploy gets a dict lookup, not a cold query. Never fatal: a
         # pre-warm that cannot reach the DB just means the first request computes.
@@ -443,7 +501,13 @@ _background_agents = {}
 def start_agent_background_workers():
     """Auto-start background workers for agents with background_queues configured AND enabled=true"""
     global _background_agents
-    
+
+    try:
+        from shared.src.lib.ai import price_sync
+        price_sync.start()  # daily model price sync (OpenRouter list + Langfuse list)
+    except Exception as e:
+        print(f"[@backend_server:background] AI price sync not started: {e}")
+
     try:
         from agent.registry import get_agent_registry
         from agent.core.manager import QAManagerAgent
@@ -554,6 +618,8 @@ def main():
 
     # STEP 2.1: Apply global frontend auth guard for /server/* API surface
     configure_global_frontend_auth_guard(app)
+    from backend_server.src.lib.ai_caller_binding import install_ai_caller_binding
+    install_ai_caller_binding(app)
     
     # STEP 3: Register ALL routes
     if not register_all_server_routes(app):

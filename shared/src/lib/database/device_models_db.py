@@ -29,7 +29,7 @@ def get_all_device_models(team_id: str) -> List[Dict]:
     try:
         print(f"[@db:device_models_db:get_all_device_models] Querying for team_id: {team_id}")
         result = supabase.table('device_models').select(
-            'id', 'name', 'types', 'version', 'description', 'controllers', 'team_id', 'is_default', 'created_at', 'updated_at'
+            'id', 'name', 'types', 'version', 'description', 'team_id', 'is_default', 'created_at', 'updated_at'
         ).eq('team_id', team_id).order('created_at', desc=False).execute()
         
         print(f"[@db:device_models_db:get_all_device_models] Query successful, got {len(result.data) if result.data else 0} results")
@@ -42,7 +42,6 @@ def get_all_device_models(team_id: str) -> List[Dict]:
                 'types': model['types'],
                 'version': model.get('version', ''),
                 'description': model.get('description', ''),
-                'controllers': model.get('controllers', {}),
                 'team_id': model['team_id'],
                 'is_default': model.get('is_default', False),
                 'created_at': model['created_at'],
@@ -61,7 +60,7 @@ def get_device_model(model_id: str, team_id: str) -> Optional[Dict]:
     supabase = get_supabase()
     try:
         result = supabase.table('device_models').select(
-            'id', 'name', 'types', 'version', 'description', 'controllers', 'team_id', 'is_default', 'created_at', 'updated_at'
+            'id', 'name', 'types', 'version', 'description', 'team_id', 'is_default', 'created_at', 'updated_at'
         ).eq('id', model_id).eq('team_id', team_id).single().execute()
         
         if result.data:
@@ -72,7 +71,6 @@ def get_device_model(model_id: str, team_id: str) -> Optional[Dict]:
                 'types': model['types'],
                 'version': model.get('version', ''),
                 'description': model.get('description', ''),
-                'controllers': model.get('controllers', {}),
                 'team_id': model['team_id'],
                 'is_default': model.get('is_default', False),
                 'created_at': model['created_at'],
@@ -92,7 +90,6 @@ def create_device_model(model_data: Dict, team_id: str, creator_id: str = None) 
             'types': model_data['types'],
             'version': model_data.get('version', ''),
             'description': model_data.get('description', ''),
-            'controllers': model_data.get('controllers', {}),
             'team_id': team_id,
             'is_default': False,  # User-created models are never default
             'created_at': datetime.now(timezone.utc).isoformat(),
@@ -109,7 +106,6 @@ def create_device_model(model_data: Dict, team_id: str, creator_id: str = None) 
                 'types': model['types'],
                 'version': model.get('version', ''),
                 'description': model.get('description', ''),
-                'controllers': model.get('controllers', {}),
                 'team_id': model['team_id'],
                 'is_default': model.get('is_default', False),
                 'created_at': model['created_at'],
@@ -136,8 +132,6 @@ def update_device_model(model_id: str, model_data: Dict, team_id: str) -> Option
             update_data['version'] = model_data['version']
         if 'description' in model_data:
             update_data['description'] = model_data['description']
-        if 'controllers' in model_data:
-            update_data['controllers'] = model_data['controllers']
         
         result = supabase.table('device_models').update(update_data).eq('id', model_id).eq('team_id', team_id).execute()
         
@@ -149,7 +143,6 @@ def update_device_model(model_id: str, model_data: Dict, team_id: str) -> Option
                 'types': model['types'],
                 'version': model.get('version', ''),
                 'description': model.get('description', ''),
-                'controllers': model.get('controllers', {}),
                 'team_id': model['team_id'],
                 'is_default': model.get('is_default', False),
                 'created_at': model['created_at'],

@@ -83,5 +83,16 @@ export default defineConfig({
     // no natural end (hit this exact bug backfilling tests on 2026-09-06). This
     // caps that failure mode to a loud timeout instead of a silent multi-minute hang.
     testTimeout: 10000,
+    // Cap the fork pool so a stuck or interrupted run can't leave 15 orphaned
+    // `node (vitest N)` workers eating cycles until next reboot. Vitest 2.x
+    // defaults to `pool: 'forks'` with no upper bound — when the parent
+    // process dies (MiniMax turn boundary, agent cancel, SIGKILL of the bash
+    // wrapper that owned the npm exec), the workers get adopted by launchd
+    // (PPID 1) and keep running. 4 forks still parallelizes the 3-file runs
+    // MiniMax typically kicks (Rec, DeviceControl, DroneTileSingleVoice) while
+    // bounding any leak to 4 stale workers instead of `nproc`-many.
+    poolOptions: {
+      forks: { maxForks: 4 },
+    },
   },
 });

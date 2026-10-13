@@ -18,6 +18,7 @@ from shared.src.lib.database.device_models_db import (
     check_device_model_name_exists
 )
 
+from shared.src.lib.config.device_capabilities import DEVICE_CONTROLLER_MAP
 from shared.src.lib.utils.app_utils import check_supabase
 from shared.src.lib.config.constants import CACHE_CONFIG
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
@@ -38,9 +39,29 @@ def _invalidate_models_cache(team_id):
             del _models_cache[team_id]
             print(f"[@cache] INVALIDATE: Device models for team {team_id}")
 
+def _unsupported_model_error(name):
+    """400 for a model name no host can build a device from, else None.
+
+    A host reads DEVICE{i}_MODEL and looks it up in DEVICE_CONTROLLER_MAP; a name that is
+    not there gets no controllers at all, so a row with it could be picked for a
+    userinterface but never driven.
+    """
+    if name in DEVICE_CONTROLLER_MAP:
+        return None
+    return jsonify({
+        'error': f"'{name}' is not a model a host can run. "
+                 f"Supported: {', '.join(sorted(DEVICE_CONTROLLER_MAP))}"
+    }), 400
+
 # =====================================================
 # DEVICE MODELS ENDPOINTS
 # =====================================================
+
+@server_devicemodel_bp.route('/getSupportedModels', methods=['GET'])
+@handle_route_exceptions('server_devicemodel:getSupportedModels')
+def get_supported_models():
+    """Model names a host understands (DEVICE{i}_MODEL values) — what Add Model offers."""
+    return jsonify({'models': sorted(DEVICE_CONTROLLER_MAP)})
 
 @server_devicemodel_bp.route('/getAllModels', methods=['GET'])
 @handle_route_exceptions('server_devicemodel:getAllModels')
@@ -77,6 +98,9 @@ def create_device_model_endpoint():
         return jsonify({'error': 'Name is required'}), 400
     if not model_data.get('types') or len(model_data.get('types', [])) == 0:
         return jsonify({'error': 'At least one type must be selected'}), 400
+    unsupported = _unsupported_model_error(model_data['name'])
+    if unsupported:
+        return unsupported
     if check_device_model_name_exists(model_data['name'], team_id):
         return jsonify({'error': 'A device model with this name already exists'}), 400
     created_model = create_device_model(model_data, team_id)
@@ -111,6 +135,12 @@ def update_device_model_endpoint(model_id):
         return jsonify({'error': 'Name is required'}), 400
     if not model_data.get('types') or len(model_data.get('types', [])) == 0:
         return jsonify({'error': 'At least one type must be selected'}), 400
+    # Renaming must land on a supported name; a row created before the check keeps its own.
+    current = get_device_model(model_id, team_id)
+    if current and current['name'] != model_data['name']:
+        unsupported = _unsupported_model_error(model_data['name'])
+        if unsupported:
+            return unsupported
     if check_device_model_name_exists(model_data['name'], team_id, model_id):
         return jsonify({'error': 'A device model with this name already exists'}), 400
     updated_model = update_device_model(model_id, model_data, team_id)

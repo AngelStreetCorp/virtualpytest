@@ -9,10 +9,10 @@
  */
 
 import React, { useEffect } from 'react';
-import { Box, FormControl, InputLabel, Select, MenuItem, Typography, useTheme } from '@mui/material';
+import { Box, FormControl, InputLabel, Select, MenuItem, Typography } from '@mui/material';
 
 import { useNavigationNodes } from '../../hooks/script/useNavigationNodes';
-import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface NavigationNodeSelectorProps {
   userinterfaceName?: string;
@@ -52,9 +52,7 @@ export const NavigationNodeSelector: React.FC<NavigationNodeSelectorProps> = ({
   allowNone = false,
   labelIncludesAny,
 }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
-  const PALETTE = AGENT_CHAT_PALETTE;
+  const livePalette = useAgentChatPalette();
 
   const { nodes: allNodes, loading } = useNavigationNodes(userinterfaceName, variant);
 
@@ -98,10 +96,10 @@ export const NavigationNodeSelector: React.FC<NavigationNodeSelectorProps> = ({
   const styles = {
     height: size === 'small' ? 32 : 40,
     fontSize: size === 'small' ? '0.85rem' : '0.875rem',
-    bgcolor: isDarkMode ? PALETTE.inputBg : '#fff',
+    bgcolor: livePalette.inputBg,
     borderRadius: 1.5,
     '& .MuiOutlinedInput-notchedOutline': {
-      borderColor: isDarkMode ? PALETTE.borderColor : 'grey.300',
+      borderColor: livePalette.borderColor,
     },
   };
 

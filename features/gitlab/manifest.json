@@ -1,0 +1,9 @@
+{
+  "name": "gitlab",
+  "description": "GitLab orchestration for a self-hosted GitLab: REST API v4 connector (lib/gitlab_api.py) reading pipelines/jobs/runners and triggering pipelines over PRIVATE-TOKEN, plus the /server/gitlab routes. Separate from features/cicd on purpose \u2014 cicd collects GitHub Actions results and ships its reports page, dashboard and db schema, none of which a customer running GitLab CE needs. Enable or disable this one with DISABLED_FEATURES like any other feature; when absent nothing is registered and nothing is bundled. Verified against GitLab CE 19.4.2 on 2026-10-13.",
+  "parts": [
+    "backend_server",
+    "lib",
+    "frontend"
+  ]
+}

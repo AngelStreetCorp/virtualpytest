@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | backend_server MCP tools / backend_host Playwright controller |
-| Fixed in  | Unreleased (the cut sets the build — never copy VERSION.txt)  |
+| Fixed in  | Unreleased                                                   |
 | Commit    | 3431decfe                                                    |
 
 ---

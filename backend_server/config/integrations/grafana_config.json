@@ -1,5 +1,5 @@
 {
   "default_role": "viewer",
-  "grafana_role_by_role": { "admin": "Admin", "tester": "Editor", "viewer": "Viewer" },
+  "grafana_role_by_role": { "admin": "Admin", "manager": "Viewer", "developer": "Viewer", "tester": "Viewer", "viewer": "Viewer" },
   "grafana_org_id": 1
 }

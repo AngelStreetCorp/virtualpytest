@@ -11,6 +11,7 @@ from typing import Dict, List, Any, Optional
 from shared.src.lib.models.host import Host
 from shared.src.lib.models.device import Device
 from backend_host.src.controllers.controller_config_factory import create_controller_configs_from_device_info
+from backend_host.src.controllers import CONTROLLER_REGISTRY
 from backend_host.src.controllers.controller_registry import (
     get_remote_implementation,
     get_verification_implementation,
@@ -20,6 +21,8 @@ from backend_host.src.controllers.controller_registry import (
 from backend_host.src.controllers.audiovideo.hdmi_stream import HDMIStreamController
 from backend_host.src.controllers.audiovideo.vnc_stream import VNCStreamController
 from backend_host.src.controllers.audiovideo.camera_stream import CameraStreamController
+from backend_host.src.controllers.audiovideo.rtsp_stream import RTSPStreamController
+from backend_host.src.controllers.audiovideo.video_stream import VideoFileStreamController
 from backend_host.src.controllers.remote.android_mobile import AndroidMobileRemoteController
 from backend_host.src.controllers.remote.android_tv import AndroidTVRemoteController
 from backend_host.src.controllers.remote.appium_remote import AppiumRemoteController
@@ -135,7 +138,11 @@ def create_host_from_environment(device_ids: List[str] = None, host_ip: str = No
             'vnc_password': vnc_password,  # VNC password
             'web_browser_path': web_browser_path,  # Browser path for VNC viewer
             'host_ip': host_ip,  # Add host IP for web controller
-            'host_port': host_port  # Add host port for web controller
+            'host_port': host_port,  # Add host port for web controller
+            # Same optional defaults as DEVICE{N}_USERINTERFACE/VARIANT: the Device page shows the
+            # Localize button only when the device has a preferred userinterface (BUG-0419).
+            'preferred_userinterface': os.getenv('HOST_USERINTERFACE') or None,
+            'preferred_variant': os.getenv('HOST_VARIANT') or None,
         }
         
         host_device = _create_device_with_controllers(host_device_config, host)
@@ -214,8 +221,23 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
             ir_port = os.getenv(f'DEVICE{i}_IR_PORT')
             ir_led = os.getenv(f'DEVICE{i}_IR_LED')
             ir_remote = os.getenv(f'DEVICE{i}_IR_REMOTE')
+            # USB IR Toy / Irdroid (04d8:fd08) driven over its CDC serial node. Used on
+            # non-Pi hosts, where the stock Debian kernel has no CONFIG_IR_TOY so the
+            # dongle is never claimed for IR and no /dev/lirc* can exist.
+            ir_serial = os.getenv(f'DEVICE{i}_IR_SERIAL')
             ble_adapter_hci = os.getenv(f'DEVICE{i}_BLE_ADAPTER_HCI')
             ble_type = os.getenv(f'DEVICE{i}_BLE_TYPE')
+            ble_mac = os.getenv(f'DEVICE{i}_BLE_MAC')
+            # TASK-71: FX voice modem (Conexant CX93001, 0572:1349). The port is
+            # named by the udev rule as /dev/fx1..fx4, never /dev/ttyACM* —
+            # cdc_acm hands those out in USB enumeration order, so the number
+            # changes across reboots and a call can land on the wrong line.
+            fx_port = os.getenv(f'DEVICE{i}_FX_PORT')
+            # TASK-71: the number this line dials. Each dongle reaches one
+            # gateway FXS port, and that port answers to one number, so the
+            # pairing lives in .env beside FX_PORT instead of in every test
+            # case. FXRemoteController.dial falls back to it.
+            fx_number = os.getenv(f'DEVICE{i}_FX_NUMBER')
             bluetooth_device = os.getenv(f'DEVICE{i}_bluetooth_device')
             power_device = os.getenv(f'DEVICE{i}_power_device')
             power_name = os.getenv(f'DEVICE{i}_POWER_NAME')
@@ -226,6 +248,12 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
             # API device name; POWER_API_URL presence selects the api_power transport.
             power_api_url = os.getenv(f'DEVICE{i}_POWER_API_URL')
             power_api_key = os.getenv(f'DEVICE{i}_POWER_API_KEY')
+            # Wake-on-LAN (a LAN PC). POWER_MAC presence selects the wol transport;
+            # POWER_IP is reused as the SSH shutdown target and status probe.
+            power_mac = os.getenv(f'DEVICE{i}_POWER_MAC')
+            power_broadcast = os.getenv(f'DEVICE{i}_POWER_BROADCAST')
+            power_ssh_user = os.getenv(f'DEVICE{i}_POWER_SSH_USER')
+            power_ssh_port = os.getenv(f'DEVICE{i}_POWER_SSH_PORT')
             appium_platform_name = os.getenv(f'DEVICE{i}_APPIUM_PLATFORM_NAME')
             appium_device_id = os.getenv(f'DEVICE{i}_APPIUM_DEVICE_ID')
             appium_server_url = os.getenv(f'DEVICE{i}_APPIUM_SERVER_URL')
@@ -259,6 +287,7 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
                 'preferred_variant': preferred_variant,
                 # Video configuration
                 'video': video,
+                'youtube_url': os.getenv(f'DEVICE{i}_YOUTUBE_URL'),
                 'video_stream_path': video_stream_path,
                 'video_capture_path': video_capture_path,
                 # Device IP/Port (used by both Android ADB and Appium - mutually exclusive)
@@ -272,9 +301,18 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
                 'ir_port': ir_port,
                 'ir_led': ir_led,
                 'ir_remote': ir_remote,
+                'ir_serial': ir_serial,
                 'ble_adapter_hci': ble_adapter_hci,
                 'ble_type': ble_type,
+                'ble_mac': ble_mac,
                 'bluetooth_device': bluetooth_device,
+                # TASK-71: FX voice modem. /dev/fx1..fx4, named by udev.
+                'fx_port': fx_port,
+                'fx_number': fx_number,
+                # Tello drone (TASK-32): its address and the host ports its state and video arrive on
+                'tello_ip': os.getenv(f'DEVICE{i}_TELLO_IP'),
+                'tello_state_port': os.getenv(f'DEVICE{i}_TELLO_STATE_PORT'),
+                'tello_video_port': os.getenv(f'DEVICE{i}_TELLO_VIDEO_PORT'),
                 'power_device': power_device,
                 # Power configuration
                 'power_name': power_name,
@@ -284,6 +322,16 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
                 # API power (client REST API)
                 'power_api_url': power_api_url,
                 'power_api_key': power_api_key,
+                # Wake-on-LAN
+                'power_mac': power_mac,
+                'power_broadcast': power_broadcast,
+                'power_ssh_user': power_ssh_user,
+                'power_ssh_port': power_ssh_port,
+                # Nintendo Switch Bluetooth Pro Controller (vpt-procon daemon). Unset =
+                # daemon on this host at 127.0.0.1:6190; set to reach it on another
+                # host of the LAN (that daemon then requires the token).
+                'switch_procon_url': os.getenv(f'DEVICE{i}_SWITCH_PROCON_URL'),
+                'switch_procon_token': os.getenv(f'DEVICE{i}_SWITCH_PROCON_TOKEN'),
             }
             
             # Load Appium env vars directly into device_config (flat)
@@ -326,6 +374,10 @@ def _create_controller_instance(controller_type: str, implementation: str, param
                 return VNCStreamController(**params)
             elif implementation == 'camera_stream':
                 return CameraStreamController(**params)
+            elif implementation == 'rtsp_stream':
+                return RTSPStreamController(**params)
+            elif implementation == 'video_stream':
+                return VideoFileStreamController(**params)
 
         # Remote Controllers
         elif controller_type == 'remote':
@@ -345,9 +397,23 @@ def _create_controller_instance(controller_type: str, implementation: str, param
             elif implementation == 'irtrans_remote':
                 from .remote.irtrans import IRTransRemoteController
                 return IRTransRemoteController(**params)
+            elif implementation == 'irtoy_remote':
+                from .remote.irtoy import IRToyRemoteController
+                return IRToyRemoteController(**params)
             elif implementation == 'bluetooth_remote':
                 from .remote.bluetooth import BluetoothRemoteController
                 return BluetoothRemoteController(**params)
+            elif implementation == 'tello':
+                from .remote.tello import TelloRemoteController
+                return TelloRemoteController(**params)
+            elif implementation == 'vega':
+                from .remote.vega import VegaRemoteController
+                return VegaRemoteController(**params)
+            elif implementation == 'fx':
+                # TASK-71: FX voice modem as a remote (pick up / hang up / dial /
+                # DTMF). Model `fx_dongle`; port from DEVICE{i}_FX_PORT.
+                from .remote.fx import FXRemoteController
+                return FXRemoteController(**params)
 
 
         # Verification Controllers - now require device_model
@@ -388,13 +454,27 @@ def _create_controller_instance(controller_type: str, implementation: str, param
                 from backend_host.src.controllers.web.playwright import PlaywrightWebController
                 return PlaywrightWebController(**params)
 
-        # Power Controllers
+        # Switch Controllers
+        elif controller_type == 'switch':
+            # TASK-31: switch controller. 'hdmi_switch' is a placeholder;
+            # 'bluetooth_procon' drives a Nintendo Switch as a Bluetooth Pro
+            # Controller (vpt-procon daemon). Both are registered in
+            # CONTROLLER_REGISTRY['switch']; this block just routes.
+            impl_class = CONTROLLER_REGISTRY.get('switch', {}).get(implementation)
+            if impl_class is None:
+                from backend_host.src.controllers.switch.base_switch import BaseSwitchController
+                return BaseSwitchController(controller_name=f"{implementation} (placeholder)", **params)
+            print(f"[@controller_manager] Loaded switch controller: {impl_class.__name__}")
+            return impl_class(**params)
         elif controller_type == 'power':
             if implementation == 'tapo':
                 return TapoPowerController(**params)
             elif implementation == 'api_power':
                 from .power.api_power import APIPowerController
                 return APIPowerController(**params)
+            elif implementation == 'wol':
+                from .power.wol_power import WOLPowerController
+                return WOLPowerController(**params)
 
         print(f"[@controller_manager:_create_controller_instance] WARNING: Unknown controller {controller_type}_{implementation}")
         return None
@@ -474,6 +554,10 @@ def _create_device_with_controllers(device_config: Dict[str, Any], host: 'Host')
     power_controllers = [c for c in controller_list if c['type'] == 'power']
     desktop_controllers = [c for c in controller_list if c['type'] == 'desktop']
     web_controllers = [c for c in controller_list if c['type'] == 'web']
+    # TASK-31: switch controllers (HDMI matrix placeholder, Bluetooth Pro
+    # Controller for a Nintendo Switch). Same iteration shape as the others; instantiated after
+    # AV so the switch controller can reference the av_controller if needed.
+    switch_controllers = [c for c in controller_list if c['type'] == 'switch']
     
     # Step 1: Create AV controllers first (no dependencies)  
     av_controller = None
@@ -580,7 +664,21 @@ def _create_device_with_controllers(device_config: Dict[str, Any], host: 'Host')
         controller_type = controller_config['type']
         implementation = controller_config['implementation']
         controller_params = controller_config['params']
-        
+
+        controller = _create_controller_instance(controller_type, implementation, controller_params)
+        if controller:
+            device.add_controller(controller_type, controller)
+
+    # Step 6b: Create switch controllers (TASK-31). Same iteration shape as
+    # the others; the av_controller is passed in case a switch controller
+    # needs the host's capture pipeline.
+    for controller_config in switch_controllers:
+        controller_type = controller_config['type']
+        implementation = controller_config['implementation']
+        controller_params = controller_config['params']
+        if av_controller is not None:
+            controller_params.setdefault('av_controller', av_controller)
+
         controller = _create_controller_instance(controller_type, implementation, controller_params)
         if controller:
             device.add_controller(controller_type, controller)

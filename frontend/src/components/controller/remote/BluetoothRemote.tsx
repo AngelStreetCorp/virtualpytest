@@ -14,13 +14,22 @@ import {
   DialogContent,
   DialogTitle,
   IconButton,
+  LinearProgress,
   Stack,
   Tab,
   Tabs,
   Typography,
 } from '@mui/material';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { useDisabledRemoteKeys } from '../../../contexts/RemoteCommandSinkContext';
 import { InfraredRemoteButton } from '../../../config/remote/infraredRemoteBase';
 import { ConfirmDialog } from '../../common/ConfirmDialog';
 import { StyledDialog } from '../../common/StyledDialog';
@@ -28,6 +37,8 @@ import { usePermissionContext } from '../../../contexts/auth/PermissionContext';
 import {
   BluetoothLogs,
   useBluetoothRemote,
+  BLE_PAIR_PREP_MAX_S,
+  BLE_PAIR_WAIT_S,
 } from '../../../hooks/controller/useBluetoothRemote';
 import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
 import { Host } from '../../../types/common/Host_Types';
@@ -77,16 +88,25 @@ export const BluetoothRemote = React.memo(
     streamContainerDimensions,
     onStatusChange,
   }: BluetoothRemoteProps) {
+    const P = useAgentChatPalette();
+    // TASK-80 multi-profile group: keys outside the shared intersection render
+    // greyed on the BLE skin; clicks are dropped. Same as InfraredRemote.
+    const disabledKeys = useDisabledRemoteKeys();
+    const isKeyDisabled = (key: string): boolean => disabledKeys != null && !disabledKeys.has(key);
     const {
       session,
       isLoading,
       isPairing,
       isWaking,
+      wakeRemainingMs,
+      wakeTotalMs,
       pairPhase,
       pairError,
+      pairReady,
       layoutConfig,
       status,
       resumeFailed,
+      resumeRunning,
       handleConnect,
       handleRemoteCommand,
       startPairing,
@@ -130,12 +150,12 @@ export const BluetoothRemote = React.memo(
     const [pairingIntent, setPairingIntent] = useState(false);
 
     // Safety net: independent of the hook's pair-poll loop, force-clear
-    // pairingIntent 60 s after the user clicked pair. Guards against any
+    // pairingIntent BLE_PAIR_WAIT_S after the user clicked pair. Guards against any
     // missed pairPhase transition (dual-click early-returning the hook,
     // component re-mount wiping the loop, etc.) — without this the
     // "Waiting for STB to pair…" screen could stick forever. Matches the
-    // hook's 60 s pair loop ceiling.
-    const PAIR_WAIT_MS = 60000;
+    // hook's pair loop ceiling.
+    const PAIR_WAIT_MS = (BLE_PAIR_PREP_MAX_S + BLE_PAIR_WAIT_S) * 1000;
     useEffect(() => {
       if (!pairingIntent) return undefined;
       const t = window.setTimeout(() => setPairingIntent(false), PAIR_WAIT_MS);
@@ -147,26 +167,27 @@ export const BluetoothRemote = React.memo(
       startPairing();
     }, [startPairing]);
 
-    // Countdown during pairing. Matches PAIR_WAIT_MS / the hook's pair loop.
+    // Countdown for the STB, started when the remote is ready to pair
+    // (pairReady), not at the click: start.sh needs ~30 s first.
     const [pairRemaining, setPairRemaining] = useState<number>(0);
     const pairStartRef = useRef<number | null>(null);
     useEffect(() => {
-      if (pairPhase === 'pairing' || pairingIntent) {
+      if (pairReady && (pairPhase === 'pairing' || pairingIntent)) {
         if (pairStartRef.current === null) {
           pairStartRef.current = Date.now();
-          setPairRemaining(60);
+          setPairRemaining(BLE_PAIR_WAIT_S);
         }
         const t = window.setInterval(() => {
           if (pairStartRef.current === null) return;
           const elapsed = (Date.now() - pairStartRef.current) / 1000;
-          setPairRemaining(Math.max(0, Math.round(60 - elapsed)));
+          setPairRemaining(Math.max(0, Math.round(BLE_PAIR_WAIT_S - elapsed)));
         }, 250);
         return () => window.clearInterval(t);
       }
       pairStartRef.current = null;
       setPairRemaining(0);
       return undefined;
-    }, [pairPhase, pairingIntent]);
+    }, [pairPhase, pairingIntent, pairReady]);
 
     const handleButtonPress = async (buttonKey: string) => {
       if (isLoading || !session.connected) return;
@@ -252,7 +273,17 @@ export const BluetoothRemote = React.memo(
     const REMOTE_BASE_HEIGHT = 1800;
     const imageBoxRef = useRef<HTMLDivElement | null>(null);
     const [measuredImageHeight, setMeasuredImageHeight] = useState(0);
-    useEffect(() => {
+    // Measure synchronously before paint so the very first frame of the
+    // freshly-mounted image box positions the button overlays against the
+    // real flex/aspect-ratio-driven height. With useEffect this would
+    // commit *after* paint, so the user briefly sees the buttons
+    // positioned with the calculateRemoteScale() fallback (off by the
+    // flex / padding delta) and then they animate into place — that
+    // ~150 ms "misplaced during the success animation" is what the
+    // panel user reports after a successful pair. useLayoutEffect makes
+    // the measurement + state update land before the browser paints, so
+    // the user only sees the final, correctly-scaled layout.
+    useLayoutEffect(() => {
       const el = imageBoxRef.current;
       if (!el) return undefined;
       const update = () => {
@@ -269,12 +300,11 @@ export const BluetoothRemote = React.memo(
         ? measuredImageHeight / REMOTE_BASE_HEIGHT
         : calculateRemoteScale();
 
-    // "Actively pairing" = user clicked pair OR hook is in 60s pair-poll.
+    // "Actively pairing" = user clicked pair OR hook is in the pair-poll.
     // Plain "adapter advertising, no bond" (e.g. post-timeout state on the
     // daemon) is NOT the same as actively pairing — it's a recoverable
     // state where the user should see Start Pairing / Retry actions.
     const activelyPairing = pairingIntent || pairPhase === 'pairing';
-    const isAdvertising = status !== null && status.advertising && !status.bond_present;
 
     // Clear pairingIntent when the hook's pair loop confirms success AND
     // status has caught up (fullyConnected), or when the pair loop errors
@@ -297,13 +327,13 @@ export const BluetoothRemote = React.memo(
     // Dot color: green=ok, amber=connected-but-broken, blue=pairing,
     // red=down, grey=loading.
     const dotColor: string = (() => {
-      if (status === null) return '#888';
-      if (activelyPairing) return '#1976d2';  // blue — pairing in progress
-      if (!status.daemon_active) return '#d32f2f';
-      if (!status.bond_present) return '#d32f2f';
-      if (degraded) return '#ed6c02';  // amber — connected but keys won't work
-      if (fullyConnected && status.connected) return '#2e7d32';
-      return '#d32f2f'; // bonded but STB disconnected
+      if (status === null) return P.textMuted;
+      if (activelyPairing) return P.accentText;  // palette accent — pairing in progress
+      if (!status.daemon_active) return P.error;
+      if (!status.bond_present) return P.error;
+      if (degraded) return P.warning;  // amber — connected but keys won't work
+      if (fullyConnected && status.connected) return P.success;
+      return P.error; // bonded but STB disconnected
     })();
     const dotTooltip: string =
       status === null
@@ -325,7 +355,7 @@ export const BluetoothRemote = React.memo(
 
     // ---- Headline for the action screen --------------------------------
     const actionHeadline = (() => {
-      if (activelyPairing) return 'Waiting for STB to pair…';
+      if (activelyPairing) return pairReady ? 'Ready to pair' : 'Preparing the remote…';
       if (status === null) return 'Loading BLE status…';
       if (!status.bond_present) return 'No Bluetooth pairing found';
       if (!status.daemon_active) return 'BLE daemon is not running';
@@ -343,14 +373,16 @@ export const BluetoothRemote = React.memo(
       // that in the subtext — visible as a flicker between the headline
       // and the settled pairing state.
       if (activelyPairing)
-        return 'Put the STB into "Add new remote" mode. This will take up to 60 seconds.';
+        return pairReady
+          ? `Put the STB into "Add new remote" mode now. The STB can take up to ${BLE_PAIR_WAIT_S / 60} minutes to pair.`
+          : 'Setting up the Bluetooth remote (about 30 s). Wait for the green light before putting the STB in pairing mode.';
       if (!status) return '';
       if (!status.bond_present) {
         const mac = status.adapter_mac && !status.adapter_mac.startsWith('00:00:00')
           ? status.adapter_mac
           : null;
         return (
-          "Put the STB into pair-new-remote mode, then click Start Pairing. " +
+          'Click Start Pairing, wait for the green light, then put the STB into "Add new remote" mode. ' +
           (mac ? `We'll run start.sh on the host using adapter ${mac}.` : "We'll run start.sh on the host.")
         );
       }
@@ -366,8 +398,17 @@ export const BluetoothRemote = React.memo(
         // on the STB and end up in the same trap.
         return 'STB reconnected but HID subscription is missing. ' +
           'Open the STB remote-settings menu, FORGET this remote, then click Re-pair.';
-      if (isWaking)
-        return `Sending ADV_DIRECT_IND to ${status.stb_mac ?? 'bonded STB'} — should reconnect within 8 s.`;
+      if (isWaking) {
+        // The daemon ADV_DIRECT_IND window is 30 s; the browser waits 32 s
+        // for grace. The cold-wake WoBLE path is 25 s. Round each to whole
+        // seconds for display, and fall back to "30 s" if the hook hasn't
+        // published a total yet (covers the very first render after the
+        // coldWake / auto-wake effects fire but before the ref has been
+        // read into the return object).
+        const totalS = wakeTotalMs > 0 ? Math.round(wakeTotalMs / 1000) : 30;
+        const elapsedS = Math.max(0, Math.round((wakeTotalMs - wakeRemainingMs) / 1000));
+        return `Sending ADV_DIRECT_IND to ${status.stb_mac ?? 'bonded STB'} — ${elapsedS}s / ${totalS}s`;
+      }
       if (resumeFailed && !status.connected)
         return 'The daemon is up but the STB hasn’t reconnected. ' +
           'Power-cycle the STB or click Re-pair to start over.';
@@ -386,7 +427,7 @@ export const BluetoothRemote = React.memo(
       const pairingLocked = activelyPairing || isPairing;
       // Show Start Pairing whenever there's no bond and no active pair
       // request — including the post-timeout state where the daemon is
-      // still advertising (isAdvertising=true) but the hook has long
+      // still advertising (status.advertising=true) but the hook has long
       // since stopped polling.
       const showStart =
         !pairingLocked && status !== null && !status.bond_present;
@@ -408,11 +449,19 @@ export const BluetoothRemote = React.memo(
       // partial-state combination — and Re-pair plus an STB-side forget
       // is the only reliable fix for the §6.7.9 trap (see degraded
       // subtext above). Pairing in progress still suppresses it.
+      //
+      // Exception: while the auto-wake is in flight (isWaking) or the
+      // backend is mid-resume.sh (resumeRunning), hide Re-pair. The
+      // bond-wipe would race the in-flight recovery script, and Re-pair
+      // is only useful AFTER the wake/resume window closes — either with
+    // connected=true (no Re-pair needed, fullyConnected) or with the
+    // operation still failing (Re-pair becomes the escape hatch).
       const showRepair =
         !pairingLocked &&
         status !== null &&
         status.bond_present &&
-        !fullyConnected;
+        !fullyConnected &&
+        !(isWaking || resumeRunning);
       // POWER on demand: the deep/cold-standby wake path. When the STB is
       // bonded but disconnected we can't tell whether it's asleep, so we
       // always offer a POWER key the user can press to try to wake it. It
@@ -443,24 +492,50 @@ export const BluetoothRemote = React.memo(
           }}
         >
           {activelyPairing || isWaking ? (
-            <BluetoothSearchingIcon sx={{ fontSize: 56, color: '#1976d2' }} />
+            <BluetoothSearchingIcon sx={{ fontSize: 56, color: P.accentText }} />
           ) : !status ? (
             <CircularProgress size={28} />
           ) : !status.daemon_active ? (
-            <BluetoothIcon sx={{ fontSize: 56, color: '#d32f2f' }} />
+            <BluetoothIcon sx={{ fontSize: 56, color: P.error }} />
           ) : degraded ? (
-            <BluetoothIcon sx={{ fontSize: 56, color: '#ed6c02' }} />
+            <BluetoothIcon sx={{ fontSize: 56, color: P.warning }} />
           ) : (
-            <BluetoothSearchingIcon sx={{ fontSize: 56, color: '#888' }} />
+            <BluetoothSearchingIcon sx={{ fontSize: 56, color: P.textMuted }} />
           )}
 
-          <Typography variant="subtitle1" sx={{ color: '#eee' }}>
+          <Typography variant="subtitle1" sx={{ color: P.textPrimary }}>
             {actionHeadline}
           </Typography>
           {actionSubtext && (
-            <Typography variant="body2" sx={{ color: '#aaa', maxWidth: 340 }}>
+            <Typography variant="body2" sx={{ color: P.textMuted, maxWidth: 340 }}>
               {actionSubtext}
             </Typography>
+          )}
+
+          {/* Live progress bar for the active wake window. Shows the operator
+              that the wait is elapsing — replaces the previous static
+              "waiting up to 30s" subtext. width = elapsed / total; capped
+              to [0,1] so a hook ref that's lagging the ticker can't paint a
+              negative or >100% bar. */}
+          {isWaking && wakeTotalMs > 0 && (
+            <Box sx={{ width: '100%', maxWidth: 280 }}>
+              <LinearProgress
+                variant="determinate"
+                value={Math.min(
+                  100,
+                  Math.max(
+                    0,
+                    Math.round(((wakeTotalMs - wakeRemainingMs) / wakeTotalMs) * 100),
+                  ),
+                )}
+                sx={{
+                  height: 4,
+                  borderRadius: 2,
+                  bgcolor: 'rgba(255,255,255,0.08)',
+                  '& .MuiLinearProgress-bar': { bgcolor: P.accentText },
+                }}
+              />
+            </Box>
           )}
 
           {(pairPhase === 'timeout' || pairPhase === 'failed') && pairError && (
@@ -472,22 +547,23 @@ export const BluetoothRemote = React.memo(
           <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap', justifyContent: 'center', rowGap: 1.5 }}>
             {activelyPairing && (
               <Stack direction="row" alignItems="center" spacing={1} sx={{ height: 30.75 }}>
-                <CircularProgress size={18} />
-                <Typography variant="body2" sx={{ color: '#eee' }}>
-                  {pairRemaining > 0
-                    ? `Pairing… ${pairRemaining}s remaining`
-                    : 'Waiting for STB…'}
+                {pairReady ? (
+                  <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: 'success.main', boxShadow: 1 }} />
+                ) : (
+                  <CircularProgress size={18} />
+                )}
+                <Typography variant="body2" sx={{ color: pairReady ? 'success.main' : '#eee' }}>
+                  {!pairReady
+                    ? 'Preparing…'
+                    : pairRemaining > 0
+                      ? `Ready — ${pairRemaining}s left for the STB`
+                      : 'Waiting for STB…'}
                 </Typography>
               </Stack>
             )}
-            {isWaking && !isPairing && !isAdvertising && (
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ height: 30.75 }}>
-                <CircularProgress size={18} />
-                <Typography variant="body2" sx={{ color: '#eee' }}>
-                  Waking STB…
-                </Typography>
-              </Stack>
-            )}
+            {/* No inline "Waking STB…" spinner here: the headline + subtext
+                already state the wake, and the disabled Power button shows
+                its own progress (BUG-0420). */}
             {showStart && canManagePairing && (
               <Button
                 variant="contained"
@@ -546,7 +622,7 @@ export const BluetoothRemote = React.memo(
               startIcon={<TerminalIcon />}
               onClick={() => setLogsOpen(true)}
             >
-              Check Logs
+              Logs
             </Button>
           </Stack>
 
@@ -664,6 +740,7 @@ export const BluetoothRemote = React.memo(
               : layoutConfig.button_layout,
           ).map(([buttonId, button]) => {
             const typedButton = button as unknown as InfraredRemoteButton;
+            const keyDisabled = isKeyDisabled(typedButton.key);
             return (
               <Box
                 key={buttonId}
@@ -675,40 +752,52 @@ export const BluetoothRemote = React.memo(
                   height: `${typedButton.size.height * layoutConfig.remote_info.button_scale_factor * remoteScale}px`,
                   borderRadius: typedButton.shape === 'circle' ? '50%' : '4px',
                   backgroundColor: (() => {
+                    if (keyDisabled) return 'rgba(102, 102, 102, 0.06)';
                     if (isCollapsed) return 'rgba(255, 255, 255, 0.1)';
                     if (showOverlays) return 'rgba(255, 255, 255, 0.1)';
                     return 'rgba(255, 255, 255, 0.02)';
                   })(),
                   border: (() => {
+                    if (keyDisabled) return '1px solid rgba(102, 102, 102, 0.4)';
                     if (isCollapsed) return '1px solid rgba(255, 255, 255, 0.5)';
                     if (showOverlays) return '1px solid rgba(255, 255, 255, 0.3)';
                     return '1px solid rgba(255, 255, 255, 0.06)';
                   })(),
-                  cursor: 'pointer',
+                  cursor: keyDisabled ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   transition: 'all 0.2s ease-in-out',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    transform: 'scale(1.05)',
-                  },
-                  '&:active': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                    transform: 'scale(0.95)',
-                  },
+                  '&:hover': keyDisabled
+                    ? undefined
+                    : {
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        transform: 'scale(1.05)',
+                      },
+                  '&:active': keyDisabled
+                    ? undefined
+                    : {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        transform: 'scale(0.95)',
+                      },
                 }}
-                onClick={() => handleButtonPress(typedButton.key)}
-                title={`${typedButton.label} - ${typedButton.comment}`}
+                onClick={() => {
+                  if (keyDisabled) return;
+                  handleButtonPress(typedButton.key);
+                }}
+                title={keyDisabled
+                  ? `${typedButton.label} - not on every member's transport`
+                  : `${typedButton.label} - ${typedButton.comment}`}
               >
                 <Typography
                   variant="caption"
                   sx={{
                     fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`,
                     fontWeight: layoutConfig.remote_info.text_style.fontWeight,
-                    color: layoutConfig.remote_info.text_style.color,
+                    color: keyDisabled ? 'rgba(160, 160, 160, 0.5)' : layoutConfig.remote_info.text_style.color,
                     textShadow: layoutConfig.remote_info.text_style.textShadow,
                     userSelect: 'none',
+                    textDecoration: keyDisabled ? 'line-through' : 'none',
                   }}
                 >
                   {typedButton.label}
@@ -758,7 +847,7 @@ export const BluetoothRemote = React.memo(
       // pairingIntent is set synchronously in triggerRepair so no
       // intermediate render can flash the remote image or Start/Resume
       // buttons between click and the hook's pairPhase transitioning.
-      // isPairing is included as a backstop: the 60s safety timeout can
+      // isPairing is included as a backstop: the safety timeout can
       // clear pairingIntent while the hook's pair loop is still running —
       // without `|| isPairing` the old bond's fullyConnected snapshot would
       // briefly re-show the remote (with a live Re-pair button) mid-pair.

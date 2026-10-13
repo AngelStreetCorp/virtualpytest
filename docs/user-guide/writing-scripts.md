@@ -247,6 +247,12 @@ if not success:
     context.error_message = "Connection timed out after 30s"
 ```
 
+### Report languages (`<script>.i18n.json`)
+
+Reports switch between English, French and German. To translate your step messages, verification labels,
+`error_message` and summary lines, put a `<script>.i18n.json` next to the script. Each key is the exact English text,
+with `{name}` for the parts that change. See [Test reports in English, French and German](./report-languages.md#translating-your-scripts-strings).
+
 ---
 
 ## Locked Targets and Queuing

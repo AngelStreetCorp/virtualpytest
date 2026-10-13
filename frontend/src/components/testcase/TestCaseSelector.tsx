@@ -23,6 +23,7 @@ import { LifecycleChips } from '../common/LifecycleChips';
 import { isFeatureEnabled } from '../../config/features';
 import { SelectorFilterBar } from '../common/SelectorFilterBar';
 import { ScriptIdentityPopover } from './ScriptIdentityPopover';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export interface TestCaseItem {
   testcase_id: string;
@@ -87,6 +88,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
   testCasesOnly = false,
   showHidden = false,
 }, ref) => {
+  const P = useAgentChatPalette();
   const { isMobile, isTablet } = useResponsiveMode();
   const { resolveScript, saveScriptIdentity, normalizeRef } = useIdentityMap();
   const { showSuccess, showError } = useToast();
@@ -724,7 +726,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                       '&:hover': { bgcolor: isSelected ? 'action.selected' : 'action.hover' },
                       opacity: isHidden ? 0.58 : 1,
                       borderLeft: isSelected ? '3px solid' : 'none',
-                      borderLeftColor: isSelected ? 'primary.light' : undefined,
+                      borderLeftColor: isSelected ? `${P.accent}26` : undefined,
                     }}
                   >
                     <Checkbox
@@ -817,7 +819,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                           {folderLabel ? (
                             <Typography
                               variant="caption"
-                              color={selectedFolder === folderLabel ? 'primary.main' : 'text.secondary'}
+                              color={selectedFolder === folderLabel ? P.accentText : P.textSecondary}
                               sx={{
                                 display: 'block',
                                 fontSize: '0.68rem',
@@ -880,7 +882,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                                 sx={{
                                   height: '14px',
                                   fontSize: '0.55rem',
-                                  backgroundColor: tag?.color || '#9e9e9e',
+                                  backgroundColor: tag?.color || P.textMuted,
                                   color: 'white',
                                   cursor: 'pointer',
                                   opacity: tagSelected ? 1 : (isSelected ? 0.9 : 1),
@@ -997,8 +999,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
         {(searchQuery || selectedTags.length > 0 || (selectedFolder && selectedFolder !== 'All') || selectedType) && (
           <Typography
             variant="caption"
-            color="primary"
-            sx={{ cursor: 'pointer', textDecoration: 'underline', fontSize: '0.75rem' }}
+            sx={{ color: P.accentText, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.75rem' }}
             onClick={() => {
               setSearchQuery('');
               setSelectedTags([]);

@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 import React, { useRef } from 'react';
 
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { getStreamViewerLayout } from '../../../config/layoutConfig';
 
 import { DragSelectionOverlay } from './DragSelectionOverlay';
@@ -45,6 +46,7 @@ export function ScreenshotCapture({
   allowFuzzy = true,
   sx = {},
 }: ScreenshotCaptureProps) {
+  const P = useAgentChatPalette();
   const imageRef = useRef<HTMLImageElement>(null);
 
   // Get layout configuration based on model
@@ -125,7 +127,7 @@ export function ScreenshotCapture({
             // Add placeholder styling
             const img = e.target as HTMLImageElement;
             img.style.backgroundColor = 'transparent';
-            img.style.border = '1px solid #E0E0E0';
+            img.style.border = `1px solid ${P.borderColor}`;
             img.style.maxWidth = '100%';
             img.style.maxHeight = '100%';
             img.style.width = 'auto';
@@ -147,11 +149,11 @@ export function ScreenshotCapture({
             alignItems: 'center',
             justifyContent: 'center',
             backgroundColor: 'transparent',
-            border: '1px solid #333333',
+            border: `1px solid ${P.borderColor}`,
             p: 0.5,
           }}
         >
-          <Typography variant="caption" sx={{ color: '#666666' }}>
+          <Typography variant="caption" sx={{ color: P.textMuted }}>
             No Screenshot Available
           </Typography>
         </Box>

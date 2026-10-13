@@ -12,6 +12,18 @@ if (hasReleaseSigning) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
 
+// Where this build's successors are published (`vpt.apkUrl` in the git-ignored local.properties,
+// or VPT_APK_URL). Baked in so the installed app can check `<url>.json` for a newer version and
+// offer it in Settings; empty = the app never checks. scripts/publish-apk.sh uploads to it.
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localProperties.load(new FileInputStream(localPropertiesFile))
+}
+def apkUrl = System.getenv('VPT_APK_URL') ?: localProperties.getProperty('vpt.apkUrl', '')
+
+def vptVersionCode = Integer.parseInt(System.getenv('VPT_APK_VERSION_CODE') ?: '51')
+
 android {
     namespace "io.virtualpytest.app"
     compileSdk rootProject.ext.compileSdkVersion
@@ -19,9 +31,12 @@ android {
         applicationId "io.virtualpytest.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 47
-        versionName "1.0.46"
+        // auto-publish.sh sets VPT_APK_VERSION_CODE (commit count of the built commit) so every published build
+        // is an update; absent = the hand-set value
+        versionCode vptVersionCode
+        versionName "1.0.51"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField "String", "APK_URL", "\"${apkUrl}\""
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

@@ -19,6 +19,8 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  FormControlLabel,
+  Switch,
   Grid,
   IconButton,
   InputLabel,
@@ -37,6 +39,7 @@ import {
   Typography,
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
+import { APP_CONFIG } from '../config/constants';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
@@ -47,6 +50,8 @@ interface JiraInstance {
   domain: string;
   email: string;
   projectKey: string;
+  /** Teams whose test-result defects may be pushed to this instance (server-enforced). */
+  teamIds?: string[];
 }
 
 interface JiraTicket {
@@ -85,6 +90,7 @@ const JiraIntegration: React.FC = () => {
     email: '',
     apiToken: '',
     projectKey: '',
+    allowTeamDefects: false,
   });
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -179,7 +185,7 @@ const JiraIntegration: React.FC = () => {
 
   const handleAddInstance = () => {
     setEditingInstance(null);
-    setFormData({ name: '', domain: '', email: '', apiToken: '', projectKey: '' });
+    setFormData({ name: '', domain: '', email: '', apiToken: '', projectKey: '', allowTeamDefects: false });
     setTestResult(null);
     setConfigDialogOpen(true);
   };
@@ -192,6 +198,7 @@ const JiraIntegration: React.FC = () => {
       email: instance.email,
       apiToken: '',
       projectKey: instance.projectKey,
+      allowTeamDefects: (instance.teamIds || []).includes(APP_CONFIG.DEFAULT_TEAM_ID),
     });
     setTestResult(null);
     setConfigDialogOpen(true);
@@ -226,7 +233,7 @@ const JiraIntegration: React.FC = () => {
       const response = await fetch(buildServerUrl('/server/integrations/jira/test/test'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify((({ allowTeamDefects: _ignored, ...fields }) => fields)(formData)),
       });
       const data = await response.json();
       
@@ -241,7 +248,7 @@ const JiraIntegration: React.FC = () => {
           message: data.error || 'Connection failed',
         });
       }
-    } catch (err) {
+    } catch {
       setTestResult({
         success: false,
         message: 'Connection test failed',
@@ -253,9 +260,13 @@ const JiraIntegration: React.FC = () => {
 
   const handleSaveInstance = async () => {
     try {
+      // Only this team's membership is toggled; other teams bound to the instance are kept.
+      const { allowTeamDefects, ...fields } = formData;
+      const otherTeams = (editingInstance?.teamIds || []).filter((t) => t !== APP_CONFIG.DEFAULT_TEAM_ID);
+      const teamIds = allowTeamDefects ? [...otherTeams, APP_CONFIG.DEFAULT_TEAM_ID] : otherTeams;
       const payload = editingInstance
-        ? { ...formData, id: editingInstance.id }
-        : formData;
+        ? { ...fields, teamIds, id: editingInstance.id }
+        : { ...fields, teamIds };
       
       const response = await fetch(buildServerUrl('/server/integrations/jira/instances'), {
         method: 'POST',
@@ -405,7 +416,8 @@ const JiraIntegration: React.FC = () => {
       {/* Tickets Table */}
       {selectedInstance && tickets.length > 0 && (
         <TableContainer component={Paper}>
-          <Table>
+          <Table sx={{ tableLayout: 'fixed', minWidth: 900, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
+<colgroup><col style={{ width: 100 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 110 }} /><col style={{ width: 90 }} /><col style={{ width: 130 }} /><col style={{ width: 110 }} /><col style={{ width: 100 }} /></colgroup>
             <TableHead>
               <TableRow>
                 <TableCell>Key</TableCell>
@@ -540,6 +552,15 @@ const JiraIntegration: React.FC = () => {
               onChange={(e) => setFormData({ ...formData, projectKey: e.target.value })}
               placeholder="PROJ"
               helperText="The project key (e.g., PROJ from PROJ-123)"
+            />
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={formData.allowTeamDefects}
+                  onChange={(e) => setFormData({ ...formData, allowTeamDefects: e.target.checked })}
+                />
+              }
+              label="Allow this team's test-result defects to be pushed here"
             />
 
             {testResult && (

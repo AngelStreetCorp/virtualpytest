@@ -19,7 +19,9 @@ from backend_server.src.lib.auth_middleware import require_permission
 from backend_server.src.lib.auth_middleware import require_permission
 from backend_server.src.lib.utils.completion_notifier import notify_completion
 from backend_server.src.lib.utils.webhook_utils import resolve_callback_url
+from backend_server.src.lib.utils.trigger_utils import resolve_caller_user
 from backend_server.src.lib.utils.lock_utils import (
+    resolve_lock_owner,
     abort_and_force_unlock,
     acquire_device_lock,
     clear_device_active_script,
@@ -155,8 +157,7 @@ def execute_campaign():
     if 'session_id' not in session:
         session['session_id'] = str(uuid.uuid4())
     owner_session_id = session['session_id']
-    owner_user_id = data.get('user_id') or request.headers.get('X-User-ID')
-    owner_user_name = data.get('user_name')
+    owner_user_id, owner_user_name = resolve_lock_owner(data)
     owner_job_id = f"campaign:{data['campaign_id']}:{int(time.time() * 1000)}"
 
     host_manager = get_host_manager()
@@ -263,7 +264,7 @@ def execute_campaign():
     campaign_config['trigger'] = {
         'type': (incoming_trigger.get('type') or 'api'),
         'caller_ip': incoming_trigger.get('caller_ip') or client_ip,
-        'caller_user': incoming_trigger.get('caller_user') or owner_user_id,
+        'caller_user': incoming_trigger.get('caller_user') or resolve_caller_user(owner_user_id, owner_user_name),
     }
     callback_url = data.get('callback_url')
     if callback_url and not resolve_callback_url(callback_url):

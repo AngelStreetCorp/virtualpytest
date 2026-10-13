@@ -9,6 +9,13 @@
 --   * device_info_corrected  — latest scan per device, overrides overlaid (Grafana)
 --   * device_info_key_status — per-key detail for the editor UI
 -- Raw OCR in script_results is never mutated. See docs/agent/.
+--
+-- SUPERSEDED (views only) by 052_device_info_latest.sql (TASK-29): the `latest`
+-- CTEs below scanned every get_info row per read — the shape that killed the
+-- gateway view on the customer DB (BUG-0075). 052 keeps the same two views over
+-- the trigger-maintained device_info_latest table and drops/recreates both. The
+-- definitions are left here as the reference for the view contract; the
+-- device_info_overrides TABLE above remains canonical and is untouched by 052.
 
 -- info_source ('device' | 'gateway') lets the SAME override table/routes/editor
 -- serve both device info (OCR, metadata->'info') and gateway info (gw_info, flat

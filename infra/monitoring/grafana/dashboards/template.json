@@ -1,0 +1,337 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "__template: house style for generated dashboards (Atlas draft skill and canvas auto-drafts). NOT a dashboard: never pushed, never provisioned, skipped by _push_dashboard.py and the maintained-dashboard lists. CONTRACT: (1) datasource is only grafana-postgresql-datasource/supabase-postgres. (2) templating.list is the exact set of variables a draft may carry: workspace, allowed_devices (hidden), host, device_name, user_interface, environment, flag; copied from script-results.json and kpi-measurement.json, All-handling included, with one change: host/device_name/user_interface/environment carry allValue '__all' WITH the quotes (Grafana inserts a custom allValue RAW, so the quotes make $var read '__all'; All never expands to the option list) and panels write ('__all' IN ($var) OR col IN ($var) OR col IS NULL); flag uses allValue __ALL__. Atlas binds EVERY panel whose source has the column to the variable of the same meaning (so each dropdown works, filtered or not): host_name=$host, device_name=$device_name, userinterface_name=$user_interface, environment=$environment, flags=$flag; a value the user fixed becomes the variable's current value. (3) time, refresh, timezone, graphTooltip, schemaVersion, editable, annotations and links are copied as-is. (4) Grid is 24 columns: a draft uses 12-wide panels (24 when single) with the height of the timeseries example; per-type panel styling (fieldConfig.defaults, options) comes from the example panel of the same type. (5) Example panels show the query pattern: grafana_device_scope(...) CTE, team predicate (__TEAM_ID__ placeholder), $__timeFilter. A customer overlay replaces this file at the same path.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "links": [],
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Example: pass rate",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH ads AS MATERIALIZED (SELECT device_key FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring}))\nSELECT ROUND(100.0 * COUNT(*) FILTER (WHERE sr.success) / NULLIF(COUNT(*), 0), 1) AS \"pass_rate\"\nFROM script_results sr\nWHERE sr.team_id = '__TEAM_ID__'::uuid AND $__timeFilter(sr.started_at)\n  AND EXISTS (SELECT 1 FROM ads WHERE ads.device_key = '*' OR ads.device_key = sr.host_name || ':' || sr.device_name)\n  AND ('__all' IN ($user_interface) OR sr.userinterface_name IN ($user_interface) OR sr.userinterface_name IS NULL)\n  AND ('__all' IN ($host) OR sr.host_name IN ($host) OR sr.host_name IS NULL)\n  AND ('__all' IN ($device_name) OR sr.device_name IN ($device_name) OR sr.device_name IS NULL)\n  AND ('__all' IN ($environment) OR sr.environment IN ($environment))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "orange",
+                "value": 80
+              },
+              {
+                "color": "green",
+                "value": 95
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Example: pass rate per day by device",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "WITH ads AS MATERIALIZED (SELECT device_key FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring}))\nSELECT $__timeGroup(sr.started_at, '1d') AS \"time\", sr.device_name AS \"metric\",\n  ROUND(100.0 * COUNT(*) FILTER (WHERE sr.success) / NULLIF(COUNT(*), 0), 1) AS \"value\"\nFROM script_results sr\nWHERE sr.team_id = '__TEAM_ID__'::uuid AND $__timeFilter(sr.started_at)\n  AND EXISTS (SELECT 1 FROM ads WHERE ads.device_key = '*' OR ads.device_key = sr.host_name || ':' || sr.device_name)\n  AND ('__all' IN ($user_interface) OR sr.userinterface_name IN ($user_interface) OR sr.userinterface_name IS NULL)\n  AND ('__all' IN ($host) OR sr.host_name IN ($host) OR sr.host_name IS NULL)\n  AND ('__all' IN ($device_name) OR sr.device_name IN ($device_name) OR sr.device_name IS NULL)\n  AND ('__all' IN ($environment) OR sr.environment IN ($environment))\nGROUP BY 1, 2\nORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "showPoints": "auto",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      }
+    },
+    {
+      "id": 3,
+      "type": "table",
+      "title": "Example: failing runs by script",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH ads AS MATERIALIZED (SELECT device_key FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring}))\nSELECT sr.script_name AS \"script_name\", COUNT(*) FILTER (WHERE NOT sr.success) AS \"failure_count\"\nFROM script_results sr\nWHERE sr.team_id = '__TEAM_ID__'::uuid AND $__timeFilter(sr.started_at)\n  AND EXISTS (SELECT 1 FROM ads WHERE ads.device_key = '*' OR ads.device_key = sr.host_name || ':' || sr.device_name)\n  AND ('__all' IN ($user_interface) OR sr.userinterface_name IN ($user_interface) OR sr.userinterface_name IS NULL)\n  AND ('__all' IN ($host) OR sr.host_name IN ($host) OR sr.host_name IS NULL)\n  AND ('__all' IN ($device_name) OR sr.device_name IN ($device_name) OR sr.device_name IS NULL)\n  AND ('__all' IN ($environment) OR sr.environment IN ($environment))\nGROUP BY 1\nORDER BY 2 DESC\nLIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "custom": {
+            "align": "auto"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      }
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 41,
+  "tags": [
+    "__template"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT host_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
+        "includeAll": true,
+        "label": "Host",
+        "multi": true,
+        "name": "host",
+        "query": "SELECT DISTINCT host_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY host_name",
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query",
+        "allValue": "'__all'"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT device_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
+        "includeAll": true,
+        "label": "Device",
+        "multi": true,
+        "name": "device_name",
+        "query": "SELECT DISTINCT device_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE $__timeFilter(started_at) ORDER BY device_name",
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query",
+        "allValue": "'__all'"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
+        "includeAll": true,
+        "label": "User Interface",
+        "multi": true,
+        "name": "user_interface",
+        "query": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE userinterface_name IS NOT NULL AND $__timeFilter(started_at) ORDER BY userinterface_name",
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query",
+        "allValue": "'__all'"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "includeAll": true,
+        "label": "Environment",
+        "multi": true,
+        "name": "environment",
+        "options": [],
+        "query": "Dev : dev,Test : test,Prod : prod",
+        "refresh": 1,
+        "type": "custom",
+        "allValue": "'__all'"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "description": "Filter by device tags set on the Device page",
+        "includeAll": true,
+        "allValue": "__ALL__",
+        "label": "Tag",
+        "multi": true,
+        "name": "flag",
+        "refresh": 2,
+        "query": "SELECT DISTINCT f AS flag FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_flags, unnest(flags) f ORDER BY 1",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "__template (Atlas dashboard house style)",
+  "uid": "atlas-template",
+  "weekStart": "monday"
+}

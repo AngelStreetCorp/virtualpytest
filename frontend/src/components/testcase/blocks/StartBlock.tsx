@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 /**
  * Start Block - Entry point for testcase execution
@@ -9,7 +10,8 @@ import { useTheme } from '../../../contexts/ThemeContext';
  */
 export const StartBlock: React.FC<NodeProps> = ({ selected, dragging }) => {
   const { actualMode } = useTheme();
-  const accentColor = '#3b82f6'; // blue
+  const P = useAgentChatPalette();
+  const accentColor = P.accent;
   
   return (
     <Box
@@ -18,8 +20,8 @@ export const StartBlock: React.FC<NodeProps> = ({ selected, dragging }) => {
         minHeight: 44,
         px: 2,
         py: 1,
-        background: actualMode === 'dark' ? '#1e293b' : '#ffffff',
-        border: selected ? '2px solid #fbbf24' : `1px solid ${actualMode === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'}`,
+        background: P.surface,
+        border: selected ? `2px solid ${P.accent}` : `1px solid ${P.borderColor}`,
         borderLeft: `3px solid ${accentColor}`,
         borderRadius: 1.5,
         display: 'flex',
@@ -41,7 +43,7 @@ export const StartBlock: React.FC<NodeProps> = ({ selected, dragging }) => {
       <Typography 
         fontSize={13} 
         fontWeight={600} 
-        sx={{ color: accentColor }}
+        sx={{ color: P.accentText }}
       >
         START
       </Typography>

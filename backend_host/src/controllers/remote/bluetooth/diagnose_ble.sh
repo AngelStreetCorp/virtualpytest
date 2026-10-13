@@ -188,10 +188,21 @@ note ""
 note "-- Duplicate-daemon check (§6.7.27): exactly ONE hid_remote.py per adapter --"
 run pgrep -af hid_remote.py
 run pgrep -af agent.py
-N_DAEMONS=$(pgrep -cf hid_remote.py </dev/null 2>/dev/null || echo 0)
-N_ADAPTERS=$(echo "$ADAPTERS" | wc -w)
-note "hid_remote.py process count: $N_DAEMONS  (adapters: $N_ADAPTERS)"
-[ "$N_DAEMONS" -gt "$N_ADAPTERS" ] 2>/dev/null && note "*** WARNING: more hid_remote.py processes than adapters — key stream split (§6.7.27) ***"
+# Count per adapter via each process's HID_REMOTE_ADAPTER (the unit's
+# EnvironmentFile) — a host-wide count vs a `diagnose_ble.sh hciN` selection
+# false-positives whenever sibling adapters run their own daemon.
+for hci in $ADAPTERS; do
+    N=0
+    for pid in $(pgrep -f hid_remote.py </dev/null 2>/dev/null); do
+        tr '\0' '\n' < /proc/$pid/environ 2>/dev/null | grep -qx "HID_REMOTE_ADAPTER=$hci" && N=$((N+1))
+    done
+    note "hid_remote.py processes for $hci: $N"
+    [ "$N" -gt 1 ] && note "*** WARNING: $N hid_remote.py processes on $hci — key stream split (§6.7.27) ***"
+done
+for pid in $(pgrep -f hid_remote.py </dev/null 2>/dev/null); do
+    tr '\0' '\n' < /proc/$pid/environ 2>/dev/null | grep -q '^HID_REMOTE_ADAPTER=' \
+        || note "*** WARNING: hid_remote.py pid $pid has no HID_REMOTE_ADAPTER — stray daemon outside the @ units (§6.7.27) ***"
+done
 
 # ---------------------------------------------------------------- 04 tmp_state
 section 04 tmp_state
@@ -207,6 +218,9 @@ done
 for f in /tmp/ble-*-env.list; do
     [ -e "$f" ] && run cat "$f"
 done
+note ""
+note "-- who started a fresh pair, refused or not (§6.7.32) --"
+[ -e /var/log/vpt-ble-pairing.log ] && run tail -n 30 /var/log/vpt-ble-pairing.log
 note ""
 note "-- start.sh / resume.sh logs (mtime matters: was there really a fresh pair? §6.7.29) --"
 for f in /tmp/ble-start-*.log /tmp/ble-resume-*.log; do

@@ -176,13 +176,44 @@ def extract_arg_descriptions_from_source(source: str) -> Optional[Dict[str, str]
                 and target.attr == "_arg_descriptions"
             )
             if name_match:
-                try:
-                    val = ast.literal_eval(node.value)
-                    if isinstance(val, dict):
-                        return {str(k): str(v) for k, v in val.items()}
-                except Exception:
-                    return None
+                return _descriptions_from_dict_node(node.value, _module_string_constants(tree))
     return None
+
+
+def _module_string_constants(tree: ast.Module) -> Dict[str, str]:
+    """Module-level ``NAME = 'literal'`` assignments, to fill f-strings in descriptions."""
+    consts = {}
+    for node in tree.body:
+        if (isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Constant) and isinstance(node.value.value, (str, int, float))):
+            consts[node.targets[0].id] = str(node.value.value)
+    return consts
+
+
+def _descriptions_from_dict_node(value: ast.AST, consts: Dict[str, str]) -> Optional[Dict[str, str]]:
+    """Read a ``{name: description}`` dict entry by entry: one f-string or expression doesn't drop the rest."""
+    if not isinstance(value, ast.Dict):
+        return None
+    out = {}
+    for k, v in zip(value.keys, value.values):
+        if not (isinstance(k, ast.Constant) and isinstance(k.value, str)):
+            continue
+        if isinstance(v, ast.JoinedStr):
+            parts = []
+            for part in v.values:
+                if isinstance(part, ast.Constant):
+                    parts.append(str(part.value))
+                elif isinstance(part, ast.FormattedValue) and isinstance(part.value, ast.Name):
+                    parts.append(consts.get(part.value.id, "{" + part.value.id + "}"))
+                else:
+                    parts.append("{" + ast.unparse(part.value) + "}")
+            out[k.value] = "".join(parts)
+            continue
+        try:
+            out[k.value] = str(ast.literal_eval(v))
+        except Exception:
+            continue
+    return out or None
 
 
 def extract_script_description_from_path(script_path: str) -> Optional[str]:
@@ -233,12 +264,7 @@ def extract_arg_descriptions_from_path(script_path: str) -> Optional[Dict[str, s
                 and target.attr == "_arg_descriptions"
             )
             if name_match:
-                try:
-                    val = ast.literal_eval(node.value)
-                    if isinstance(val, dict):
-                        return {str(k): str(v) for k, v in val.items()}
-                except Exception:
-                    return None
+                return _descriptions_from_dict_node(node.value, _module_string_constants(tree))
     return None
 
 
@@ -259,3 +285,92 @@ def normalize_host_os_constraints(target_rules: Optional[Dict[str, Any]]) -> Opt
         return values or None
 
     return None
+
+
+# --- Target compatibility (backend twin of frontend/src/utils/targetCompatibility.ts) ---
+# The frontend only offers targets a script's _target_rules accept; API callers
+# (/server/script/execute) must be held to the same rules. Keep the two in step.
+
+_TARGET_TYPES = ("all", "host", "device")
+_HOST_OS_VALUES = ("all", "linux", "windows", "mac")
+
+
+def normalize_target_rules(rules: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    """Same defaults as normalizeTargetRules(): device / all / all."""
+    rules = rules or {}
+    target_type = rules.get("target_type")
+    host_os = rules.get("host_os")
+    device_model = rules.get("device_model")
+    return {
+        "target_type": target_type if target_type in _TARGET_TYPES else "device",
+        "host_os": host_os if host_os in _HOST_OS_VALUES else "all",
+        "device_model": device_model.strip() if isinstance(device_model, str) and device_model.strip() else "all",
+    }
+
+
+def _normalize_platform(platform_name: Optional[str]) -> str:
+    value = (platform_name or "").strip().lower()
+    if not value:
+        return "unknown"
+    if "win" in value:
+        return "windows"
+    if "darwin" in value or "mac" in value:
+        return "mac"
+    if "linux" in value:
+        return "linux"
+    return "unknown"
+
+
+def _device_matches_model(device: Dict[str, Any], device_model_rule: str) -> bool:
+    if device_model_rule == "all":
+        return True
+    from shared.src.lib.config.device_capabilities import get_compatible_models
+
+    device_model = (device.get("device_model") or "").strip().lower()
+    rule_models = [m.strip() for m in device_model_rule.lower().split("|")]
+    if any(m == "all" or m == device_model for m in rule_models):
+        return True
+    family_models = get_compatible_models(device_model)
+    return any(m in family_models for m in rule_models)
+
+
+def _has_host_target(host: Dict[str, Any]) -> bool:
+    """The `host` device (host_vnc browser device) only exists on hosts set up with VNC + capture."""
+    return any(
+        d.get("device_id") == "host" or (d.get("device_model") or "").strip().lower() == "host_vnc"
+        for d in (host.get("devices") or [])
+    )
+
+
+def target_incompatibility(
+    rules_input: Optional[Dict[str, Any]], host: Dict[str, Any], device_id: str
+) -> str:
+    """Why `host_name:device_id` is not a valid target for a script, or "" when it is.
+
+    Mirrors isTargetKeyCompatibleWithRules() in the frontend.
+    """
+    rules = normalize_target_rules(rules_input)
+    host_name = host.get("host_name", "?")
+
+    if rules["host_os"] != "all":
+        platform_name = _normalize_platform((host.get("system_stats") or {}).get("platform"))
+        if platform_name != rules["host_os"]:
+            return f"script requires a {rules['host_os']} host; {host_name} is {platform_name}"
+
+    if not device_id or device_id == "host":
+        if rules["target_type"] == "device":
+            return f"script runs on a device, not on the host target of {host_name}"
+        if rules["target_type"] == "host" and not _has_host_target(host):
+            return f"script runs on the host target, and {host_name} has no host target (no host_vnc device)"
+        return ""
+
+    if rules["target_type"] == "host":
+        return f"script runs on the host target only (device_id 'host'), not on device '{device_id}'"
+
+    device = next((d for d in (host.get("devices") or []) if d.get("device_id") == device_id), None)
+    if device is None:
+        return f"device '{device_id}' not found on {host_name}"
+    if not _device_matches_model(device, rules["device_model"]):
+        return (f"script requires device model '{rules['device_model']}'; "
+                f"'{device_id}' on {host_name} is '{device.get('device_model')}'")
+    return ""

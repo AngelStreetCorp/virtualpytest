@@ -119,7 +119,7 @@ Copies of this chain drifting apart is BUG-0099: one script ended up with four d
 
 - **`script_ref` is the identifier** — it is what you post back to `/server/script/execute`.
   Never send `label`.
-- `label` is rendered server-side, so the browser, an external caller (dmacp, MCP) and the reports
+- `label` is rendered server-side, so the browser, an external caller (idp, MCP) and the reports
   all show the identical string.
 - `prefix` / `display_name` are `null` for an unmapped script and `label` is then the script name.
 - `scripts` (bare names) is unchanged for existing callers. Prefer `items`.

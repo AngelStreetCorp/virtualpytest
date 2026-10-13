@@ -1,0 +1,59 @@
+# Persistent systemd TEMPLATE unit that runs the adb screencap loop for one
+# Android device (emulator or a real handset attached over USB / adb tcpip) and
+# feeds the result into run_ffmpeg.sh's `imagefile` source. One instance per
+# device — enable with:
+#
+#   sudo systemctl enable --now vpt-emulator-fifo@device6.service
+#   sudo systemctl enable --now vpt-emulator-fifo@device7.service
+#
+# The `%i` instance argument is the device slot id (e.g. `device6`). The script
+# reads both the adb serial (DEVICEn_ADB_SERIAL) and the output PNG path
+# (DEVICEn_VIDEO) from backend_host/src/.env, so the same unit file drives any
+# number of slots — no per-device service file needed.
+#
+# For a real handset (e.g. `android_mobile` over USB) pair the slot with:
+#   DEVICEn_MODEL=android_mobile
+#   DEVICEn_ADB_SERIAL=<adb devices serial, USB or tcpip>
+#   DEVICEn_VIDEO=/var/www/html/stream/emulator_frames/device<n>/latest.png
+#   DEVICEn_VIDEO_CAPTURE_PATH=/var/www/html/stream/capture<n>
+#   DEVICEn_VIDEO_STREAM_PATH=/host/stream/capture<n>
+#   DEVICEn_VIDEO_AUDIO=null    # screencap carries no audio
+#
+# This is the same image-file pattern the Android emulator fleet uses — only
+# the adb target changes (real phone serial instead of emulator-5554), so the
+# downstream ffmpeg / captures / HLS pipeline is identical. See
+# docs/agent/devices/EMULATOR.md for the emulator side and
+# docs/agent/devices/STREAM.md §3 (imagefile source type).
+#
+# Wants (not Requires=) on the host: the loop tolerates "device offline" and
+# recovers on its own once the adb target appears, so an adb hiccup must not
+# stop the pipe. Before=vpt-stream.service so the .png exists by the time the
+# ffmpeg grabber starts polling it (run_ffmpeg.sh's imagefile branch waits up
+# to 120 s for the first valid frame).
+#
+# Install with:
+#   setup/local/linux/backend_host/install_service.sh emulator-fifo
+# (install_service.sh detects the @ suffix in the source filename and installs
+# it as a template — the operator then enables per-instance as shown above).
+
+[Unit]
+Description=VirtualPyTest screencap loop for Android device %i
+After=multi-user.target
+Before=vpt-stream.service
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+# Always create the slot's frame dir; the script writes the latest.png into it.
+ExecStartPre=/bin/mkdir -p /var/www/html/stream/emulator_frames/%i
+ExecStart=%PROJECT_ROOT%/backend_host/scripts/emulator_screencap.sh "" "" "%i"
+Restart=always
+RestartSec=2
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=emulator-fifo
+
+[Install]
+WantedBy=multi-user.target

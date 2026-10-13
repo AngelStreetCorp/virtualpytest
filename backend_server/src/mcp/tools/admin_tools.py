@@ -1,6 +1,7 @@
 from typing import Dict, Any
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
+from backend_server.src.lib.auth_middleware import ROLE_RANK
 
 
 class AdminTools:
@@ -53,7 +54,7 @@ class AdminTools:
             f"🔐 Permissions for user {user_id}",
             f"   Role: {result.get('role')}",
             f"   Role defaults: {len(result.get('role_permissions', []))} permissions",
-            f"   Team grants: {result.get('team_permissions', [])}",
+            f"   Team ceiling: {'no limit' if result.get('team_ceiling') is None else result.get('team_ceiling')}",
             f"   Individual grants: {result.get('individual_grants', [])}",
             f"   Denied: {result.get('denied_permissions', [])}",
             f"   Effective ({len(result.get('effective', []))}): {result.get('effective', [])}",
@@ -77,12 +78,12 @@ class AdminTools:
         for u in users:
             denied = u.get('denied_permissions', [])
             grants = u.get('individual_grants', [])
-            team = u.get('team_permissions', [])
+            ceiling = u.get('team_ceiling')
             extras = []
             if grants:
                 extras.append(f"+grants: {grants}")
-            if team:
-                extras.append(f"+team: {team}")
+            if ceiling is not None:
+                extras.append(f"team ceiling: {len(ceiling)}")
             if denied:
                 extras.append(f"-denied: {denied}")
             extra_str = f" | {', '.join(extras)}" if extras else ""
@@ -92,12 +93,12 @@ class AdminTools:
 
     def update_user_role(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Change a user's role (admin / tester / viewer).
+        Change a user's role (admin / manager / developer / tester / viewer).
 
         Args:
             params: {
                 'user_id': str (REQUIRED) - Supabase user UUID
-                'role': str (REQUIRED) - 'admin' | 'tester' | 'viewer'
+                'role': str (REQUIRED) - 'admin' | 'manager' | 'developer' | 'tester' | 'viewer'
             }
 
         Example: update_user_role(user_id='ac1723d9-0d5d-40d2-99f2-b8a9d573a757', role='tester')
@@ -106,8 +107,8 @@ class AdminTools:
         role = params.get('role')
         if not user_id or not role:
             return {"content": [{"type": "text", "text": "❌ user_id and role are required"}], "isError": True}
-        if role not in ('admin', 'tester', 'viewer'):
-            return {"content": [{"type": "text", "text": "❌ role must be 'admin', 'tester', or 'viewer'"}], "isError": True}
+        if role not in ROLE_RANK:
+            return {"content": [{"type": "text", "text": f"❌ role must be one of: {', '.join(ROLE_RANK)}"}], "isError": True}
 
         result = self.api.put(f'/server/users/{user_id}', data={'role': role})
         if not result:
@@ -174,20 +175,21 @@ class AdminTools:
 
     def set_team_permissions(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Set the permissions granted to all members of a team.
+        Set a team's permission ceiling: its members hold nothing outside it.
 
-        All members inherit these permissions on top of their role defaults.
+        A team never grants: members get permissions from their role and individual grants,
+        and the ceiling caps both. Pass null to remove the limit (admin only).
 
         Args:
             params: {
                 'team_id': str (REQUIRED) - team UUID
-                'permissions': list[str] (REQUIRED) - full list of permission strings for the team
+                'permissions': list[str] | None (REQUIRED) - the full ceiling, or None for no limit
             }
 
         Example: set_team_permissions(team_id='uuid-...', permissions=['execution.run:run_test', 'execution.run:run_campaign'])
         """
         team_id = params.get('team_id')
-        permissions = params.get('permissions', [])
+        permissions = params.get('permissions')
         if not team_id:
             return {"content": [{"type": "text", "text": "❌ team_id is required"}], "isError": True}
 
@@ -195,4 +197,4 @@ class AdminTools:
         if not result:
             return {"content": [{"type": "text", "text": "❌ Failed to update team permissions"}], "isError": True}
 
-        return {"content": [{"type": "text", "text": f"✅ Team {team_id} permissions set to: {permissions}"}], "isError": False}
+        return {"content": [{"type": "text", "text": f"✅ Team {team_id} ceiling set to: {'no limit' if permissions is None else permissions}"}], "isError": False}

@@ -1,0 +1,21 @@
+# Local RTSP test source for rtsp_video devices (TASK-31), run by vpt-rtsp.service.
+# A device with DEVICE{i}_VIDEO=rtsp://127.0.0.1:8554/smoke reads a looping file
+# republished here, so the RTSP capture path can be tested without a camera.
+# Everything not listed keeps mediamtx's defaults.
+logLevel: warn
+rtspAddress: 127.0.0.1:8554
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+
+paths:
+  smoke:
+    # mediamtx starts the publisher and restarts it if it exits. To loop another
+    # file, change the -i path. mediamtx expands $VARS in this line itself, so a
+    # shell-style ${VAR:-default} does not work here.
+    runOnInit: >-
+      /usr/bin/ffmpeg -nostats -loglevel warning -re -stream_loop -1
+      -i /var/www/html/videos/big_buck_bunny_360p.mp4
+      -c copy -f rtsp rtsp://127.0.0.1:$RTSP_PORT/$MTX_PATH
+    runOnInitRestart: yes

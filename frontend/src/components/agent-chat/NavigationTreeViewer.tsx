@@ -19,8 +19,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 
-import { useTheme } from '@mui/material/styles';
-import { AGENT_CHAT_PALETTE as PALETTE } from '../../constants/agentChatTheme';
+import { AGENT_CHAT_PALETTE as PALETTE, useAgentChatPalette } from '../../constants/agentChatTheme';
 import { useDeviceData } from '../../contexts/device/DeviceDataContext';
 
 // Import navigation components and contexts
@@ -81,12 +80,12 @@ const edgeTypes = {
 const defaultEdgeOptions = {
   type: 'navigation',
   animated: false,
-  style: { strokeWidth: 2, stroke: '#b1b1b7' },
+  style: { strokeWidth: 2, stroke: PALETTE.borderColor },
   markerEnd: {
     type: MarkerType.ArrowClosed,
     width: 20,
     height: 20,
-    color: '#b1b1b7',
+    color: PALETTE.borderColor,
   },
 };
 
@@ -111,8 +110,7 @@ const NavigationTreeViewerContent: React.FC<NavigationTreeViewerProps> = ({
   isControlActive: propIsControlActive,
   currentNodeId,
 }) => {
-  const theme = useTheme();
-  const isDarkMode = theme.palette.mode === 'dark';
+  const P = useAgentChatPalette();
 
   // Get control state from context (authoritative source)
   const { isControlActive: contextIsControlActive, selectedHost: contextSelectedHost, selectedDeviceId: contextSelectedDeviceId } = useHostControl();
@@ -451,21 +449,21 @@ const NavigationTreeViewerContent: React.FC<NavigationTreeViewerProps> = ({
   // MiniMap node color
   const miniMapNodeColor = useCallback((node: any) => {
     switch (node.data?.type) {
-      case 'screen': return '#3b82f6';
-      case 'dialog': return '#8b5cf6';
-      case 'popup': return '#f59e0b';
-      case 'overlay': return '#10b981';
-      case 'menu': return '#ffc107';
-      case 'entry': return '#ef4444';
-      default: return '#6b7280';
+      case 'screen': return P.accent;
+      case 'dialog': return P.series[2];
+      case 'popup': return P.series[0];
+      case 'overlay': return P.series[4];
+      case 'menu': return P.warning;
+      case 'entry': return P.error;
+      default: return P.textMuted;
     }
-  }, []);
+  }, [P]);
 
   const miniMapStyle = useMemo(() => ({
-    backgroundColor: isDarkMode ? '#1f2937' : '#ffffff',
-    border: `1px solid ${isDarkMode ? '#374151' : '#e5e7eb'}`,
+    backgroundColor: P.surface,
+    border: `1px solid ${P.borderColor}`,
     borderRadius: '4px',
-  }), [isDarkMode]);
+  }), [P]);
 
   if (isLoadingInterface) {
     return (
@@ -570,7 +568,7 @@ const NavigationTreeViewerContent: React.FC<NavigationTreeViewerProps> = ({
             <MiniMap
               style={miniMapStyle}
               nodeColor={miniMapNodeColor}
-              maskColor="rgba(255, 255, 255, 0.2)"
+              maskColor={`${P.textPrimary}33`}
               pannable
               zoomable
               position="bottom-right"

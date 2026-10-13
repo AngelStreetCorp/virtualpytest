@@ -94,14 +94,16 @@ def build_rows(data: dict, repo_root: pathlib.Path) -> tuple[list[str], int, int
                 failures_html = ('<div class="lbl">Failure</div><pre class="err">'
                                  + html.escape('\n\n'.join(failures)) + '</pre>')
             detail_id = f'd{idx}'
-            rows.append(f'''<tr style="background:{row_color};cursor:pointer" onclick="tg('{detail_id}')">
+            # data-st carries the status a summary card filters on (see kf() in main()).
+            st = 'skip' if skip else ('pass' if ok else 'fail')
+            rows.append(f'''<tr data-st="{st}" style="background:{row_color};cursor:pointer" onclick="tg('{detail_id}')">
   <td style="color:{icon_color};text-align:center">{icon}</td>
   <td style="font-size:.78rem;color:#888">{suite_name}</td>
   <td style="font-size:.85rem">{tname} <span style="color:#aaa;font-size:.7em">▼</span></td>
   <td style="text-align:right;font-size:.8rem">{duration:.0f}ms</td>
   <td style="color:#c62828;font-size:.78rem">{err_short}</td>
 </tr>
-<tr id="{detail_id}" style="display:none;background:{detail_color}"><td></td><td colspan="4" style="padding:10px 12px">
+<tr id="{detail_id}" class="dt" data-st="{st}" style="display:none;background:{detail_color}"><td></td><td colspan="4" style="padding:10px 12px">
   <div class="lbl">File</div><code style="font-size:.8rem">{html.escape(str(rel))}</code>
   <div class="lbl" style="margin-top:8px">Test source</div><pre class="src">{source_html}</pre>
   {failures_html}
@@ -111,7 +113,7 @@ def build_rows(data: dict, repo_root: pathlib.Path) -> tuple[list[str], int, int
             idx += 1
             failed += 1
             total += 1
-            rows.append(f'''<tr style="background:#ffebee"><td style="color:#c62828;text-align:center">✘</td>
+            rows.append(f'''<tr data-st="fail" style="background:#ffebee"><td style="color:#c62828;text-align:center">✘</td>
   <td style="font-size:.78rem;color:#888">{suite_name}</td><td style="font-size:.85rem">suite failed to run</td><td></td>
   <td style="color:#c62828;font-size:.78rem"><pre class="err" style="margin:0">{html.escape(suite_msg[:2000])}</pre></td></tr>''')
     return rows, total, passed, failed, skipped
@@ -145,6 +147,11 @@ def main() -> int:
     ts = _dt.datetime.now(_dt.timezone.utc).strftime('%Y-%m-%d %H:%M UTC')
     suites = len(data.get('testResults', []))
 
+    # Summary cards filter the table: a card with a non-zero count shows only its rows;
+    # clicking it again (or Total) shows every row.
+    def kpi_filter(key: str, count: int) -> str:
+        return f' data-filter="{key}" onclick="kf(this)"' if count else ''
+
     page = f'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><title>{html.escape(args.title)}</title>
 <style>
 body{{font-family:system-ui,sans-serif;margin:0;padding:24px;background:#fafafa;color:#212121}}
@@ -159,16 +166,18 @@ td{{padding:7px 12px;border-bottom:1px solid #f0f0f0;vertical-align:top}}tr:last
 pre.src,pre.err,pre.raw{{margin:0;background:#263238;color:#eceff1;padding:10px;border-radius:6px;font-size:.78rem;overflow-x:auto;white-space:pre-wrap;max-height:420px}}
 pre.err{{background:#3e2723}}
 details{{margin-top:24px}}summary{{cursor:pointer;font-weight:600}}
+.kpi[data-filter]{{cursor:pointer}}.kpi[data-filter]:hover{{border-color:#90a4ae}}.kpi.on{{outline:2px solid #37474f;outline-offset:-1px}}
 </style>
+<script>function kf(el){{var f=el.dataset.filter;if(f==='all'||document.body.dataset.kf===f)f='';document.body.dataset.kf=f;document.querySelectorAll('.kpi[data-filter]').forEach(function(k){{k.classList.toggle('on',!!f&&k.dataset.filter===f);}});document.querySelectorAll('tr[data-st]').forEach(function(r){{r.style.display=r.classList.contains('dt')?'none':(!f||r.dataset.st.split(' ').indexOf(f)>=0?'':'none');}});}}</script>
 <script>function tg(id){{var e=document.getElementById(id);e.style.display=e.style.display==='none'?'table-row':'none';}}</script>
 </head><body>
 <h1>{html.escape(args.title)}</h1><div class="meta">{ts} · {suites} suite files · click a row for its source</div>
 <div class="summary">
   <div class="kpi"><div class="kpi-label">Overall</div><div class="kpi-value" style="color:{color}">{label}</div></div>
-  <div class="kpi"><div class="kpi-label">Passed</div><div class="kpi-value" style="color:#2e7d32">{passed}</div></div>
-  <div class="kpi"><div class="kpi-label">Failed</div><div class="kpi-value" style="color:#c62828">{failed}</div></div>
-  <div class="kpi"><div class="kpi-label">Skipped</div><div class="kpi-value" style="color:#9e9e9e">{skipped}</div></div>
-  <div class="kpi"><div class="kpi-label">Total</div><div class="kpi-value">{total}</div></div>
+  <div class="kpi"{kpi_filter('pass', passed)}><div class="kpi-label">Passed</div><div class="kpi-value" style="color:#2e7d32">{passed}</div></div>
+  <div class="kpi"{kpi_filter('fail', failed)}><div class="kpi-label">Failed</div><div class="kpi-value" style="color:#c62828">{failed}</div></div>
+  <div class="kpi"{kpi_filter('skip', skipped)}><div class="kpi-label">Skipped</div><div class="kpi-value" style="color:#9e9e9e">{skipped}</div></div>
+  <div class="kpi"{kpi_filter('all', total)}><div class="kpi-label">Total</div><div class="kpi-value">{total}</div></div>
 </div>
 <table><thead><tr><th></th><th>Suite</th><th>Test</th><th>Time</th><th>Error</th></tr></thead>
 <tbody>{"".join(rows)}</tbody></table>

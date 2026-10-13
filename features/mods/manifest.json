@@ -1,0 +1,8 @@
+{
+  "name": "mods",
+  "description": "Mods (TASK-77): small add-ons that listen to app events (run.update) and draw into core slots (app.band under the top bar, app.pane on the right), like Claude Code mods. Each user turns each mod on or off on Settings > Mods, like browser extensions; the choice is per browser (localStorage virtualpytest:mods:enabled). Server part (/server/mods): the current-state snapshot replayed on (re)connect and per-user preferences (tables user_mod_preferences and user_widget_layouts, features/mods/db/001 and 002, applied by hand). Ships Team devices (a Dashboard widget: devices, tests running, failed runs or open alerts; layout saved per account; core widget area in mods/core/components/widgets mounted in Dashboard.tsx), Split view (a second page side by side: this app in a frame, which hides its chrome and mods when embedded; app.side slot; frame events relayed to the main window), Picture-in-picture (a device stream floating on every page, remote after Take control, paused while a page controls a device; core control.change emit in useDeviceControl, app.overlay slot), Online Users ('N online' chip from the core /system presence), Run Progress (band + pane + toast for running scripts, campaigns and test cases) and Blast Radius (confirm before power off / reboot, through the device.command gate asked by usePowerControl). Core keeps the inert mod layer it relies on: frontend/src/mods/core (registry, ModsProvider, ModSlot, ModPaneDrawer) and the `mods` slot of FeatureDefinition; with this feature disabled no mod loads and no extra socket opens.",
+  "parts": [
+    "backend_server",
+    "frontend"
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "movie",
+  "category": "movie",
+  "hints": "a feature film: cinematic framing, often letterboxed, no score bug or news ticker",
+  "entity": [
+    "title",
+    "year"
+  ],
+  "identify_interval_s": 120,
+  "enrich": {
+    "source": "web",
+    "facts": {
+      "year": "release year",
+      "director": "director(s)",
+      "cast": "list of the 5 main actors",
+      "duration": "running time, e.g. '2h 46min'",
+      "genre": "genre(s)",
+      "rating": "critics or audience rating with its source, e.g. 'IMDb 8.5'",
+      "synopsis": "two-sentence spoiler-free synopsis"
+    }
+  },
+  "track": {
+    "type": "time_window"
+  },
+  "render": "title"
+}

@@ -31,7 +31,6 @@ import {
   Error as ActiveIcon,
   KeyboardArrowDown as ExpandMoreIcon,
   KeyboardArrowRight as ExpandLessIcon,
-  SmartToy as AiIcon,
   Person as ManualIcon,
   CheckCircle as CheckedIcon,
   Help as UnknownIcon,
@@ -42,12 +41,15 @@ import {
   RemoveCircleOutline as SkippedIcon,
 } from '@mui/icons-material';
 
+import { AIIcon as AiIcon } from '../../components/common/icons/CustomIcons';
 import { HeatMapFreezeModal } from '../../components/heatmap/HeatMapFreezeModal';
 import { R2Image } from '../../components/common/R2Image';
 import { useAlerts } from '../../hooks/pages/useAlerts';
 import { Alert } from '../../types/pages/Monitoring_Types';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 const AlertsViewerContent: React.FC = () => {
+  const P = useAgentChatPalette();
   const { getAllAlerts, updateCheckedStatus, updateDiscardStatus } = useAlerts();
 
   const [activeAlerts, setActiveAlerts] = useState<Alert[]>([]);
@@ -139,7 +141,7 @@ const AlertsViewerContent: React.FC = () => {
       } else {
         return `${seconds}s`;
       }
-    } catch (error) {
+    } catch {
       return 'Error';
     }
   };
@@ -152,13 +154,13 @@ const AlertsViewerContent: React.FC = () => {
         return 'Invalid Date';
       }
       return date.toLocaleDateString() + ', ' + date.toLocaleTimeString();
-    } catch (error) {
+    } catch {
       return 'Error';
     }
   };
 
   // Get incident type chip color
-  function getIncidentTypeColor(incidentType: string): 'error' | 'warning' | 'info' {
+  function getIncidentTypeColor(incidentType: string): 'error' | 'warning' | 'default' {
     switch (incidentType.toLowerCase()) {
       case 'blackscreen':
       case 'freeze':
@@ -166,7 +168,7 @@ const AlertsViewerContent: React.FC = () => {
       case 'audio_loss':
         return 'warning';
       default:
-        return 'info';
+        return 'default';
     }
   }
 
@@ -287,7 +289,12 @@ const AlertsViewerContent: React.FC = () => {
       return <Typography variant="body2" color="text.disabled">-</Typography>;
     }
     return (
-      <Chip label={alert.discard_type} color="info" size="small" variant="outlined" />
+      <Chip
+        label={alert.discard_type}
+        size="small"
+        variant="outlined"
+        sx={{ color: P.textSecondary, borderColor: P.borderColor }}
+      />
     );
   };
 
@@ -591,7 +598,8 @@ const AlertsViewerContent: React.FC = () => {
                 },
               }}
             >
-              <Table size="small">
+              <Table size="small" sx={{ tableLayout: 'fixed', minWidth: showDetailedColumns ? 1160 : 760, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
+<colgroup><col style={{ width: 80 }} /><col /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 150 }} /><col style={{ width: 100 }} />{showDetailedColumns && (<><col style={{ width: 90 }} /><col style={{ width: 90 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /></>)}</colgroup>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ py: 0.25, width: 50 }}>

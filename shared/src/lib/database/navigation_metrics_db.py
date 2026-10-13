@@ -15,136 +15,178 @@ The metrics are automatically updated via PostgreSQL triggers when executions ar
 
 from typing import List, Dict, Optional
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import chunked_in
 
 def get_supabase():
     """Get the Supabase client instance."""
     return get_supabase_client()
 
 
-def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str]) -> Dict:
+def _variant_filter(query, variant: Optional[str]):
+    """Scope a node_metrics/edge_metrics query to one run scope.
+
+    The aggregate tables key rows per (..., variant) with NULLS NOT DISTINCT,
+    so NULL = the base scope and must be matched with IS NULL, never eq.
+    """
+    return query.is_('variant', 'null') if variant is None else query.eq('variant', variant)
+
+
+def _edge_metric_key(edge_id: str, action_set_id: Optional[str]) -> str:
+    """Frontend map key: `edge_id#action_set_id` (direction-specific), or the bare
+    edge_id for rows without an action_set_id. Mirrors the RPC's
+    `edge_id || COALESCE('#' || action_set_id, '')`."""
+    return f"{edge_id}#{action_set_id}" if action_set_id else edge_id
+
+
+def default_node_metrics() -> Dict:
+    return {'volume': 0, 'success_rate': 0.0, 'avg_verification_time': 0}
+
+
+def default_edge_metrics() -> Dict:
+    return {
+        'volume': 0,
+        'success_rate': 0.0,
+        'avg_action_time': 0,
+        'avg_kpi_ms': 0,
+        'kpi_volume': 0,
+        'kpi_report_url': None,
+    }
+
+
+def _latest_kpi_report_urls(supabase, team_id: str, edge_ids: List[str], variant: Optional[str]) -> Dict:
+    """Latest execution_results.kpi_report_url per (edge_id, action_set_id) in scope.
+
+    One query, newest first; the first row seen for a key wins. Only edges
+    that actually have KPI samples are asked for (callers pre-filter), so the
+    scan stays small. Uses idx_execution_results_kpi_edge_lookup.
+    """
+    if not edge_ids:
+        return {}
+    rows = chunked_in(
+        lambda chunk: _variant_filter(supabase.table('execution_results').select(
+            'edge_id, action_set_id, kpi_report_url, executed_at'
+        ).eq('team_id', team_id).in_('edge_id', chunk).not_.is_('kpi_report_url', 'null'), variant)
+        .order('executed_at', desc=True),
+        edge_ids)
+
+    latest = {}
+    for row in rows:
+        key = (row['edge_id'], row.get('action_set_id'))
+        if key not in latest and row.get('kpi_report_url'):
+            latest[key] = row['kpi_report_url']
+    return latest
+
+
+def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], variant: Optional[str] = None) -> Dict:
     """
     Get aggregated metrics for trees matching the frontend API interface.
-    
+
     Args:
         team_id: Team identifier
         node_ids: List of node IDs to get metrics for
         edge_ids: List of edge IDs to get metrics for
-        
+        variant: Run scope - None for base runs, else the lowercase variant name.
+                 Matches the trigger keys (edge_id, action_set_id, variant) /
+                 (node_id, tree_id, team_id, variant); scopes never mix.
+
     Returns:
-        Dict with format: {nodes: {node_id: metrics}, edges: {edge_id: metrics}}
-        Where metrics = {volume: int, success_rate: float, avg_execution_time: int}
+        {nodes: {node_id: {volume, success_rate, avg_verification_time}},
+         edges: {edge_id#action_set_id: {volume, success_rate, avg_action_time,
+                                         avg_kpi_ms, kpi_volume, kpi_report_url,
+                                         action_set_id, variant}}}
+        Every requested node_id is present (defaults for untested nodes).
+        Edges are only present when a metrics row exists, since the key needs
+        the action_set_id that only the row knows.
     """
     try:
         supabase = get_supabase()
-        
-        # Get node metrics from aggregated table
+
         node_metrics = {}
         if node_ids:
-            node_result = supabase.table('node_metrics').select(
-                'node_id, total_executions, success_rate, avg_execution_time_ms'
-            ).eq('team_id', team_id).in_('node_id', node_ids).execute()
-            
-            for metric in node_result.data:
+            node_rows = chunked_in(
+                lambda chunk: _variant_filter(supabase.table('node_metrics').select(
+                    'node_id, total_executions, success_rate, avg_verification_time_ms'
+                ).eq('team_id', team_id).in_('node_id', chunk), variant),
+                node_ids)
+
+            for metric in node_rows:
                 node_metrics[metric['node_id']] = {
                     'volume': metric['total_executions'],
                     'success_rate': float(metric['success_rate']),
-                    'avg_execution_time': metric['avg_execution_time_ms']
+                    'avg_verification_time': metric['avg_verification_time_ms'],
                 }
-        
-        # Get edge metrics from aggregated table - NOW WITH ACTION_SET_ID
+
         edge_metrics = {}
         if edge_ids:
-            edge_result = supabase.table('edge_metrics').select(
-                'edge_id, action_set_id, total_executions, success_rate, avg_execution_time_ms'
-            ).eq('team_id', team_id).in_('edge_id', edge_ids).execute()
-            
-            for metric in edge_result.data:
-                # Create unique key for edge + action_set combination
+            edge_rows = chunked_in(
+                lambda chunk: _variant_filter(supabase.table('edge_metrics').select(
+                    'edge_id, action_set_id, variant, total_executions, success_rate, '
+                    'avg_action_time_ms, avg_kpi_ms, total_kpi_measurements'
+                ).eq('team_id', team_id).in_('edge_id', chunk), variant),
+                edge_ids)
+
+            kpi_edge_ids = sorted({row['edge_id'] for row in edge_rows if (row.get('total_kpi_measurements') or 0) > 0})
+            report_urls = _latest_kpi_report_urls(supabase, team_id, kpi_edge_ids, variant)
+
+            for metric in edge_rows:
                 action_set_id = metric.get('action_set_id')
-                if action_set_id:
-                    # Direction-specific metrics: edge_id + action_set_id
-                    metric_key = f"{metric['edge_id']}#{action_set_id}"
-                else:
-                    # Legacy metrics without action_set_id (should not exist after cleanup)
-                    metric_key = metric['edge_id']
-                
-                edge_metrics[metric_key] = {
+                edge_metrics[_edge_metric_key(metric['edge_id'], action_set_id)] = {
                     'volume': metric['total_executions'],
                     'success_rate': float(metric['success_rate']),
-                    'avg_execution_time': metric['avg_execution_time_ms'],
-                    'action_set_id': action_set_id
+                    'avg_action_time': metric['avg_action_time_ms'],
+                    'avg_kpi_ms': metric.get('avg_kpi_ms') or 0,
+                    'kpi_volume': metric.get('total_kpi_measurements') or 0,
+                    'kpi_report_url': report_urls.get((metric['edge_id'], action_set_id)),
+                    'action_set_id': action_set_id,
+                    'variant': metric.get('variant'),
                 }
-        
-        # Fill in defaults for missing metrics (nodes/edges without execution history)
-        default_metrics = {'volume': 0, 'success_rate': 0.0, 'avg_execution_time': 0}
-        
+
         for node_id in node_ids:
             if node_id not in node_metrics:
-                node_metrics[node_id] = default_metrics.copy()
-        
-        # For edges, we no longer fill defaults since we need action_set_id context
-        # The frontend will need to request specific edge+action_set combinations
-        
-        return {
-            'nodes': node_metrics,
-            'edges': edge_metrics
-        }
-        
+                node_metrics[node_id] = default_node_metrics()
+
+        return {'nodes': node_metrics, 'edges': edge_metrics}
+
     except Exception as e:
         print(f"[@db:navigation_metrics:get_tree_metrics] Error: {str(e)}")
-        # Return defaults for all requested IDs on error
-        default_metrics = {'volume': 0, 'success_rate': 0.0, 'avg_execution_time': 0}
         return {
-            'nodes': {node_id: default_metrics.copy() for node_id in node_ids},
-            'edges': {}  # Empty edges on error since we need action_set_id context
+            'nodes': {node_id: default_node_metrics() for node_id in node_ids},
+            'edges': {},
         }
 
 
-def get_edge_direction_metrics(team_id: str, edge_id: str, action_set_id: str) -> Dict:
+def get_edge_direction_metrics(team_id: str, edge_id: str, action_set_id: str, variant: Optional[str] = None) -> Dict:
     """
-    Get metrics for a specific edge direction (edge_id + action_set_id combination).
-    
-    Args:
-        team_id: Team identifier
-        edge_id: Edge identifier
-        action_set_id: Action set identifier (direction)
-        
+    Get metrics for a specific edge direction (edge_id + action_set_id) in one run scope.
+
     Returns:
-        Dict with metrics: {volume: int, success_rate: float, avg_execution_time: int, confidence: float}
+        {volume, success_rate, avg_action_time, avg_kpi_ms, kpi_volume, confidence}
     """
+    empty = {k: v for k, v in default_edge_metrics().items() if k != 'kpi_report_url'}
+    empty['confidence'] = 0.0
     try:
         supabase = get_supabase()
-        
-        # Get direction-specific metrics
-        result = supabase.table('edge_metrics').select(
-            'total_executions, success_rate, avg_execution_time_ms'
-        ).eq('team_id', team_id).eq('edge_id', edge_id).eq('action_set_id', action_set_id).execute()
-        
+
+        query = supabase.table('edge_metrics').select(
+            'total_executions, success_rate, avg_action_time_ms, avg_kpi_ms, total_kpi_measurements'
+        ).eq('team_id', team_id).eq('edge_id', edge_id).eq('action_set_id', action_set_id)
+        result = _variant_filter(query, variant).execute()
+
         if result.data:
             metric = result.data[0]
             return {
                 'volume': metric['total_executions'],
                 'success_rate': float(metric['success_rate']),
-                'avg_execution_time': metric['avg_execution_time_ms'],
-                'confidence': float(metric['success_rate'])  # Use success_rate as confidence for now
+                'avg_action_time': metric['avg_action_time_ms'],
+                'avg_kpi_ms': metric.get('avg_kpi_ms') or 0,
+                'kpi_volume': metric.get('total_kpi_measurements') or 0,
+                'confidence': float(metric['success_rate']),  # Use success_rate as confidence for now
             }
-        else:
-            # No metrics found for this direction
-            return {
-                'volume': 0,
-                'success_rate': 0.0,
-                'avg_execution_time': 0,
-                'confidence': 0.0
-            }
-            
+        return empty
+
     except Exception as e:
         print(f"[@db:navigation_metrics:get_edge_direction_metrics] Error: {str(e)}")
-        return {
-            'volume': 0,
-            'success_rate': 0.0,
-            'avg_execution_time': 0,
-            'confidence': 0.0
-        }
+        return empty
 
 
 def record_action_execution(

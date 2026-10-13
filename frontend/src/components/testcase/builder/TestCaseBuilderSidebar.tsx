@@ -3,9 +3,10 @@ import { Box, Typography, IconButton } from '@mui/material';
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import { TestCaseToolbox } from './TestCaseToolbox';
 import { AIModePanel } from '../ai/AIModePanel';
+import { AIEditControls } from '../../../hooks/testcase/useAIGraphEdit';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface TestCaseBuilderSidebarProps {
-  actualMode: 'light' | 'dark';
   creationMode: 'visual' | 'ai';
   isSidebarOpen: boolean;
   toggleSidebar: () => void;
@@ -31,10 +32,10 @@ interface TestCaseBuilderSidebarProps {
   handleGenerateWithAI?: () => void;
   hasLastGeneration?: boolean;
   handleShowLastGeneration?: () => void;
+  aiEdit?: AIEditControls;
 }
 
 export const TestCaseBuilderSidebar: React.FC<TestCaseBuilderSidebarProps> = ({
-  actualMode,
   creationMode,
   toggleSidebar,
   toolboxConfig,
@@ -50,7 +51,9 @@ export const TestCaseBuilderSidebar: React.FC<TestCaseBuilderSidebarProps> = ({
   handleGenerateWithAI,
   hasLastGeneration,
   handleShowLastGeneration,
+  aiEdit,
 }) => {
+  const P = useAgentChatPalette();
   return (
     <>
       {/* Sidebar Header */}
@@ -64,7 +67,7 @@ export const TestCaseBuilderSidebar: React.FC<TestCaseBuilderSidebarProps> = ({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          background: actualMode === 'dark' ? '#1e293b' : '#ffffff',
+          bgcolor: 'background.paper',
         }}
       >
         <Typography variant="subtitle1" fontWeight="bold">
@@ -75,7 +78,7 @@ export const TestCaseBuilderSidebar: React.FC<TestCaseBuilderSidebarProps> = ({
           onClick={toggleSidebar}
           sx={{
             color: 'text.secondary',
-            '&:hover': { color: 'primary.main' },
+            '&:hover': { color: P.accentText },
           }}
         >
           <ChevronLeftIcon />
@@ -117,6 +120,7 @@ export const TestCaseBuilderSidebar: React.FC<TestCaseBuilderSidebarProps> = ({
             hasLastGeneration={hasLastGeneration}
             handleShowLastGeneration={handleShowLastGeneration}
             isControlActive={isControlActive}
+            aiEdit={aiEdit}
           />
         )}
       </Box>

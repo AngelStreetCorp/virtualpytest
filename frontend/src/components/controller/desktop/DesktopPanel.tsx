@@ -1,5 +1,4 @@
 import {
-  OpenInFull,
   CloseFullscreen,
   KeyboardArrowDown,
   KeyboardArrowUp,
@@ -8,6 +7,8 @@ import {
 } from '@mui/icons-material';
 import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import React, { useState, useMemo } from 'react';
+
+import { FullscreenIcon } from '../../common/icons/CustomIcons';
 
 import { Host } from '../../../types/common/Host_Types';
 import { getZIndex } from '../../../utils/zIndexUtils';
@@ -369,7 +370,7 @@ export const DesktopPanel = React.memo(function DesktopPanel({
                 sx={{ color: 'inherit' }}
               >
                 {isCollapsed ? (
-                  <OpenInFull fontSize="small" />
+                  <FullscreenIcon fontSize="small" />
                 ) : (
                   <CloseFullscreen fontSize="small" />
                 )}

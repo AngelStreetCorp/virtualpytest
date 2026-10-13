@@ -18,12 +18,17 @@ Architecture:
 import os
 import json
 import logging
+import threading
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
 from shared.src.lib.utils.file_lock_utils import lock_file, unlock_file
 
 logger = logging.getLogger(__name__)
+
+# Team every monitor-detected zap is filed under. capture_monitor has no per-team context,
+# so zap_results rows (and the training samples that point at them) use the default team.
+ZAP_TEAM_ID = '7fdeb4bb-3639-4ec3-959f-b54769a219ce'
 
 
 def detect_and_record_zapping(
@@ -35,7 +40,8 @@ def detect_and_record_zapping(
     action_info: Optional[Dict[str, Any]] = None,
     audio_info: Optional[Dict[str, Any]] = None,
     transition_images: Optional[Dict[str, Any]] = None,
-    transition_type: str = 'blackscreen'
+    transition_type: str = 'blackscreen',
+    expected_channel: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Detect zapping by analyzing channel banner and record the event.
@@ -77,6 +83,9 @@ def detect_and_record_zapping(
                 'after_frame': 'capture_12348.jpg',
                 'after_thumbnail_path': '/path/to/cold/thumbnail.jpg'
             }
+        expected_channel: Channel number the zap was told to reach (numeric zaps only;
+            None for CHANNEL_UP/DOWN). Used only as the run label of the banner training
+            sample (TASK-27); detection does not read it.
     
     Returns:
         Dict with detection results:
@@ -199,12 +208,18 @@ def detect_and_record_zapping(
         # Channel info is decoupled: when skipped, detection/timing/images/report still record.
         banner_ai_enabled = os.getenv('MONITOR_BANNER_AI', 'true').strip().lower() not in ('false', '0', 'no', 'off')
         try:
-            from shared.src.lib.ai.config import is_task_available
-            vision_configured = is_task_available('vision')
+            from shared.src.lib.ai import gateway
+            vision_configured = gateway.is_available('vision.banner')
         except Exception:
             vision_configured = False
 
-        if banner_ai_enabled and vision_configured:
+        banner_ai_ran = bool(banner_ai_enabled and vision_configured)
+        banner_frame_bytes = None
+        if banner_ai_ran:
+            # TASK-27: grab the frame bytes NOW, while frame_path exists. The cold copy is
+            # auto-deleted right after the R2 upload and the hot frame rotates, so a path is
+            # gone by the time the background recorder runs. No read when capture is off.
+            banner_frame_bytes = _read_banner_frame_bytes(frame_path)
             logger.info(f"[{capture_folder}] 🤖 Calling AI banner analysis...")
             banner_result = analyze_channel_banner_ai(
                 image_path=frame_path,
@@ -342,7 +357,7 @@ def detect_and_record_zapping(
         time_since_action_ms = action_info.get('time_since_action_ms') if action_info else None
         total_zap_duration_ms = time_since_action_ms if time_since_action_ms else blackscreen_duration_ms
         
-        _store_zapping_event(
+        zap_row_id = _store_zapping_event(
             device_id=device_id,
             device_model=device_model,
             blackscreen_duration_ms=blackscreen_duration_ms,
@@ -356,6 +371,19 @@ def detect_and_record_zapping(
             report_url=report_url,
             transition_type=transition_type
         )
+
+        # TASK-27: keep the banner frame as a training sample (background, never blocks).
+        # Only when the banner AI actually ran; a skipped AI gives nothing to learn from.
+        if banner_ai_ran and banner_frame_bytes:
+            _record_banner_training_sample(
+                image=banner_frame_bytes,
+                device_model=device_model,
+                channel_info=channel_info,
+                expected_channel=expected_channel,
+                zap_id=zap_row_id or f"zap_cache_{frame_filename}",
+                trace_id=banner_result.get('trace_id'),
+                request_id=banner_result.get('request_id'),
+            )
 
         return {
             'success': True,
@@ -640,7 +668,7 @@ def _store_zapping_event(
             logger.info(f"🔊 Audio silence: {silence_duration:.2f}s")
         
         # Get default team_id for automatic zapping (same as used in script_executor)
-        team_id ='7fdeb4bb-3639-4ec3-959f-b54769a219ce'
+        team_id = ZAP_TEAM_ID
         
         # Record in zap_results table (reuses existing function)
         # Note: script_result_id is None for automatic zapping (not part of a script execution)
@@ -676,8 +704,101 @@ def _store_zapping_event(
             logger.info(f"💾 Stored {detection_type} zapping in zap_results table")
         else:
             logger.warning(f"⚠️  Failed to store zapping in database")
+        return result
             
     except Exception as e:
         logger.error(f"❌ Error storing zapping event: {e}")
         import traceback
         traceback.print_exc()
+        return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────────────
+# TASK-27 training capture: banner family
+# ─────────────────────────────────────────────────────────────────────────────────────
+
+def _run_in_background(target, *args, **kwargs) -> threading.Thread:
+    """Start ``target`` on a daemon thread. record_sample uploads synchronously, so it
+    must never run on the zap path: a slow or down MinIO would delay detection."""
+    thread = threading.Thread(target=target, args=args, kwargs=kwargs,
+                              name='training-banner-sample', daemon=True)
+    thread.start()
+    return thread
+
+
+def _read_banner_frame_bytes(frame_path: str) -> Optional[bytes]:
+    """Read the analysed frame for the training hook, synchronously (a few ms).
+
+    Returns None, without touching the file, when training capture is disabled.
+    Never raises.
+    """
+    try:
+        from shared.src.lib.ai import training_samples
+        if not training_samples.enabled():
+            return None
+        with open(frame_path, 'rb') as f:
+            return f.read() or None
+    except Exception as e:
+        logger.warning(f"[training] could not read banner frame {frame_path}: {e}")
+        return None
+
+
+def _record_banner_sample_now(
+    image: bytes,
+    device_model: str,
+    channel_info: Dict[str, Any],
+    expected_channel: Optional[str],
+    zap_id: str,
+    team_id: str,
+    trace_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+) -> Optional[str]:
+    """Blocking part of the hook (runs on the background thread). Never raises."""
+    try:
+        from shared.src.lib.ai.training_samples import record_sample
+        try:
+            from shared.src.lib.utils.ai_utils import _create_banner_analysis_prompt
+            prompt = _create_banner_analysis_prompt()
+        except Exception:
+            prompt = None
+        return record_sample(
+            image=image,
+            family='banner',
+            team_id=team_id,
+            device_model=device_model,
+            prompt=prompt,
+            model_answer=channel_info or {},
+            ground_truth={'channel_number': expected_channel} if expected_channel else None,
+            label_source='run' if expected_channel else 'none',
+            source_ref={'zap_id': zap_id, **({'trace_id': trace_id} if trace_id else {}),
+                        **({'request_id': request_id} if request_id else {})},
+        )
+    except Exception as e:
+        logger.warning(f"[training] banner sample not recorded: {e}")
+        return None
+
+
+def _record_banner_training_sample(
+    image: bytes,
+    device_model: str,
+    channel_info: Dict[str, Any],
+    expected_channel: Optional[str],
+    zap_id: str,
+    team_id: str = ZAP_TEAM_ID,
+    trace_id: Optional[str] = None,
+    request_id: Optional[str] = None,
+) -> None:
+    """Record the analysed banner frame as a ``banner`` training sample, off the hot path.
+
+    Numeric zaps pass ``expected_channel`` and get a run label; CHANNEL_UP/DOWN get no
+    ground truth (teacher-labelled later). No-op, and no thread, when training capture
+    is disabled. Never raises: a training hook must never fail a zap.
+    """
+    try:
+        from shared.src.lib.ai import training_samples
+        if not training_samples.enabled():
+            return
+        _run_in_background(_record_banner_sample_now, image, device_model,
+                           dict(channel_info or {}), expected_channel, zap_id, team_id, trace_id, request_id)
+    except Exception as e:
+        logger.warning(f"[training] banner sample hook failed: {e}")

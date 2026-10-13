@@ -1,5 +1,6 @@
 import { OpenInNew as ExternalIcon, Refresh as RefreshIcon } from '@mui/icons-material';
 import { Box, IconButton, Link, Tab, Tabs, Tooltip, Typography } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 import React, { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
@@ -21,6 +22,8 @@ import {
   AnalyticsSection,
   ApiSection,
 } from '../types/pages/Analytics_Types';
+import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
+import { withGrafanaWorkspace } from '../utils/grafanaUrl';
 
 /**
  * Monitoring > Analytics — the basics without opening Grafana.
@@ -60,16 +63,18 @@ const GRAFANA_UID: Partial<Record<AnalyticsSection, string>> = {
   alerts: 'device-alerts-dashboard',
 };
 
-const grafanaLink = (section: AnalyticsSection): string | undefined => {
+const grafanaLink = (section: AnalyticsSection, workspaceId?: string | null): string | undefined => {
   const uid = GRAFANA_UID[section];
   const base = getEnv('VITE_GRAFANA_URL') || '';
-  return uid && base ? `${base}/d/${uid}?orgId=1` : undefined;
+  return uid && base ? withGrafanaWorkspace(`${base}/d/${uid}?orgId=1`, workspaceId) : undefined;
 };
 
 const isSection = (value: string | null): value is AnalyticsSection =>
   !!value && (ANALYTICS_SECTIONS as readonly string[]).includes(value);
 
 const MonitoringAnalytics: React.FC = () => {
+  const P = useAgentChatPalette();
+  const { activeWorkspace } = useWorkspaceContext();
   const { isMobile } = useResponsiveMode();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -128,14 +133,14 @@ const MonitoringAnalytics: React.FC = () => {
 
   return (
     <Box sx={{ p: 3, pt: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, mb: 1 }}>
-        <Typography variant="h6" sx={{ fontWeight: 600 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+        <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
           Analytics
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
-        {grafanaLink(active) && (
+        {grafanaLink(active, activeWorkspace?.id) && (
           <Link
-            href={grafanaLink(active)}
+            href={grafanaLink(active, activeWorkspace?.id)}
             target="_blank"
             rel="noopener"
             underline="none"
@@ -144,8 +149,8 @@ const MonitoringAnalytics: React.FC = () => {
               alignItems: 'center',
               gap: 0.5,
               fontSize: '0.75rem',
-              color: 'text.secondary',
-              '&:hover': { color: 'text.primary' },
+              color: P.accentText,
+              '&:hover': { textDecoration: 'underline' },
             }}
           >
             Open in Grafana
@@ -164,7 +169,11 @@ const MonitoringAnalytics: React.FC = () => {
         onChange={handleChange}
         variant="scrollable"
         scrollButtons="auto"
-        sx={{ borderBottom: 1, borderColor: 'divider', minHeight: 40, mb: 2 }}
+        sx={{
+          borderBottom: 1, borderColor: 'divider', minHeight: 40, mb: 2,
+          '& .MuiTabs-indicator': { bgcolor: P.accent },
+          '& .MuiTab-root.Mui-selected': { color: P.accentText, fontWeight: 600 },
+        }}
       >
         {ANALYTICS_SECTIONS.map((section) => (
           <Tab

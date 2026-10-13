@@ -25,11 +25,11 @@ import {
   Autocomplete,
   Tabs,
   Tab,
-  Checkbox,
   FormControlLabel,
-  FormGroup,
-  Divider,
+  Switch,
 } from '@mui/material';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -45,60 +45,12 @@ import { useUsers } from '../hooks/pages/useUsers';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { StyledDialog } from '../components/common/StyledDialog';
+import { PermissionChecklist } from '../components/auth/PermissionChecklist';
+import { DeviceScopePicker } from '../components/auth/DeviceScopePicker';
+import { usePermissions } from '../hooks/auth/usePermissions';
 import { ALL_PERMISSIONS, Permission } from '../types/auth';
 import { api } from '../utils/apiClient';
 import { buildServerUrl } from '../utils/buildUrlUtils';
-
-const PERMISSION_GROUPS: Record<string, string> = {
-  dashboard: 'Dashboard',
-  device_control: 'Device Control',
-  testcases: 'Test Cases',
-  campaigns: 'Campaigns',
-  'builder.test': 'Builder - Test',
-  'builder.campaign': 'Builder - Campaign',
-  'execution.run': 'Execution - Run',
-  'execution.monitor': 'Execution - Monitor',
-  'execution.build': 'Execution - Build',
-  'reports.tests': 'Reports - Tests',
-  'reports.campaigns': 'Reports - Campaigns',
-  'reports.models': 'Reports - Models',
-  'reports.dependency': 'Reports - Dependency',
-  'monitoring.incidents': 'Monitoring - Incidents',
-  'monitoring.heatmap': 'Monitoring - Heatmap',
-  'monitoring.ai_queue': 'Monitoring - AI Queue',
-  interface: 'Interface',
-  ai_agent: 'AI Agent',
-  'plugins.grafana': 'Plugins - Grafana',
-  'plugins.langfuse': 'Plugins - Langfuse',
-  'plugins.postman': 'Plugins - Postman',
-  'plugins.jira': 'Plugins - Jira',
-  'plugins.slack': 'Plugins - Slack',
-  'settings.general': 'Settings - General',
-  'settings.models': 'Settings - Models',
-  'settings.code_deploy': 'Settings - Code Deploy',
-  'settings.cicd': 'Settings - CI/CD',
-  'settings.branding': 'Settings - Branding',
-  'settings.status': 'Settings - Status',
-  'org.users': 'Org - Users',
-  'org.teams': 'Org - Teams',
-  'org.invite': 'Org - Invite',
-  'org.workspaces': 'Org - Workspaces',
-};
-
-function getPermissionPrefix(perm: Permission): string {
-  const colonIdx = perm.indexOf(':');
-  return colonIdx !== -1 ? perm.substring(0, colonIdx) : perm;
-}
-
-function groupPermissions(perms: Permission[]): Record<string, Permission[]> {
-  const groups: Record<string, Permission[]> = {};
-  for (const perm of perms) {
-    const prefix = getPermissionPrefix(perm);
-    if (!groups[prefix]) groups[prefix] = [];
-    groups[prefix].push(perm);
-  }
-  return groups;
-}
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -119,6 +71,9 @@ interface TeamRowDetailProps {
 }
 
 const TeamRowDetail: React.FC<TeamRowDetailProps> = ({ team, allUsers, onMembersChanged }) => {
+  const P = useAgentChatPalette();
+  const { canAccess } = usePermissions();
+  const canManageMembers = canAccess('org.teams:manage_members');
   const { data: members = [], isLoading: membersLoading, refetch } = useTeamMembers(team.id);
   const [addError, setAddError] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -189,7 +144,7 @@ const TeamRowDetail: React.FC<TeamRowDetailProps> = ({ team, allUsers, onMembers
                     )}
                   </Box>
                 }
-                onDelete={() => handleRemoveMember(member.user_id)}
+                onDelete={canManageMembers ? () => handleRemoveMember(member.user_id) : undefined}
                 deleteIcon={
                   isRemoving === member.user_id
                     ? <CircularProgress size={14} />
@@ -202,6 +157,7 @@ const TeamRowDetail: React.FC<TeamRowDetailProps> = ({ team, allUsers, onMembers
               />
             ))}
 
+            {canManageMembers && (
             <Autocomplete
               size="small"
               options={availableUsers}
@@ -228,15 +184,16 @@ const TeamRowDetail: React.FC<TeamRowDetailProps> = ({ team, allUsers, onMembers
                   variant="outlined"
                   InputProps={{
                     ...params.InputProps,
-                    startAdornment: <PersonAddIcon fontSize="small" sx={{ mr: 0.5, color: 'primary.main' }} />,
+                    startAdornment: <PersonAddIcon fontSize="small" sx={{ mr: 0.5, color: P.accentText }} />,
                   }}
                   sx={{
                     '& .MuiOutlinedInput-root': {
                       height: 32,
-                      borderRadius: 4,
-                      borderStyle: 'dashed',
+                      borderRadius: '16px',
                       fontSize: '0.85rem',
-                      '& fieldset': { borderStyle: 'dashed' },
+                      '& fieldset': { borderWidth: 1, borderColor: 'divider' },
+                      '&:hover fieldset': { borderColor: 'text.secondary' },
+                      '&.Mui-focused fieldset': { borderWidth: 1, borderColor: P.accent },
                     },
                   }}
                 />
@@ -247,6 +204,7 @@ const TeamRowDetail: React.FC<TeamRowDetailProps> = ({ team, allUsers, onMembers
               openOnFocus
               noOptionsText="No users available"
             />
+            )}
           </Box>
 
           {addError && <Alert severity="error" sx={{ mt: 1 }} onClose={() => setAddError(null)}>{addError}</Alert>}
@@ -257,6 +215,8 @@ const TeamRowDetail: React.FC<TeamRowDetailProps> = ({ team, allUsers, onMembers
 };
 
 const Teams: React.FC = () => {
+  const P = useAgentChatPalette();
+  const { canAccess } = usePermissions();
   const {
     teams,
     isLoading,
@@ -279,7 +239,9 @@ const Teams: React.FC = () => {
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [activeTab, setActiveTab] = useState(0);
   const [formData, setFormData] = useState({ name: '', description: '' });
-  const [teamPerms, setTeamPerms] = useState<Set<Permission>>(new Set());
+  // The team's ceilings (TASK-31). null = no limit.
+  const [teamPerms, setTeamPerms] = useState<Set<Permission> | null>(null);
+  const [teamDevices, setTeamDevices] = useState<string[] | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
@@ -292,11 +254,13 @@ const Teams: React.FC = () => {
     if (team) {
       setEditingTeam(team);
       setFormData({ name: team.name, description: team.description });
-      setTeamPerms(new Set());
+      setTeamPerms(team.permissions === null ? null : new Set(team.permissions as Permission[]));
+      setTeamDevices(team.allowed_devices ?? null);
     } else {
       setEditingTeam(null);
       setFormData({ name: '', description: '' });
-      setTeamPerms(new Set());
+      setTeamPerms(null);
+      setTeamDevices(null);
     }
     setActiveTab(0);
     setOpenDialog(true);
@@ -306,7 +270,8 @@ const Teams: React.FC = () => {
     setOpenDialog(false);
     setEditingTeam(null);
     setFormData({ name: '', description: '' });
-    setTeamPerms(new Set());
+    setTeamPerms(null);
+    setTeamDevices(null);
   };
 
   const handleSaveTeam = async () => {
@@ -317,14 +282,16 @@ const Teams: React.FC = () => {
           payload: {
             name: formData.name,
             description: formData.description,
-            permissions: Array.from(teamPerms),
+            permissions: teamPerms === null ? null : Array.from(teamPerms),
+            allowed_devices: teamDevices,
           },
         });
       } else {
         await createTeam({
           name: formData.name,
           description: formData.description,
-          permissions: Array.from(teamPerms),
+          permissions: teamPerms === null ? null : Array.from(teamPerms),
+          allowed_devices: teamDevices,
         });
       }
       handleCloseDialog();
@@ -350,32 +317,33 @@ const Teams: React.FC = () => {
 
   const toggleTeamPerm = (perm: Permission) => {
     setTeamPerms((prev) => {
-      const next = new Set(prev);
+      const next = new Set(prev ?? []);
       if (next.has(perm)) next.delete(perm);
       else next.add(perm);
       return next;
     });
   };
 
-  const permGroups = groupPermissions(ALL_PERMISSIONS);
 
   return (
-    <Box>
+    <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <TeamsIcon fontSize="large" color="primary" />
-          <Typography variant="h4" component="h1">
+          <TeamsIcon sx={{ color: P.accentText, fontSize: 28 }} />
+          <Typography component="h1" sx={PAGE_TITLE_SX}>
             Teams Management
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-          disabled={isCreating}
-        >
-          Create Team
-        </Button>
+        {canAccess('org.teams:create') && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpenDialog()}
+            disabled={isCreating}
+          >
+            Create Team
+          </Button>
+        )}
       </Box>
 
       {(error || createError || updateError || deleteError) && (
@@ -394,11 +362,13 @@ const Teams: React.FC = () => {
             <TableContainer component={Paper} elevation={0}>
               <Table
                 sx={{
+                  tableLayout: 'fixed', minWidth: 760, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
                   '& .MuiTableRow-root:hover': {
                     backgroundColor: 'transparent !important',
                   },
                 }}
               >
+              <colgroup><col style={{ width: 220 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 170 }} /><col style={{ width: 130 }} /></colgroup>
                 <TableHead>
                   <TableRow>
                     <TableCell><strong>Team Name</strong></TableCell>
@@ -428,22 +398,26 @@ const Teams: React.FC = () => {
                         </TableCell>
                         <TableCell>{new Date(team.created_at).toLocaleDateString()}</TableCell>
                         <TableCell align="right">
-                          <IconButton
-                            size="small"
-                            color="primary"
-                            onClick={() => handleOpenDialog(team)}
-                            disabled={isUpdating || isDeleting}
-                          >
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => handleDeleteTeam(team.id)}
-                            disabled={isUpdating || isDeleting}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
+                          {canAccess('org.teams:edit') && (
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => handleOpenDialog(team)}
+                              disabled={isUpdating || isDeleting}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          )}
+                          {canAccess('org.teams:delete') && (
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => handleDeleteTeam(team.id)}
+                              disabled={isUpdating || isDeleting}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          )}
                         </TableCell>
                       </TableRow>
                       <TableRow key={`${team.id}-detail`}>
@@ -480,7 +454,8 @@ const Teams: React.FC = () => {
         <DialogContent>
           <Tabs value={activeTab} onChange={(_, v: number) => setActiveTab(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
             <Tab label="Details" />
-            <Tab label="Permissions" />
+            <Tab label="Permission limit" />
+            <Tab label="Device limit" />
           </Tabs>
 
           <TabPanel value={activeTab} index={0}>
@@ -504,37 +479,32 @@ const Teams: React.FC = () => {
           </TabPanel>
 
           <TabPanel value={activeTab} index={1}>
-            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-              Permissions granted here apply to all members of this team.
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              The most this team's members can ever hold. A team grants nothing: members get their
+              permissions from their role and individual grants, and this limit caps both. For someone
+              in several teams, the limits add up; the default team only counts when it is their only
+              team. Changes apply at each member's next sign-in.
             </Typography>
-            {Object.entries(permGroups).map(([prefix, perms]) => (
-              <Box key={prefix} sx={{ mb: 2 }}>
-                <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 0.5 }}>
-                  {PERMISSION_GROUPS[prefix] ?? prefix}
-                </Typography>
-                <Divider sx={{ mb: 1 }} />
-                <FormGroup row>
-                  {perms.map((perm) => {
-                    const action = perm.substring(perm.indexOf(':') + 1);
-                    return (
-                      <FormControlLabel
-                        key={perm}
-                        control={
-                          <Checkbox
-                            size="small"
-                            checked={teamPerms.has(perm)}
-                            onChange={() => toggleTeamPerm(perm)}
-                            color="success"
-                          />
-                        }
-                        label={<Typography variant="body2">{action}</Typography>}
-                        sx={{ minWidth: 200 }}
-                      />
-                    );
-                  })}
-                </FormGroup>
-              </Box>
-            ))}
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={teamPerms === null}
+                  onChange={(e) => setTeamPerms(e.target.checked ? null : new Set(ALL_PERMISSIONS))}
+                />
+              }
+              label={teamPerms === null ? 'No limit' : `${teamPerms.size} permissions allowed`}
+              sx={{ mb: 1 }}
+            />
+            {teamPerms !== null && (
+              <PermissionChecklist isChecked={(perm) => teamPerms.has(perm)} onToggle={toggleTeamPerm} />
+            )}
+          </TabPanel>
+
+          <TabPanel value={activeTab} index={2}>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              The devices this team's members can work with. Roles and users can narrow it further.
+            </Typography>
+            <DeviceScopePicker value={teamDevices} onChange={setTeamDevices} />
           </TabPanel>
         </DialogContent>
         <DialogActions>

@@ -68,6 +68,9 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
   
   // Manual orientation state - default to portrait
   const [isLandscape, setIsLandscape] = useState(false);
+  // Real screen size reported by the device (portrait-normalised: width <= height).
+  // Phones differ (S7 1440x2560, S21 1080x2400), so the overlay must not assume one.
+  const [screenSize, setScreenSize] = useState<{ width: number; height: number } | null>(null);
 
   // Auto-connect when host and deviceId are available
   useEffect(() => {
@@ -85,6 +88,7 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
     setShowOverlay(false);
     setSelectedElement('');
     setIsLandscape(false); // Reset orientation to portrait
+    setScreenSize(null);
   }, [selectedHost, deviceId]);
 
   // Toggle orientation manually (kept as a fallback for hosts/devices where
@@ -111,6 +115,15 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
     try {
       const result = await postToHost('/server/remote/getOrientation', {}, { includeDeviceId: true });
       if (!result?.success) return;
+
+      const width = Number(result.width);
+      const height = Number(result.height);
+      if (width > 0 && height > 0) {
+        const portrait = { width: Math.min(width, height), height: Math.max(width, height) };
+        setScreenSize(prev =>
+          prev && prev.width === portrait.width && prev.height === portrait.height ? prev : portrait,
+        );
+      }
 
       const detectedLandscape = Boolean(result.is_landscape);
       setIsLandscape(prev => {
@@ -338,6 +351,14 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
             command: 'launch_app',
             params: { package: params.package },
           };
+        } else if (command === 'INPUT_TEXT') {
+          // Type text into the focused field (group control fans it out to every phone)
+          requestBody = {
+            host_name: selectedHost.host_name,
+            device_id: deviceId,
+            command: 'input_text',
+            params: { text: params?.text },
+          };
         } else if (command.startsWith('SWIPE_')) {
           // Handle swipe commands properly - send as command, not key
           requestBody = {
@@ -392,7 +413,7 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
         return { success: false, error: String(error) };
       }
     },
-    [selectedHost, deviceId],
+    [selectedHost, deviceId, executeRemoteCommand],
   );
 
   const clearElements = useCallback(() => {
@@ -437,6 +458,7 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
     
     // Manual orientation
     isLandscape,
+    screenSize,
     toggleOrientation,
     checkOrientation,
 

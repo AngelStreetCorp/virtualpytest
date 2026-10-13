@@ -12,6 +12,7 @@ import { appiumRemoteConfig } from './appiumRemote';
 import { bluetoothRemoteConfig } from './bluetoothRemote';
 import { infraredRemoteConfig } from './infraredRemote';
 import { getInfraredRemoteConfig } from './infraredRemoteFactory';
+import { nintendoSwitchRemoteConfig } from './nintendoSwitchRemote';
 
 // Remote panel layout configuration from device config
 export interface ConfigurableRemotePanelLayout {
@@ -345,6 +346,18 @@ export const loadRemoteConfig = (deviceModel: string, irType?: string): any => {
         break;
       case 'bluetooth_remote':
         config = bluetoothRemoteConfig;
+        break;
+      // Fire TV on Vega OS (TASK-57): its own remote, same buttons as the Fire TV IR remote.
+      case 'vega':
+        config = getInfraredRemoteConfig('fire_tv');
+        break;
+      case 'nintendo_switch':
+        config = nintendoSwitchRemoteConfig;
+        break;
+      case 'rtsp_video':
+      case 'local_video':
+      case 'tello':
+        config = null;
         break;
       case 'ios_mobile':
       case 'appium':

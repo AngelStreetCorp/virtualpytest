@@ -34,6 +34,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 
 import { buildPrimaryServerUrl } from '../../../frontend/src/utils/buildUrlUtils';
 import { getCached, setCached } from '../../../frontend/src/utils/pageCache';
+import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
 
 interface RunnerStatus {
   name: string;
@@ -100,8 +101,10 @@ function reportSubPath(reportUrl: string | null | undefined, run: string): strin
 function formatRunDate(date: string): string {
   const t = parseRunDate(date);
   if (t == null) return date || '-';
-  return new Date(t).toLocaleString([], {
-    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+  const d = new Date(t);
+  const sameYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleString([], {
+    ...(sameYear ? {} : { year: '2-digit' }), day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false,
   });
 }
 
@@ -181,6 +184,9 @@ function toRunMeta(row: RunSummaryRow): RunMeta {
 // rows over the cached ones by project/run key. A full reload happens when there is no
 // cache, when the cache is older than FULL_RESYNC_MS (catches deletions and out-of-band
 // edits), or when the schema of the cached shape changes (bump CACHE_KEY).
+// A full read asks only for the selected range (`?since=`, default 24h): reading 200 runs with
+// their jobs was the slow part of opening the page. The cache records the range it covers, and
+// widening the range past it triggers one full read.
 const CACHE_KEY = 'cicd-runs-v2';
 const RUN_LIMIT = 200;
 const FULL_RESYNC_MS = 30 * 60_000;
@@ -193,7 +199,13 @@ interface RunsCache {
   runs: RunMeta[];
   /** When the list was last read in full (not merged) — drives the periodic full resync. */
   fullSyncAt: number;
+  /** Range (ms back from the full read) the list holds; null/absent = every run. */
+  coversMs?: number | null;
 }
+
+/** Does a list read for `coversMs` hold every run the `rangeMs` filter shows? */
+const coversRange = (coversMs: number | null | undefined, rangeMs: number | null) =>
+  coversMs == null || (rangeMs != null && rangeMs <= coversMs);
 
 function readRunsCache(): RunsCache | null {
   try {
@@ -313,9 +325,12 @@ function RunnerCard({
   runner,
   now,
   onRestart,
+  emptyLabel = 'no runs yet',
 }: {
   runner: ProjectRunner;
   now: number;
+  /** Shown when the held runs have none by this runner (names the range when it is limited). */
+  emptyLabel?: string;
   onRestart?: (name: string) => void;
 }) {
   const isOnline = runner.status === 'online';
@@ -398,8 +413,8 @@ function RunnerCard({
         title={runner.lastDate}
       >
         {runner.lastRun
-          ? `last run #${runner.lastRun}${runner.lastDate && runner.lastDate !== '-' ? ` · ${runner.lastDate}` : ''}`
-          : 'no runs yet'}
+          ? `last run #${runner.lastRun}${runner.lastDate && runner.lastDate !== '-' ? ` · ${formatRunDate(runner.lastDate)}` : ''}`
+          : emptyLabel}
       </Typography>
       {restartMsg && (
         <Typography variant="caption" color={restartMsg === 'Restarted' ? 'success.main' : 'error.main'} display="block" mt={0.5}>
@@ -438,6 +453,7 @@ function KpiCard({
 }
 
 const CICDReports: React.FC = () => {
+  const P = useAgentChatPalette();
   const rowHoverSx = {
     '&:hover': { backgroundColor: 'transparent !important' },
   };
@@ -449,7 +465,7 @@ const CICDReports: React.FC = () => {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [runners, setRunners] = useState<RunnerStatus[]>(() => getCached<RunnerStatus[]>('cicd-runners') ?? []);
   const [repoFilter, setRepoFilter] = useState<string>('all');
-  const [rangeFilter, setRangeFilter] = useState<RangeKey>('7d');
+  const [rangeFilter, setRangeFilter] = useState<RangeKey>('24h');
   const [liveRuns, setLiveRuns] = useState<LiveRun[]>([]);
   const [runnersOpen, setRunnersOpen] = useState<boolean>(() => getCached<boolean>('cicd-runners-open') ?? true);
   // Ticks once a second purely so the "for 4m 12s" elapsed labels keep counting up
@@ -459,17 +475,23 @@ const CICDReports: React.FC = () => {
   const runsRef = useRef<RunMeta[]>(runs);
   runsRef.current = runs;
   const fullSyncAtRef = useRef<number>(readRunsCache()?.fullSyncAt ?? 0);
+  const coversMsRef = useRef<number | null | undefined>(readRunsCache()?.coversMs);
+  const rangeMs = RANGE_OPTIONS.find((o) => o.key === rangeFilter)?.ms ?? null;
+  const rangeMsRef = useRef<number | null>(rangeMs);
+  rangeMsRef.current = rangeMs;
 
   const fetchRuns = useCallback(async (mode: 'auto' | 'full' = 'auto') => {
     try {
       const cached = runsRef.current;
       const cursor = deltaCursor(cached);
       const cacheStale = Date.now() - fullSyncAtRef.current > FULL_RESYNC_MS;
-      const delta = mode === 'auto' && cursor != null && !cacheStale;
+      const range = rangeMsRef.current;
+      const delta = mode === 'auto' && cursor != null && !cacheStale && coversRange(coversMsRef.current, range);
       if (cached.length === 0) setLoading(true);
       setError(null);
       const params = new URLSearchParams({ expand: 'jobs', limit: String(RUN_LIMIT) });
       if (delta) params.set('changed_since', cursor);
+      else if (range != null) params.set('since', new Date(Date.now() - range).toISOString());
       const [runsRes, runnersRes, liveRes] = await Promise.all([
         fetch(buildPrimaryServerUrl(`/server/cicd/runs?${params.toString()}`)),
         fetch(buildPrimaryServerUrl('/server/cicd/runners')),
@@ -482,9 +504,12 @@ const CICDReports: React.FC = () => {
       if (data.configured === false) throw new Error(`CI/CD not configured: ${data.error ?? 'unknown reason'}`);
       const fetched: RunMeta[] = (data.runs ?? []).map(toRunMeta);
       const newRuns = delta ? mergeRuns(cached, fetched) : fetched;
-      if (!delta) fullSyncAtRef.current = Date.now();
+      if (!delta) {
+        fullSyncAtRef.current = Date.now();
+        coversMsRef.current = range;
+      }
       setRuns(newRuns);
-      writeRunsCache({ runs: newRuns, fullSyncAt: fullSyncAtRef.current });
+      writeRunsCache({ runs: newRuns, fullSyncAt: fullSyncAtRef.current, coversMs: coversMsRef.current });
       if (runnersRes.ok) {
         const rdata = await runnersRes.json();
         const newRunners = rdata.runners ?? [];
@@ -522,14 +547,23 @@ const CICDReports: React.FC = () => {
 
   useEffect(() => { fetchRuns('auto'); }, [fetchRuns]);
 
+  // Widening the range past what the held list covers needs one full read for that range.
+  useEffect(() => {
+    if (!coversRange(coversMsRef.current, rangeMs)) fetchRuns('full');
+  }, [rangeMs, fetchRuns]);
+
   // Distinct projects across all fetched runs (repo field defaults to "virtualpytest" for
   // legacy/own runs), for the Project filter — always includes "all".
   const repoOptions = useMemo(
-    () => Array.from(new Set(runs.map((r) => r.repo || 'virtualpytest'))).sort(),
-    [runs],
+    // Registered runners' projects too: with a limited range, a project with no run in it
+    // must keep its runner cards.
+    () => Array.from(new Set([
+      ...runs.map((r) => r.repo || 'virtualpytest'),
+      ...runners.map((x) => x.project).filter((p): p is string => !!p),
+    ])).sort(),
+    [runs, runners],
   );
 
-  const rangeMs = RANGE_OPTIONS.find((o) => o.key === rangeFilter)?.ms ?? null;
   const rangeLabel = RANGE_OPTIONS.find((o) => o.key === rangeFilter)?.label ?? '';
 
   const filteredRuns = useMemo(() => {
@@ -688,6 +722,10 @@ const CICDReports: React.FC = () => {
           )}
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          {/* Fixed width, left of the controls: changing text never moves the dropdowns. */}
+          <Typography variant="caption" color="text.disabled" noWrap sx={{ width: 270, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+            {lastUpdated ? `updated ${lastUpdated.toLocaleTimeString()}${latestRunInProgress ? ' · refreshing every 15s' : ''}` : ''}
+          </Typography>
           <FormControl size="small" sx={{ minWidth: 140 }}>
             <Select
               value={rangeFilter}
@@ -712,12 +750,6 @@ const CICDReports: React.FC = () => {
               ))}
             </Select>
           </FormControl>
-          {lastUpdated && (
-            <Typography variant="caption" color="text.disabled">
-              updated {lastUpdated.toLocaleTimeString()}
-              {latestRunInProgress ? ' · refreshing every 15s' : ''}
-            </Typography>
-          )}
           <Tooltip title="Reload the full runs list (auto-refresh only fetches what changed)">
             <IconButton onClick={() => fetchRuns('full')} disabled={loading}><Refresh /></IconButton>
           </Tooltip>
@@ -781,13 +813,11 @@ const CICDReports: React.FC = () => {
               <TableHead>
                 <TableRow>
                   <TableCell width={40} />
-                  <TableCell sx={{ width: 90, maxWidth: 90 }}>Project</TableCell>
+                  <TableCell sx={{ width: 210, maxWidth: 210 }}>Project</TableCell>
                   <TableCell sx={{ width: 70, maxWidth: 70 }}>Run</TableCell>
                   <TableCell sx={{ width: 130, maxWidth: 130 }}>Branch</TableCell>
                   <TableCell sx={{ width: 80, maxWidth: 80 }}>Commit</TableCell>
-                  <TableCell sx={{ width: 160, maxWidth: 160 }}>Date</TableCell>
-                  <TableCell sx={{ width: 90, maxWidth: 90 }}>Trigger</TableCell>
-                  <TableCell sx={{ width: 70, maxWidth: 70 }}>Suite</TableCell>
+                  <TableCell sx={{ width: 110, maxWidth: 110 }}>Date</TableCell>
                   <TableCell sx={{ width: 90, maxWidth: 90 }}>Status</TableCell>
                   <TableCell sx={{ width: 220, maxWidth: 220 }}>Jobs</TableCell>
                   <TableCell align="right" sx={{ width: 100, maxWidth: 100 }}>Report</TableCell>
@@ -834,13 +864,15 @@ const CICDReports: React.FC = () => {
                         </TableCell>
 
                         {/* Project */}
-                        <TableCell sx={{ width: 90, maxWidth: 90, overflow: 'hidden' }}>
-                          <Chip label={run.repo || 'virtualpytest'} size="small" sx={{ maxWidth: 85 }} />
+                        <TableCell sx={{ width: 210, maxWidth: 210, overflow: 'hidden' }}>
+                          <Chip label={run.repo || 'virtualpytest'} size="small" sx={{ maxWidth: 200 }} />
                         </TableCell>
 
                         {/* Run # */}
                         <TableCell sx={{ width: 70, maxWidth: 70 }}>
-                          <Typography variant="body2" fontWeight={600}>#{run.run}</Typography>
+                          <Tooltip title={`Trigger: ${run.trigger ?? '—'} · Suite: ${run.suite ?? '—'}`}>
+                            <Typography variant="body2" fontWeight={600}>#{run.run}</Typography>
+                          </Tooltip>
                         </TableCell>
 
                         {/* Branch */}
@@ -854,22 +886,8 @@ const CICDReports: React.FC = () => {
                         </TableCell>
 
                         {/* Date */}
-                        <TableCell sx={{ width: 160, maxWidth: 160 }}>
+                        <TableCell sx={{ width: 110, maxWidth: 110 }}>
                           <Typography variant="caption" noWrap>{formatRunDate(run.date)}</Typography>
-                        </TableCell>
-
-                        {/* Trigger (push / dispatch / schedule) — NULL on pre-W3 rows */}
-                        <TableCell sx={{ width: 90, maxWidth: 90 }}>
-                          <Typography variant="caption" noWrap sx={{ color: run.trigger ? 'text.primary' : 'text.disabled' }}>
-                            {run.trigger ?? '—'}
-                          </Typography>
-                        </TableCell>
-
-                        {/* Suite (white / grey / all) — NULL on pre-W3 rows */}
-                        <TableCell sx={{ width: 70, maxWidth: 70 }}>
-                          <Typography variant="caption" noWrap sx={{ color: run.suite ? 'text.primary' : 'text.disabled' }}>
-                            {run.suite ?? '—'}
-                          </Typography>
                         </TableCell>
 
                         {/* Overall status */}
@@ -894,7 +912,7 @@ const CICDReports: React.FC = () => {
                                         borderRadius: '2px',
                                         bgcolor:
                                           job.status === 'success' ? 'success.main' :
-                                          job.status === 'failure' ? 'error.main' : 'text.disabled',
+                                          job.status === 'failure' ? 'error.main' : P.textMuted,
                                         opacity: job.status === 'skipped' || job.status === 'cancelled' ? 0.3 : 1,
                                         flexShrink: 0,
                                       }}
@@ -912,7 +930,7 @@ const CICDReports: React.FC = () => {
                                         height: 10,
                                         borderRadius: '2px',
                                         border: '1px dashed',
-                                        borderColor: 'text.disabled',
+                                        borderColor: P.textMuted,
                                         flexShrink: 0,
                                       }}
                                     />
@@ -946,7 +964,7 @@ const CICDReports: React.FC = () => {
                       {/* Expanded: per-job detail */}
                       {(jobEntries.length > 0 || pendingJobs.length > 0) && (
                         <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                          <TableCell colSpan={11} sx={{ py: 0, bgcolor: 'action.hover' }}>
+                          <TableCell colSpan={9} sx={{ py: 0, bgcolor: 'action.hover' }}>
                             <Collapse in={isExpanded} unmountOnExit>
                               <Box sx={{ py: 1, pl: 7, pr: 2 }}>
                                 <Table size="small">
@@ -1085,6 +1103,7 @@ const CICDReports: React.FC = () => {
                       runner={r}
                       now={nowTick}
                       onRestart={() => fetchRuns('auto')}
+                      emptyLabel={rangeMs == null ? 'no runs yet' : `no runs in the ${rangeLabel.toLowerCase()}`}
                     />
                   ))}
                 </Box>

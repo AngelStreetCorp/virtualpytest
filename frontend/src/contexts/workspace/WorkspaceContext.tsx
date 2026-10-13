@@ -1,6 +1,11 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from 'react';
 import { useAuth } from '../../hooks/auth/useAuth';
+import { usePermissions } from '../../hooks/auth/usePermissions';
+import { requiredPermissionForPath } from '../../types/auth';
 import { useUserWorkspaces, usePublicWorkspaces, Workspace } from '../../hooks/pages/useWorkspaces';
+import { useQuery } from '@tanstack/react-query';
+import { api } from '../../utils/apiClient';
+import { buildServerUrl } from '../../utils/buildUrlUtils';
 
 const ACTIVE_WORKSPACE_KEY = 'vpt_active_workspace';
 
@@ -10,11 +15,17 @@ interface WorkspaceContextValue {
   setActiveWorkspace: (id: string | null) => void;
   isLoadingWorkspaces: boolean;
   /**
-   * True when the given `hostName:deviceId` target is allowed in the currently
-   * active workspace. Returns true when no workspace is active. Stored keys
-   * use the same format as `TargetPanel` (`hostName:deviceId`).
+   * True when the given `hostName:deviceId` target is allowed: inside the user's device
+   * limit (team ∩ role ∩ user, TASK-31) and inside the active workspace's filter. Each check
+   * passes when there is no limit / no active workspace. Keys use the `TargetPanel` format.
+   * A filter on what is shown, not authorization.
    */
   isDeviceAllowed: (hostName: string, deviceId: string) => boolean;
+  /**
+   * The same rule as a key list for server-side filters: the user's device limit ∩ the active
+   * workspace's device_filter. null = no device filtering at all.
+   */
+  deviceFilter: string[] | null;
   /**
    * True when the given script is allowed in the active workspace.
    * Returns true when no workspace is active. Handles both bare names
@@ -44,6 +55,7 @@ interface WorkspaceProviderProps {
 
 export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }) => {
   const { user, isLoading: isAuthLoading } = useAuth();
+  const { canAccess } = usePermissions();
   const userId = user?.id ?? '';
   // Signed-in users get memberships + public workspaces via the RPC.
   // Anonymous users (no Supabase session → no userId) fall back to the plain
@@ -54,7 +66,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
   // `!userId` alone is not "anonymous", it is also "auth has not resolved yet",
   // which is true on the first render of every page load. Without the isLoading
   // gate a signed-in user fires the anonymous request too, and that one hits
-  // GET /server/workspaces — which is @require_admin_role. An admin gets a 200
+  // GET /server/workspaces — which needs org.workspaces:view. An admin gets a 200
   // and never notices; every viewer and tester got a 403 on every navigation.
   const { data: membershipWorkspaces = [], isLoading: isLoadingMembership } = useUserWorkspaces(userId);
   const { data: publicOnlyWorkspaces = [], isLoading: isLoadingPublic } = usePublicWorkspaces(!userId && !isAuthLoading);
@@ -96,14 +108,35 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
 
   const activeWorkspace = userWorkspaces.find((ws) => ws.id === activeWorkspaceId) ?? null;
 
+  // The user's effective device limit (GET /server/users/<id>/scope); null = every device.
+  const { data: effectiveDevices = null } = useQuery({
+    queryKey: ['user-device-scope', user?.id],
+    queryFn: async (): Promise<string[] | null> => {
+      const scope: { effective_devices: string[] | null } = await api.get(
+        buildServerUrl(`/server/users/${user!.id}/scope`),
+      );
+      return scope.effective_devices ?? null;
+    },
+    enabled: !!user?.id,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const isDeviceAllowed = useCallback(
     (hostName: string, deviceId: string): boolean => {
+      const key = `${hostName}:${deviceId}`;
+      if (effectiveDevices && !effectiveDevices.includes(key)) return false;
       if (!activeWorkspace) return true;
-      const filter = activeWorkspace.device_filter ?? [];
-      return filter.includes(`${hostName}:${deviceId}`);
+      return (activeWorkspace.device_filter ?? []).includes(key);
     },
-    [activeWorkspace],
+    [activeWorkspace, effectiveDevices],
   );
+
+  const deviceFilter = useMemo((): string[] | null => {
+    const workspaceFilter = activeWorkspace ? activeWorkspace.device_filter ?? [] : null;
+    if (workspaceFilter === null) return effectiveDevices;
+    if (effectiveDevices === null) return workspaceFilter;
+    return workspaceFilter.filter((key) => effectiveDevices.includes(key));
+  }, [activeWorkspace, effectiveDevices]);
 
   const isScriptAllowed = useCallback(
     (scriptName: string): boolean => {
@@ -118,12 +151,16 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
     [activeWorkspace],
   );
 
+  // Hidden when the user lacks the page's permission (PAGE_PERMISSIONS), or the active
+  // workspace hides it.
   const isPathHidden = useCallback(
     (path: string): boolean => {
+      const needed = requiredPermissionForPath(path);
+      if (needed && !canAccess(needed)) return true;
       if (!activeWorkspace) return false;
       return (activeWorkspace.hidden_pages ?? []).includes(path);
     },
-    [activeWorkspace],
+    [activeWorkspace, canAccess],
   );
 
   const value: WorkspaceContextValue = {
@@ -132,6 +169,7 @@ export const WorkspaceProvider: React.FC<WorkspaceProviderProps> = ({ children }
     setActiveWorkspace,
     isLoadingWorkspaces,
     isDeviceAllowed,
+    deviceFilter,
     isScriptAllowed,
     isPathHidden,
   };

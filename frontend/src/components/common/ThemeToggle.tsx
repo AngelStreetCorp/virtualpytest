@@ -1,11 +1,14 @@
 import { LightMode, DarkMode, SettingsBrightness } from '@mui/icons-material';
-import { IconButton, Menu, MenuItem, ListItemIcon, ListItemText, Tooltip } from '@mui/material';
+import { IconButton, Menu, Tooltip } from '@mui/material';
 import React from 'react';
 
 import { useTheme } from '../../contexts/ThemeContext';
+import { useI18n } from '../../i18n/useI18n';
+import { PreferencesRows } from './PreferencesRows';
 
 const ThemeToggle: React.FC = () => {
-  const { mode, setMode, actualMode } = useTheme();
+  const { mode, actualMode } = useTheme();
+  const { t } = useI18n();
   const [anchorEl, setAnchorEl] = React.useState<null | HTMLElement>(null);
   const open = Boolean(anchorEl);
 
@@ -17,11 +20,6 @@ const ThemeToggle: React.FC = () => {
     setAnchorEl(null);
   };
 
-  const handleThemeChange = (newMode: 'light' | 'dark' | 'system') => {
-    setMode(newMode);
-    handleClose();
-  };
-
   const getCurrentIcon = () => {
     if (mode === 'system') {
       return <SettingsBrightness />;
@@ -31,9 +29,11 @@ const ThemeToggle: React.FC = () => {
 
   const getTooltipText = () => {
     if (mode === 'system') {
-      return `System theme (currently ${actualMode})`;
+      return actualMode === 'dark'
+        ? t('System theme (currently dark)')
+        : t('System theme (currently light)');
     }
-    return `${mode.charAt(0).toUpperCase() + mode.slice(1)} theme`;
+    return mode === 'dark' ? t('Dark theme') : t('Light theme');
   };
 
   return (
@@ -85,24 +85,7 @@ const ThemeToggle: React.FC = () => {
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
       >
-        <MenuItem onClick={() => handleThemeChange('light')} selected={mode === 'light'}>
-          <ListItemIcon>
-            <LightMode fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Light</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={() => handleThemeChange('dark')} selected={mode === 'dark'}>
-          <ListItemIcon>
-            <DarkMode fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>Dark</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={() => handleThemeChange('system')} selected={mode === 'system'}>
-          <ListItemIcon>
-            <SettingsBrightness fontSize="small" />
-          </ListItemIcon>
-          <ListItemText>System</ListItemText>
-        </MenuItem>
+        <PreferencesRows showDivider={false} />
       </Menu>
     </>
   );

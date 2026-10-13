@@ -23,6 +23,7 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { StyledDialog } from '../../common/StyledDialog';
 import { buildServerUrl } from '../../../utils/buildUrlUtils';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface ApiCallConfigModalProps {
   open: boolean;
@@ -86,6 +87,7 @@ export const ApiCallConfigModal: React.FC<ApiCallConfigModalProps> = ({
   onSave,
   initialConfig,
 }) => {
+  const P = useAgentChatPalette();
   // Form state
   const [workspaceId, setWorkspaceId] = useState(initialConfig?.workspace_id || '');
   const [collectionId, setCollectionId] = useState(initialConfig?.collection_id || '');
@@ -403,13 +405,13 @@ export const ApiCallConfigModal: React.FC<ApiCallConfigModalProps> = ({
           {selectedRequest && (
             <Box sx={{ 
               p: 2, 
-              bgcolor: 'grey.900', 
-              color: 'common.white',
+              bgcolor: P.surface, 
+              color: P.textPrimary,
               borderRadius: 1,
               fontFamily: 'monospace',
               fontSize: '0.875rem'
             }}>
-              <Typography variant="subtitle2" sx={{ mb: 1, color: 'grey.400' }}>
+              <Typography variant="subtitle2" sx={{ mb: 1, color: P.textMuted }}>
                 Request Preview
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -424,7 +426,7 @@ export const ApiCallConfigModal: React.FC<ApiCallConfigModalProps> = ({
               
               {selectedEnvironment && selectedEnvironment.variables.length > 0 && (
                 <>
-                  <Typography variant="caption" sx={{ color: 'grey.400', display: 'block', mt: 1 }}>
+                  <Typography variant="caption" sx={{ color: P.textMuted, display: 'block', mt: 1 }}>
                     Variables to be substituted from context:
                   </Typography>
                   <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.5 }}>

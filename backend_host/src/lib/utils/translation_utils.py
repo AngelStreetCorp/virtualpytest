@@ -258,7 +258,7 @@ Text to translate:
 Translation:"""
 
         # Call AI for translation
-        result = call_text_ai(prompt, max_tokens=300, temperature=0.1)
+        result = call_text_ai(prompt, 'text.translation', max_tokens=300, temperature=0.1)
         
         if result['success']:
             translated_text = result['content'].strip()
@@ -501,10 +501,10 @@ Translated content:"""
                 print(f"[TRANSLATION] ⚡ Google Translate completed successfully")
             except Exception as e:
                 print(f"[TRANSLATION] ❌ Google Translate failed: {e}, falling back to AI")
-                result = call_text_ai(prompt, max_tokens=2000, temperature=0.1)
+                result = call_text_ai(prompt, 'text.translation', max_tokens=2000, temperature=0.1)
         else:
             print(f"[TRANSLATION] ⚠️ Google Translate not available, using AI")
-            result = call_text_ai(prompt, max_tokens=2000, temperature=0.1)
+            result = call_text_ai(prompt, 'text.translation', max_tokens=2000, temperature=0.1)
         
         print(f"[TRANSLATION] AI call result: success={result['success']}")
         if not result['success']:
@@ -664,7 +664,7 @@ Text: {text}
 
 Language code:"""
 
-        result = call_text_ai(prompt, max_tokens=10, temperature=0.0)
+        result = call_text_ai(prompt, 'text.translation', max_tokens=10, temperature=0.0)
         
         if result['success']:
             detected_code = result['content'].strip().lower()

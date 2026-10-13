@@ -366,9 +366,13 @@ class FFmpegCaptureController(AVControllerInterface):
         Auto-copies to cold storage and returns cold path.
 
         On failure `last_screenshot_error` says why, so a verification can report the cause
-        instead of a bare "failed to capture screenshot".
+        instead of a bare "failed to capture screenshot". `last_screenshot_error_code`
+        classifies it: 'no_space' means the host is out of disk, which is an
+        infrastructure failure rather than something the device did, and callers
+        escalate it instead of scoring it as a failed check (BUG-0198).
         """
         self.last_screenshot_error: Optional[str] = None
+        self.last_screenshot_error_code: Optional[str] = None
         try:
             import time
             import os
@@ -378,7 +382,8 @@ class FFmpegCaptureController(AVControllerInterface):
             
             # Use centralized path resolution (handles hot/cold storage automatically)
             captures_path = get_capture_storage_path(self.video_capture_path, 'captures')
-            print(f"[{self.capture_source}]: Capture folder: {captures_path}")
+            # No per-call success log: verification polls call this several
+            # times a second and flooded the run log. Errors still print.
                 
             if not os.path.exists(captures_path):
                 print(f"[{self.capture_source}]: ERROR - Capture directory does not exist")
@@ -471,8 +476,6 @@ class FFmpegCaptureController(AVControllerInterface):
                 print(f"[{self.capture_source}]: ERROR - Newest file too old: {closest_age:.2f}s")
                 return None
             
-            print(f"[{self.capture_source}]: File selected - checked: {files_checked}, recent: {len(recent_files)}, using age: {closest_age:.2f}s")
-            
             # Auto-copy to cold storage (capture + thumbnail)
             from shared.src.lib.utils.build_url_utils import convert_hot_to_cold_path, is_hot_storage_path
             if is_hot_storage_path(closest_path):
@@ -504,7 +507,21 @@ class FFmpegCaptureController(AVControllerInterface):
             return closest_path
                 
         except Exception as e:
-            print(f'[{self.capture_source}]: ERROR taking screenshot: {e}')
+            # Before this the generic handler recorded no reason at all, so an
+            # ENOSPC reached the UI as a plain failed verification with no cause
+            # (BUG-0198). Disk exhaustion is named and classified; anything else
+            # at least reports itself.
+            import errno as _errno
+            if isinstance(e, OSError) and e.errno == _errno.ENOSPC:
+                from shared.src.lib.utils.disk_space_utils import describe_out_of_space
+                target = getattr(e, 'filename2', None) or getattr(e, 'filename', None) or '/'
+                self.last_screenshot_error = describe_out_of_space(target)
+                self.last_screenshot_error_code = 'no_space'
+                print(f'[{self.capture_source}]: ERROR taking screenshot: {self.last_screenshot_error}')
+            else:
+                self.last_screenshot_error = f'{type(e).__name__}: {e}'
+                self.last_screenshot_error_code = 'error'
+                print(f'[{self.capture_source}]: ERROR taking screenshot: {e}')
             import traceback
             print(f'[{self.capture_source}]: Traceback: {traceback.format_exc()}')
             return None

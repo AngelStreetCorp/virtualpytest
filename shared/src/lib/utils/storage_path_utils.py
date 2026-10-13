@@ -19,6 +19,7 @@ import sys
 import json
 import logging
 import re
+import shutil
 import time
 from typing import Optional
 
@@ -75,6 +76,12 @@ def sanitize_folder_name(folder_name: str) -> str:
 # Single source of truth for stream base path
 # Lazy-resolved on first call (after dotenv has loaded env vars)
 _STREAM_BASE_PATH = None
+
+# RAM stage of the archiver's open 10-min chunks (BUG-0463): the cold path
+# segments/<hour>/chunk_10min_<i>.mp4 is a symlink into it until the chunk is complete.
+# Readers that confine paths to the stream tree must also accept this root.
+ARCHIVE_STAGE_ROOT = '/dev/shm/vpt-archiver'
+
 
 def get_stream_base_path():
     """
@@ -134,6 +141,72 @@ def get_active_captures_conf_path():
         Full path to active_captures.conf (e.g., '/var/www/html/stream/active_captures.conf')
     """
     return os.path.join(get_stream_base_path(), 'active_captures.conf')
+
+def get_active_loop_conf_path():
+    """
+    Get the path to active_loop.conf file (TASK-31).
+
+    This file tracks per-device loop flags for the new RTSP / video controllers.
+    CSV format: /var/www/html/stream/capture1,flag     # flag in {0, 1}
+    The vpt-stream watcher reads this on every 1 s tick; flag changes trigger a
+    ffmpeg child restart. See backend_host/scripts/run_ffmpeg.sh §detect_source_type
+    for the matching `get_loop_state` shell helper.
+
+    Returns:
+        Full path to active_loop.conf (e.g., '/var/www/html/stream/active_loop.conf')
+    """
+    return os.path.join(get_stream_base_path(), 'active_loop.conf')
+
+def get_active_rtsp_url_conf_path():
+    """
+    Get the path to active_rtsp_url.conf file (TASK-31 follow-up).
+
+    This file tracks per-device RTSP / network stream URL overrides set at
+    runtime via RTSPController.set_url(). CSV format:
+        /var/www/html/stream/<device>,<url>[,<youtube_url>]
+
+    The vpt-stream watcher reads this on every 1 s tick; URL changes trigger
+    an ffmpeg child restart. See backend_host/scripts/run_ffmpeg.sh
+    `get_rtsp_url_state` for the matching shell helper.
+
+    Returns:
+        Full path to active_rtsp_url.conf (e.g., '/var/www/html/stream/active_rtsp_url.conf')
+    """
+    return os.path.join(get_stream_base_path(), 'active_rtsp_url.conf')
+
+def get_active_video_path_conf_path():
+    """
+    Get the path to active_video_path.conf file (TASK-31 follow-up).
+
+    This file tracks per-device local-video path overrides set at runtime via
+    VideoFileStreamController.load_or_download(). CSV format:
+        /var/www/html/stream/<device>,<local_path>
+
+    The vpt-stream watcher reads this on every 1 s tick; path changes trigger
+    an ffmpeg child restart. See backend_host/scripts/run_ffmpeg.sh
+    `get_video_path_state` for the matching shell helper.
+
+    Returns:
+        Full path to active_video_path.conf (e.g., '/var/www/html/stream/active_video_path.conf')
+    """
+    return os.path.join(get_stream_base_path(), 'active_video_path.conf')
+
+def read_source_override(conf_path: str, capture_path: str) -> list:
+    """
+    Return the fields after the capture path of this device's line in an
+    active_rtsp_url.conf / active_video_path.conf file, or [] when it has none.
+    Same lookup as run_ffmpeg.sh `get_rtsp_url_state` / `get_video_path_state`.
+    """
+    target = os.path.normcase(os.path.normpath(capture_path))
+    try:
+        with open(conf_path) as f:
+            for line in f:
+                parts = line.strip().split(',')
+                if parts and os.path.normcase(os.path.normpath(parts[0])) == target:
+                    return [part for part in parts[1:]]
+    except FileNotFoundError:
+        pass
+    return []
 
 def get_capture_folder_from_device_id(device_id: str) -> str:
     """
@@ -1172,6 +1245,7 @@ def extract_test_video_hybrid(
     from datetime import timedelta
     import glob
 
+    pin_dir = None
     try:
         # Pull the window start back by the lead buffer; the end is the real test
         # end. All selection/extraction below works on this widened window.
@@ -1219,6 +1293,27 @@ def extract_test_video_hybrid(
                 continue
             if m >= start_ts - SEAM_MARGIN_S and (m - segment_duration) <= end_ts + SEAM_MARGIN_S:
                 window_hot.append(seg)
+
+        # Pin the in-window HOT segments NOW, before the COLD read below: the archiver
+        # deletes the oldest minute of HOT segments once it has archived it, and COLD was
+        # read seconds earlier, so a minute archived in between was in neither half and the
+        # tail went missing. Hard links (same filesystem, no copy) keep the pinned files
+        # readable after the archiver deletes them; one deleted before its link was
+        # archived first, so the COLD read that follows has it.
+        if window_hot:
+            pin_dir = os.path.join(hot_segments_dir, f'.pin_report_{os.getpid()}_{int(time.time() * 1000)}')
+            os.makedirs(pin_dir, exist_ok=True)
+            pinned = []
+            for seg in window_hot:
+                link = os.path.join(pin_dir, os.path.basename(seg))
+                try:
+                    os.link(seg, link)
+                except FileNotFoundError:
+                    continue
+                except OSError:
+                    shutil.copy2(seg, link)  # filesystem without hard links
+                pinned.append(link)
+            window_hot = pinned
 
         available_hot_seconds = round(len(window_hot) * segment_duration, 1)
 
@@ -1288,7 +1383,6 @@ def extract_test_video_hybrid(
             _vlog(device_folder, f"no usable HOT tail ({len(window_hot)} segments) → using COLD gap only", 'warning')
             # shutil.move (not os.replace): cold_gap_file is on the COLD scratch volume and
             # output_path may be on a different filesystem, so rename() can raise OSError(EXDEV).
-            import shutil
             shutil.move(cold_gap_file, output_path)
             # COLD's own gaps already cover [start → seam]; the unusable HOT part is extra.
             if end_ts - seam_ts > 1.0:
@@ -1330,6 +1424,9 @@ def extract_test_video_hybrid(
         import traceback
         _vlog(device_folder, f"EXCEPTION during extraction: {e}\n{traceback.format_exc()}", 'error')
         return None
+    finally:
+        if pin_dir:
+            shutil.rmtree(pin_dir, ignore_errors=True)
 
 
 def _extract_from_cold_chunks(

@@ -112,11 +112,16 @@ switching controller code per device.
 
 ## Controller Configuration
 
-Devices are configured through the web interface and stored in the database (`device` and
-`device_models` tables, `setup/db/schema/001_core_tables.sql`) — not static YAML files. Each
-device model maps to controller implementations and connection parameters via
-`create_controller_configs_from_device_info()` in
-`backend_host/src/controllers/controller_config_factory.py`.
+A device is declared in its host's `.env` (`DEVICE{n}_MODEL`, plus the keys of whatever is
+wired to it: `_ADB_SERIAL`, `_IR_PATH` / `_IR_IP`, `_BLE_TYPE`, power plug...). The model
+names which controllers it *may* have (`DEVICE_CONTROLLER_MAP` in
+`shared/src/lib/config/device_capabilities.py`); the `.env` decides which of them it *does*
+have, and `create_controller_configs_from_device_info()` in
+`backend_host/src/controllers/controller_config_factory.py` builds them. A controller whose
+keys are not set is skipped.
+
+The **Device Models** page (`device_models` table) is the list of models a userinterface can
+target. Add Model offers only names a host can run; it does not configure controllers.
 
 ---
 

@@ -133,6 +133,10 @@ def action_execute_batch():
                     final_wait_time=final_wait_time,
                 )
             else:
+                # Ad-hoc commands (MCP execute_device_action, the remote panel) move the screen
+                # outside any navigation: the next one-step navigation probes again (BUG-0195).
+                from backend_host.src.services.navigation.navigation_executor import forget_position_verification
+                forget_position_verification(device.navigation_context, 'ad-hoc actions')
                 result = await ExecutionOrchestrator.execute_actions(
                     device=device,
                     actions=actions,

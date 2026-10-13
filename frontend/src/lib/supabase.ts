@@ -1,4 +1,4 @@
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { createClient, Session, SupabaseClient } from '@supabase/supabase-js';
 import { getEnv } from '../config/constants';
 
 // Get environment variables (lazy evaluation)
@@ -100,6 +100,48 @@ export const getClientForIdentity = (identityUrl: string, anonKey: string): Supa
   return client;
 };
 
+/**
+ * How long any one caller may wait for `getSession()` before giving up on it.
+ *
+ * `getSession()` is normally a localStorage read and returns in microseconds — but when
+ * the stored session is expired it first awaits a token refresh, and supabase-js retries
+ * a refresh that fails with a *network* error (CORS block, DNS, edge 403) for its whole
+ * auto-refresh tick: ~30 s of exponential backoff before it resolves. Every caller that
+ * awaited it inherited that 30 s, which is how one unreachable deployment stalled the
+ * requests to all the healthy ones (a fetch interceptor and apiClient both await this
+ * BEFORE issuing the request, so a per-request AbortSignal never even got to run).
+ *
+ * Timing out here yields `null` = "no token for this identity right now". The caller
+ * sends the request unauthenticated, that server answers 401 fast and is marked failed,
+ * and the servers we *can* reach are unaffected. The refresh supabase-js started keeps
+ * running in the background and populates its own cache if it ever succeeds.
+ *
+ * 5 s is comfortably above a healthy refresh round-trip (~200-500 ms) and well under the
+ * 10 s request timeout the callers already apply.
+ */
+export const SESSION_RESOLUTION_TIMEOUT_MS = 5000;
+
+/** `client.auth.getSession()`, but never blocking the caller longer than `timeoutMs`. */
+export const getSessionWithTimeout = async (
+  client: SupabaseClient,
+  timeoutMs: number = SESSION_RESOLUTION_TIMEOUT_MS,
+): Promise<Session | null> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      client.auth.getSession().then(({ data }) => data.session ?? null),
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ]);
+  } catch {
+    // A client whose session cannot be read is treated exactly like one holding none.
+    return null;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+};
+
 /** Every identity this tab currently holds a client for (primary included). */
 export const getKnownIdentities = (): string[] => Array.from(identityClients.keys());
 
@@ -129,7 +171,7 @@ export type Database = {
           email: string | null;
           full_name: string | null;
           avatar_url: string | null;
-          role: 'admin' | 'tester' | 'viewer';
+          role: 'admin' | 'manager' | 'developer' | 'tester' | 'viewer';
           permissions: string[];
           created_at: string;
           updated_at: string;
@@ -139,7 +181,7 @@ export type Database = {
           email?: string | null;
           full_name?: string | null;
           avatar_url?: string | null;
-          role?: 'admin' | 'tester' | 'viewer';
+          role?: 'admin' | 'manager' | 'developer' | 'tester' | 'viewer';
           permissions?: string[];
           created_at?: string;
           updated_at?: string;
@@ -149,7 +191,7 @@ export type Database = {
           email?: string | null;
           full_name?: string | null;
           avatar_url?: string | null;
-          role?: 'admin' | 'tester' | 'viewer';
+          role?: 'admin' | 'manager' | 'developer' | 'tester' | 'viewer';
           permissions?: string[];
           created_at?: string;
           updated_at?: string;

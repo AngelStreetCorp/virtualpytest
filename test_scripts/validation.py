@@ -371,9 +371,11 @@ def validate_with_recovery(max_iteration: int = None, edges: str = None, subtree
         # "Recovery → X" row in the report (otherwise every intermediate hop
         # ENTRY → home → … → from_node shows up as its own row, e.g. 5 rows ×
         # N failed iterations = report wall-of-noise).
+        # The entry edge needs no reposition: no edge leads INTO the entry point, and
+        # its actions (e.g. close_app + launch_app) start the interface from anywhere.
         nav_ctx = device.navigation_context
         current_pos = nav_ctx.get('current_node_id')
-        if current_pos != from_node_id:
+        if current_pos != from_node_id and not step.get('is_entry_transition'):
             print(f"🧭 [validation] Reposition before step {i+1}: → {from_node}")
             reposition_result = asyncio.run(device.navigation_executor.execute_navigation(
                 target_node_id=from_node_id,

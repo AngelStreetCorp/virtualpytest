@@ -12,7 +12,7 @@ import {
 import { VerificationBlockData } from '../../../types/testcase/TestCase_Types';
 import { VerificationsList } from '../../verification/VerificationsList';
 import { getZIndex } from '../../../utils/zIndexUtils';
-import { useTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
+import { useOptionalTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
 import { useDeviceData } from '../../../contexts/device/DeviceDataContext';
 import { StyledDialog } from '../../common/StyledDialog';
 import { cleanVerification } from './verificationParamUtils';
@@ -37,16 +37,10 @@ export const VerificationConfigDialog: React.FC<VerificationConfigDialogProps> =
   outputName,
   outputValue
 }) => {
-  // Try to get available verifications from context (if available)
-  // This allows the component to work both within and outside TestCaseBuilderProvider
-  let contextData: any = null;
-  try {
-    contextData = useTestCaseBuilder();
-  } catch (error) {
-    // Context not available
-    // Continue with empty array
-  }
-  
+  // Available verifications from context when there is one; this dialog also renders
+  // outside TestCaseBuilderProvider, where it falls back to an empty list.
+  const contextData = useOptionalTestCaseBuilder();
+
   // Existing references for the selected userinterface, so the user can pick a
   // saved reference from the dropdown instead of authoring params by hand —
   // mirrors the Navigation Node/Edge edit dialogs (which read the same

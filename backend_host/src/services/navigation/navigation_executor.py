@@ -16,6 +16,11 @@ from typing import Dict, List, Optional, Any, Tuple
 from  backend_host.src.services.navigation.navigation_pathfinding import find_shortest_path
 from shared.src.lib.utils.navigation_exceptions import NavigationTreeError, UnifiedCacheError, PathfindingError, DatabaseError
 from shared.src.lib.utils.navigation_cache import populate_unified_cache
+from shared.src.lib.utils.phase_timing import (
+    t0 as _phase_t0,
+    log_duration as _log_duration,
+    log_phase as _log_phase,
+)
 
 # Helper functions (extracted for maintainability)
 from backend_host.src.services.navigation.navigation_executor_helpers import (
@@ -34,6 +39,7 @@ from backend_host.src.services.navigation.navigation_executor_tree_manager impor
     format_tree_for_hierarchy as tree_manager_format_tree_for_hierarchy,
     build_unified_tree_data as tree_manager_build_unified_tree_data
 )
+from shared.src.lib.utils import cv2_io
 
 
 # Auto-mode verification: skip a step's verification iff BOTH the edge's
@@ -48,9 +54,12 @@ AUTO_VERIFY_CONFIDENCE_THRESHOLD = 0.7
 VERIFICATION_MODES = ('end', 'each', 'auto')
 
 
-# How long the two "where am I?" probes may spend before deciding we are somewhere else.
+# How long a "where am I?" probe may spend before deciding we are somewhere else. Five of them:
+# am I at the target / at home (no tracked position), is the stale position still right, am I
+# already at the target the context names, and is the target that is one edge away already
+# showing (a position-tracking bug check).
 #
-# Both run before a single command reaches the device, and both used to honour the node's own
+# All of them run before a command reaches the device, and all used to honour the node's own
 # verification timeouts — which are sized for "wait for this screen to appear after we acted on
 # it", not for "is it showing right now". On the youtube-android-mobile tree that was 60s for the
 # target (WaitForVideoToAppear) plus 20s+20s for home: 101 seconds of a 139-second run spent
@@ -58,8 +67,129 @@ VERIFICATION_MODES = ('end', 'each', 'auto')
 #
 # A screen that IS showing answers in well under a second (0.2-0.7s for the element checks, 2.1s
 # for the motion one). Getting this wrong in the tight direction is cheap: the probe says "not
-# here", and navigation starts from entry — slower, never incorrect.
+# here", and navigation either takes the edge it was about to take anyway (one step away) or
+# starts from entry (no, stale or wrong position) — slower, and on a web tree whose entry edge
+# resets the app, the state built so far is reset with it.
+#
+# The one-step-away probe was the uncapped one that cost the most: on a TodoMVC web tree
+# (2026-09-29) it waited out every leg of the next node's 10 s web verifications before each hop
+# after the first — 60 s of a 108 s testcase, for a screen that was never there.
 POSITION_PROBE_TIMEOUT_MS = 5000
+
+# How long a position whose verifications just PASSED is trusted without probing it again
+# (BUG-0195). The one-step-away probe above ran before every hop after the first even when the
+# previous hop had verified the position milliseconds earlier: it checked the TARGET's
+# verifications, which are not showing yet, so each of its legs waited out the 5 s cap — 347 s of
+# 597 s over 16 TodoMVC testcases (2026-09-30). Worse, a target verified by text the current
+# screen also shows "passed", the hop was skipped and the action under test never ran.
+#
+# Only a node whose own verifications ran and passed is marked (`last_verified_node_id` +
+# `last_verified_timestamp`): not a destination without verifications, not a hop that skipped
+# verification, not a position set by update_current_position. Anything that sends the device
+# commands outside a navigation (testcase action blocks, ad-hoc /host/action/executeBatch)
+# forgets the mark. `VPT_POSITION_TRUST_SECONDS` (host .env), read at each navigation;
+# 0 turns the skip off.
+POSITION_TRUST_SECONDS_DEFAULT = 10.0
+
+
+def position_trust_seconds() -> float:
+    """VPT_POSITION_TRUST_SECONDS, or the default when unset or unusable. Never negative."""
+    raw = os.environ.get('VPT_POSITION_TRUST_SECONDS', '')
+    if not str(raw).strip():
+        return POSITION_TRUST_SECONDS_DEFAULT
+    try:
+        return max(0.0, float(raw))
+    except (TypeError, ValueError):
+        return POSITION_TRUST_SECONDS_DEFAULT
+
+
+def forget_position_verification(nav_context: Optional[Dict[str, Any]], reason: str = '') -> None:
+    """Something may have changed the screen since the position was verified: stop trusting it.
+
+    The tracked position itself is kept (it is still the best guess); only the verified mark goes,
+    so the next one-step navigation probes again.
+    """
+    if not isinstance(nav_context, dict):
+        return
+    had_mark = bool(nav_context.get('last_verified_timestamp') or nav_context.get('last_verified_node_id'))
+    nav_context['last_verified_timestamp'] = 0
+    nav_context['last_verified_node_id'] = None
+    if had_mark:
+        print(f"[@navigation_executor] Position no longer counts as just verified ({reason or 'device commands sent'})")
+
+
+# --------------------------------------------------------------------------
+# identify_screen timing (TASK-68 row 6).
+#
+# identify_screen is the cost a Tier-3 model is compared AGAINST, and until now
+# its elapsed time was swallowed by the enclosing nav.hop.verify_destination
+# aggregate (frame capture + fingerprint match + OCR + verification logic all in
+# one number). These wrappers give it its own `⏱ localize.identify_screen` line,
+# so the row-1/row-2 probe supplies the CPU delta and load automatically.
+#
+# The matching itself is untouched: the same method on the same (img, node_fps)
+# runs, and the SAME dict object comes back. Only a line is added. Timing and the
+# detail string are best-effort -- if either fails the call still returns exactly
+# what the matcher returned (phase_timing's contract: never raises, never changes
+# a result), and an exception from identify_screen itself still propagates to the
+# caller's own handler unchanged.
+#
+# The detail reports the VERDICT and the counts, so a reader can tell a match from
+# an abstain (and a low-confidence match from a confident one) without opening the
+# frame. Keys are identify_screen's own result keys, read off
+# image_helpers.ImageHelpers.identify_screen (see its docstring + the tail at the
+# end of the method): `candidates` (top entry carries `node_id` and `confidence`),
+# `excluded_count`, `total`, and `state` when nothing matched. `reason` is
+# deliberately NOT logged here -- it is the abstain-door input TASK-68 row 7 owns.
+#
+# monitor_localize.py carries the same two helpers verbatim: the standalone
+# vpt-monitor process must not import this module (it would drag the whole
+# navigation stack into the capture loop), so the small formatter is duplicated
+# rather than shared. Keep the two copies in step.
+# --------------------------------------------------------------------------
+
+IDENTIFY_SCREEN_PHASE = 'localize.identify_screen'
+
+
+def identify_screen_verdict(result: Dict[str, Any]) -> str:
+    """`'matched:<node_id>'` / `'abstain:<state>'` -- the part worth a log line when it changes."""
+    cands = result.get('candidates') or []
+    if cands:
+        return f"matched:{cands[0].get('node_id')}"
+    return f"abstain:{result.get('state') or 'unknown'}"
+
+
+def identify_screen_detail(result: Dict[str, Any]) -> str:
+    """One-line summary of an identify_screen() result, for a ⏱ line.
+
+    `matched  node=<node_id> conf=<c> excl=<excluded>/<total>`
+    `abstain  state=<state|unknown> excl=<excluded>/<total>`
+    """
+    try:
+        cands = result.get('candidates') or []
+        excl = f"{result.get('excluded_count', 0)}/{result.get('total', 0)}"
+        if cands:
+            top = cands[0]
+            return f"matched  node={top.get('node_id')} conf={top.get('confidence', 0)} excl={excl}"
+        return f"abstain  state={result.get('state') or 'unknown'} excl={excl}"
+    except Exception:
+        return 'identify_screen result unreadable'
+
+
+def run_identify_screen(helpers, img, node_fps: List[Dict[str, Any]], site: str) -> Dict[str, Any]:
+    """`helpers.identify_screen(img, node_fps)` plus one `⏱ localize.identify_screen` line.
+
+    Returns the matcher's own result, unmodified. `site` names the call site so two
+    callers sharing the phase name stay distinguishable in the log.
+    """
+    started = _phase_t0()
+    result = helpers.identify_screen(img, node_fps)      # outside the try: its errors are the caller's
+    try:
+        _log_duration(IDENTIFY_SCREEN_PHASE, (time.perf_counter() - started) * 1000.0,
+                      f"{identify_screen_detail(result)} site={site}")
+    except Exception:
+        pass
+    return result
 
 
 class NavigationExecutor:
@@ -124,6 +254,34 @@ class NavigationExecutor:
         # Async execution tracking (for navigation polling)
         self._executions: Dict[str, Dict[str, Any]] = {}  # execution_id -> execution state
         self._lock = threading.Lock()
+
+    def _mark_position_verified(self, node_id: str) -> None:
+        """`node_id`'s own verifications just ran and passed on the live screen (BUG-0195)."""
+        nav_context = self.device.navigation_context
+        nav_context['last_verified_node_id'] = node_id
+        nav_context['last_verified_timestamp'] = time.time()
+
+    @staticmethod
+    def _recently_verified_age_s(nav_context: Dict[str, Any], node_id: str) -> Optional[float]:
+        """Seconds since `node_id` was verified, when that is within the trust window; else None."""
+        trust_s = position_trust_seconds()
+        verified_at = nav_context.get('last_verified_timestamp') or 0
+        if trust_s <= 0 or not verified_at or not node_id or nav_context.get('last_verified_node_id') != node_id:
+            return None
+        age_s = time.time() - verified_at
+        return age_s if 0 <= age_s <= trust_s else None
+
+    @staticmethod
+    def _verification_phase_detail(verification_result: Optional[Dict[str, Any]]) -> str:
+        """'success=.. legs=passed/total' for the ⏱ lines around verify_node calls."""
+        try:
+            vr = verification_result or {}
+            detail = f"success={vr.get('success')} legs={vr.get('passed_count', 0)}/{vr.get('total_count', 0)}"
+            if vr.get('has_verifications') is False:
+                detail += ' has_verifications=False'
+            return detail
+        except Exception:
+            return ''
 
     def _sync_unified_graph(
         self,
@@ -213,7 +371,7 @@ class NavigationExecutor:
         if not av_controller:
             return {'success': False, 'error': 'No AV controller for device', 'candidates': []}
         frame_path = av_controller.take_screenshot()
-        img = cv2.imread(frame_path) if frame_path else None
+        img = cv2_io.imread(frame_path) if frame_path else None
         if img is None:
             return {'success': False, 'error': 'Failed to capture current frame', 'candidates': []}
 
@@ -229,14 +387,136 @@ class NavigationExecutor:
         #    confidence floor (whatever match_fingerprint returns), no graph-based
         #    child-priority (best candidate by confidence) — see identify_screen.
         helpers = ImageHelpers(None, av_controller)
-        result = helpers.identify_screen(img, node_fps)
+        # Timed as its own phase (TASK-68 row 6): this is the number a model call is
+        # compared against, and nav.hop.verify_destination cannot separate it from
+        # frame capture / OCR. Logged BEFORE confirm_low_confidence / shadow so the
+        # window is the matcher alone.
+        result = run_identify_screen(helpers, img, node_fps, 'mcp')
         result.update({'success': True, 'variant': variant, 'frame_url': frame_url})
+
+        # A low-confidence single answer is kept only when Jev confirms it, else "unknown" (TASK-47 G13);
+        # the monitor calls the same function, so both give the same verdict.
+        from backend_host.src.controllers.verification.jev_second_opinion import (
+            confirm_low_confidence, localize_shadow)
+        confirm_low_confidence(helpers, img, node_fps, result, team_id=team_id, cache_key=userinterface_name)
+
+        # Shadow second opinion (TASK-47 G13): ties / abstain only, background, logged,
+        # never changes `result` and never waits. No-op when Jev is off.
+        localize_shadow(helpers, img, node_fps, result, team_id=team_id,
+                        userinterface_name=userinterface_name, tree_id=tree_id)
 
         print(f"[@navigation_executor:localize] variant={variant or 'base'} "
               f"candidates={[c['node_id'] for c in (result.get('candidates') or [])[:5]]} "
               f"excluded={result.get('excluded_count', 0)}/{result.get('total', 0)}"
               f"{' state=' + result['state'] if result.get('state') else ''}")
+
+        # 6. Classifier diagnostics: the same fields the per-frame `localize` worker
+        #    writes to `analysis_data.localize` (motion / freeze / blackscreen / macroblocks /
+        #    loaded / overlay / playback / error). The popover surfaces them so an operator
+        #    can tell at a glance why a match did or didn't happen. We read the latest
+        #    `analysis_data_*.json` instead of recomputing — the worker is the canonical
+        #    source for the Tier-2 cascade and a fresh motion verdict, and the staleness
+        #    is bounded by the worker's poll interval (~1s). Fully non-fatal: a missing
+        #    JSON or a parse error leaves `classifier_diagnostics=None` so the matcher
+        #    verdict is unchanged.
+        result['classifier_diagnostics'] = self._read_classifier_diagnostics(frame_path)
+
+        # 7. The two fingerprints behind the verdict, for the popover's Copy rows (TASK-88 row 9):
+        #    the live frame's (same layers as compute_fingerprint, minus the OCR ones, so no extra
+        #    tesseract call) and the stored one of the top node. Plus every candidate node's label
+        #    for the "Which screen was it?" dropdown. Device-control only — identify_screen and the
+        #    per-frame monitor payload are untouched.
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        result['live_fingerprint'] = {'v': helpers.FINGERPRINT_VERSION, 'dhash': helpers._dhash_hex(gray),
+                                      'regions': helpers._region_dhashes(gray),
+                                      'crop': helpers._focus_crop_hex(img), 'focus': result.get('live_focus')}
+        top = ((result.get('candidates') or [None])[0] or (result.get('ranked') or [None])[0]
+               or result.get('best_excluded') or {})
+        fp_by_id = {nf['node_id']: nf['fingerprint'] for nf in node_fps}
+        result['matched_fingerprint'] = fp_by_id.get(top.get('node_id'))
+        result['nodes'] = sorted(({'node_id': nf['node_id'], 'label': nf['label']} for nf in node_fps),
+                                 key=lambda n: str(n['label']).lower())
         return result
+
+    def _capture_folder(self) -> Optional[str]:
+        """Map this device to its capture folder (e.g. 'capture3' for 'device3').
+
+        Used to locate the per-frame metadata JSON. The mapping is the standard
+        'deviceN' → 'captureN' convention. Returns None for an unrecognised id so
+        callers can fall back without an extra try/except.
+        """
+        did = getattr(self, 'device_id', '') or ''
+        if did.startswith('device'):
+            n = did[len('device'):]
+            if n.isdigit():
+                return f'capture{n}'
+        return None
+
+    def _latest_analysis_data(self, frame_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Return the most recent per-frame analysis_data JSON for this device.
+
+        Looks in the standard metadata path the capture_monitor writes to (HOT mode
+        first, COLD fallback). Picks the highest-numbered `capture_*.json` whose
+        mtime is the most recent — that is the worker's most recent verdict for this
+        device. Returns None if the dir is missing, the file is unreadable, or the
+        JSON does not parse; the caller treats None as 'diagnostics unavailable'.
+        """
+        import glob
+        from shared.src.lib.utils.storage_path_utils import get_metadata_path
+        cap = self._capture_folder()
+        if not cap:
+            return None
+        meta_dir = get_metadata_path(cap)
+        if not os.path.isdir(meta_dir):
+            return None
+        # Prefer the file with the highest mtime so a slow worker doesn't make us read
+        # a half-written older one. The capture_monitor writes atomically (temp +
+        # rename), so the highest mtime is always the latest full payload.
+        files = sorted(glob.glob(os.path.join(meta_dir, 'capture_*.json')),
+                       key=lambda p: os.path.getmtime(p), reverse=True)
+        for path in files[:3]:                                  # check the top 3 in case one is mid-write
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                continue
+        return None
+
+    def _read_classifier_diagnostics(self, frame_path: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """Read motion / freeze / blackscreen / macroblocks / Tier-2 from the latest
+        per-frame analysis_data JSON. Returns None if anything is missing — the
+        popover then renders a 'diagnostics unavailable' line for this call.
+
+        Best-effort: any failure (missing file, malformed JSON, missing keys) returns
+        a partial dict with the keys that DID parse, never raises.
+        """
+        data = self._latest_analysis_data(frame_path)
+        if not data:
+            return None
+        out: Dict[str, Any] = {}
+        # Motion (kind, pct, state, raw_state) — all four keys if present
+        motion = data.get('motion')
+        if isinstance(motion, dict):
+            motion_out = {}
+            for k in ('kind', 'pct', 'state', 'raw_state'):
+                if k in motion:
+                    motion_out[k] = motion[k]
+            if motion_out:
+                out['motion'] = motion_out
+        # Capture-state booleans
+        for k in ('freeze', 'blackscreen', 'macroblocks'):
+            if k in data:
+                out[k] = data[k]
+        # Tier-2 cascade (loaded / overlay / playback / error) lives under
+        # `analysis_data.localize.*` when the monitor is running on this device.
+        loc = data.get('localize') or {}
+        if isinstance(loc, dict):
+            for k in ('loaded', 'overlay', 'playback', 'error'):
+                if k in loc and loc[k] is not None:
+                    out[k] = loc[k]
+        return out or None
 
     def _frame_url_from_path(self, frame_path: Optional[str]) -> Optional[str]:
         """Turn a locally-captured frame path into the public host stream/capture URL.
@@ -290,11 +570,11 @@ class NavigationExecutor:
             # take_screenshot() here races the HLS stream mid-navigation and returns a transitional /
             # black frame ("low-content frame"); the step frame is the same settled image goto already has.
             frame = frame_path if (frame_path and os.path.exists(frame_path)) else (av.take_screenshot() if av else None)
-            img = cv2.imread(frame) if frame else None
+            img = cv2_io.imread(frame) if frame else None
             if img is None:
                 return None
             helpers = ImageHelpers(None, av)
-            result = helpers.identify_screen(img, candidates)    # same shared matcher as localize()/monitor
+            result = run_identify_screen(helpers, img, candidates, 'dispatch')  # same matcher, timed
             cands = result.get('candidates', [])
             actual = cands[0]['node_id'] if cands else None
             print(f"[@navigation_executor:dispatch] menu {parent_node_id}: localized child {actual} "
@@ -305,7 +585,8 @@ class NavigationExecutor:
             print(f"[@navigation_executor:dispatch] _localize_among_children failed: {e}")
             return None
 
-    def localize_check(self, node_id: str, team_id: str, userinterface_name: str) -> Dict[str, Any]:
+    def localize_check(self, node_id: str, team_id: str, userinterface_name: str,
+                       tree_id: Optional[str] = None) -> Dict[str, Any]:
         """Independent 'are we actually on this node?' cross-check for verification.
 
         Runs Localize and judges THIS node against the result, so a node's
@@ -315,7 +596,11 @@ class NavigationExecutor:
           - unknown : no fingerprint for this node, or localize unavailable
         Returns the verdict plus the live dhash/focus and (on false) the best match.
         """
-        result = self.localize(team_id, userinterface_name)
+        # Pass the tree through when the caller has it: without it localize takes
+        # the `if not tree_id` branch and reloads the whole tree via TreeManager on
+        # every single call, warm cache included — three extra DB round trips for a
+        # tree the caller already identified (BUG-0200).
+        result = self.localize(team_id, userinterface_name, tree_id=tree_id)
         block = {
             'focus': result.get('live_focus'),
             'excluded_count': result.get('excluded_count', 0),
@@ -701,6 +986,15 @@ class NavigationExecutor:
         message = verify_result.get('message') or ('Node verification passed' if success else 'Node verification failed')
         error_details = None if success else {'error': verify_result.get('error') or message}
 
+        # A batch that could not run (host out of disk) is not a measurement of this
+        # node: recording it would drag every node's success rate down for the
+        # duration of the outage and call an infrastructure failure a test result
+        # (BUG-0198). The caller still gets the error through verify_result.
+        if verify_result.get('execution_error'):
+            print(f"[@navigation_executor:execute_single_node_verification] "
+                  f"Not recording node metrics — {verify_result.get('execution_error')}: {message}")
+            return verify_result
+
         record_node_execution(
             team_id=team_id,
             tree_id=tree_id,
@@ -722,7 +1016,9 @@ class NavigationExecutor:
         # this node? Surfaced under verify_result['localize'] (true/false/unknown
         # + live dhash/focus). Best-effort — never fail verification on it.
         try:
-            verify_result['localize'] = self.localize_check(node_id, team_id, userinterface_name)
+            verify_result['localize'] = self.localize_check(
+                node_id, team_id, userinterface_name, tree_id=tree_id
+            )
         except Exception as loc_err:
             print(f"[@navigation_executor] localize_check failed (non-fatal): {loc_err}")
 
@@ -748,6 +1044,196 @@ class NavigationExecutor:
                 context.add_screenshot(verif_screenshot)
         return step_result
 
+    @staticmethod
+    def _verified_frame_path(verification_result: Dict[str, Any]) -> Optional[str]:
+        """The frame a passing node verification was judged on.
+
+        Each verification leg returns its evidence frame as `screenshot_path`
+        (captured right after the leg ran, see VerificationExecutor
+        `_execute_single_verification`). Prefer a leg that passed; fall back to
+        the batch's `verification_screenshots`. None when nothing was captured."""
+        results = verification_result.get('results') or []
+        for leg in results:
+            if leg.get('success') and leg.get('screenshot_path'):
+                return leg['screenshot_path']
+        for path in verification_result.get('verification_screenshots') or []:
+            if path:
+                return path
+        return None
+
+    @staticmethod
+    def _failed_frame_path(verification_result: Dict[str, Any]) -> Optional[str]:
+        """The frame a FAILED node verification was judged on: the first leg that
+        failed and carries its evidence `screenshot_path`. None when there is none
+        (no fallback: a passing leg's frame is not the frame that failed)."""
+        for leg in verification_result.get('results') or []:
+            if not leg.get('success') and leg.get('screenshot_path'):
+                return leg['screenshot_path']
+        return None
+
+    @staticmethod
+    def _start_training_thread(fn) -> None:
+        threading.Thread(target=fn, name='training-hook-navigation', daemon=True).start()
+
+    @staticmethod
+    def _screen_groups(graph, userinterface_name=None):
+        """TASK-27 step 4k: the screen groups of the already-loaded unified graph, with the
+        core overrides of this userinterface (pure data, no DB), or None when there is no
+        graph or it cannot be grouped. Runs in the training thread only; never raises."""
+        if graph is None:
+            return None
+        try:
+            from shared.src.lib.ai import screen_groups
+            return screen_groups.from_graph(graph, screen_groups.overrides_for(userinterface_name))
+        except Exception as e:
+            print(f"[@navigation_executor:training] no screen groups (label kept per node): {e}")
+            return None
+
+    def _record_training_samples(self, verification_result: Dict[str, Any], node_id: str,
+                                 node_label: Optional[str], tree_id: str, team_id: str,
+                                 userinterface_name: str, edge_id: Optional[str] = None,
+                                 runner=None) -> None:
+        """TASK-27 step 3c: a verified node is a free `screen-id` sample (label_source
+        'run'), plus an unlabelled `focus` sample (the detector's OCR as model_answer,
+        label_source 'none') when the focus detector finds a labelled box on that frame.
+
+        Off the hot path: the switch is checked here (env only, cheap); everything
+        else — frame lookup, focus signature (OCR), upload — runs in a daemon thread.
+        Never raises and never delays or fails navigation. `runner` is injectable
+        for tests (default: a daemon thread)."""
+        try:
+            from shared.src.lib.ai import training_samples
+            if not training_samples.enabled():
+                return
+        except Exception as e:
+            print(f"[@navigation_executor:training] hook skipped: {e}")
+            return
+
+        device_model = self.device_model
+        graph = self.unified_graph
+
+        def _work():
+            try:
+                frame_path = self._verified_frame_path(verification_result)
+                if not frame_path:
+                    print(f"[@navigation_executor:training] no verification frame for node {node_id} - skipped")
+                    return
+                node_data = {}
+                try:
+                    if graph is not None and node_id in graph.nodes:
+                        node_data = graph.nodes[node_id] or {}
+                except Exception:
+                    node_data = {}
+                label = node_label or node_data.get('label') or node_id
+                source_ref = {'tree_id': node_data.get('tree_id') or tree_id,
+                              'node_id': node_id, 'edge_id': edge_id}
+                common = dict(team_id=team_id, device_model=device_model,
+                              userinterface=userinterface_name, node_id=node_id,
+                              label_source='run', source_ref=source_ref)
+
+                # Step 4k: the answer is the screen GROUP (Home with any tab focused is
+                # "home"), from the graph already loaded here; the row's node_id stays the
+                # node. No grouping (no graph, node outside it) keeps the pre-4k label,
+                # which features/ai-dataset/scripts/regroup_screen_labels.py converts later.
+                groups = self._screen_groups(graph, userinterface_name)
+                truth = (groups.label_for(node_id, label) if groups is not None else None) \
+                    or {'node_id': node_id, 'label': label}
+                training_samples.record_sample(
+                    frame_path, family='screen-id', ground_truth=truth, **common)
+
+                import cv2
+                from backend_host.src.controllers.verification.image_helpers import ImageHelpers
+                img = cv2_io.imread(frame_path, cv2.IMREAD_COLOR)
+                if img is None or img.size == 0:
+                    return
+                focus = ImageHelpers(None, None)._focus_signature(img) or {}
+                focus_label = focus.get('label')
+                if focus.get('kind') != 'box' or not focus_label:
+                    return
+                # The focus label is OCR from the detector, never checked by the run:
+                # it is the model answer; teacher/human labelling supplies the truth later.
+                focus_kw = dict(common, label_source='none')
+                training_samples.record_sample(
+                    frame_path, family='focus', model_answer={'focused': focus_label},
+                    ground_truth=None, focus_label=focus_label,
+                    # _focus_signature gives the box CENTRE only (normalized), no width/height.
+                    boxes={'focus': {'cx': focus.get('x'), 'cy': focus.get('y')}},
+                    **focus_kw)
+            except Exception as e:
+                print(f"[@navigation_executor:training] hook failed (non-fatal): {e}")
+
+        try:
+            (runner or self._start_training_thread)(_work)
+        except Exception as e:
+            print(f"[@navigation_executor:training] could not start hook: {e}")
+
+    def _record_failed_verification_sample(self, verification_result: Dict[str, Any],
+                                           expected_node_id: str, expected_label: Optional[str],
+                                           tree_id: str, team_id: str, userinterface_name: str,
+                                           edge_id: Optional[str] = None, runner=None) -> None:
+        """TASK-27 step 4d: a node verification that ran and FAILED where the device was
+        expected to be on that screen (after an edge's actions, or "already at target"
+        per the context) is a hard `screen-id` candidate. Not called from the position
+        probes (one-step, no-position, home): those fail routinely off-screen. The true screen is unknown, so the sample carries no label
+        (`ground_truth=None`, `label_source='none'`, `node_id=None`) and the expectation
+        goes in `model_answer` `{'expected_node_id', 'expected_label', 'expected_group',
+        'verified': False}` (`expected_group`: the step-4k screen group name, or None).
+        Forced past pass-1 dedup (a failure candidate). One sample per failed
+        verification, on the frame of the failed leg; skipped when there is none.
+
+        Same rules as `_record_training_samples`: switch checked first, work in a
+        daemon thread, never raises, never changes the navigation result, and never
+        writes execution results (CONTRACTS rule 19)."""
+        try:
+            from shared.src.lib.ai import training_samples
+            if not training_samples.enabled():
+                return
+        except Exception as e:
+            print(f"[@navigation_executor:training] failed-verification hook skipped: {e}")
+            return
+        if not verification_result or not verification_result.get('has_verifications', True):
+            return
+
+        device_model = self.device_model
+        graph = self.unified_graph
+
+        def _work():
+            try:
+                frame_path = self._failed_frame_path(verification_result)
+                if not frame_path:
+                    print(f"[@navigation_executor:training] no failed-verification frame for node "
+                          f"{expected_node_id} - skipped")
+                    return
+                node_data = {}
+                try:
+                    if graph is not None and expected_node_id in graph.nodes:
+                        node_data = graph.nodes[expected_node_id] or {}
+                except Exception:
+                    node_data = {}
+                label = expected_label or node_data.get('label') or expected_node_id
+                # Step 4k: the expected screen group too ("home" for home_apps), or None.
+                groups = self._screen_groups(graph, userinterface_name)
+                group = groups.group_of(expected_node_id) if groups is not None else None
+                training_samples.record_sample(
+                    frame_path, family='screen-id', team_id=team_id, device_model=device_model,
+                    userinterface=userinterface_name, node_id=None,
+                    model_answer={'expected_node_id': expected_node_id, 'expected_label': label,
+                                  'expected_group': group['label'] if group else None,
+                                  'verified': False},
+                    ground_truth=None, label_source='none',
+                    source_ref={'tree_id': node_data.get('tree_id') or tree_id,
+                                'node_id': expected_node_id, 'edge_id': edge_id},
+                    # Near-duplicate check yes, cap no: a verifier that keeps failing on
+                    # the same screen stores it once, and distinct failures are all kept.
+                    force=False, skip_cap=True)
+            except Exception as e:
+                print(f"[@navigation_executor:training] failed-verification hook failed (non-fatal): {e}")
+
+        try:
+            (runner or self._start_training_thread)(_work)
+        except Exception as e:
+            print(f"[@navigation_executor:training] could not start failed-verification hook: {e}")
+
     async def execute_navigation(self,
                           tree_id: str,
                           userinterface_name: str,  # MANDATORY for reference resolution
@@ -765,7 +1251,13 @@ class NavigationExecutor:
                           # Used by the validation script's Phase-1 reposition so a multi-hop
                           # pathfinder back to the next step's `from_node` shows up as a single
                           # "Recovery → X" row in the report instead of 5 expanded transitions.
-                          is_recovery: bool = False) -> Dict[str, Any]:
+                          is_recovery: bool = False,
+                          # When True: forget any tracked position and skip the "am I already
+                          # at the target / at home?" probes, so the path starts with the
+                          # tree's entry edge. TestCaseExecutor sets it on a web testcase's
+                          # first navigation (see BUG-0190). Ignored with navigation_path or
+                          # is_recovery, which never probe from an unknown position.
+                          start_from_entry: bool = False) -> Dict[str, Any]:
         
         print(f"\n[@navigation_executor:execute_navigation] 🎯 EXECUTE NAVIGATION CALLED:")
         print(f"[@navigation_executor:execute_navigation]   → tree_id: {tree_id}")
@@ -789,18 +1281,22 @@ class NavigationExecutor:
             image_source_url: Optional image source URL
             team_id: Team ID for security
             context: Optional ScriptExecutionContext for tracking step results
+            start_from_entry: Navigate from the entry node without probing the screen first
             
         Returns:
             Dict with success status and navigation details
         """
         start_time = time.time()
-        
+        _t_nav_total = _phase_t0()
+
         # 🔄 AUTO-SYNC every call: variant cache key means `self.unified_graph`
         # can be stale if a previous call ran under a different variant. The
         # helper always re-fetches from the variant-aware cache (cheap dict
         # lookup) and auto-populates from DB on cold cache.
         if team_id:
+            _t = _phase_t0()
             synced = self._sync_unified_graph(tree_id, team_id, userinterface_name)
+            _log_phase('nav.sync_unified_graph', _t)
             if synced:
                 print(f"[@navigation_executor:execute_navigation] ✅ unified_graph synced ({len(synced.nodes)} nodes, variant={(self.device.navigation_context or {}).get('variant') or 'base'})")
             elif not self.unified_graph:
@@ -838,10 +1334,12 @@ class NavigationExecutor:
             # called without userinterface_name, so on a cold cache (e.g. a UI never navigated this
             # process) it cannot load and the label — especially a SUBTREE node — won't resolve. We
             # have the UI name here, so populate the cache before resolving.
+            _t = _phase_t0()
             if userinterface_name:
                 self._sync_unified_graph(tree_id, team_id, userinterface_name)
             try:
                 target_node_id = self.get_node_id(target_node_label, tree_id, team_id)
+                _log_phase('nav.resolve_target_label', _t, f"label={target_node_label}")
                 print(f"[@navigation_executor:execute_navigation] Resolved label '{target_node_label}' to node_id '{target_node_id}'")
             except ValueError as e:
                 return self._build_result(
@@ -945,8 +1443,26 @@ class NavigationExecutor:
             from backend_host.src.services.navigation.navigation_pathfinding import find_shortest_path
             from shared.src.lib.utils.navigation_exceptions import UnifiedCacheError, PathfindingError
             
+            # A pre-computed path or a recovery never probes from an unknown position, so
+            # there is nothing for start_from_entry to skip there.
+            start_from_entry = bool(start_from_entry) and not navigation_path and not is_recovery
+            if start_from_entry:
+                # Fresh start: whatever is on screen was left by someone else (an ad-hoc
+                # command, a previous run, a person at the controls). A probe can only
+                # tell that the screen LOOKS like a node, not that the app state behind
+                # it is fresh — the entry edge is what resets that state. So forget the
+                # tracked position and do not probe: pathfinding starts at entry.
+                if nav_context.get('current_node_id'):
+                    print(f"[@navigation_executor:execute_navigation] Testcase fresh start: discarding tracked position {nav_context.get('current_node_id')} ({nav_context.get('current_node_label', 'unknown')})")
+                nav_context['current_node_id'] = None
+                nav_context['current_node_label'] = None
+                nav_context['current_tree_id'] = None
+                nav_context['position_timestamp'] = 0
+                nav_context['last_verified_timestamp'] = 0
+                nav_context['last_verified_node_id'] = None
+                print(f"[@navigation_executor:execute_navigation] Testcase fresh start: navigating from entry (position probes skipped)")
             # SIMPLE RULE: Frontend is source of truth when it sends position (even if None)
-            if frontend_sent_position:
+            elif frontend_sent_position:
                 if current_node_id:
                     # Frontend says "start from this node"
                     nav_context['current_node_id'] = current_node_id
@@ -971,25 +1487,32 @@ class NavigationExecutor:
                         print(f"[@navigation_executor:execute_navigation] ⏰ Backend position is {int(time_since_position)}s old - verifying before use")
                         stale_node_id = nav_context['current_node_id']
                         stale_node_label = nav_context.get('current_node_label', 'unknown')
-                        
+
+                        _t = _phase_t0()
                         verification_result = await self.device.verification_executor.verify_node(
                             node_id=stale_node_id,
                             userinterface_name=userinterface_name,
                             team_id=team_id,
-                            tree_id=tree_id
+                            tree_id=tree_id,
+                            probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
                         )
-                        
+                        _log_phase('nav.stale_position_verify', _t,
+                                   f"node={stale_node_label} age_s={int(time_since_position)} cap_ms={POSITION_PROBE_TIMEOUT_MS} "
+                                   f"{self._verification_phase_detail(verification_result)}")
+
                         if not verification_result.get('has_verifications', True):
                             # Node has no verifications - we can't disprove the position, so trust it
                             # and continue rather than re-navigating from entry every time.
                             print(f"[@navigation_executor:execute_navigation] ⚠️ No verifications on {stale_node_label} - trusting stale position and continuing")
                             nav_context['position_timestamp'] = time.time()
-                            nav_context['last_verified_timestamp'] = time.time()
+                            # Trusted, not verified: nothing passed, so no verified mark (BUG-0195).
+                            nav_context['last_verified_timestamp'] = 0
+                            nav_context['last_verified_node_id'] = None
                         elif verification_result.get('success'):
                             print(f"[@navigation_executor:execute_navigation] ✅ Stale position verified - still at {stale_node_label}")
                             # Update timestamp to mark as fresh
                             nav_context['position_timestamp'] = time.time()
-                            nav_context['last_verified_timestamp'] = time.time()
+                            self._mark_position_verified(stale_node_id)
                         else:
                             print(f"[@navigation_executor:execute_navigation] ❌ Stale position verification failed - clearing position (was: {stale_node_label})")
                             # Clear stale position - we're not there anymore
@@ -998,6 +1521,7 @@ class NavigationExecutor:
                             nav_context['current_tree_id'] = None
                             nav_context['position_timestamp'] = 0
                             nav_context['last_verified_timestamp'] = 0
+                            nav_context['last_verified_node_id'] = None
                             print(f"[@navigation_executor:execute_navigation] Starting from entry (stale position cleared)")
                     else:
                         print(f"[@navigation_executor:execute_navigation] Starting from backend position: {nav_context['current_node_id']} ({nav_context.get('current_node_label', 'unknown')}) [{int(time_since_position)}s old]")
@@ -1017,23 +1541,70 @@ class NavigationExecutor:
                 print(f"[@navigation_executor:execute_navigation] Current position: {current_position}, Target: {target_node_id}")
             
             # 🔍 POSITION TRACKING BUG DETECTION: If position tracking says we're elsewhere but target is close,
-            # verify target first to catch stale position tracking (e.g., "android_home" vs "home" confusion).
+            # check where we really are to catch stale position tracking (e.g., "android_home" vs "home" confusion).
             # Skip when the frontend just supplied the position — it's fresh and authoritative, no need to second-guess.
+            #
+            # BUG-0195, in this order:
+            #   1. the current node's own verifications passed within the trust window (the previous hop
+            #      just verified it) → nothing to catch, no probe;
+            #   2. otherwise check the CURRENT node first: showing (the cheap, expected answer) → take
+            #      the edge. The target used to be checked alone, so a target verified by text the
+            #      current screen also shows "passed" and the hop under test was skipped;
+            #   3. current not showing → check the target: showing → correct the position, skip the hop;
+            #   4. neither showing → the tracked position is wrong: clear it (the no-position flow
+            #      below takes over) instead of taking the edge from a screen we are not on.
+            one_step_target_probe = None       # the target's failed check, reused by the no-position flow
+            position_disproved_node_id = None  # the tracked node whose check just failed
             if not navigation_path and current_position and current_position != target_node_id and not frontend_sent_position:
                 # Quick pathfinding check: is target reachable in 1 step?
                 from shared.src.lib.utils.navigation_cache import get_cached_unified_graph
                 cached_graph = get_cached_unified_graph(tree_id, team_id, variant=(self.device.navigation_context or {}).get('variant'))
                 if cached_graph and current_position in cached_graph.nodes and target_node_id in cached_graph.nodes:
                     # Check if target is a direct neighbor (1 step away)
+                    probe_target = False
+                    current_check = None
                     if cached_graph.has_edge(current_position, target_node_id):
-                        print(f"[@navigation_executor:execute_navigation] 🔍 Target is 1 step away - verifying if already there to catch position tracking bugs")
+                        tracked_label = nav_context.get('current_node_label') or current_position
+                        verified_age_s = self._recently_verified_age_s(nav_context, current_position)
+                        if verified_age_s is not None:
+                            _t = _phase_t0()
+                            print(f"[@navigation_executor:execute_navigation] ⏭ Target is 1 step away; '{tracked_label}' "
+                                  f"was verified {verified_age_s:.1f}s ago - trusting it, no position probe")
+                            _log_phase('nav.probe_skipped_recently_verified', _t,
+                                       f"from={tracked_label} target={target_node_label or target_node_id} "
+                                       f"verified_age_ms={int(verified_age_s * 1000)} trust_s={position_trust_seconds():g}")
+                        else:
+                            print(f"[@navigation_executor:execute_navigation] 🔍 Target is 1 step away - checking the current node first to catch position tracking bugs")
+                            _t = _phase_t0()
+                            current_check = await self.device.verification_executor.verify_node(
+                                node_id=current_position,
+                                userinterface_name=userinterface_name,
+                                team_id=team_id,
+                                tree_id=tree_id,
+                                probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
+                            )
+                            _log_phase('nav.probe_current_one_step_away', _t,
+                                       f"node={tracked_label} target={target_node_label or target_node_id} "
+                                       f"cap_ms={POSITION_PROBE_TIMEOUT_MS} {self._verification_phase_detail(current_check)}")
+                            if current_check.get('success') and current_check.get('has_verifications', True):
+                                print(f"[@navigation_executor:execute_navigation] ✅ Still at '{tracked_label}' - taking the edge to '{target_node_label or target_node_id}'")
+                                self._mark_position_verified(current_position)
+                            else:
+                                probe_target = True
+                    if probe_target:
+                        print(f"[@navigation_executor:execute_navigation] 🔍 '{tracked_label}' not confirmed - verifying if already at the target")
+                        _t = _phase_t0()
                         verification_result = await self.device.verification_executor.verify_node(
                             node_id=target_node_id,
                             userinterface_name=userinterface_name,
                             team_id=team_id,
-                            tree_id=tree_id
+                            tree_id=tree_id,
+                            probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
                         )
-                        
+                        _log_phase('nav.probe_target_one_step_away', _t,
+                                   f"from={nav_context.get('current_node_label')} target={target_node_label or target_node_id} "
+                                   f"cap_ms={POSITION_PROBE_TIMEOUT_MS} {self._verification_phase_detail(verification_result)}")
+
                         # If we're ACTUALLY at the target visually, update position and skip navigation
                         if verification_result.get('success') and verification_result.get('has_verifications', True):
                             current_label = nav_context.get('current_node_label', 'unknown')
@@ -1041,10 +1612,12 @@ class NavigationExecutor:
                             print(f"[@navigation_executor:execute_navigation]   System thought we were at: {current_position} ({current_label})")
                             print(f"[@navigation_executor:execute_navigation]   But verification confirms we're already at: {target_node_id} ({target_node_label or target_node_id})")
                             print(f"[@navigation_executor:execute_navigation] ✅ Correcting position and skipping navigation")
+                            self._record_training_samples(verification_result, target_node_id, target_node_label,
+                                                          tree_id, team_id, userinterface_name)
                             
                             # Correct the position tracking
                             self.update_current_position(target_node_id, tree_id, target_node_label)
-                            nav_context['last_verified_timestamp'] = time.time()
+                            self._mark_position_verified(target_node_id)
                             nav_context['current_node_navigation_success'] = True
                             
                             # Record dummy step showing position correction
@@ -1093,9 +1666,26 @@ class NavigationExecutor:
                                 navigation_path=[],
                                 final_position_node_id=target_node_id
                             )
+                        elif current_check.get('has_verifications', True):
+                            # Neither the tracked node nor the target is showing: the tracked
+                            # position is wrong, and taking its edge would act on a screen we are
+                            # not on. Forget it; the no-position flow below re-locates (home, else
+                            # entry), reusing this target check instead of repeating it.
+                            print(f"[@navigation_executor:execute_navigation] ❌ Neither '{tracked_label}' nor "
+                                  f"'{target_node_label or target_node_id}' is showing - clearing the tracked position")
+                            position_disproved_node_id = current_position
+                            one_step_target_probe = verification_result
+                            nav_context['current_node_id'] = None
+                            nav_context['current_node_label'] = None
+                            nav_context['current_tree_id'] = None
+                            nav_context['position_timestamp'] = 0
+                            nav_context['last_verified_timestamp'] = 0
+                            nav_context['last_verified_node_id'] = None
+                            current_position = None
                         else:
-                            print(f"[@navigation_executor:execute_navigation] Verification failed - position tracking is correct, proceeding with navigation")
-            
+                            # The tracked node has no verifications: nothing disproves it.
+                            print(f"[@navigation_executor:execute_navigation] Target not showing and '{tracked_label}' has no verifications to check - proceeding from the tracked position")
+
             # ACTION NODE OPTIMIZATION: If target is an action node and we're at its parent, just execute the action
             from shared.src.lib.utils.navigation_cache import get_cached_unified_graph
             unified_graph = get_cached_unified_graph(tree_id, team_id, variant=(self.device.navigation_context or {}).get('variant'))
@@ -1149,20 +1739,26 @@ class NavigationExecutor:
                 print(f"[@navigation_executor:execute_navigation] 🔍 Context indicates already at target '{target_node_label or target_node_id}' - verifying...")
                 
                 # Always verify we're actually at this node (context may be stale or corrupted)
+                _t = _phase_t0()
                 verification_result = await self.device.verification_executor.verify_node(
                     node_id=target_node_id,
                     userinterface_name=userinterface_name,  # MANDATORY parameter
                     team_id=team_id,
-                    tree_id=tree_id
+                    tree_id=tree_id,
+                    probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
                 )
-                
+                _log_phase('nav.verify_already_at_target', _t,
+                           f"target={target_node_label or target_node_id} cap_ms={POSITION_PROBE_TIMEOUT_MS} "
+                           f"{self._verification_phase_detail(verification_result)}")
+
                 # Only trust verification if verifications are defined AND passed
                 if verification_result.get('success') and verification_result.get('has_verifications', True):
                     print(f"[@navigation_executor:execute_navigation] ✅ Verified at target '{target_node_label or target_node_id}' - no navigation needed")
-                    # Store verification timestamp for caching
-                    nav_context['last_verified_timestamp'] = time.time()
-                    # Update position to ensure consistency
+                    self._record_training_samples(verification_result, target_node_id, target_node_label,
+                                                  tree_id, team_id, userinterface_name)
+                    # Update position to ensure consistency, then mark it verified
                     self.update_current_position(target_node_id, tree_id, target_node_label)
+                    self._mark_position_verified(target_node_id)
                     # Mark navigation as successful
                     nav_context['current_node_navigation_success'] = True
                     
@@ -1220,29 +1816,51 @@ class NavigationExecutor:
                     nav_context['current_node_id'] = None
                     nav_context['current_node_label'] = None
                     nav_context['last_verified_timestamp'] = 0
+                    nav_context['last_verified_node_id'] = None
                 else:
                     print(f"[@navigation_executor:execute_navigation] ⚠️ Verification failed - context corrupted, proceeding with navigation")
+                    # TASK-27 4d: context said we were here, the check failed on this frame.
+                    self._record_failed_verification_sample(verification_result, target_node_id,
+                                                            target_node_label, tree_id, team_id,
+                                                            userinterface_name)
                     # Clear corrupted position and verification timestamp
                     nav_context['current_node_id'] = None
                     nav_context['current_node_label'] = None
                     nav_context['last_verified_timestamp'] = 0
+                    nav_context['last_verified_node_id'] = None
+            elif start_from_entry:
+                # No "already at target" / "already at home" probe: see the fresh-start
+                # block above. Pathfinding below starts at the entry node.
+                pass
             elif not current_position and not navigation_path:
-                # No current position - verify if already at destination before starting navigation
-                print(f"[@navigation_executor:execute_navigation] No current position - checking if already at target '{target_node_label or target_node_id}'")
-                
-                verification_result = await self.device.verification_executor.verify_node(
-                    node_id=target_node_id,
-                    userinterface_name=userinterface_name,
-                    team_id=team_id,
-                    tree_id=tree_id,
-                    probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
-                )
-                
+                if one_step_target_probe is not None:
+                    # The one-step probe above just cleared a disproved position after checking
+                    # this same target: reuse that answer rather than wait out the check again.
+                    print(f"[@navigation_executor:execute_navigation] No current position - target '{target_node_label or target_node_id}' was checked a moment ago (not showing)")
+                    verification_result = one_step_target_probe
+                else:
+                    # No current position - verify if already at destination before starting navigation
+                    print(f"[@navigation_executor:execute_navigation] No current position - checking if already at target '{target_node_label or target_node_id}'")
+
+                    _t = _phase_t0()
+                    verification_result = await self.device.verification_executor.verify_node(
+                        node_id=target_node_id,
+                        userinterface_name=userinterface_name,
+                        team_id=team_id,
+                        tree_id=tree_id,
+                        probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
+                    )
+                    _log_phase('nav.probe_target_no_position', _t,
+                               f"target={target_node_label or target_node_id} cap_ms={POSITION_PROBE_TIMEOUT_MS} "
+                               f"{self._verification_phase_detail(verification_result)}")
+
                 # Only skip navigation if verifications exist AND passed
                 if verification_result.get('success') and verification_result.get('has_verifications', True):
                     print(f"[@navigation_executor:execute_navigation] ✅ Already at target '{target_node_label or target_node_id}' - no navigation needed")
-                    nav_context['last_verified_timestamp'] = time.time()
+                    self._record_training_samples(verification_result, target_node_id, target_node_label,
+                                                  tree_id, team_id, userinterface_name)
                     self.update_current_position(target_node_id, tree_id, target_node_label)
+                    self._mark_position_verified(target_node_id)
                     nav_context['current_node_navigation_success'] = True
                     
                     # Record dummy step to show from/target nodes in report
@@ -1310,9 +1928,13 @@ class NavigationExecutor:
                         except ValueError:
                             continue
                     
-                    # Only verify home if: (1) home exists, (2) target is NOT home
-                    if home_id and home_id != target_node_id:
+                    # Only verify home if: (1) home exists, (2) target is NOT home, (3) home is not
+                    # the tracked node the one-step probe just found missing
+                    if home_id and home_id == position_disproved_node_id:
+                        print(f"[@navigation_executor:execute_navigation] Home was checked a moment ago (not showing) - will navigate from entry")
+                    elif home_id and home_id != target_node_id:
                         print(f"[@navigation_executor:execute_navigation] Target is not home - verifying if at home")
+                        _t = _phase_t0()
                         home_verification = await self.device.verification_executor.verify_node(
                             node_id=home_id,
                             userinterface_name=userinterface_name,
@@ -1320,12 +1942,16 @@ class NavigationExecutor:
                             tree_id=tree_id,
                             probe_timeout_ms=POSITION_PROBE_TIMEOUT_MS
                         )
-                        
+                        _log_phase('nav.probe_home_no_position', _t,
+                                   f"cap_ms={POSITION_PROBE_TIMEOUT_MS} {self._verification_phase_detail(home_verification)}")
+
                         if home_verification.get('success') and home_verification.get('has_verifications', True):
                             print(f"[@navigation_executor:execute_navigation] ✅ Already at HOME - will navigate from HOME → {target_node_label or target_node_id}")
+                            self._record_training_samples(home_verification, home_id, home_node_label,
+                                                          tree_id, team_id, userinterface_name)
                             # Update position to home so pathfinding starts from there
                             self.update_current_position(home_id, tree_id, home_node_label)
-                            nav_context['last_verified_timestamp'] = time.time()
+                            self._mark_position_verified(home_id)
                             # Continue to pathfinding (don't return)
                         else:
                             print(f"[@navigation_executor:execute_navigation] Not at home - will navigate from entry")
@@ -1339,6 +1965,7 @@ class NavigationExecutor:
             
             # Use unified pathfinding with current navigation context position (unless path already provided)
             if not navigation_path:
+                _t = _phase_t0()
                 navigation_path = find_shortest_path(
                     tree_id,
                     target_node_id,
@@ -1346,7 +1973,9 @@ class NavigationExecutor:
                     nav_context.get('current_node_id'),
                     variant=(nav_context or {}).get('variant'),
                 )
-                
+                _log_phase('nav.pathfinding', _t,
+                           f"from={nav_context.get('current_node_label') or 'entry'} steps={len(navigation_path or [])}")
+
                 if not navigation_path:
                     # Empty path but not at target - this is an error
                     nav_context['current_node_navigation_success'] = False
@@ -1383,6 +2012,10 @@ class NavigationExecutor:
             # design), but we carry the actual landing so the success result /
             # frontend can show "passed — arrived on <sibling>, not <requested>".
             arrived_on_sibling = None
+            # to_node_id of the last hop whose destination verifications ran AND passed (None when
+            # the last hop did not verify): the end of the navigation marks the position verified
+            # only from this (BUG-0195).
+            hop_verified_node_id = None
             total_actions = sum(len(step.get('actions', [])) for step in navigation_path)
             # NOTE: navigation_path can grow/shrink mid-loop when a conditional
             # edge lands on a sibling and we splice in a recovery path (see the
@@ -1418,10 +2051,13 @@ class NavigationExecutor:
                 to_node_id = step.get('to_node_id')  # UUID
                 
                 print(f"[@navigation_executor:execute_navigation] Step {step_num}/{len(navigation_path)}: {from_node} → {to_node}{' [recovered]' if step.get('is_recovery') else ''}")
-                
+                _step_detail = f"hop={step_num}/{len(navigation_path)} {from_node}->{to_node}"
+                _t_step = _phase_t0()
+
                 # Step start screenshot - capture BEFORE action execution (like old goto_node)
                 step_start_screenshot_path = ""
                 if context:
+                    _t = _phase_t0()
                     from shared.src.lib.utils.device_utils import capture_screenshot_for_script
                     step_name = f"step_{step_num}_{from_node}_{to_node}"
                     screenshot_id = capture_screenshot_for_script(self.device, context, f"{step_name}_start")
@@ -1430,7 +2066,8 @@ class NavigationExecutor:
                         if context.screenshot_paths:
                             step_start_screenshot_path = context.screenshot_paths[-1]
                         print(f"📸 [@navigation_executor:execute_navigation] Step-start screenshot captured: {screenshot_id}")
-                
+                    _log_phase('nav.hop.start_screenshot', _t, _step_detail)
+
                 step_start_time = time.time()
                 
                 # Execute actions using device's existing executor
@@ -1502,6 +2139,8 @@ class NavigationExecutor:
                         userinterface_name=userinterface_name,
                     )
                     action_total_ms += int((time.time() - action_call_start) * 1000)
+                    _log_duration('nav.hop.actions', (time.time() - action_call_start) * 1000,
+                                  f"{_step_detail} actions={len(actions)} success={result.get('success')}")
 
                     actions_executed += result.get('passed_count', 0)
 
@@ -1528,7 +2167,9 @@ class NavigationExecutor:
                 final_wait_ms = step.get('final_wait_time', 0)
                 if final_wait_ms > 0:
                     print(f"[@navigation_executor:execute_navigation] Step {step_num} final wait: {final_wait_ms}ms")
+                    _t = _phase_t0()
                     time.sleep(final_wait_ms / 1000.0)
+                    _log_phase('nav.hop.final_wait_sleep', _t, f"{_step_detail} final_wait_time={final_wait_ms}")
 
                 # Execute verifications after actions (if any). Whether to verify
                 # is decided per-step by verification_mode:
@@ -1572,6 +2213,8 @@ class NavigationExecutor:
                         image_source_url=image_source_url,
                     )
                     verification_total_ms = int((time.time() - verification_start_time) * 1000)
+                    _log_duration('nav.hop.verify_destination', verification_total_ms,
+                                  f"{_step_detail} {self._verification_phase_detail(verification_result)}")
                     print(f"[@navigation_executor:execute_navigation] Verifications: {verification_result.get('passed_count', 0)}/{verification_result.get('total_count', 0)} passed")
 
                     # ✅ VERIFICATION-DRIVEN RECOVERY: main actions succeeded
@@ -1592,6 +2235,7 @@ class NavigationExecutor:
                     # steps defer this to AFTER the sibling check (see below) so a valid
                     # sibling landing isn't trampled by recovery actions.
                     if verification_recovery_eligible and (retry_actions or failure_actions) and not is_conditional_step:
+                        _t_rec = _phase_t0()
                         rec = await self._run_verification_recovery(
                             step=step,
                             retry_actions=retry_actions,
@@ -1604,6 +2248,7 @@ class NavigationExecutor:
                             context=context,
                             nav_context=nav_context,
                         )
+                        _log_phase('nav.hop.verification_recovery', _t_rec, _step_detail)
                         action_total_ms += rec['action_ms']
                         verification_total_ms += rec['verification_ms']
                         verification_result = rec['verification_result']
@@ -1627,6 +2272,7 @@ class NavigationExecutor:
                 # Step end screenshot - capture AFTER action execution (like old goto_node)
                 step_end_screenshot_path = ""
                 if context:
+                    _t = _phase_t0()
                     from shared.src.lib.utils.device_utils import capture_screenshot_for_script
                     screenshot_id = capture_screenshot_for_script(self.device, context, f"{step_name}_end")
                     if screenshot_id:
@@ -1634,7 +2280,8 @@ class NavigationExecutor:
                         if context.screenshot_paths:
                             step_end_screenshot_path = context.screenshot_paths[-1]
                         print(f"📸 [@navigation_executor:execute_navigation] Step-end screenshot captured: {screenshot_id}")
-                
+                    _log_phase('nav.hop.end_screenshot', _t, _step_detail)
+
                 # Determine final error message - verification error takes precedence over action error
                 final_error = None
                 debug_report_url = None  # ✅ NEW: Track debug report URL
@@ -1648,6 +2295,7 @@ class NavigationExecutor:
                     final_error = result.get('error', 'Action failed')
                 
                 # If context is provided, record the step result (like old goto_node)
+                _t = _phase_t0()
                 if context:
                     from datetime import datetime
                     step_start_timestamp = datetime.fromtimestamp(step_start_time).strftime('%H:%M:%S')
@@ -1703,7 +2351,8 @@ class NavigationExecutor:
                         context.write_running_log()
                     # Simple message without redundant step number
                     step_result['message'] = f"{from_node} → {to_node}"
-                
+                    _log_phase('nav.hop.record_report_step_and_running_log', _t, _step_detail)
+
                 # ─── Single-write recording: edge row (+ node row if verified) ────
                 # ActionExecutor and VerificationExecutor are pure primitives now;
                 # NavigationExecutor owns all execution_results writes.
@@ -1733,6 +2382,7 @@ class NavigationExecutor:
                 )
 
                 step_execution_result_id = None
+                _t = _phase_t0()
                 if not conditional_divergence:
                     step_execution_result_id = self._record_step_execution_results(
                         step=step,
@@ -1747,6 +2397,27 @@ class NavigationExecutor:
                         action_message=result.get('error') or '',
                         verification_message=verification_result.get('error') or '',
                     )
+                _log_phase('nav.hop.db_execution_results', _t, f"{_step_detail} verifications_ran={verifications_ran}")
+
+                # TASK-27: destination verified -> screen-id (+ focus) sample, off the hot path.
+                hop_verified_node_id = to_node_id if (
+                    verifications_ran and verification_result.get('success')
+                    and verification_result.get('has_verifications', True)) else None
+                _t = _phase_t0()
+                if (verifications_ran and verification_result.get('success')
+                        and verification_result.get('has_verifications', True)):
+                    self._record_training_samples(verification_result, to_node_id,
+                                                  step.get('to_node_label'), tree_id, team_id,
+                                                  userinterface_name, edge_id=step.get('edge_id'))
+                # TASK-27 4d: destination check ran after the edge's actions and failed ->
+                # unlabelled screen-id candidate. Not for a conditional divergence (a valid
+                # sibling landing, not a wrong screen).
+                elif (verifications_ran and not verification_success and not conditional_divergence
+                        and verification_result.get('has_verifications', True)):
+                    self._record_failed_verification_sample(verification_result, to_node_id,
+                                                            step.get('to_node_label'), tree_id, team_id,
+                                                            userinterface_name, edge_id=step.get('edge_id'))
+                _log_phase('nav.hop.training_samples', _t, _step_detail)
 
                 # Per-step KPI queue: vpt-kpi.service is event-driven, so this
                 # costs nothing extra vs the old end-of-path queue. Each step
@@ -1754,6 +2425,7 @@ class NavigationExecutor:
                 # requests, each tied to its own execution_result_id.
                 # (step_execution_result_id stays None for a conditional divergence,
                 # so this is skipped — the recovery branch emits the real success.)
+                _t = _phase_t0()
                 if action_success and step_execution_result_id:
                     kpi_references = self._resolve_kpi_references(step)
                     if kpi_references:
@@ -1823,6 +2495,7 @@ class NavigationExecutor:
                             # short-circuit can store it as kpi_report_url.
                             live_verification_report_url=debug_report_url,
                         )
+                _log_phase('nav.hop.kpi_queue', _t, _step_detail)
 
                 # Check if EITHER actions OR verifications failed - both must succeed for step to continue
                 step_failed = not result.get('success', False) or not verification_result.get('success', True)
@@ -1961,6 +2634,11 @@ class NavigationExecutor:
                             max_attempts=3
                         )
                         sibling_reports = recovery_result.get('sibling_reports', []) or []
+                        # Script report: the failed step already links the target's
+                        # report inline; attach the siblings' reports too so the step
+                        # shows every possible landing of the conditional was checked.
+                        if context and sibling_reports and not recovery_result.get('success'):
+                            step_result['sibling_reports'] = sibling_reports
 
                         if recovery_result.get('success'):
                             # Successfully recovered - update position and continue
@@ -2196,6 +2874,7 @@ class NavigationExecutor:
                 # try/except inside the helper, and degrades to the original open-loop path on any
                 # error / no-match. Reuses the conditional-recovery splice (in-place navigation_path
                 # slice assignment) so enumerate() picks up the new tail.
+                _t = _phase_t0()
                 if to_node_id and not step_failed:   # fire even when the menu IS the target (act-then-sense)
                     try:
                         # Reuse the step's already-settled frame when the run accumulates them (script
@@ -2234,6 +2913,8 @@ class NavigationExecutor:
                                           f"{target_node_id} ({len(_disp)} steps)")
                     except Exception as _e:
                         print(f"[@navigation_executor:dispatch] hook error: {_e}; continuing open-loop")
+                _log_phase('nav.hop.localize_dispatch', _t, _step_detail)
+                _log_phase('nav.hop.total', _t_step, _step_detail)
 
                 transitions_executed += 1
 
@@ -2263,7 +2944,8 @@ class NavigationExecutor:
             # Update position if navigation succeeded (but NOT for action nodes)
             # Track final position for frontend
             final_position_node_id = nav_context.get('current_node_id')  # Default: where we were
-            
+            _t = _phase_t0()
+
             if arrived_on_sibling:
                 # Conditional final hop landed on a sibling. Position was already
                 # set to it above; keep it rather than overwriting with the
@@ -2297,9 +2979,19 @@ class NavigationExecutor:
                     # Fallback: update position if no graph available
                     self.update_current_position(final_node_id, tree_id, target_node_label)
                     final_position_node_id = final_node_id
-            
-            # Store verification timestamp
-            nav_context['last_verified_timestamp'] = time.time()
+            _log_phase('nav.update_final_position', _t, f"node={final_position_node_id}")
+            _log_phase('nav.total', _t_nav_total,
+                       f"target={target_node_label or target_node_id} hops={len(navigation_path)} success=True")
+
+            # Verified mark (BUG-0195): only when the hop that reached the final position ran its
+            # verifications and they passed. Not for a destination without verifications, a
+            # skipped verification, an action node (position = its parent) or a sibling landing.
+            if (not arrived_on_sibling and hop_verified_node_id
+                    and hop_verified_node_id == final_position_node_id):
+                self._mark_position_verified(final_position_node_id)
+            else:
+                nav_context['last_verified_timestamp'] = 0
+                nav_context['last_verified_node_id'] = None
             
             # Mark navigation as successful
             nav_context['current_node_navigation_success'] = True
@@ -2720,6 +3412,8 @@ class NavigationExecutor:
 
         execution_result_id: Optional[str] = None
         if edge_id and edge_tree_id:
+            # executed_at is stamped client-side at the start of this insert.
+            _t = _phase_t0()
             execution_result_id = record_edge_execution(
                 team_id=team_id,
                 tree_id=edge_tree_id,
@@ -2740,6 +3434,7 @@ class NavigationExecutor:
                 variant=variant,
                 is_test=is_test,
             )
+            _log_phase('db.insert_edge_execution_result', _t, f"edge={edge_id} action_time_ms={action_time_ms}")
 
         # One node row per node visit (was: one row per individual verification
         # in the legacy verification_executor flow). Aggregate node_metrics
@@ -2749,6 +3444,7 @@ class NavigationExecutor:
             target_node_id = step.get('to_node_id')
             target_tree_id = step.get('to_tree_id', edge_tree_id)
             if target_node_id and target_tree_id:
+                _t = _phase_t0()
                 record_node_execution(
                     team_id=team_id,
                     tree_id=target_tree_id,
@@ -2765,6 +3461,7 @@ class NavigationExecutor:
                     variant=variant,
                     is_test=is_test,
                 )
+                _log_phase('db.insert_node_execution_result', _t, f"node={target_node_id}")
 
         return execution_result_id
 
@@ -2863,6 +3560,9 @@ class NavigationExecutor:
         _record_step_execution_results — kpi_executor.py PATCHes
         kpi_measurement_ms onto that row when the scan completes.
         """
+        if os.getenv('HOST_PROFILE', '').strip().lower() == 'lite':
+            # Lite hosts (TASK-83) run no vpt-kpi: a request file would never be consumed.
+            return
         try:
             target_tree_id = step.get('to_tree_id')
             edge_tree_id = step.get('original_edge_data', {}).get('tree_id', target_tree_id)
@@ -3342,6 +4042,9 @@ class NavigationExecutor:
         old_position = nav_context.get('current_node_id')
         if old_position != node_id:
             nav_context['last_verified_timestamp'] = 0
+        # Setting a position is a claim, not a verification: callers that just verified the node
+        # mark it afterwards (_mark_position_verified). BUG-0195.
+        nav_context['last_verified_node_id'] = None
         
         nav_context['current_node_id'] = node_id
         nav_context['current_tree_id'] = tree_id
@@ -3378,6 +4081,7 @@ class NavigationExecutor:
         nav_context['current_node_label'] = None
         nav_context['position_timestamp'] = 0
         nav_context['last_verified_timestamp'] = 0
+        nav_context['last_verified_node_id'] = None
         
         print(f"[@navigation_executor] Cleared position for {self.device_id} (was: {old_position['node_id']})")
         

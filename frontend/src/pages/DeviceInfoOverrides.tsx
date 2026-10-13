@@ -30,6 +30,7 @@ import {
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
+import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 import { useHostData } from '../hooks/useHostManager';
 import { useToast } from '../hooks/useToast';
 import { api } from '../utils/apiClient';
@@ -73,15 +74,27 @@ const hasKeys = (o?: Record<string, string> | null) => !!o && Object.keys(o).len
 
 const DeviceInfoOverrides: React.FC = () => {
   const { showSuccess, showError } = useToast();
-  const { getAllDevices } = useHostData();
+  const { getAllDevices, selectedServer } = useHostData();
+  const { isDeviceAllowed } = useWorkspaceContext();
   const [searchParams] = useSearchParams();
+
+  // Devices in scope: getAllDevices() is already narrowed to the selected server
+  // (HostManagerProvider derives availableHosts from that server's payload), so
+  // only the workspace scope has to be applied here — same rule as Dashboard/Rec.
+  // Both sources re-run this memo on change: a server switch swaps the host list,
+  // a workspace switch swaps the `isDeviceAllowed` identity.
+  const allDevices = useMemo(() => getAllDevices(), [getAllDevices]);
+  const scopedDevices = useMemo(
+    () => allDevices.filter((d) => isDeviceAllowed(d.hostName || '', d.device_id)),
+    [allDevices, isDeviceAllowed],
+  );
 
   // Devices + their info come from the host manager — getAllHosts already embeds
   // device_info and gateway_info — so there's no separate fetch / loading /
   // refresh here. A device is offered if it has either info family.
   const devices = useMemo<DeviceOption[]>(
     () =>
-      getAllDevices()
+      scopedDevices
         .filter((d) => hasKeys(d.device_info) || hasKeys(d.gateway_info))
         .map((d) => ({
           device_name: d.device_name,
@@ -94,7 +107,7 @@ const DeviceInfoOverrides: React.FC = () => {
         .sort((a, b) =>
           `${a.device_name}${a.host_name}`.localeCompare(`${b.device_name}${b.host_name}`),
         ),
-    [getAllDevices],
+    [scopedDevices],
   );
 
   // Preselect from ?device_name=&host_name=&tab= (deep link from the info icon).
@@ -124,6 +137,25 @@ const DeviceInfoOverrides: React.FC = () => {
     if (source === 'device' && !hasDevice && hasGateway) setSource('gateway');
     else if (source === 'gateway' && !hasGateway && hasDevice) setSource('device');
   }, [selectedDevice, source, hasDevice, hasGateway]);
+
+  // Drop a selection that has left scope — the device belongs to the server we
+  // just switched away from, or the workspace we just switched to does not allow
+  // it. Matched against `scopedDevices` rather than `devices`, so a device still
+  // in scope but with no info keys yet keeps its selection instead of flickering
+  // away.
+  //
+  // Gated on a non-empty raw host list rather than on `isLoading`: HostManager
+  // copies the server payload into `availableHosts` from an effect, and this
+  // component's effects run *before* its provider's, so on the commit where
+  // loading flips false the list here is still empty for one render — an
+  // isLoading gate would clear the ?device_name= deep link every cold load.
+  // An empty list means "nothing to compare against" (loading, or the selected
+  // server is not responding), never "your device is gone".
+  useEffect(() => {
+    if (!selected || allDevices.length === 0) return;
+    if (scopedDevices.some((d) => keyOf(d.device_name, d.hostName || '') === selected)) return;
+    setSelected('');
+  }, [allDevices, scopedDevices, selected]);
 
   // Dropdown options: provider devices, plus a synthetic entry for a deep-linked
   // device not yet in the host list (keeps the Select value valid while /keys loads).
@@ -161,7 +193,10 @@ const DeviceInfoOverrides: React.FC = () => {
 
   useEffect(() => {
     setEdited({});
-    if (!selected) {
+    // `selectedServer` is not read here — buildServerUrl picks the selection up
+    // from localStorage — but it is a real dependency: a server switch must
+    // re-fetch the detail rows from the newly selected backend.
+    if (!selected || !selectedServer) {
       setRows([]);
       return;
     }
@@ -184,7 +219,7 @@ const DeviceInfoOverrides: React.FC = () => {
     );
     // …then enrich with raw/override/stale detail.
     loadKeys(deviceName, hostName, source);
-  }, [selected, source, loadKeys]);
+  }, [selected, source, selectedServer, loadKeys]);
 
   // Report link + scan time for the selected device/source, so the operator can
   // see which scan these values came from.

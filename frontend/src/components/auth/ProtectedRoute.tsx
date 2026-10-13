@@ -4,7 +4,7 @@ import { Box, CircularProgress, Typography } from '@mui/material';
 import { useAuth } from '../../hooks/auth/useAuth';
 import { usePermissions } from '../../hooks/auth/usePermissions';
 import { useProfile } from '../../hooks/auth/useProfile';
-import { Permission, Role } from '../../types/auth';
+import { Permission, Role, requiredPermissionForPath } from '../../types/auth';
 import { isAuthEnabled } from '../../lib/supabase';
 
 interface ProtectedRouteProps {
@@ -19,42 +19,26 @@ interface ProtectedRouteProps {
 }
 
 /**
- * Protected Route Component
- * Wraps routes that require authentication and/or specific permissions
- * 
- * @example
- * // Require authentication only
- * <Route element={<ProtectedRoute />}>
- *   <Route path="/dashboard" element={<Dashboard />} />
- * </Route>
- * 
- * @example
- * // Require specific role
- * <Route element={<ProtectedRoute requiredRole="admin" />}>
- *   <Route path="/settings" element={<Settings />} />
- * </Route>
- * 
- * @example
- * // Require specific permission
- * <Route element={<ProtectedRoute requiredPermission="api_testing" />}>
- *   <Route path="/api/workspaces" element={<ApiWorkspaces />} />
- * </Route>
+ * The gate itself. Only mounted when auth is enabled, so every hook below runs
+ * unconditionally.
+ *
+ * This is split out rather than guarded by an early return inside one component:
+ * `isAuthEnabled` is a module constant, so an early return above the hooks is
+ * stable in practice, but it is still a conditional hook call as far as
+ * react-hooks/rules-of-hooks can tell — and that one pattern is why the rule was
+ * switched off repo-wide. Moving the branch to a wrapper that renders either this
+ * or its children keeps the behaviour identical and the hooks checkable.
  */
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
+const AuthGate: React.FC<ProtectedRouteProps> = ({
   children,
   requiredRole,
   requiredPermission,
   requiredPlatformAdmin,
   fallbackPath = '/login',
 }) => {
-  // If auth is disabled, allow access to everything - skip auth hooks entirely
-  if (!isAuthEnabled) {
-    return children ? <>{children}</> : <Outlet />;
-  }
-
-  // Auth is enabled - now we need to check authentication state
-  const { isAuthenticated, isLoading } = useAuth();
-  const { hasRole, canAccess } = usePermissions();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const { hasRole, canAccess, isLoading: permissionsLoading } = usePermissions();
+  const isLoading = authLoading || permissionsLoading;
   const { isPlatformAdmin } = useProfile();
   const location = useLocation();
   const [showLoading, setShowLoading] = useState(false);
@@ -62,8 +46,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   useEffect(() => {
     let timer: NodeJS.Timeout;
     if (isLoading) {
-      // Delay showing the loading spinner to prevent flashing on fast loads
-      timer = setTimeout(() => setShowLoading(true), 500);
+      // Delay showing the loading spinner to prevent flashing on fast loads.
+      // 1500ms, not 500ms: AuthContext only clears its flag after a PROFILE round trip, so
+      // a remote load routinely sits in the 600ms–1s range. At 500ms this message fired just
+      // before the real content landed, replacing one loading screen with another. Hold it
+      // back until the wait is long enough that silence would look like a hang.
+      timer = setTimeout(() => setShowLoading(true), 1500);
     } else {
       setShowLoading(false);
     }
@@ -151,8 +139,10 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     );
   }
 
-  // Check permission requirement
-  if (requiredPermission && !canAccess(requiredPermission)) {
+  // Check permission requirement: the route's own, else the page's entry in PAGE_PERMISSIONS
+  // (the same table the nav uses to hide the page).
+  const neededPermission = requiredPermission ?? requiredPermissionForPath(location.pathname);
+  if (neededPermission && !canAccess(neededPermission)) {
     return (
       <Box
         sx={{
@@ -173,9 +163,9 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Required permission:{' '}
-          {Array.isArray(requiredPermission)
-            ? requiredPermission.join(' or ')
-            : requiredPermission}
+          {Array.isArray(neededPermission)
+            ? neededPermission.join(' or ')
+            : neededPermission}
         </Typography>
       </Box>
     );
@@ -183,5 +173,35 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   // Render children or Outlet
   return children ? <>{children}</> : <Outlet />;
+};
+
+/**
+ * Protected Route Component
+ * Wraps routes that require authentication and/or specific permissions
+ * 
+ * @example
+ * // Require authentication only
+ * <Route element={<ProtectedRoute />}>
+ *   <Route path="/dashboard" element={<Dashboard />} />
+ * </Route>
+ * 
+ * @example
+ * // Require specific role
+ * <Route element={<ProtectedRoute requiredRole="admin" />}>
+ *   <Route path="/settings" element={<Settings />} />
+ * </Route>
+ * 
+ * @example
+ * // Require specific permission
+ * <Route element={<ProtectedRoute requiredPermission="api_testing" />}>
+ *   <Route path="/api/workspaces" element={<ApiWorkspaces />} />
+ * </Route>
+ */
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = (props) => {
+  // Auth disabled: everything is public, and none of the auth hooks should run.
+  if (!isAuthEnabled) {
+    return props.children ? <>{props.children}</> : <Outlet />;
+  }
+  return <AuthGate {...props} />;
 };
 

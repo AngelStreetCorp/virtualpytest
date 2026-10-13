@@ -16,6 +16,10 @@ export interface Team {
   tenant_id: string;
   created_by?: string;
   is_default: boolean;
+  /** Permission ceiling (TASK-31): members hold nothing outside it. null = no limit. */
+  permissions: string[] | null;
+  /** Device ceiling; null = every device. */
+  allowed_devices: string[] | null;
   member_count: number;
   created_at: string;
   updated_at: string;
@@ -25,7 +29,8 @@ export interface TeamCreatePayload {
   name: string;
   description?: string;
   is_default?: boolean;
-  permissions?: string[];
+  permissions?: string[] | null;
+  allowed_devices?: string[] | null;
 }
 
 export interface TeamMember {

@@ -6,6 +6,7 @@ Reused by: hot_cold_archiver, video_compression_utils, audio_transcription_utils
 """
 
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -20,7 +21,8 @@ def merge_video_files(
     timeout: int = 30,
     compression_settings: Dict[str, Any] = None,
     skip_faststart: bool = False,
-    regen_timestamps: bool = False
+    regen_timestamps: bool = False,
+    ts_inputs: bool = False,
 ) -> Optional[str]:
     """
     Generic video file merger using FFmpeg concat demuxer
@@ -41,6 +43,11 @@ def merge_video_files(
             non-zero start PTS (e.g. mid-file `-ss … -c copy` slices): without it the
             concat demuxer hands a player non-monotonic timestamps and it freezes /
             skips the first input. Off by default so existing callers are unchanged.
+        ts_inputs: The inputs are consecutive MPEG-TS segments of one writer (live HLS):
+            read them as one byte stream (`-f mpegts -i concat:a|b|...`) instead of the
+            concat demuxer. The demuxer probes each file on its own, and a segment under
+            10 TS packets (1880 bytes: a static or black picture at the live bitrate) is
+            detected as MPEG-PS and fails the whole merge (BUG-0298).
 
     Returns:
         Output path if successful, None otherwise
@@ -63,7 +70,10 @@ def merge_video_files(
         cmd = ['ffmpeg', '-y']
         if regen_timestamps:
             cmd += ['-fflags', '+genpts']
-        cmd += ['-f', 'concat', '-safe', '0', '-i', concat_file]
+        if ts_inputs:
+            cmd += ['-f', 'mpegts', '-i', 'concat:' + '|'.join(input_files)]
+        else:
+            cmd += ['-f', 'concat', '-safe', '0', '-i', concat_file]
 
         if compression_settings:
             cmd.extend(['-c:v', 'libx264'])
@@ -243,6 +253,7 @@ def merge_progressive_batch(
     delete_source: bool = True,
     timeout: int = 30,
     skip_faststart: bool = False,
+    merged_batch: Optional[List[str]] = None,
 ) -> Optional[str]:
     """
     Find video files matching pattern, merge N oldest into single file
@@ -261,6 +272,8 @@ def merge_progressive_batch(
                         True for intermediate hot-storage merges where the resulting
                         MP4 isn't streamed standalone — the second pass doubles I/O
                         on the Pi's storage and is the dominant cost there.
+        merged_batch: When given, receives the source files of a successful merge, so a
+                      caller with delete_source=False can delete them later.
 
     Returns:
         Output path if successful, None otherwise
@@ -268,15 +281,54 @@ def merge_progressive_batch(
     if not os.path.isdir(source_dir):
         return None
 
-    files = sorted(
-        [str(f) for f in Path(source_dir).glob(source_pattern) if f.is_file()],
-        key=os.path.getmtime
-    )
+    # The writer (ffmpeg delete_segments) can remove a file between this listing and the
+    # merge: stat each once, skip what is gone, and if the concat still fails on a file that
+    # vanished meanwhile, merge what is left rather than lose the whole batch (BUG-0230).
+    stamped = []
+    for f in Path(source_dir).glob(source_pattern):
+        try:
+            if f.is_file():
+                stamped.append((f.stat().st_mtime, str(f)))
+        except FileNotFoundError:
+            continue
+    files = [f for _, f in sorted(stamped)]
 
     if len(files) < count:
         return None
 
-    return merge_video_files(files[:count], output_path, 'mp4', delete_source, timeout, skip_faststart=skip_faststart)
+    batch = files[:count]
+    # Pin the batch with hard links before the concat: once the writer's playlist is at its
+    # on-disk ceiling it deletes the oldest file every segment, so an unpinned concat of the
+    # oldest files fails every time and the minute is lost (BUG-0291).
+    pin_dir = os.path.join(source_dir, '.pin_' + os.path.basename(output_path))
+    shutil.rmtree(pin_dir, ignore_errors=True)
+    os.makedirs(pin_dir, exist_ok=True)
+    pinned = []
+    try:
+        for f in batch:
+            link = os.path.join(pin_dir, os.path.basename(f))
+            try:
+                os.link(f, link)
+                pinned.append(link)
+            except FileNotFoundError:
+                continue
+        if len(pinned) < len(batch):
+            print(f"[video_utils] {len(batch) - len(pinned)} of {len(batch)} files vanished before the merge, merging the {len(pinned)} left")
+        if len(pinned) < 2:
+            return None
+        merged = merge_video_files(pinned, output_path, 'mp4', False, timeout, skip_faststart=skip_faststart,
+                                   ts_inputs=source_pattern.endswith('.ts'))
+        if merged and merged_batch is not None:
+            merged_batch.extend(batch)
+        if merged and delete_source:
+            for f in batch:
+                try:
+                    os.remove(f)
+                except FileNotFoundError:
+                    pass
+        return output_path if merged else None
+    finally:
+        shutil.rmtree(pin_dir, ignore_errors=True)
 
 
 # Size policy for report/test videos uploaded to R2 via the nginx proxy.

@@ -16,6 +16,7 @@ import { Search as SearchIcon, Lock as LockIcon, ErrorOutline as UnavailableIcon
 import { EllipsisText } from './EllipsisText';
 import { UserinterfaceSelector } from './UserinterfaceSelector';
 import { useDeviceFlags } from '../../hooks/useDeviceFlags';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface Device {
   device_id: string;
@@ -83,6 +84,7 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
   selectionCountLabel,
   disableInternalScroll = false,
 }) => {
+  const P = useAgentChatPalette();
   const [search, setSearch] = useState('');
   const [modelFilter, setModelFilter] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
@@ -297,7 +299,7 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
         </Typography>
         <Typography
           variant="caption"
-          color={visibleSelectableKeys.length > 0 ? 'primary.main' : 'text.disabled'}
+          color={visibleSelectableKeys.length > 0 ? P.accentText : 'text.disabled'}
           sx={{ cursor: visibleSelectableKeys.length > 0 ? 'pointer' : 'default' }}
           onClick={visibleSelectableKeys.length > 0 ? handleSelectAllVisible : undefined}
         >
@@ -306,7 +308,7 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
         <Typography variant="caption" color="text.disabled">-</Typography>
         <Typography
           variant="caption"
-          color={visibleSelectedCount > 0 ? 'primary.main' : 'text.disabled'}
+          color={visibleSelectedCount > 0 ? P.accentText : 'text.disabled'}
           sx={{ cursor: visibleSelectedCount > 0 ? 'pointer' : 'default' }}
           onClick={visibleSelectedCount > 0 ? handleUnselectAllVisible : undefined}
         >
@@ -355,7 +357,7 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
                     sx={{
                       p: 0.25,
                       '&.Mui-disabled.Mui-checked': {
-                        color: 'grey.500',
+                        color: P.textMuted,
                       },
                     }}
                   />

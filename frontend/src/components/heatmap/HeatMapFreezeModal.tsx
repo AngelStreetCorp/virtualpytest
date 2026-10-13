@@ -1,5 +1,6 @@
 import { Close as CloseIcon } from '@mui/icons-material';
 import { Modal, Box, IconButton, Typography } from '@mui/material';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import React, { useMemo } from 'react';
 import { useR2UrlsBatch } from '../../hooks/storage/useR2Url';
 
@@ -22,6 +23,7 @@ export const HeatMapFreezeModal: React.FC<HeatMapFreezeModalProps> = ({
   timestamp,
   onClose,
 }) => {
+  const P = useAgentChatPalette();
   const httpRegex = /^https?:\/\//i;
 
   // Determine if any URL needs signing (non-HTTP paths)
@@ -46,6 +48,10 @@ export const HeatMapFreezeModal: React.FC<HeatMapFreezeModalProps> = ({
           bgcolor: 'black',
           display: 'flex',
           flexDirection: 'column',
+          border: `1px solid ${P.accent}`,
+          borderRadius: 2,
+          overflow: 'hidden',
+          outline: 'none',
         }}
       >
         {/* Header with close button */}
@@ -53,23 +59,17 @@ export const HeatMapFreezeModal: React.FC<HeatMapFreezeModalProps> = ({
           sx={{
             display: 'flex',
             justifyContent: 'flex-end',
-            p: 0.25,
-            minHeight: '24px',
+            p: 0.5,
             bgcolor: 'rgba(0,0,0,0.8)',
           }}
         >
           <IconButton
             onClick={onClose}
-            size="small"
+            aria-label="Close"
             sx={{
               color: 'white',
-              padding: '2px',
-              minWidth: '20px',
-              minHeight: '20px',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
-              '& .MuiSvgIcon-root': {
-                fontSize: '16px',
-              },
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)', color: P.accent },
+              '& .MuiSvgIcon-root': { fontSize: 26 },
             }}
           >
             <CloseIcon />

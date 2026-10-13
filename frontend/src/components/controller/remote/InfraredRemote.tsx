@@ -6,6 +6,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useInfraredRemote } from '../../../hooks/controller';
 import { Host } from '../../../types/common/Host_Types';
 import { InfraredRemoteButton } from '../../../config/remote/infraredRemoteBase';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { useDisabledRemoteKeys } from '../../../contexts/RemoteCommandSinkContext';
 
 interface InfraredRemoteProps {
   host: Host;
@@ -15,6 +17,10 @@ interface InfraredRemoteProps {
   // Publishes the IR transmitter health dot up to RemotePanel (shared with
   // the Bluetooth remote's dot). See docs/agent/devices/INFRARED.md §5.
   onStatusChange?: (color: string, tooltip: string) => void;
+  // Host remote that receives the keys: 'ir_remote' (default) or 'vega' (TASK-57),
+  // and the button layout to draw when it is not the device's own ir_type.
+  remoteType?: 'ir_remote' | 'vega';
+  irType?: string;
   sx?: any;
   isCollapsed: boolean;
   streamContainerDimensions?: {
@@ -32,6 +38,8 @@ export const InfraredRemote = React.memo(
     isConnected,
     // onDisconnectComplete removed
     onStatusChange,
+    remoteType = 'ir_remote',
+    irType,
     sx = {},
     isCollapsed,
     streamContainerDimensions,
@@ -43,24 +51,31 @@ export const InfraredRemote = React.memo(
       handleConnect,
       // handleDisconnect removed
       handleRemoteCommand,
-    } = useInfraredRemote(host, deviceId, isConnected);
+    } = useInfraredRemote(host, deviceId, isConnected, remoteType, irType);
 
     const [showOverlays, setShowOverlays] = useState(true);
+    const P = useAgentChatPalette();
 
     // IR transmitter health → status dot (same palette as BluetoothRemote).
     const dotColor: string = (() => {
-      if (status === null) return '#888'; // grey — status not loaded yet
-      if (!status.device_present) return '#d32f2f'; // red — lirc node missing
-      if (!status.tx_probe_ok) return '#d32f2f'; // red — transmitter wedged
-      if (status.last_send_ok === false) return '#d32f2f'; // red — last press failed
-      if (status.healthy) return '#2e7d32'; // green — ready
-      return '#d32f2f';
+      if (status === null) return P.textMuted; // grey — status not loaded yet
+      if (!status.device_present) return P.error; // red — lirc node missing
+      if (!status.tx_probe_ok) return P.error; // red — transmitter wedged
+      if (status.last_send_ok === false) return P.error; // red — last press failed
+      if (status.healthy) return P.success; // green — ready
+      return P.error;
     })();
     const dotTooltip: string = status?.detail || 'IR status unknown';
 
     useEffect(() => {
       onStatusChange?.(dotColor, dotTooltip);
     }, [onStatusChange, dotColor, dotTooltip]);
+
+    // TASK-80 multi-profile group: when this IR remote is shown as the visible
+    // skin of a group, keys outside every member's intersection are rendered
+    // greyed and clicks are no-ops (the sink still drops them server-side).
+    const disabledKeys = useDisabledRemoteKeys();
+    const isKeyDisabled = (key: string): boolean => disabledKeys != null && !disabledKeys.has(key);
 
     // Keep showOverlays state persistent when isCollapsed changes
     // This helps with button alignment as overlays remain visible by default
@@ -227,6 +242,7 @@ export const InfraredRemote = React.memo(
                 top: 8,
                 right: 8,
                 zIndex: 10,
+                // palette: drawn on video/screenshot — overlay button sits over the remote image
                 color: 'rgba(255, 255, 255, 0.7)',
                 backgroundColor: 'rgba(0, 0, 0, 0.4)',
                 p: 0.5,
@@ -265,6 +281,7 @@ export const InfraredRemote = React.memo(
                 : layoutConfig.button_layout,
             ).map(([buttonId, button]) => {
               const typedButton = button as InfraredRemoteButton;
+              const keyDisabled = isKeyDisabled(typedButton.key);
               return (
               <Box
                 key={buttonId}
@@ -276,48 +293,54 @@ export const InfraredRemote = React.memo(
                   height: `${typedButton.size.height * layoutConfig.remote_info.button_scale_factor * remoteScale}px`,
                   borderRadius: typedButton.shape === 'circle' ? '50%' : '4px',
                   backgroundColor: (() => {
-                    if (isCollapsed) {
-                      return 'rgba(255, 255, 255, 0.1)'; // Always visible when collapsed for debugging
-                    } else if (showOverlays) {
-                      return 'rgba(255, 255, 255, 0.1)'; // Normal visibility when expanded
-                    } else {
-                      return 'rgba(255, 255, 255, 0.02)'; // 20% transparency for debugging when hidden
-                    }
+                    // TASK-80: greyed when the key is outside the shared intersection.
+                    if (keyDisabled) return 'rgba(102, 102, 102, 0.06)';
+                    if (isCollapsed) return 'rgba(255, 255, 255, 0.1)';
+                    if (showOverlays) return 'rgba(255, 255, 255, 0.1)';
+                    return 'rgba(255, 255, 255, 0.02)';
                   })(),
                   border: (() => {
-                    if (isCollapsed) {
-                      return '1px solid rgba(255, 255, 255, 0.5)'; // Always visible when collapsed for debugging
-                    } else if (showOverlays) {
-                      return '1px solid rgba(255, 255, 255, 0.3)'; // Normal visibility when expanded
-                    } else {
-                      return '1px solid rgba(255, 255, 255, 0.06)'; // 20% transparency for debugging when hidden
-                    }
+                    if (keyDisabled) return '1px solid rgba(102, 102, 102, 0.4)';
+                    if (isCollapsed) return '1px solid rgba(255, 255, 255, 0.5)';
+                    if (showOverlays) return '1px solid rgba(255, 255, 255, 0.3)';
+                    return '1px solid rgba(255, 255, 255, 0.06)';
                   })(),
-                  cursor: 'pointer',
+                  cursor: keyDisabled ? 'not-allowed' : 'pointer',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   transition: 'all 0.2s ease-in-out',
-                  '&:hover': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-                    transform: 'scale(1.05)',
-                  },
-                  '&:active': {
-                    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-                    transform: 'scale(0.95)',
-                  },
+                  '&:hover': keyDisabled
+                    ? undefined
+                    : {
+                        backgroundColor: 'rgba(255, 255, 255, 0.2)',
+                        transform: 'scale(1.05)',
+                      },
+                  '&:active': keyDisabled
+                    ? undefined
+                    : {
+                        backgroundColor: 'rgba(255, 255, 255, 0.3)',
+                        transform: 'scale(0.95)',
+                      },
                 }}
-                onClick={() => handleButtonPress(typedButton.key)}
-                title={`${typedButton.label} - ${typedButton.comment}`}
+                onClick={() => {
+                  if (keyDisabled) return;
+                  handleButtonPress(typedButton.key);
+                }}
+                title={keyDisabled
+                  ? `${typedButton.label} - not on every member's transport`
+                  : `${typedButton.label} - ${typedButton.comment}`}
               >
                 <Typography
                     variant="caption"
                     sx={{
                       fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`,
                       fontWeight: layoutConfig.remote_info.text_style.fontWeight,
-                      color: layoutConfig.remote_info.text_style.color,
+                      // palette: drawn on video/screenshot — overlay label over the remote image
+                      color: keyDisabled ? 'rgba(160, 160, 160, 0.5)' : layoutConfig.remote_info.text_style.color,
                       textShadow: layoutConfig.remote_info.text_style.textShadow,
                       userSelect: 'none',
+                      textDecoration: keyDisabled ? 'line-through' : 'none',
                     }}
                   >
                     {typedButton.label}

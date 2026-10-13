@@ -4,13 +4,16 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import RefreshIcon from '@mui/icons-material/Refresh';
 
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+
 /**
  * HLS Debug Page
- * 
+ *
  * Dedicated page for testing and debugging HLS streaming with improved configuration
  * and comprehensive logging.
  */
 const HLSDebugPage: React.FC = () => {
+  const P = useAgentChatPalette();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<any>(null);
   const [streamUrl, setStreamUrl] = useState('https://dev.virtualpytest.com/host/stream/capture1/segments/output.m3u8');
@@ -461,7 +464,7 @@ const HLSDebugPage: React.FC = () => {
               sx={{
                 height: 300,
                 overflow: 'auto',
-                backgroundColor: '#f5f5f5',
+                backgroundColor: P.inputBg,
                 p: 1,
                 borderRadius: 1,
                 fontFamily: 'monospace',

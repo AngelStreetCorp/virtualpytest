@@ -12,10 +12,10 @@ import {
 import {
   Devices as DevicesIcon,
 } from '@mui/icons-material';
-import { useTheme } from '@mui/material/styles';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { useHostSession } from '../../hooks/useHostSession';
 import { calculateVncScaling } from '../../utils/vncUtils';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 
 interface DevicePanelProps {
@@ -33,7 +33,7 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
   isLoadingUrl,
   getSelectedDeviceModel,
 }) => {
-  const theme = useTheme();
+  const P = useAgentChatPalette();
 
   // Determine if device is mobile (for aspect ratio)
   const deviceModel = getSelectedDeviceModel();
@@ -52,9 +52,9 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
         width: showDevice ? '100%' : 0,
         minWidth: 0,
         height: '100%',
-        bgcolor: theme.palette.mode === 'dark' ? '#1a1a1a' : 'grey.50',
+        bgcolor: P.surface,
         borderLeft: showDevice ? '1px solid' : 'none',
-        borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.200',
+        borderColor: P.borderColor,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -65,7 +65,7 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
         <Box sx={{ p: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
           {/* Header with icon and title */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <DevicesIcon sx={{ fontSize: 18, color: theme.palette.primary.main }} />
+            <DevicesIcon sx={{ fontSize: 18, color: P.accentText }} />
             <Typography variant="subtitle2" fontWeight={600}>
               Target
             </Typography>
@@ -80,9 +80,9 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
               justifyContent: 'center',
               borderRadius: 2,
               border: '1px dashed',
-              borderColor: theme.palette.mode === 'dark' ? '#333' : 'grey.300',
+              borderColor: P.borderColor,
               overflow: 'hidden',
-              bgcolor: '#000', // Black background for video
+              bgcolor: '#000', // palette: video stream backdrop is intentionally black
             }}
           >
             {selectedDevice && streamUrl && (!isVnc || vncSessionReady) ? (
@@ -94,7 +94,7 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
                     position: 'relative',
                     width: '100%',
                     height: '100%',
-                    backgroundColor: 'black',
+                    backgroundColor: '#000', // palette: VNC iframe backdrop
                     overflow: 'hidden',
                   }}
                 >
@@ -102,7 +102,7 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
                     src={streamUrl}
                     style={{
                       border: 'none',
-                      backgroundColor: '#000',
+                      backgroundColor: '#000', // palette: VNC iframe backdrop
                       pointerEvents: 'none', // Disable interaction in panel view
                       ...calculateVncScaling({ width: 380, height: 180 }), // Panel target size
                     }}

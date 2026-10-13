@@ -10,6 +10,7 @@ import { apiClient } from '../utils/apiClient';
 import { isAuthEnabled } from '../lib/supabase';
 import {
   discoverServerIdentity,
+  getServerAuthInfo,
   getServerAuthState,
   ServerAuthState,
 } from '../lib/serverIdentity';
@@ -25,6 +26,38 @@ interface CachedData {
   data: ServerHostData[];
   timestamp: number;
 }
+
+/**
+ * Keep the richer stats a lightweight refresh doesn't ask for.
+ *
+ * `include_system_stats=false` rounds return hosts without system_stats/service_health,
+ * so overwriting the Dashboard's fuller entry with one of those would blank its gauges
+ * between polls.
+ */
+const preserveRicherStats = (
+  entry: ServerHostData,
+  previous: ServerHostData | undefined,
+): ServerHostData => {
+  if (!previous) return entry;
+
+  const previousHostByName = new Map(previous.hosts.map((h: Host) => [h.host_name, h]));
+  return {
+    ...entry,
+    server_info: {
+      ...entry.server_info,
+      system_stats: previous.server_info.system_stats ?? entry.server_info.system_stats,
+      service_health: previous.server_info.service_health ?? entry.server_info.service_health,
+    },
+    frontend_info: entry.frontend_info ?? previous.frontend_info ?? null,
+    hosts: entry.hosts.map((host: Host) => {
+      const prevHost = previousHostByName.get(host.host_name);
+      if (!prevHost?.system_stats) {
+        return host;
+      }
+      return { ...host, system_stats: prevHost.system_stats };
+    }),
+  };
+};
 
 /**
  * Server Manager Provider
@@ -183,13 +216,18 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
    * attach the right token instead of the primary one.
    */
   const refreshServerAuth = useCallback(async () => {
-    const entries = await Promise.all(
+    await Promise.all(
       availableServers.map(async (serverUrl) => {
         await discoverServerIdentity(serverUrl);
-        return [serverUrl, await getServerAuthState(serverUrl)] as const;
+        const state = await getServerAuthState(serverUrl);
+        // Published per server instead of as one map after Promise.all: this map gates
+        // which servers the host fetch may call, so making it wait for the slowest (or
+        // unreachable) server held up the fetch for every healthy one too.
+        setServerAuthStates((previous) =>
+          previous[serverUrl] === state ? previous : { ...previous, [serverUrl]: state },
+        );
       }),
     );
-    setServerAuthStates(Object.fromEntries(entries));
   }, [availableServers]);
 
   useEffect(() => {
@@ -258,6 +296,12 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
     // TASK-18: skip servers we hold no session for. Calling them would 401 on every
     // refresh and then show up as "Offline", which reads as a broken server rather than
     // one that is simply waiting for a login.
+    //
+    // This map is only a fast path: on the first paint of a page load it is still empty,
+    // because filling it takes a /server/auth/check round trip per server. Every server
+    // therefore passed this filter on the very load where the skip mattered most, and a
+    // server behind a different Supabase got its 401 anyway. The per-server check inside
+    // the fetch below is the one that actually decides.
     const fetchableServers = availableServers.filter(
       (serverUrl) => serverAuthStatesRef.current[serverUrl] !== 'needs-auth',
     );
@@ -268,9 +312,68 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
     setFailedServers(new Set()); // Reset failed servers
 
     const fetchPromise = (async () => {
+    // Display order = the configured order, so results landing out of order can't
+    // reshuffle the list under the user.
+    const displayOrder = availableServers.map((url) => url || window.location.origin);
+    const orderOf = (entry: ServerHostData): number => {
+      const index = displayOrder.indexOf(entry.server_info.server_url);
+      return index === -1 ? displayOrder.length : index;
+    };
+
+    // What this round actually published, keyed by server_url, for the cache write below.
+    const published = new Map<string, ServerHostData>();
+
+    /**
+     * Publish one server's data the moment it lands.
+     *
+     * Every server's result used to wait on the Promise.all below before ANY of it
+     * reached state, so a single slow or unreachable server left the Dashboard and
+     * Devices pages empty until that one gave up — even though the others had already
+     * answered. Now each server renders on its own, and a failing one only removes
+     * itself, at the end of the round.
+     */
+    const publishServerEntry = (entry: ServerHostData) => {
+      const url = entry.server_info.server_url;
+      const previous = serverHostsDataRef.current.find((e) => e.server_info.server_url === url);
+      const merged = includeSystemStats ? entry : preserveRicherStats(entry, previous);
+      published.set(url, merged);
+
+      setServerHostsData((prev) => {
+        const existing = prev.find((e) => e.server_info.server_url === url);
+        // Skip the state churn when a poll returns exactly what is already displayed.
+        if (existing && JSON.stringify(existing) === JSON.stringify(merged)) return prev;
+        return [...prev.filter((e) => e.server_info.server_url !== url), merged].sort(
+          (a, b) => orderOf(a) - orderOf(b),
+        );
+      });
+
+      // The first server to answer ends the page-level spinner; the rest stream in behind it.
+      setIsLoading(false);
+      hasLoadedOnceRef.current = true;
+    };
+
     // Fetch from all servers in parallel
     const promises = fetchableServers.map(async (serverUrl) => {
       try {
+        // Does this server want a login we do not have? Answering needs the server's
+        // identity, so probe it first when we have never seen it — one cheap
+        // unauthenticated GET, in parallel with the other servers' work, in exchange for
+        // not sending a doomed request (and, on a shared Supabase, not showing the server
+        // as "Offline" when it is merely logged out).
+        if (!getServerAuthInfo(serverUrl)) {
+          await discoverServerIdentity(serverUrl);
+        }
+        const authState = await getServerAuthState(serverUrl);
+        setServerAuthStates((previous) =>
+          previous[serverUrl] === authState ? previous : { ...previous, [serverUrl]: authState },
+        );
+
+        if (authState === 'needs-auth') {
+          // Not a failure: the server is reachable and selectable after a login, so it
+          // must stay out of failedServers or the picker reports it as broken.
+          return { success: false, serverUrl, data: null };
+        }
+
         // Lightweight by default; full stats only when explicitly requested (e.g. Dashboard).
         const response = await apiClient(
           buildServerUrlForServer(
@@ -321,6 +424,9 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
             }))
           };
 
+          // Straight to the screen, without waiting for the other servers.
+          publishServerEntry(serverData);
+
           return { success: true, serverUrl, data: serverData };
         } else {
           console.warn(`[@ServerManager] Failed response from ${serverUrl}: ${response.status}`);
@@ -341,65 +447,37 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
       }
     });
 
-    // Wait for all requests to complete
+    // Wait for all requests to complete. Only to settle the round — every successful
+    // server's data is already on screen.
     const results = await Promise.all(promises);
-    
-    // Extract successful server data
-    const allServerDataRaw = results
-      .filter(result => result.success && result.data)
-      .map(result => result.data!);
 
-    const previousByUrl = new Map(
-      serverHostsDataRef.current.map((entry) => [entry.server_info.server_url, entry])
+    const answered = new Set(
+      results
+        .filter((result) => result.success)
+        .map((result) => result.serverUrl || window.location.origin),
     );
 
-    // Never strip richer dashboard stats on lightweight refreshes.
-    const allServerData = allServerDataRaw.map((entry) => {
-      if (includeSystemStats) {
-        return entry;
-      }
-
-      const previous = previousByUrl.get(entry.server_info.server_url);
-      if (!previous) {
-        return entry;
-      }
-
-      const previousHostByName = new Map(previous.hosts.map((h: Host) => [h.host_name, h]));
-      return {
-        ...entry,
-        server_info: {
-          ...entry.server_info,
-          system_stats: previous.server_info.system_stats ?? entry.server_info.system_stats,
-          service_health: previous.server_info.service_health ?? entry.server_info.service_health,
-        },
-        frontend_info: entry.frontend_info ?? previous.frontend_info ?? null,
-        hosts: entry.hosts.map((host: Host) => {
-          const prevHost = previousHostByName.get(host.host_name);
-          if (!prevHost?.system_stats) {
-            return host;
-          }
-          return {
-            ...host,
-            system_stats: prevHost.system_stats,
-          };
-        }),
-      };
+    // Drop the servers that did not answer this round: leaving their last-known hosts on
+    // screen would present an unreachable server's devices as if they were live.
+    setServerHostsData((prev) => {
+      const next = prev.filter((entry) => answered.has(entry.server_info.server_url));
+      return next.length === prev.length ? prev : next;
     });
 
-    // Skip state/cache churn if payload is unchanged (prevents render noise every poll tick)
-    const newDataSignature = JSON.stringify(allServerData);
-    const dataChanged = newDataSignature !== lastDataSignatureRef.current;
-    if (dataChanged) {
-      setServerHostsData(allServerData);
-      lastDataSignatureRef.current = newDataSignature;
-    }
+    const finalData = displayOrder
+      .filter((url) => answered.has(url))
+      .map((url) => published.get(url))
+      .filter((entry): entry is ServerHostData => Boolean(entry));
 
-    // Cache the data if we have any
-    if (allServerData.length > 0 && dataChanged) {
+    lastDataSignatureRef.current = JSON.stringify(finalData);
+
+    // Cache what answered. A partial round is still worth caching: the next load then
+    // paints the servers that were reachable instead of nothing at all.
+    if (finalData.length > 0) {
       try {
         const cacheData: CachedData = {
-          data: allServerData,
-          timestamp: Date.now()
+          data: finalData,
+          timestamp: Date.now(),
         };
         localStorage.setItem(STORAGE_KEYS.SERVER_HOSTS_CACHE, JSON.stringify(cacheData));
       } catch (error) {

@@ -14,6 +14,7 @@ object PhoneAgentPrefs {
     private const val PREFS_NAME = "phone_agent_prefs"
 
     const val KEY_SERVER_URL = "server_url"
+    const val KEY_SLAVE_SERVER_URL = "slave_server_url"  // extra servers for the web picker
     const val KEY_SUPABASE_URL = "supabase_url"
     const val KEY_SUPABASE_ANON_KEY = "supabase_anon_key"
     const val KEY_PROJECT_NAME = "project_name"

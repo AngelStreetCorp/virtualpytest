@@ -1,8 +1,9 @@
 import {
-  SmartToy as AIIcon,
   Send as SendIcon,
   Clear as ClearIcon,
 } from '@mui/icons-material';
+
+import { AIIcon } from '../components/common/icons/CustomIcons';
 import {
   Box,
   Button,
@@ -22,6 +23,7 @@ import React, { useState, useRef, useEffect } from 'react';
 
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { useToast } from '../hooks/useToast';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 interface LogEntry {
   timestamp: string;
@@ -31,6 +33,7 @@ interface LogEntry {
 }
 
 const OpenRouterDebug: React.FC = () => {
+  const P = useAgentChatPalette();
   // State
   const [selectedModel, setSelectedModel] = useState('qwen/qwen-2.5-vl-7b-instruct');
   const [selectedTemplate, setSelectedTemplate] = useState('ai_central_format');
@@ -264,14 +267,14 @@ RESPOND WITH JSON ONLY. ANALYSIS FIELD IS REQUIRED`
 
   // Get log color based on level and source
   const getLogColor = (entry: LogEntry) => {
-    if (entry.level === 'error') return '#f44336';
-    if (entry.level === 'success') return '#4caf50';
-    
+    if (entry.level === 'error') return P.error;
+    if (entry.level === 'success') return P.success;
+
     switch (entry.source) {
-      case 'frontend': return '#2196f3';
-      case 'server': return '#ff9800';
-      case 'host': return '#9c27b0';
-      default: return '#666';
+      case 'frontend': return P.series[1];
+      case 'server': return P.warning;
+      case 'host': return P.series[2];
+      default: return P.textMuted;
     }
   };
 
@@ -279,7 +282,7 @@ RESPOND WITH JSON ONLY. ANALYSIS FIELD IS REQUIRED`
     <Box sx={{ p: 3, maxWidth: 1200, mx: 'auto' }}>
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-        <AIIcon sx={{ mr: 2, fontSize: 32, color: 'primary.main' }} />
+        <AIIcon sx={{ mr: 2, fontSize: 32, color: P.accentText }} />
         <Typography variant="h4" component="h1">
           OpenRouter
         </Typography>
@@ -384,7 +387,7 @@ RESPOND WITH JSON ONLY. ANALYSIS FIELD IS REQUIRED`
             }}
           >
             {logs.length === 0 ? (
-              <Typography sx={{ color: '#666', fontStyle: 'italic' }}>
+              <Typography sx={{ color: P.textMuted, fontStyle: 'italic' }}>
                 No logs yet. Execute a test to see logs here.
               </Typography>
             ) : (
@@ -399,7 +402,7 @@ RESPOND WITH JSON ONLY. ANALYSIS FIELD IS REQUIRED`
                       wordBreak: 'break-word',
                     }}
                   >
-                    <Box component="span" sx={{ color: '#888' }}>
+                    <Box component="span" sx={{ color: P.textMuted }}>
                       [{entry.timestamp}]
                     </Box>{' '}
                     <Box component="span" sx={{ fontWeight: 'bold', textTransform: 'uppercase' }}>

@@ -31,6 +31,7 @@ import rehypeRaw from 'rehype-raw';
 import { createDocsMarkdownComponents } from '../components/docs/markdownComponents';
 import ReleaseNotesView from '../components/docs/ReleaseNotesView';
 import IntegrationsGridView from '../components/docs/IntegrationsGridView';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 // Types for docs manifest
 interface DocItem {
@@ -110,6 +111,7 @@ const stripMetaSections = (md: string, section?: string): string => {
  * Documentation Navigator Dropdown - Lists all available docs
  */
 const DocsNavigator: React.FC<{ currentPath: string }> = ({ currentPath }) => {
+  const P = useAgentChatPalette();
   const navigate = useNavigate();
   const [manifest, setManifest] = useState<DocsManifest>({ docs: [] });
   const [open, setOpen] = useState(false);
@@ -173,7 +175,7 @@ const DocsNavigator: React.FC<{ currentPath: string }> = ({ currentPath }) => {
           key={`section-${section.section}`}
           sx={{ 
             bgcolor: 'background.paper',
-            color: 'primary.main',
+            color: P.accentText,
             fontWeight: 600,
             fontSize: '0.8rem',
             lineHeight: '24px',
@@ -205,8 +207,8 @@ const DocsNavigator: React.FC<{ currentPath: string }> = ({ currentPath }) => {
                   minHeight: 28,
                   fontSize: '0.8rem',
                   '&.Mui-selected': {
-                    bgcolor: 'primary.dark',
-                    '&:hover': { bgcolor: 'primary.dark' }
+                    bgcolor: P.hoverBg,
+                    '&:hover': { bgcolor: P.hoverBg }
                   }
                 }}
               >
@@ -248,8 +250,8 @@ const DocsNavigator: React.FC<{ currentPath: string }> = ({ currentPath }) => {
                       minHeight: 26,
                       fontSize: '0.78rem',
                       '&.Mui-selected': {
-                        bgcolor: 'primary.dark',
-                        '&:hover': { bgcolor: 'primary.dark' }
+                        bgcolor: P.hoverBg,
+                        '&:hover': { bgcolor: P.hoverBg }
                       }
                     }}
                   >
@@ -355,11 +357,12 @@ const DocsNavigator: React.FC<{ currentPath: string }> = ({ currentPath }) => {
  * Simple Documentation Viewer - Renders markdown files from /docs
  */
 const Documentation: React.FC = () => {
-  const { section = 'README', subsection, category, page = 'README' } = useParams<{ 
-    section?: string; 
-    subsection?: string; 
+  const P = useAgentChatPalette();
+  const { section = 'README', subsection, category, page = 'README' } = useParams<{
+    section?: string;
+    subsection?: string;
     category?: string;
-    page?: string 
+    page?: string
   }>();
   const [markdown, setMarkdown] = useState<string>('');
   const [error, setError] = useState<string>('');
@@ -471,7 +474,7 @@ const Documentation: React.FC = () => {
             rehypePlugins={[rehypeRaw]}
             // Allow inline base64 images (data:image/...); keep the default XSS guard for everything else.
             urlTransform={(url) => (url.startsWith('data:image/') ? url : defaultUrlTransform(url))}
-            components={createDocsMarkdownComponents(getCurrentDocPath, page)}
+            components={createDocsMarkdownComponents(getCurrentDocPath, page, P)}
           >
             {markdown}
           </ReactMarkdown>

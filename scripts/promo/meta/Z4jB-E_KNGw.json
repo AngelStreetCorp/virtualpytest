@@ -1,0 +1,21 @@
+{
+ "id": "Z4jB-E_KNGw",
+ "title": "Automatic Subtitle Analysis: compare displayed subtitles against the source",
+ "description": "Automatic Subtitle Analysis checks subtitles end to end, the way a viewer sees them. Pick the device under test and run the analysis: VirtualPyTest reads every subtitle the device displays on screen and compares it with the provided subtitle source, checking that each one is there, on time and with the right text. The report shows the result subtitle by subtitle, with the frames that prove each finding: here, 2 of 34 flagged. A reading error is checked against the source and not blamed on the device.\n\nOpen source & free.\n\nChapters: \n0:00 Intro\n0:04 Pick and run\n0:14 The device displays the subtitles\n0:33 The report\n0:41 2 of 34 flagged\n0:50 A reading error is not the device's fault\n\nFilm: Tears of Steel, (CC) Blender Foundation | mango.blender.org, CC BY 3.0. Shortened cut, subtitles re-timed.",
+ "tags": [
+  "virtualpytest",
+  "subtitle analysis",
+  "automatic subtitle testing",
+  "closed captions",
+  "end to end testing",
+  "set-top box testing",
+  "ocr",
+  "streaming qa",
+  "accessibility",
+  "test automation",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-10-05"
+}

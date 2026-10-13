@@ -23,6 +23,8 @@ export interface LastAnalyzedResult {
   discard: boolean;
   check_type?: string;
   discard_comment?: string;
+  /** Why Jev decided (script rows analysed by Jev): metadata.jev */
+  jev?: any;
   updated_at?: string;
   script_name?: string;
   success?: boolean;

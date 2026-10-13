@@ -11,6 +11,7 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import chunked_in
 
 def get_supabase():
     """Get the Supabase client instance."""
@@ -64,16 +65,18 @@ def get_execution_results(
         
         # Batch fetch trees
         if tree_ids:
-            trees_result = supabase.table('navigation_trees').select('id, name').eq('team_id', team_id).in_('id', tree_ids).execute()
-            for tree in trees_result.data:
+            for tree in chunked_in(
+                    lambda chunk: supabase.table('navigation_trees').select('id, name').eq('team_id', team_id).in_('id', chunk),
+                    tree_ids):
                 tree_cache[tree['id']] = tree
         
         # Batch fetch edges with their node info
         if edge_ids:
-            edges_result = supabase.table('navigation_edges').select(
-                'edge_id, tree_id, label, source_node_id, target_node_id, action_sets'
-            ).in_('edge_id', edge_ids).execute()
-            for edge in edges_result.data:
+            for edge in chunked_in(
+                    lambda chunk: supabase.table('navigation_edges').select(
+                        'edge_id, tree_id, label, source_node_id, target_node_id, action_sets'
+                    ).in_('edge_id', chunk),
+                    edge_ids):
                 edge_cache[edge['edge_id']] = edge
                 # Also collect source/target node IDs for batch fetching
                 if edge.get('source_node_id'):
@@ -84,14 +87,16 @@ def get_execution_results(
         # Batch fetch all nodes (including source/target nodes from edges)
         node_ids = list(set(node_ids))  # Remove duplicates
         if node_ids:
-            nodes_result = supabase.table('navigation_nodes').select('node_id, tree_id, label').in_('node_id', node_ids).execute()
-            for node in nodes_result.data:
+            for node in chunked_in(
+                    lambda chunk: supabase.table('navigation_nodes').select('node_id, tree_id, label').in_('node_id', chunk),
+                    node_ids):
                 node_cache[node['node_id']] = node
         
         # Batch fetch script reports for report URLs
         if script_result_ids:
-            scripts_result = supabase.table('script_results').select('id, html_report_r2_url').in_('id', script_result_ids).execute()
-            for script in scripts_result.data:
+            for script in chunked_in(
+                    lambda chunk: supabase.table('script_results').select('id, html_report_r2_url').in_('id', chunk),
+                    script_result_ids):
                 script_cache[script['id']] = script
         
         print(f"[@db:execution_results:get_execution_results] Cached: {len(tree_cache)} trees, {len(edge_cache)} edges, {len(node_cache)} nodes, {len(script_cache)} script reports")
@@ -439,99 +444,53 @@ def record_verification_execution(
         print(f"[@db:execution_results:record_verification_execution] Error: {str(e)}")
         return None
 
-def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str]) -> Dict:
-    """Get all metrics for a tree in a single bulk query with defaults for missing metrics."""
-    try:
-        supabase = get_supabase()
-        
-        # Get all node metrics in one query using new aggregated structure
-        node_metrics = {}
-        if node_ids:
-            node_result = supabase.table('node_metrics').select(
-                'node_id, total_executions, success_rate, avg_execution_time_ms'
-            ).eq('team_id', team_id).in_('node_id', node_ids).execute()
-            
-            for metric in node_result.data:
-                node_metrics[metric['node_id']] = {
-                    'volume': metric['total_executions'],
-                    'success_rate': float(metric['success_rate']),
-                    'avg_execution_time': metric['avg_execution_time_ms']
-                }
-        
-        # Get all edge metrics in one query using new aggregated structure
-        edge_metrics = {}
-        if edge_ids:
-            edge_result = supabase.table('edge_metrics').select(
-                'edge_id, total_executions, success_rate, avg_execution_time_ms'
-            ).eq('team_id', team_id).in_('edge_id', edge_ids).execute()
-            
-            for metric in edge_result.data:
-                edge_metrics[metric['edge_id']] = {
-                    'volume': metric['total_executions'],
-                    'success_rate': float(metric['success_rate']),
-                    'avg_execution_time': metric['avg_execution_time_ms']
-                }
-        
-        # Fill in defaults for missing metrics
-        default_metrics = {'volume': 0, 'success_rate': 0.0, 'avg_execution_time': 0}
-        
-        for node_id in node_ids:
-            if node_id not in node_metrics:
-                node_metrics[node_id] = default_metrics
-        
-        for edge_id in edge_ids:
-            if edge_id not in edge_metrics:
-                edge_metrics[edge_id] = default_metrics
-        
-        return {
-            'nodes': node_metrics,
-            'edges': edge_metrics
-        }
-        
-    except Exception as e:
-        print(f"[@db:execution_results:get_tree_metrics] Error: {str(e)}")
-        # Return defaults for all requested IDs on error
-        default_metrics = {'volume': 0, 'success_rate': 0.0, 'avg_execution_time': 0}
-        return {
-            'nodes': {node_id: default_metrics for node_id in node_ids},
-            'edges': {edge_id: default_metrics for edge_id in edge_ids}
-        }
+def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], variant: Optional[str] = None) -> Dict:
+    """Aggregated node/edge metrics for the frontend.
 
-def get_raw_tree_metrics(team_id: str, tree_id: str, node_ids: List[str], edge_ids: List[str]) -> Dict:
-    """Get complete raw metrics for a tree matching the frontend API interface."""
+    Single implementation lives in navigation_metrics_db (real column names,
+    KPI fields, variant scoping, `edge_id#action_set_id` keys); this is the
+    same function re-exported for callers that import it from here.
+    """
+    from shared.src.lib.database.navigation_metrics_db import get_tree_metrics as _get_tree_metrics
+    return _get_tree_metrics(team_id, node_ids, edge_ids, variant)
+
+def get_raw_tree_metrics(team_id: str, tree_id: str, node_ids: List[str], edge_ids: List[str], variant: Optional[str] = None) -> Dict:
+    """Get complete raw metrics rows for a tree (one run scope) matching the frontend RawNodeMetrics / RawEdgeMetrics types."""
     try:
         supabase = get_supabase()
-        
-        # Get all node metrics with full data including timestamps
+
+        def _scope(query):
+            return query.is_('variant', 'null') if variant is None else query.eq('variant', variant)
+
         node_metrics = []
         if node_ids:
-            node_result = supabase.table('node_metrics').select(
-                'node_id, tree_id, team_id, total_executions, successful_executions, success_rate, avg_execution_time_ms, created_at'
-            ).eq('team_id', team_id).eq('tree_id', tree_id).in_('node_id', node_ids).execute()
-            
-            node_metrics = node_result.data or []
+            node_metrics = chunked_in(
+                lambda chunk: _scope(supabase.table('node_metrics').select(
+                    'node_id, tree_id, team_id, variant, total_executions, successful_executions, success_rate, avg_verification_time_ms, created_at'
+                ).eq('team_id', team_id).eq('tree_id', tree_id).in_('node_id', chunk)),
+                node_ids)
             # Add updated_at as created_at since the table doesn't have updated_at yet
             for metric in node_metrics:
                 metric['updated_at'] = metric['created_at']
-        
-        # Get all edge metrics with full data including timestamps
+
         edge_metrics = []
         if edge_ids:
-            edge_result = supabase.table('edge_metrics').select(
-                'edge_id, tree_id, team_id, total_executions, successful_executions, success_rate, avg_execution_time_ms, created_at'
-            ).eq('team_id', team_id).eq('tree_id', tree_id).in_('edge_id', edge_ids).execute()
-            
-            edge_metrics = edge_result.data or []
-            # Add updated_at as created_at since the table doesn't have updated_at yet
+            edge_metrics = chunked_in(
+                lambda chunk: _scope(supabase.table('edge_metrics').select(
+                    'edge_id, tree_id, team_id, action_set_id, variant, total_executions, successful_executions, success_rate, '
+                    'avg_action_time_ms, total_kpi_measurements, successful_kpi_measurements, avg_kpi_ms, min_kpi_ms, max_kpi_ms, '
+                    'kpi_success_rate, created_at'
+                ).eq('team_id', team_id).eq('tree_id', tree_id).in_('edge_id', chunk)),
+                edge_ids)
             for metric in edge_metrics:
                 metric['updated_at'] = metric['created_at']
-        
+
         return {
             'success': True,
             'node_metrics': node_metrics,
             'edge_metrics': edge_metrics
         }
-        
+
     except Exception as e:
         print(f"[@db:execution_results:get_raw_tree_metrics] Error: {str(e)}")
         return {

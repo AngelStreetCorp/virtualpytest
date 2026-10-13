@@ -101,9 +101,23 @@ install_service() {
     local service_name="$1"
     local templated=0
     local template_file="$SERVICE_TEMPLATES_DIR/${service_name}.service"
-    if [[ ! -f "$template_file" && -f "$SERVICE_TEMPLATES_DIR/${service_name}@.service" ]]; then
+    # Prefer the @ template if both a singleton and a template exist for the
+    # same name. The template is the more general form (it serves N devices
+    # via %i), and a leftover singleton file is almost always a deprecated
+    # hardcoded predecessor. Example: backend_host ships both
+    # `emulator-fifo.service` (legacy: hardcoded emulator-5554) and
+    # `emulator-fifo@.service` (per-device: reads DEVICEn_ADB_SERIAL +
+    # DEVICEn_VIDEO from .env). The new fleet uses the @ template; the
+    # singleton is kept only so a host that still relies on the old
+    # behaviour does not silently switch on an upgrade.
+    if [[ -f "$SERVICE_TEMPLATES_DIR/${service_name}@.service" ]]; then
         template_file="$SERVICE_TEMPLATES_DIR/${service_name}@.service"
         templated=1
+    elif [[ ! -f "$template_file" ]]; then
+        template_file="$SERVICE_TEMPLATES_DIR/${service_name}@.service"
+        if [[ -f "$template_file" ]]; then
+            templated=1
+        fi
     fi
     # Optional feature units: features/<feature>/backend_host/services/<name>.service
     # (see docs/technical/FEATURES.md). Disabled features are not deployed, so the
@@ -200,7 +214,7 @@ main() {
 
     if [[ -z "$service_name" ]]; then
         log_error "Usage: $0 <service_name> [--force]"
-        log_error "Available services: flask, stream, monitor, archiver, transcript, kpi, vnc, websockify, ble-remote"
+        log_error "Available services: flask, stream, monitor, archiver, transcript, kpi, vnc, websockify, ble-remote, emulator-fifo"
         log_error "Options:"
         log_error "  --force, -f  Force reinstall (stop, disable, remove, regenerate cert)"
         exit 1

@@ -65,6 +65,31 @@ export interface MonitoringAnalysis {
     total: number; // total fingerprinted nodes considered
     state?: string | null; // named capture-side state: 'no_signal' | 'blackscreen'
     state_label?: string | null; // human label: 'No Signal' | 'Black Screen'
+    // Which matcher layer answered: 'rule' (deterministic dHash/focus) today, 'cv'
+    // and 'model' reserved. Absent on frames written before tiers were reported.
+    tier?: string;
+    // identify_screen's own abstain reason, passed through verbatim (the writer
+    // never re-derives it), and the abstain door it maps to: '1'..'6' | 'unknown'.
+    // Both absent when the matcher produced no reason (a clean match).
+    reason?: string;
+    door?: string;
+    // Motion-gate skip: 'live' (full-frame motion) or 'motion' (band / minor > 1%).
+    // When present, the cached `node` is served with `confidence: 0` and Tier-2
+    // fields are absent. Absent on a fresh matcher run.
+    gate_skip?: string;
+    // Tier 2 (screen_state_cv) — only present on a fresh matcher run (the gate
+    // must be open to read the frame). Each arm abstains honestly on its own
+    // missing input, so 'unknown' is a real answer (we DID look, the answer
+    // was unknowable), and a missing field means the cascade did not run for
+    // this frame at all.
+    loaded?: 'yes' | 'no' | 'unknown';
+    overlay?: 'none' | 'popup' | 'tooltip' | 'keyboard' | 'notification' | 'unknown';
+    playback?: 'playing' | 'paused' | 'stopped' | 'not_applicable' | 'unknown';
+    error?: 'none' | 'visible' | 'unknown';
+    // Free-text brand label from the userinterface row. Absent on a row that
+    // has no company metadata (NULL = unknown). When present, it is also
+    // used as a brand-aware extra keyword to the Tier-2 `error` arm.
+    userinterface_company?: string;
   };
 
   // Motion classification - per-frame from capture_monitor.py (detector._motion_shape + fusion

@@ -344,13 +344,20 @@ async def _run_local_playwright_flow(
         # bare-HTML fallback with no <video> element. The embed URL
         # (geo.dailymotion.com/player.html?video=<id>) bypasses that and reliably
         # exposes a <video> element we can monitor.
+        #
+        # The embed endpoint now refuses requests without a Referer from
+        # dailymotion.com (403 from the CI runner network since 2026-10-06, e2e
+        # run 2029 — verified with curl + the missing Referer reproduces; with
+        # Referer: https://www.dailymotion.com/ it returns the player HTML).
+        # Pass referer explicitly so we don't depend on the navigation history
+        # the launcher happens to leave behind.
         video_id = _extract_video_id(video_url)
         if not video_id:
             raise RuntimeError(f"Could not extract a video id from --url: {video_url}")
         embed_url = _embed_url_for(video_id)
-        print(f"[PW] page.goto('{embed_url}', wait_until='domcontentloaded')")
+        print(f"[PW] page.goto('{embed_url}', wait_until='domcontentloaded', referer=_HOME_URL)")
         page_load_start = time.time()
-        await page.goto(embed_url, wait_until='domcontentloaded')
+        await page.goto(embed_url, wait_until='domcontentloaded', referer=_HOME_URL)
         page_load_time_ms = int((time.time() - page_load_start) * 1000)
         # Install the browser-side first-frame probe ASAP on the freshly-navigated embed
         # page. It measures buffering from the page's own timeOrigin to the first painted

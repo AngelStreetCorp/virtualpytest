@@ -8,6 +8,8 @@ This module contains the user interface management API endpoints for:
 
 import time
 import threading
+from typing import Any, Dict
+
 from flask import Blueprint, request, jsonify, send_file
 
 # Import database functions from src/lib/supabase (uses absolute import)
@@ -30,13 +32,28 @@ from shared.src.lib.database.userinterface_db import (
     rename_variant,
     sweep_orphan_hidden_rows,
 )
+# `is_media` is plumbed through `interface_data` transparently in the body of
+# PUT /server/userinterface/updateUserInterface/<id> and POST /createUserInterface
+# — the lib functions above accept/return it. This module documents the
+# contract (NULL default = today's behaviour; TRUE/FALSE explicit editorial
+# choice) so future readers do not mistake the field for forgotten plumbing.
+
 from shared.src.lib.database.verifications_references_db import (
     update_references_userinterface_name,
 )
 from shared.src.lib.database.navigation_trees_db import (
     get_root_tree_for_interface,
     get_root_trees_for_interfaces,
-    get_tree_ids_with_nodes
+    get_tree_ids_with_nodes,
+    save_node,
+)
+from shared.src.lib.database.unknown_screens_db import (
+    get_unknown_screen,
+    list_unknown_screens,
+    pending_counts_by_interface,
+    resolve_unknown_screen,
+    retire_screens_not_seen,
+    upsert_unknown_screens,
 )
 
 from shared.src.lib.utils.app_utils import check_supabase
@@ -1007,3 +1024,247 @@ def rename_variant_route(interface_id, name):
         'success': True,
         'rows_changed': result.get('rows_changed', {'nodes': 0, 'edges': 0}),
     })
+
+# =====================================================
+# UNKNOWN SCREENS
+# =====================================================
+# Screens a device showed that have no node in its tree. Measured over 4,507 processed cold frames,
+# 2,029 localizer abstentions reduced to 15 distinct screens -- 11 of them broadcast or game
+# footage, which is content rather than an unrecognised UI, leaving 4.
+#
+# The flow is: a scan on a host clusters its archive and POSTs what it found to
+# upsertUnknownScreens; a person decides on the unknown-screens page; accept turns a row into a node.
+# Nothing here acts on its own -- a provisional node would become a navigation target for agents,
+# and an agent would then be sent to whatever a half-named screen turned out to be.
+
+def _param(payload: Dict, key: str):
+    """Read a request parameter from the JSON body or the query string.
+
+    All four unknown-screen routes go through this so they behave identically. Previously the two
+    read routes accepted either and the two action routes read the body only — which meant the
+    established "POST with params in the query string" pattern silently 400'd on Accept.
+    """
+    return payload.get(key) or request.args.get(key)
+
+
+@server_userinterface_bp.route('/getUnknownScreens', methods=['POST'])
+def get_unknown_screens():
+    """Rows for the unknown-screens page: the unknown clusters plus the filtered content ones."""
+    error = check_supabase()
+    if error:
+        return error
+
+    payload = request.get_json(silent=True) or {}
+    team_id = _param(payload, 'team_id')
+    userinterface = _param(payload, 'userinterface')
+    include_resolved = bool(_param(payload, 'include_resolved'))
+
+    rows = list_unknown_screens(team_id, userinterface=userinterface,
+                                include_resolved=include_resolved)
+    unknown = [r for r in rows if r['classification'] == 'unknown']
+    content = [r for r in rows if r['classification'] == 'content']
+    pending = [r for r in unknown if r['status'] == 'pending']
+    last_scan = max((r['last_scan_at'] for r in rows if r.get('last_scan_at')), default=None)
+
+    return jsonify({
+        'success': True,
+        'userinterface': userinterface,
+        'unknown': unknown,
+        'content': content,
+        'counts': {
+            # 'needs_a_name' is the PENDING count. It used to be len(unknown), which included rows
+            # already accepted or merged — so a page headed "Needs a name" reported rows that no
+            # longer needed one, and disagreed with getUnknownCounts.
+            'needs_a_name': len(pending),
+            'content_filtered': len(content),
+            'pending': len(pending),
+            'resolved': len(unknown) - len(pending),
+        },
+        'frames_processed': sum(r['frame_count'] for r in rows),
+        'last_scan': last_scan,
+    })
+
+
+@server_userinterface_bp.route('/getUnknownCounts', methods=['POST'])
+def get_unknown_counts():
+    """Pending-unknown counts per interface, for the "N unknown" pill on the interface list."""
+    error = check_supabase()
+    if error:
+        return error
+
+    payload = request.get_json(silent=True) or {}
+    team_id = _param(payload, 'team_id')
+    counts = pending_counts_by_interface(team_id)
+    return jsonify({'success': True, 'counts': counts,
+                    'total': sum(counts.values())})
+
+
+@server_userinterface_bp.route('/upsertUnknownScreens', methods=['POST'])
+def upsert_unknown_screens_route():
+    """A host scan writes what it found.
+
+    Upserted on (team_id, userinterface, cluster_dhash): re-running the scan must update a row, not
+    accumulate a duplicate of the same screen every night.
+    """
+    error = check_supabase()
+    if error:
+        return error
+
+    payload = request.get_json(silent=True) or {}
+    team_id = _param(payload, 'team_id')
+    userinterface = _param(payload, 'userinterface')
+    rows = payload.get('screens') or payload.get('rows') or []
+    if not isinstance(rows, list):
+        return jsonify({'success': False, 'error': 'screens must be a list'}), 400
+    if not team_id or not userinterface:
+        return jsonify({'success': False, 'error': 'team_id and userinterface are required'}), 400
+
+    result = upsert_unknown_screens(team_id, userinterface, rows)
+
+    # Retire what this scan did not see. Only when the client says the scan is finished.
+    #
+    # This used to run on every batch, against that batch's hashes alone. A scan posts in batches
+    # of 25, so batch 2 retired batch 1, batch 3 retired batch 2, and the table ended holding only
+    # the last batch. Retirement has to see the WHOLE scan's hashes at once, so it is triggered
+    # explicitly on the final batch via `retire_unseen`.
+    if payload.get('retire_unseen'):
+        # The scan sends its full hash list, because it posted in batches and this request only
+        # carries the last chunk. Falling back to this request's rows is what an older client
+        # sends, and it would retire everything the earlier batches just wrote.
+        seen = payload.get('seen_dhashes')
+        if not isinstance(seen, list):
+            seen = [str(r.get('cluster_dhash') or '').strip() for r in rows]
+        retired = retire_screens_not_seen(team_id, userinterface,
+                                          [str(h).strip() for h in seen if str(h).strip()])
+        result['retired'] = retired
+        # Surface the failure rather than folding it into a count of zero.
+        if retired < 0:
+            result['errors'] = result.get('errors', 0) + 1
+            result['retire_error'] = 'retire_screens_not_seen failed; rows may be stale'
+    else:
+        result['retired'] = None      # not the end of a scan; nothing to judge yet
+
+    return jsonify({'success': result['errors'] == 0, **result})
+
+
+@server_userinterface_bp.route('/acceptUnknownScreen', methods=['POST'])
+def accept_unknown_screen():
+    """Turn an unknown row into a node in the interface's tree.
+
+    Uses the fingerprint the scan already stored, so this needs no image and no device. The status
+    guard is checked twice -- read here, and again in the DB layer's WHERE clause -- so a double
+    click cannot create two nodes.
+    """
+    error = check_supabase()
+    if error:
+        return error
+
+    payload = request.get_json(silent=True) or {}
+    team_id = _param(payload, 'team_id')
+    row_id = _param(payload, 'id')
+    label = (_param(payload, 'label') or '').strip() or None
+    mode = payload.get('mode') or 'accept'
+
+    if not team_id or not row_id:
+        return jsonify({'success': False, 'error': 'team_id and id are required'}), 400
+
+    row = get_unknown_screen(team_id, row_id)
+    if not row:
+        return jsonify({'success': False, 'error': 'unknown screen not found'}), 404
+    if row['status'] != 'pending':
+        return jsonify({'success': False,
+                        'error': f"already {row['status']} — nothing to do"}), 409
+
+    ui_name = row['userinterface']
+    if mode == 'create_ui':
+        # A screen from a device that has no tree at all. Adding a node would attach it to
+        # somebody else's tree, so the operator is asked to create the interface instead.
+        return jsonify({
+            'success': False,
+            'needs': 'create_userinterface',
+            'userinterface': ui_name,
+            'device_model': row.get('device_model'),
+            'reason': 'this screen came from a device with no navigation tree; '
+                      'create the interface first, then accept the screen into it',
+        }), 409
+
+    fingerprint = row.get('fingerprint')
+    if not fingerprint:
+        return jsonify({
+            'success': False,
+            'error': 'no fingerprint stored for this screen — re-run the scan before accepting',
+        }), 409
+
+    interface = get_userinterface_by_name(ui_name, team_id)
+    if not interface:
+        return jsonify({'success': False, 'error': f'interface {ui_name} not found'}), 404
+
+    root_tree = get_root_tree_for_interface(interface['id'], team_id)
+    if not root_tree:
+        return jsonify({
+            'success': False,
+            'needs': 'create_tree',
+            'userinterface': ui_name,
+            'reason': 'this interface has no tree yet — create one before adding a node',
+        }), 409
+
+    node_label = label or row.get('proposed_name') or f'{ui_name}_unknown_{str(row_id)[:8]}'
+    node_id = re.sub(r'[^A-Za-z0-9_]+', '_', node_label).strip('_').lower() or f'unknown_{str(row_id)[:8]}'
+
+    node_data = {
+        'node_id': node_id,
+        'label': node_label,
+        'node_type': 'screen',
+        'verifications': [],
+        'data': {
+            'type': 'screen',
+            'is_root': False,
+            'ai_generated': True,
+            'discovery_order': 0,
+            'depth': 1,
+            'screenshot': row.get('image_url'),
+            'fingerprint': fingerprint,
+            'dom': row.get('dom'),
+            'from_unknown_screen': row_id,
+        },
+        'position_x': 250,
+        'position_y': 100,
+    }
+
+    saved = save_node(root_tree['id'], node_data, team_id)
+    if not saved.get('success'):
+        return jsonify({'success': False,
+                        'error': saved.get('error', 'failed to save node')}), 500
+
+    if not resolve_unknown_screen(team_id, row_id,
+                                  'merged' if mode == 'merge' else 'accepted',
+                                  accepted_node_id=node_id, label=label):
+        # The node exists but the row stayed pending. Surface it rather than pretend it worked --
+        # the operator can re-resolve the row, and a duplicate node is visible in the tree.
+        return jsonify({
+            'success': False,
+            'warning': 'node created, but the row could not be marked resolved',
+            'node_id': node_id,
+        }), 500
+
+    return jsonify({'success': True, 'node_id': node_id, 'label': node_label,
+                    'status': 'merged' if mode == 'merge' else 'accepted'})
+
+
+@server_userinterface_bp.route('/dismissUnknownScreen', methods=['POST'])
+def dismiss_unknown_screen():
+    """Not a screen worth naming. Kept as 'dismissed' rather than deleted so the decision is visible."""
+    error = check_supabase()
+    if error:
+        return error
+
+    payload = request.get_json(silent=True) or {}
+    team_id = _param(payload, 'team_id')
+    row_id = _param(payload, 'id')
+    if not team_id or not row_id:
+        return jsonify({'success': False, 'error': 'team_id and id are required'}), 400
+
+    ok = resolve_unknown_screen(team_id, row_id, 'dismissed')
+    if not ok:
+        return jsonify({'success': False, 'error': 'not found, or already resolved'}), 409
+    return jsonify({'success': True, 'status': 'dismissed'})

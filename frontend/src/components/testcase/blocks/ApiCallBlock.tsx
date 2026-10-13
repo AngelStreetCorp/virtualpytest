@@ -6,7 +6,7 @@ import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import PublicIcon from '@mui/icons-material/Public';
-import { useTheme } from '../../../contexts/ThemeContext';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useToastContext } from '../../../contexts/ToastContext';
 import { useTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
 import { BlockExecutionState } from '../../../hooks/testcase/useExecutionState';
@@ -28,7 +28,7 @@ export const ApiCallBlock: React.FC<NodeProps & {
   executionState?: BlockExecutionState 
 }> = ({ data, selected, dragging, id }) => {
   const executionState = data.executionState as BlockExecutionState | undefined;
-  const { actualMode } = useTheme();
+  const P = useAgentChatPalette();
   const { showSuccess, showError } = useToastContext();
   const { updateBlock, nodes } = useTestCaseBuilder();
   
@@ -174,8 +174,8 @@ export const ApiCallBlock: React.FC<NodeProps & {
     switch (state.status) {
       case 'executing':
         return {
-          border: '3px solid #3b82f6',
-          boxShadow: '0 0 20px rgba(59, 130, 246, 0.6)',
+          border: `3px solid ${P.accent}`,
+          boxShadow: `0 0 20px ${P.accent}99`,
           animation: 'executePulse 1.5s ease-in-out infinite',
         };
       case 'success':
@@ -271,10 +271,10 @@ export const ApiCallBlock: React.FC<NodeProps & {
         width: 340,
         minHeight: 100,
         maxHeight: 280,
-        border: selected ? '3px solid #fbbf24' : '2px solid #06b6d4', // cyan for API blocks
+        border: selected ? `3px solid ${P.accent}` : '2px solid #06b6d4', // cyan for API blocks
         ...getExecutionStyling(),
         borderRadius: 2,
-        background: actualMode === 'dark' ? '#1f2937' : '#ffffff',
+        background: P.surface,
         boxShadow: 2,
         cursor: 'pointer',
         opacity: dragging ? 0.5 : 1,

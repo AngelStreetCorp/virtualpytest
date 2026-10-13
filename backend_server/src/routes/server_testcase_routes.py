@@ -5,11 +5,22 @@ This module handles test case CRUD operations using the database layer.
 Execution is proxied to hosts.
 """
 
+import threading
 import uuid
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 from backend_server.src.lib.auth_middleware import require_any_permission, require_permission
 from backend_server.src.lib.utils.route_utils import proxy_to_host_with_params
+from backend_server.src.lib.utils.trigger_utils import resolve_caller_user
+from backend_server.src.lib.utils.lock_utils import (
+    acquire_device_lock,
+    clear_device_active_script,
+    get_client_ip,
+    get_device_lock_info,
+    release_device_lock,
+)
+from backend_server.src.routes.server_control_routes import _build_lock_conflict_payload
+from backend_server.src.routes.server_system_socket_routes import emit_system_update
 from backend_server.src.routes.server_executable_routes import invalidate_executable_list_cache
 from shared.src.lib.database.testcase_db import (
     create_testcase,
@@ -30,6 +41,133 @@ from shared.src.lib.database.folder_tag_db import (
 from shared.src.lib.database.library_visibility_db import list_hidden_library_keys
 
 server_testcase_bp = Blueprint('server_testcase', __name__, url_prefix='/server/testcase')
+
+# Device locks held by async /execute runs, keyed by host execution_id, released by
+# the host's terminal execution event (/server/executionEvent). A run whose terminal
+# event lands while its dispatch is still in flight goes to _finished_executions so the
+# registration releases at once; the set is only kept while a dispatch is in flight.
+_testcase_locks = {}
+_finished_executions = set()
+_dispatches_in_flight = 0
+_testcase_locks_guard = threading.Lock()
+
+
+def _release_testcase_lock(lock):
+    """Release the lock one /execute run took, or, when it ran under its user's Take
+    Control, only clear the run's annotation: that control was the caller's, not ours."""
+    host_name, device_id, job_id = lock['host_name'], lock['device_id'], lock['job_id']
+    if lock['subordinate']:
+        result = clear_device_active_script(host_name=host_name, device_id=device_id, owner_job_id=job_id)
+        if result.get('cleared'):
+            emit_system_update('lock_changed', {
+                'host_name': host_name,
+                'device_id': device_id,
+                'is_locked': True,
+                'lock_info': result.get('lock_info'),
+            })
+        return
+    result = release_device_lock(
+        host_name=host_name,
+        device_id=device_id,
+        owner_type='testcase_execution',
+        owner_job_id=job_id,
+    )
+    if result.get('released'):
+        emit_system_update('lock_changed', {
+            'host_name': host_name,
+            'device_id': device_id,
+            'is_locked': False,
+            'lock_info': result.get('lock_info'),
+        })
+        print(f"[@server_testcase:lock] Released {host_name}:{device_id} (job {job_id})")
+
+
+def release_testcase_execution_lock(execution_id):
+    """Called on a testcase's terminal execution event."""
+    with _testcase_locks_guard:
+        lock = _testcase_locks.pop(execution_id, None)
+        if lock is None:
+            if _dispatches_in_flight:
+                _finished_executions.add(execution_id)
+            return
+    _release_testcase_lock(lock)
+
+
+def acquire_testcase_lock(data, user_id, client_ip, run_name):
+    """Take Control for a testcase run unless the caller already holds it.
+
+    Under the caller's own manual_control (same user, or same session) the run goes
+    subordinate and that lock stays; a free device is locked as testcase_execution and
+    released when the run ends. Returns (lock, None) or (None, refusal response).
+    """
+    host_name = data['host_name']
+    device_id = data['device_id']
+    job_id = str(uuid.uuid4())
+    lock_result = acquire_device_lock(
+        host_name=host_name,
+        device_id=device_id,
+        owner_type='testcase_execution',
+        owner_session_id=data.get('session_id') or job_id,
+        owner_user_id=user_id or getattr(request, 'user_id', None),
+        owner_user_name=data.get('user_name'),
+        owner_job_id=job_id,
+        lock_reason=f"testcase_execute:{run_name}",
+        can_force_takeover=True,
+        client_ip=client_ip,
+        allow_same_user_takeover=True,
+    )
+    if not lock_result.get('success'):
+        conflict = lock_result.get('conflict') or get_device_lock_info(host_name, device_id)
+        if conflict:
+            return None, (jsonify(_build_lock_conflict_payload(host_name, device_id, conflict)), 423)
+        return None, (jsonify({
+            'success': False,
+            'error': f'Failed to lock device {host_name}:{device_id} for testcase execution',
+        }), 500)
+    lock = {
+        'host_name': host_name,
+        'device_id': device_id,
+        'job_id': job_id,
+        'subordinate': bool(lock_result.get('subordinate')),
+    }
+    if not lock['subordinate']:
+        emit_system_update('lock_changed', {
+            'host_name': host_name,
+            'device_id': device_id,
+            'is_locked': True,
+            'lock_info': lock_result.get('lock_info'),
+        })
+    return lock, None
+
+
+def dispatch_testcase_under_lock(lock, endpoint, data, query_params, *, track_async, timeout=30):
+    """Proxy a testcase run to the host and release its lock when the run is over.
+
+    With track_async, a started async run (execution_id returned) keeps the lock until
+    its terminal testcase event; anything else is over when the host answers.
+    """
+    global _dispatches_in_flight
+    with _testcase_locks_guard:
+        _dispatches_in_flight += 1
+    response_data, status_code = None, 500
+    try:
+        response_data, status_code = proxy_to_host_with_params(
+            endpoint, 'POST', data, query_params, timeout=timeout
+        )
+    finally:
+        execution_id = response_data.get('execution_id') if isinstance(response_data, dict) else None
+        started = (track_async and status_code < 400 and execution_id
+                   and response_data.get('success', True))
+        with _testcase_locks_guard:
+            finished = bool(execution_id) and execution_id in _finished_executions
+            if started and not finished:
+                _testcase_locks[execution_id] = lock
+            _dispatches_in_flight -= 1
+            if not _dispatches_in_flight:
+                _finished_executions.clear()
+        if not started or finished:
+            _release_testcase_lock(lock)
+    return response_data, status_code
 
 
 @server_testcase_bp.route('/save', methods=['POST'])
@@ -278,15 +416,16 @@ def testcase_execute_direct():
     execution_metadata['trigger'] = {
         'type': incoming_trigger.get('type') or 'api',
         'caller_ip': incoming_trigger.get('caller_ip') or client_ip,
-        'caller_user': incoming_trigger.get('caller_user') or user_id,
+        'caller_user': incoming_trigger.get('caller_user') or resolve_caller_user(user_id, data.get('user_name')),
     }
     data['execution_metadata'] = execution_metadata
 
-    query_params = {'team_id': team_id}
-
-    response_data, status_code = proxy_to_host_with_params(
-        '/host/testcase/execute', 'POST', data, query_params
-    )
+    lock, refusal = acquire_testcase_lock(
+        data, user_id, client_ip, data.get('testcase_name') or 'unsaved_testcase')
+    if refusal:
+        return refusal
+    response_data, status_code = dispatch_testcase_under_lock(
+        lock, '/host/testcase/execute', data, {'team_id': team_id}, track_async=True)
     return jsonify(response_data), status_code
 
 
@@ -341,11 +480,16 @@ def testcase_execute(testcase_id):
     if not team_id:
         return jsonify({'success': False, 'error': 'team_id is required'}), 400
     
-    query_params = {'team_id': team_id}
-    
-    response_data, status_code = proxy_to_host_with_params(
-        f'/host/testcase/{testcase_id}/execute', 'POST', data, query_params
-    )
+    if not data.get('host_name') or not data.get('device_id'):
+        return jsonify({'success': False, 'error': 'host_name and device_id are required'}), 400
+
+    # The host runs this synchronously: the lock is held for the call.
+    lock, refusal = acquire_testcase_lock(
+        data, data.get('user_id') or request.headers.get('X-User-ID'), get_client_ip(), testcase_id)
+    if refusal:
+        return refusal
+    response_data, status_code = dispatch_testcase_under_lock(
+        lock, f'/host/testcase/{testcase_id}/execute', data, {'team_id': team_id}, track_async=False)
     return jsonify(response_data), status_code
 
 
@@ -411,15 +555,21 @@ def execute_from_prompt():
     execution_metadata['trigger'] = {
         'type': incoming_trigger.get('type') or 'ai',
         'caller_ip': incoming_trigger.get('caller_ip') or client_ip,
-        'caller_user': incoming_trigger.get('caller_user') or user_id,
+        'caller_user': incoming_trigger.get('caller_user') or resolve_caller_user(user_id, data.get('user_name')),
     }
     data['execution_metadata'] = execution_metadata
 
-    query_params = {'team_id': team_id}
+    if not data.get('host_name') or not data.get('device_id'):
+        return jsonify({'success': False, 'error': 'host_name and device_id are required'}), 400
 
-    response_data, status_code = proxy_to_host_with_params(
-        '/host/testcase/execute-from-prompt', 'POST', data, query_params
-    )
+    # The host generates the graph (an LLM call) before it starts the run, hence the
+    # longer timeout; an async run then holds the lock until its terminal testcase event.
+    lock, refusal = acquire_testcase_lock(data, user_id, client_ip, 'ai_prompt')
+    if refusal:
+        return refusal
+    response_data, status_code = dispatch_testcase_under_lock(
+        lock, '/host/testcase/execute-from-prompt', data, {'team_id': team_id},
+        track_async=True, timeout=180)
     return jsonify(response_data), status_code
 
 
@@ -430,14 +580,15 @@ def generate_with_ai():
     """
     Generate test case graph from natural language prompt (for TestCase Builder)
     
-    Uses the unified execute-from-prompt endpoint but with save=false
+    Uses the host's AIGraphBuilder (/host/ai/generatePlan): generates only, never runs
     Returns graph + analysis for frontend to save later with user input
     
     Request body:
         {
             "prompt": "Go to live TV and verify audio",
             "userinterface_name": "example_mobile",
-            "device_id": "device1"  // Optional - uses default if not provided
+            "device_id": "device1",  // Optional - uses default if not provided
+            "host_name": "host1"     // Host whose AIGraphBuilder generates the graph
         }
     
     Response:
@@ -467,38 +618,34 @@ def generate_with_ai():
     if not team_id:
         return jsonify({'success': False, 'error': 'team_id is required'}), 400
     
-    # Use unified execute-from-prompt endpoint to generate plan
-    # save=false means it only generates, doesn't execute or save
+    # Generation only: nothing runs on the device, so no lock.
     generate_response, generate_status = proxy_to_host_with_params(
-        '/host/testcase/execute-from-prompt', 'POST', 
+        '/host/ai/generatePlan', 'POST',
         {
             'prompt': prompt,
             'userinterface_name': userinterface_name,
             'device_id': device_id,
-            'host_name': 'default',  # Not used for generation-only
-            'save': False,  # Don't save or execute
-            'use_cache': False,  # Always generate fresh for testcase builder
-            'async_execution': False  # Synchronous
-        }, 
-        {'team_id': team_id}
+            'host_name': data.get('host_name'),
+        },
+        {'team_id': team_id},
+        timeout=180,
     )
-    
+
     if not generate_response.get('success'):
         return jsonify({
             'success': False,
             'error': generate_response.get('error', 'Failed to generate plan')
-        }), generate_status
-    
-    result = generate_response.get('result', {})
-    graph = result.get('graph')
-    analysis = result.get('analysis', '')
-    
+        }), generate_status if generate_status >= 400 else 400
+
+    graph = generate_response.get('graph')
+    analysis = generate_response.get('analysis', '')
+
     if not graph:
         return jsonify({
             'success': False,
             'error': 'No graph generated by AI'
         }), 500
-    
+
     # Generate suggested name from prompt
     testcase_name = f"AI: {prompt[:50]}" if len(prompt) > 50 else f"AI: {prompt}"
     

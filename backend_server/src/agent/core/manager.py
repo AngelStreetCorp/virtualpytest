@@ -16,17 +16,21 @@ import time
 import threading
 import asyncio
 import json
+import uuid
 import os
 from typing import Dict, Any, AsyncGenerator, Optional, List
 
-from shared.src.lib.ai.config import LANGFUSE_ENABLED, get_active_ai_settings, get_provider_api_key
+from shared.src.lib.ai import budgets as ai_budgets, router as ai_router, tracing as ai_tracing, usages as ai_usages
+from shared.src.lib.ai.provider_client import (ModelRefusal, classify_error as ai_classify_error, is_connection_error, raise_on_refusal,
+                                                normalize_stop_reason, response_tokens, response_usage, strip_reasoning)
+from shared.src.lib.ai.secrets_store import get_secret
 from ..observability import track_generation, track_tool_call, flush
-from shared.src.lib.ai.provider_client import create_provider_client
 from .session import Session, SessionManager
 from .tool_bridge import ToolBridge
 from .message_types import EventType, AgentEvent
+from .routing_log import RoutingTracker
+from backend_server.src.lib.analytics.named_devices import detect_named_devices, named_devices_line, selected_device_state
 from .sherlock_handler import SherlockHandler
-from .nightwatch_handler import NightwatchHandler
 from backend_server.src.mcp.tool_definitions.build_definitions import get_builder
 
 # Import shared Redis queue processor (supports both local and Upstash Redis)
@@ -44,8 +48,9 @@ class QAManagerAgent:
     Uses provider-aware tool calling while preserving Anthropic prompt caching when selected.
     
     Background Worker Configuration:
-    - Alert processing filters are handled by agent-specific handlers (e.g., NightwatchHandler)
-    - Each handler implements its own filtering logic (duration, rate limiting, etc.)
+    - Only the analyzer (Sherlock) consumes a queue (p2_scripts, vpt-discard-scripts); its
+      filtering lives in SherlockHandler. Alerts are triaged by vpt-discard-incidents
+      (nightwatch_handler.py), which polls the alerts table and never goes through this class.
     """
 
     _ATLAS_DIRECT_BLOCKED_CATEGORIES = {'admin', 'ai'}
@@ -85,10 +90,65 @@ class QAManagerAgent:
     )
     # Router tools that are unusable without another tool's output: offering the
     # key without its value forces the model to guess (see _select_router_tools_for_message).
+    # A question that matches a category's hints always gets that category's core tools,
+    # however many other tools outscore them on raw keywords. Observed: "show failing
+    # testcases for this device" and "show degraded hosts" were offered only device and
+    # testcase tools, so Atlas answered without the analytics layer.
+    _ATLAS_ROUTER_CATEGORY_CORE_TOOLS = {
+        'analytics': ('list_analytics_sources', 'query_analytics_data', 'render_analytics_artifact'),
+    }
+    # Tools offered only when the message asks for what they do. Observed: asked for KPI
+    # regressions, Atlas wrote a Grafana draft nobody requested.
+    # "Create/make/build a (Grafana) dashboard ..." loads the grafana-dashboard skill even with a single
+    # trigger phrase; "open/show the dashboard page" (the app's Dashboard) must not.
+    _DASHBOARD_BUILD_SKILL = 'grafana-dashboard'
+    _DASHBOARD_BUILD_INTENT = re.compile(
+        r"\b(?:(?:create|make|build|generate|design|set\s*up|draw|prepare)\b(?:\W+\w+){0,4}?\W+|"
+        r"(?:a|an|new|grafana)\s+)(?:grafana\s+)?dashboards?\s+(?:for|of|with|showing|that|about|on)\b|"
+        r"\b(?:create|make|build|generate|design|set\s*up|draw|prepare)\b(?:\W+\w+){0,4}?\W+(?:grafana\s+)?dashboards?\s*$|"
+        r"\b(?:create|make|build|generate|design|set\s*up|draw|prepare)\b(?:\W+\w+){0,4}?\W+grafana\s+dashboards?\b",
+        re.IGNORECASE)
+    _DASHBOARD_APP_PAGE = re.compile(r"\bdashboards?\s+(?:page|tab|screen|menu|view|route)\b", re.IGNORECASE)
+
+    @classmethod
+    def _wants_dashboard_build(cls, message: str) -> bool:
+        text = message or ''
+        return bool(cls._DASHBOARD_BUILD_INTENT.search(text)) and not cls._DASHBOARD_APP_PAGE.search(text)
+
+    _ATLAS_ROUTER_KEYWORD_GATED = {
+        'create_grafana_draft': {'grafana'},
+        'export_analytics_data': {'export', 'csv', 'json', 'download', 'file'},
+    }
+    # Analytics scope facts the model must not have to ask for. Observed on the Pi server
+    # (36 devices): a multi-panel canvas "for my selected devices" was sometimes answered
+    # with a question (which devices / which userinterface) instead of a canvas.
+    _ANALYTICS_SCOPE_SELECTED = (
+        "**Analytics scope:** \"this/my/selected device(s)\" means the Current Device above: always pass "
+        "scope='current_device' (the tools also enforce it for those phrases; never widen to the server) and "
+        "build immediately. Never ask which devices; say in your answer which scope you used.\n\n")
+    _ANALYTICS_SCOPE_NONE = (
+        "**Analytics scope:** no device is selected, so \"my/selected devices\" means every device the "
+        "user can see: use the default scope='visible' (never 'current_device') and build immediately. "
+        "Never ask which devices; say in your answer which scope you used.\n\n")
+    _ANALYTICS_SCOPE_FOREIGN = (
+        "**Analytics scope:** the Current Device above belongs to another server than the selected one, so it "
+        "is NOT a valid analytics selection: never pass scope='current_device'. \"My/selected devices\" means "
+        "every device the user can see: use the default scope='visible' and build immediately. "
+        "Never ask which devices; say in your answer which scope you used.\n\n")
+    # Appended to every analytics scope line. The tool can flag a filter the model sent that matched
+    # nothing, but not one the model never sent (live: devices samsung SM-G998B / Phone slot 1 were
+    # dropped, every device charted, the canvas titled after other devices).
+    _ANALYTICS_DEVICE_NAMING = (
+        "**Named devices:** when the user names devices, pass them exactly as named in "
+        "filters={\"device_name\": [...]} (shared filters for a canvas). If they match nothing, say so in your "
+        "answer and offer the closest available device names; never substitute other devices, never drop the "
+        "filter, and never title the result after devices the user did not ask for.\n\n")
     _ATLAS_ROUTER_TOOL_PREREQUISITES = {
         'analyze_screen_for_action': ('dump_ui_elements',),
         'analyze_screen_for_verification': ('dump_ui_elements',),
         'execute_device_action': ('list_actions',),
+        # TASK-76: a group comes from list_device_groups; its key names from list_actions.
+        'execute_group_action': ('list_device_groups', 'list_actions'),
     }
     _ATLAS_ROUTER_CATEGORY_HINTS = {
         'device': {'device', 'devices', 'host', 'hosts', 'status'},
@@ -108,18 +168,32 @@ class QAManagerAgent:
         'docs': {'doc', 'docs', 'document', 'documentation', 'read', 'search'},
         'script': {'script', 'scripts'},
         'analysis': {'analysis', 'result', 'results', 'report', 'reports', 'alert', 'alerts'},
+        'analytics': {'analytics', 'data', 'database', 'kpi', 'radar', 'graph', 'chart', 'metric', 'metrics',
+                      'failing', 'failed', 'failure', 'pass', 'rate', 'compare', 'comparison', 'regression',
+                      'trend', 'duration', 'canvas', 'degraded', 'fleet', 'occupancy', 'availability', 'incident',
+                      'statistic', 'stats', 'average', 'history', 'historical', 'export', 'csv', 'grafana',
+                      'dashboard', 'panel', 'plot', 'visualize', 'latency', 'speedtest', 'ookla', 'dns',
+                      'superping', 'verdict', 'delta', 'slowest', 'usage', 'cpu', 'memory', 'disk'},
         'logs': {'log', 'logs', 'service', 'services'},
+        'group': {'group', 'groups', 'all', 'every', 'each', 'together', 'same', 'multiple', 'boxes', 'stbs'},
         'verification': {'verify', 'verification', 'verify_node', 'ui', 'screen'},
         'screenshot': {'screenshot', 'capture', 'image'},
         'action': {'action', 'actions'},
         'control': {'control', 'take', 'release'},
     }
 
-    def __init__(self, api_key: Optional[str] = None, user_identifier: Optional[str] = None, agent_id: Optional[str] = None, session: Optional[any] = None, is_background: bool = False):
+    def __init__(self, user_identifier: Optional[str] = None, agent_id: Optional[str] = None, session: Optional[any] = None, is_background: bool = False):
         self.logger = logging.getLogger(__name__)
+        # The team the agent works for: AI routing applies this team's overrides (TASK-30).
         self.user_identifier = user_identifier
-        self._api_key = api_key
-        self._client = None
+        self._clients: Dict[tuple, Any] = {}
+        # A/B arm seed when there is no session: fixed per manager so model and client
+        # always come from the same arm.
+        self._routing_request_id = uuid.uuid4().hex
+        # Tokens and Langfuse trace of the current chat turn (TASK-54: stored in agent_turns).
+        self.turn_tokens_in = 0
+        self.turn_tokens_out = 0
+        self.last_trace_id: Optional[str] = None
         self._session = session  # Store session reference
         self._is_background = is_background
         self.tool_bridge = ToolBridge(session=session, is_background=is_background)
@@ -138,7 +212,6 @@ class QAManagerAgent:
         
         # Agent-specific handlers (lazy init based on agent_id)
         self._sherlock_handler: Optional[SherlockHandler] = None
-        self._nightwatch_handler: Optional[NightwatchHandler] = None
         
         # Load skills on startup
         from ..skills import SkillLoader
@@ -165,11 +238,6 @@ class QAManagerAgent:
         if config and hasattr(config, 'background_queues'):
             background_queues = config.background_queues or []
         
-        # Get dry_run flag from config
-        dry_run = False
-        if config and hasattr(config, 'dry_run'):
-            dry_run = config.dry_run or False
-
         # Get prompt presets from metadata
         prompt_presets = []
         if metadata and hasattr(metadata, 'prompt_presets'):
@@ -184,7 +252,6 @@ class QAManagerAgent:
             'available_skills': getattr(agent_def, 'available_skills', []) or [],
             'subagents': [s.id for s in (agent_def.subagents or [])],
             'background_queues': background_queues,
-            'dry_run': dry_run,
             'prompt_presets': prompt_presets,
         }
     
@@ -217,7 +284,9 @@ class QAManagerAgent:
             return False
         
         self._active_skill = skill
-        self.logger.info(f"Loaded skill: {skill_name} ({len(skill.tools)} tools)")
+        # print, not logger.info: the server runs the root logger at WARNING, so an info
+        # line never reached the journal (TASK-47). The router pick is also stored in ai_decisions.
+        print(f"[AGENT] Loaded skill: {skill_name} ({len(skill.tools)} tools)")
         return True
     
     def unload_skill(self) -> None:
@@ -228,7 +297,7 @@ class QAManagerAgent:
     
     def _parse_skill_command(self, text: str) -> Optional[str]:
         """Parse 'LOAD SKILL [skill-name]' from Claude's response"""
-        match = re.search(r'LOAD\s+SKILL\s+([\w-]+)', text, re.IGNORECASE)
+        match = re.search(r'LOAD\s+SKILL\s+\[?([\w-]+)', text, re.IGNORECASE)
         return match.group(1).lower() if match else None
     
     def get_system_prompt(self, context: Dict[str, Any] = None, message: str = "", router_tools: Optional[List[str]] = None) -> str:
@@ -269,7 +338,11 @@ class QAManagerAgent:
         context_parts = []
 
         if host_name or device_id:
-            context_parts.append(f"**Current Device:** host_name='{host_name}', device_id='{device_id}'")
+            current_name = next((d.get('device_name') for d in available_devices
+                                 if d.get('host_name') == host_name and d.get('device_id') == device_id
+                                 and d.get('device_name')), '')
+            name_part = f", device_name='{current_name}'" if current_name else ''
+            context_parts.append(f"**Current Device:** host_name='{host_name}', device_id='{device_id}'{name_part}")
 
         if userinterface_name:
             interface_info = f"**Current Interface:** userinterface_name='{userinterface_name}'"
@@ -284,6 +357,9 @@ class QAManagerAgent:
             context_parts.append(f"**Current Campaign:** campaign_id='{campaign_id}'")
 
         if available_devices:
+            # The selected device is always listed, however long the fleet is.
+            available_devices = sorted(available_devices, key=lambda d: not (
+                d.get('host_name') == host_name and d.get('device_id') == device_id))
             device_list = [f"{d.get('device_name', 'unknown')} (host_name='{d.get('host_name', 'unknown')}', device_id='{d.get('device_id', 'unknown')}')" for d in available_devices[:10]]
             if len(available_devices) > 10:
                 device_list.append(f"... and {len(available_devices) - 10} more")
@@ -339,6 +415,24 @@ class QAManagerAgent:
 
         return None
 
+    @staticmethod
+    def _record_named_devices(message: str, session: Session) -> None:
+        """Detect devices the user named (against every device this server knows) and store them in the
+        session context for the router prompt and the analytics tools. Reset on every message."""
+        ctx = session.context
+        devices = list(ctx.get('available_devices') or [])
+        try:
+            from backend_server.src.lib.utils.server_utils import get_host_manager
+            for host in get_host_manager().get_all_hosts().values():
+                for device in host.get('devices', []):
+                    devices.append({'device_name': device.get('device_name'), 'host_name': host.get('host_name')})
+        except Exception:
+            pass  # registry unavailable (tests, startup): the context's devices still apply
+        session.set_context('named_devices', detect_named_devices(message, devices, ctx.get('selected_server_hosts') or []))
+        # "my/selected/this device(s)" = the chat's Target; the analytics tools enforce it (BUG-0405).
+        for key, value in selected_device_state(message, ctx).items():
+            session.set_context(key, value)
+
     def _build_router_prompt(self, ctx: Dict[str, Any] = None, message: str = "", router_tools: Optional[List[str]] = None) -> str:
         """Build router mode prompt - decides which skill to load"""
         from ..skills import SkillLoader
@@ -360,6 +454,15 @@ class QAManagerAgent:
 
         # Build context section (full context for router)
         context_section = self._build_context_section(ctx, skill=None)
+        if 'render_analytics_artifact' in router_tools:
+            if not (ctx.get('host_name') and ctx.get('device_id')):
+                context_section += self._ANALYTICS_SCOPE_NONE
+            else:
+                server_hosts = ctx.get('selected_server_hosts') or []
+                foreign = bool(server_hosts) and ctx.get('host_name') not in server_hosts
+                context_section += self._ANALYTICS_SCOPE_FOREIGN if foreign else self._ANALYTICS_SCOPE_SELECTED
+            context_section += self._ANALYTICS_DEVICE_NAMING
+            context_section += named_devices_line(ctx.get('named_devices') or [], ctx.get('selected_server_name') or '')
         
         # Dynamic prompt based on whether router tools exist
         if has_router_tools:
@@ -373,6 +476,9 @@ class QAManagerAgent:
 - If input clearly matches a tool's expected parameters → use tool directly
 - Direct tools are for safe read/query operations only
 - To answer what is currently on the device screen (the title/text shown, what's playing, which menu or dialog is open, whether an error is shown) → call `capture_screenshot` for the Current Device (set vlm=true for visual/focus questions), then answer from the returned OCR/Vision text. You CAN read the screen this way — never claim you can't do visual analysis.
+- Asked to CREATE/MAKE/BUILD a dashboard (Grafana or not): respond ONLY `LOAD SKILL [grafana-dashboard]`; it builds a real Grafana dashboard. Opening or showing the app's Dashboard page is navigation, not this
+- A canvas or several charts in one request is ONE render_analytics_artifact call with panels=[...] (1-6 panels, shared filters at the top level), never one call per chart: the user sees only the latest artifact
+- Analytics, chart and canvas requests: build them with the scope and defaults you have. NEVER reply with a question about devices, userinterfaces or a time range when the Analytics scope line or a default answers it; on a tool error follow its hint, then state the assumption you made
 - If the request needs execution, mutation, control, generation, deletion, or admin actions → respond ONLY: `LOAD SKILL [name]`
 - If input doesn't match any known direct tool or skill pattern → explain you don't understand
 - Never guess or force-fit unclear input to tools
@@ -598,7 +704,10 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         router mode creates excessive latency and poor model routing. This narrows
         the tool payload per turn while preserving the broader security policy.
         """
-        safe_tools = self.router_tool_names
+        query_tokens = self._tokenize_router_query(message)
+        safe_tools = [tool for tool in self.router_tool_names
+                      if tool not in self._ATLAS_ROUTER_KEYWORD_GATED
+                      or query_tokens & self._ATLAS_ROUTER_KEYWORD_GATED[tool]]
         if len(safe_tools) <= 16:
             return safe_tools
 
@@ -610,7 +719,6 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 category_by_tool[definition['name']] = category
                 description_by_tool[definition['name']] = definition.get('description', '')
 
-        query_tokens = self._tokenize_router_query(message)
         scored: list[tuple[int, str]] = []
 
         for tool_name in safe_tools:
@@ -660,8 +768,11 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         # ..." scored analyze_screen_for_action + execute_device_action but not
         # dump_ui_elements / list_actions, so the model sent elements=[] and
         # guessed the web command name (type_text) — BUG-0170.
+        core_tools = [tool for category, tools in self._ATLAS_ROUTER_CATEGORY_CORE_TOOLS.items()
+                      if query_tokens & self._ATLAS_ROUTER_CATEGORY_HINTS.get(category, set()) for tool in tools]
+
         def required_for(tools: list[str]) -> list[str]:
-            required = ['read_doc', 'search_docs']
+            required = ['read_doc', 'search_docs', *core_tools]
             for tool in tools:
                 required.extend(self._ATLAS_ROUTER_TOOL_PREREQUISITES.get(tool, ()))
             return [t for t in dict.fromkeys(required) if t in safe_tools]
@@ -679,39 +790,219 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             return self._active_skill.tools
         return self.router_tool_names
     
-    def _get_api_key_safe(self) -> Optional[str]:
-        try:
-            return self._api_key or get_provider_api_key(identifier=self.user_identifier)
-        except ValueError:
-            return None
+    # ------------------------------------------------------------------ AI routing
+    # Which model serves this agent is decided per usage by the AI routing tables
+    # (TASK-30): agent.<name>, or agent.<name>.skill.<skill> while a skill is loaded.
+    # The session id seeds the A/B arm so one conversation stays on one arm.
+
+    @property
+    def usage_key(self) -> str:
+        return ai_usages.agent_usage(self.agent_id, self._active_skill.name if self._active_skill else None)
+
+    def _resolution(self) -> "ai_router.Resolution":
+        request_id = getattr(self._session, "id", None) or self._routing_request_id
+        return ai_router.resolve(self.usage_key, self.user_identifier, request_id=request_id)
+
+    def _hop_client(self, hop: "ai_router.Hop"):
+        key = (hop.endpoint["id"], get_secret(hop.endpoint.get("secret_name")))
+        if key not in self._clients:
+            self._clients[key] = hop.client()
+        return self._clients[key]
 
     @property
     def ai_settings(self) -> dict[str, Any]:
-        return get_active_ai_settings(self.user_identifier)
+        try:
+            resolution = self._resolution()
+        except (ai_router.AIRoutingError, ai_usages.UnknownUsageError) as e:
+            return {
+                "usage": self.usage_key, "provider": None, "model": None, "profile": None, "endpoint": None,
+                "api_key_configured": False, "supports_prompt_caching": False, "error": str(e),
+            }
+        hop = resolution.primary
+        return {
+            "usage": self.usage_key,
+            "via": resolution.via_key,
+            "provider": hop.preset,
+            "model": hop.model,
+            "profile": hop.profile_name,
+            "endpoint": hop.endpoint_name,
+            "api_key_configured": hop.has_credentials(),
+            "supports_prompt_caching": hop.supports_prompt_caching,
+        }
 
     @property
     def provider(self) -> str:
-        return self.ai_settings["provider"]
+        return self._resolution().primary.preset
 
     @property
     def model(self) -> str:
-        return self.ai_settings["model"]
-    
+        return self._resolution().primary.model
+
     @property
     def client(self):
-        if self._client is None:
-            key = self._get_api_key_safe()
-            if not key:
-                raise ValueError(f"{self.ai_settings['api_key_env']} not configured.")
-            self._client = create_provider_client(self.provider, key)
-        return self._client
-    
+        return self._hop_client(self._resolution().primary)
+
     @property
     def api_key_configured(self) -> bool:
-        return self._get_api_key_safe() is not None
-    
+        return bool(self.ai_settings["api_key_configured"])
+
+    def _turn_kwargs(self, hop: "ai_router.Hop", base: Dict[str, Any]) -> Dict[str, Any]:
+        """Request options for one agent turn on one routed hop.
+
+        The profile's ``extra`` JSON is sent as extra body fields, so effort is set per
+        profile: ``{"output_config": {"effort": "low"}}`` (Claude 4.6+; low for routing,
+        medium for script writing). Anthropic: prompt caching header. MiniMax: cap the thinking budget — the model
+        always produces <think> tokens (cannot be fully disabled — see
+        github.com/can1357/oh-my-pi/issues/626), but budget_tokens=256 measurably
+        reduces per-turn latency (~5.7s vs ~6.9s default on MiniMax-M2.7-highspeed,
+        ~17% faster per turn), ~10-20s saved over a 5-7 turn conversation.
+        """
+        kwargs = dict(base, model=hop.model)
+        kwargs["extra_headers"] = {"anthropic-beta": "prompt-caching-2024-07-31"} if hop.preset == "anthropic" else None
+        if hop.preset == "minimax":
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": 256}
+        kwargs["extra_body"] = hop.extra_body(self.usage_key) or None
+        return kwargs
+
+    def _note_attempt(self, hop_index: int, ok: bool, started: float, response: Any = None,
+                      error: Optional[str] = None) -> None:
+        """Remember one model attempt of the current turn for the Langfuse trace (best effort)."""
+        try:
+            from datetime import datetime, timezone
+            resolution = self._resolution()
+            hop = resolution.hops[hop_index]
+            attempt = ai_tracing.Attempt(hop)
+            attempt.started = datetime.fromtimestamp(started, tz=timezone.utc)
+            attempt.fallback = resolution.is_fallback(hop)
+            attempt.finish(ok=ok, output=None, error=error,
+                           tokens=response_tokens(response) if response is not None else (0, 0),
+                           usage=response_usage(response) if response is not None else None)
+            self._turn_attempts.append(attempt)
+            if ok:
+                self._answered_hop = hop
+        except Exception:
+            pass
+
+    def _record_turn(self, hop_index: int, ok: bool, started: float, response: Any = None,
+                     error: Optional[str] = None, exc: Optional[BaseException] = None) -> None:
+        """Usage stats for one agent turn (best effort — never breaks the turn)."""
+        self._note_attempt(hop_index, ok, started, response, error)
+        try:
+            resolution = self._resolution()
+            hop = resolution.hops[hop_index]
+            used = response_usage(response) if response is not None else None
+            tokens = (used.tokens_in, used.tokens_out) if used else (0, 0)
+            self.turn_tokens_in += int(tokens[0] or 0)
+            self.turn_tokens_out += int(tokens[1] or 0)
+            ai_router.record(resolution, hop, ok=ok, ms=int((time.time() - started) * 1000),
+                             tokens_in=tokens[0], tokens_out=tokens[1], fallback=resolution.is_fallback(hop),
+                             usage=used, error_type=None if ok else (ai_classify_error(exc) if exc is not None else "other"),
+                             attempt_index=hop_index, caller=getattr(self, "_call_caller", None),
+                             extra=self._turn_extra(response))
+        except Exception:
+            pass
+
+    def _turn_extra(self, response: Any) -> Dict[str, Any]:
+        """Shape of an agent turn for the call log: tool calls requested and why it stopped."""
+        if response is None:
+            return {}
+        self._turn_index = getattr(self, "_turn_index", 0) + 1
+        blocks = list(getattr(response, "content", None) or [])
+        return {"turn_index": self._turn_index, "tool_calls": sum(1 for b in blocks if getattr(b, "type", None) == "tool_use"),
+                "stop_reason": normalize_stop_reason(response)}
+
+    def _record_compaction(self, started: float, response: Any = None, error: Optional[BaseException] = None) -> None:
+        """Count the history-compaction call (a billed request outside the tool loop). Best effort."""
+        try:
+            resolution = self._resolution()
+            hop = resolution.primary
+            used = response_usage(response) if response is not None else None
+            ai_router.record(resolution, hop, ok=error is None, ms=int((time.time() - started) * 1000),
+                             tokens_in=used.tokens_in if used else 0, tokens_out=used.tokens_out if used else 0,
+                             fallback=False, usage=used, caller=getattr(self, "_call_caller", None),
+                             extra={"stop_reason": "compaction"},
+                             error_type=ai_classify_error(error) if error is not None else None)
+        except Exception:
+            pass
+
+    def _create_turn(self, base_kwargs: Dict[str, Any]):
+        """One model call for the tool loop: the routed profile, then its fallbacks on error or refusal.
+
+        A refusal (``stop_reason == "refusal"``) moves to the next hop like an error; when every
+        hop refuses, the first refusal is returned so the turn ends as it did before."""
+        self._turn_attempts = []
+        self._answered_hop = None
+        if ai_budgets.blocked(self.user_identifier):  # blocking monthly budget used up (TASK-87)
+            raise RuntimeError(ai_budgets.BLOCKED_MESSAGE)
+        started = time.time()
+        try:
+            response = raise_on_refusal(
+                self.client.messages.create(**self._turn_kwargs(self._resolution().primary, base_kwargs)))
+            self._record_turn(0, True, started, response)
+            return response
+        except Exception as primary_error:
+            self._record_turn(0, False, started, error=str(primary_error)[:500], exc=primary_error)
+            if is_connection_error(primary_error):
+                try:
+                    ai_router.mark_down(self._resolution().hops[0])
+                except Exception:
+                    pass
+            try:
+                fallbacks = list(enumerate(self._resolution().hops))[1:]
+            except Exception:
+                fallbacks = []
+            for index, hop in fallbacks:
+                if hop.reach == "host":
+                    continue
+                print(f"[AGENT] ↪ {primary_error!s:.120} — falling back to {hop.profile_name} ({hop.model})")
+                started = time.time()
+                try:
+                    response = raise_on_refusal(
+                        self._hop_client(hop).messages.create(**self._turn_kwargs(hop, base_kwargs)))
+                except Exception as fallback_error:
+                    self._record_turn(index, False, started, error=str(fallback_error)[:500], exc=fallback_error)
+                    if is_connection_error(fallback_error):
+                        ai_router.mark_down(hop)
+                    continue
+                self._record_turn(index, True, started, response)
+                return response
+            if isinstance(primary_error, ModelRefusal):
+                return primary_error.response
+            raise primary_error
+
     async def process_message(self, message: str, session: Session, _is_delegated: bool = False) -> AsyncGenerator[AgentEvent, None]:
-        """Process user message with skill-based routing and prompt caching"""
+        """Process user message with skill-based routing and prompt caching.
+
+        A root turn that starts in router mode is logged to ai_decisions (routing_log):
+        the skill picked, or answered_directly, and whether the turn then succeeded."""
+        tracker = None
+        if not self._active_skill and not _is_delegated:
+            try:
+                hop = self._resolution().primary
+                tracker = RoutingTracker(
+                    team_id=self.user_identifier, session_id=getattr(session, "id", None),
+                    agent_usage=self.usage_key, message=message,
+                    available_skills=self.agent_config.get('available_skills', []),
+                    model=hop.model, profile=hop.profile_name)
+            except Exception as e:
+                print(f"[AGENT] routing log disabled for this turn: {e}")
+        aborted = True
+        try:
+            async for event in self._process_message(message, session, _is_delegated):
+                if tracker:
+                    tracker.observe(event)
+                yield event
+            aborted = False
+        finally:
+            if tracker:
+                tracker.write(self._active_skill.name if self._active_skill else None, aborted)
+
+    async def _process_message(self, message: str, session: Session, _is_delegated: bool = False) -> AsyncGenerator[AgentEvent, None]:
+        self._turn_index = 0  # model turns answered for this user message
+        self._call_caller = {
+            "origin": "background" if self._is_background else "chat", "session_id": getattr(session, "id", None),
+            "user_id": session.context.get("user_id") if getattr(session, "context", None) else None,
+        }
         print(f"\n{'='*60}")
         print(f"[AGENT] {self.nickname} | skill={self._active_skill.name if self._active_skill else 'router'}")
         print(f"[AGENT] message={message[:50]}...")
@@ -729,6 +1020,8 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             yield AgentEvent(type=EventType.THINKING, agent="System", content="Compacting history...")
             msgs = session.get_messages_for_summary()
             if msgs:
+                compaction_started = time.time()
+                resp = None
                 try:
                     api_msgs = [{"role": m["role"], "content": m["content"]} for m in msgs]
                     resp = self.client.messages.create(
@@ -740,13 +1033,17 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                         tool_choice={"type": "auto"},
                         extra_headers=None,
                     )
+                    self._record_compaction(compaction_started, resp)
                     session.apply_summary(resp.content[0].text)
                 except Exception as e:
                     self.logger.error(f"Compaction failed: {e}")
+                    if resp is None:
+                        self._record_compaction(compaction_started, None, e)
         
         # Only add message if not delegated
         if not _is_delegated:
             session.add_message("user", message)
+            self._record_named_devices(message, session)
         
         if session.pending_approval:
             yield AgentEvent(type=EventType.ERROR, agent=self.nickname, content="Respond to pending approval first.")
@@ -792,6 +1089,11 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                             agent=self.nickname,
                             content=f"Auto-loaded skill: {matched.name} ({trigger_hits} triggers)",
                         )
+            if not self._active_skill and self._wants_dashboard_build(message):
+                print(f"[AGENT] Router auto-load: {self._DASHBOARD_BUILD_SKILL} (dashboard build intent)")
+                if self.load_skill(self._DASHBOARD_BUILD_SKILL):
+                    yield AgentEvent(type=EventType.THINKING, agent=self.nickname,
+                                     content=f"Auto-loaded skill: {self._DASHBOARD_BUILD_SKILL}")
 
         mode_str = f"[{self._active_skill.name}]" if self._active_skill else "[router]"
         yield AgentEvent(type=EventType.THINKING, agent=self.nickname, content=f"Analyzing... {mode_str}")
@@ -857,29 +1159,25 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             start = time.time()
 
             try:
-                # Use prompt caching via extra_headers
-                # disable_parallel_tool_use ensures sequential tool execution (one at a time)
-                # For Minimax: cap thinking budget. The model always produces <think> tokens
-                # (cannot be fully disabled — see github.com/can1357/oh-my-pi/issues/626), but
-                # budget_tokens=256 measurably reduces per-turn latency (~5.7s vs ~6.9s default
-                # on MiniMax-M2.7-highspeed, ~17% faster per turn). Over 5-7 agent turns that
-                # compounds to ~10-20s saved end-to-end.
-                _create_kwargs = dict(
-                    model=self.model,
+                # disable_parallel_tool_use ensures sequential tool execution (one at a time);
+                # provider-specific options (prompt caching, MiniMax thinking cap) and the
+                # fallback chain are applied by _create_turn.
+                response = self._create_turn(dict(
                     max_tokens=4096,
                     system=cached_system,
                     messages=turn_messages,
                     tools=cached_tools,
                     tool_choice={"type": "auto", "disable_parallel_tool_use": True},
-                    extra_headers={
-                        "anthropic-beta": "prompt-caching-2024-07-31"
-                    } if self.provider == "anthropic" else None
-                )
-                if self.provider == "minimax":
-                    _create_kwargs["thinking"] = {"type": "enabled", "budget_tokens": 256}
-                response = self.client.messages.create(**_create_kwargs)
+                ))
             except Exception as e:
-                error_msg = f"{self.provider} API call failed: {str(e)}"
+                error_msg = f"{self.usage_key} API call failed: {str(e)}"
+                # Every AI call is traced, including turns where no profile answered.
+                ai_tracing.trace_call(
+                    name=f"{self.nickname} Call (failed)", usage=self.usage_key, input=message,
+                    attempts=getattr(self, "_turn_attempts", []), ok=False, error=str(e)[:1000],
+                    team_id=self.user_identifier, session_id=session.id,
+                    user_id=session.context.get("user_id"),
+                )
                 self.logger.error(f"[AGENT] {error_msg}", exc_info=True)
                 print(f"[AGENT] ❌ {error_msg}")
 
@@ -924,9 +1222,22 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 print(f"[CACHE] Created cache with {cache_creation} tokens")
 
             # Track generation (with error handling)
-            if LANGFUSE_ENABLED:
+            if ai_tracing.enabled():
                 try:
-                    track_generation(self.nickname, self.model, turn_messages, response, session.id, session.context.get("user_id"), duration_ms=metrics["duration_ms"])
+                    # Name the model that actually answered (a fallback, if the routed
+                    # profile failed) and list the attempts that failed before it.
+                    answered = getattr(self, "_answered_hop", None)
+                    failed = [f"{a.hop.profile_name}@{a.hop.endpoint_name}: {a.error}"
+                              for a in getattr(self, "_turn_attempts", []) if not a.ok]
+                    trace_id = track_generation(self.nickname, answered.model if answered else self.model, turn_messages, response,
+                                     session.id, session.context.get("user_id"), duration_ms=metrics["duration_ms"],
+                                     routing={"usage": self.usage_key,
+                                              "profile": answered.profile_name if answered else None,
+                                              "endpoint": answered.endpoint_name if answered else None,
+                                              "fallback_used": bool(answered and self._resolution().is_fallback(answered)),
+                                              "failed_attempts": failed or None})
+                    if trace_id:
+                        self.last_trace_id = trace_id
                 except Exception as e:
                     self.logger.warning(f"Langfuse tracking failed: {e}")
                     print(f"[AGENT] ⚠️ Langfuse tracking error (non-critical): {e}")
@@ -1106,7 +1417,7 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                         print(f"[AGENT] ⚠️ Processing cancelled after tool execution for session {session.id}")
                         yield AgentEvent(type=EventType.ERROR, agent=self.nickname, content="🛑 Generation stopped by user")
                         break
-                    if LANGFUSE_ENABLED:
+                    if ai_tracing.enabled():
                         try:
                             track_tool_call(self.nickname, tool_use.name, tool_use.input, result, True, session.id)
                         except Exception as e:
@@ -1163,7 +1474,7 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                             _user_content.append({"type": "image", "source": _src})
                     turn_messages.append({"role": "user", "content": _user_content})
                 except Exception as e:
-                    if LANGFUSE_ENABLED:
+                    if ai_tracing.enabled():
                         try:
                             track_tool_call(self.nickname, tool_use.name, tool_use.input, str(e), False, session.id)
                         except Exception as track_e:
@@ -1214,7 +1525,7 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
 
                 # Strip <think> tags from providers that wrap reasoning (e.g., MiniMax)
                 import re as _re
-                stripped = _re.sub(r'<think>[\s\S]*?</think>\s*', '', response_text).strip()
+                stripped = strip_reasoning(response_text)
                 if stripped:
                     response_text = stripped
                 elif '<think>' in response_text:
@@ -1259,6 +1570,13 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                     yield AgentEvent(type=EventType.SKILL_LOADED, agent=self.nickname, content=skill_to_load)
 
                     if self.load_skill(skill_to_load):
+                        # The history now ends on the assistant's "LOAD SKILL" turn.
+                        # Calling again as-is is an assistant prefill, which current
+                        # Claude models reject with 400 (BUG-0177); answer it the way
+                        # the tool_use skill-load path does.
+                        turn_messages.append({"role": "user", "content": (
+                            f"Skill '{skill_to_load}' loaded. Continue with the user's request."
+                        )})
                         # Rebuild system prompt and tools for the loaded skill
                         current_tool_names = self.tool_names
                         cached_system = self._build_cached_system(session.context, message)
@@ -1311,7 +1629,7 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         if response_text:
             session.add_message("assistant", response_text, agent=self.nickname)
         
-        if LANGFUSE_ENABLED:
+        if ai_tracing.enabled():
             try:
                 flush()
             except Exception as e:
@@ -1497,20 +1815,15 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             if not self._sherlock_handler:
                 self._sherlock_handler = SherlockHandler(self.nickname)
             return self._sherlock_handler
-        elif self.agent_id == 'monitor':
-            if not self._nightwatch_handler:
-                self._nightwatch_handler = NightwatchHandler(self.nickname)
-            return self._nightwatch_handler
         return None
     
     def _process_background_task(self, task: Dict[str, Any], queue_name: str):
         """Process a single background task with Socket.IO and Slack notifications"""
         task_id = 'unknown'
-        is_dry_run = self.agent_config.get('dry_run', False)
         handler = self._get_handler()
         
         try:
-            self.logger.debug(f"[{self.nickname}] 🔧 _process_background_task START (dry_run={is_dry_run})")
+            self.logger.debug(f"[{self.nickname}] 🔧 _process_background_task START")
             self.logger.debug(f"[{self.nickname}] 🔧 Task keys: {list(task.keys())}")
             
             task_type = task.get('type', 'unknown')
@@ -1519,13 +1832,6 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             
             self.logger.debug(f"[{self.nickname}] 🔧 task_type={task_type}, task_id={task_id}")
             self.logger.debug(f"[{self.nickname}] 🔧 task_data keys: {list(task_data.keys())}")
-            
-            # DRY RUN MODE: Use Nightwatch handler
-            if is_dry_run:
-                if not self._nightwatch_handler:
-                    self._nightwatch_handler = NightwatchHandler(self.nickname)
-                self._nightwatch_handler.handle_dry_run_task(task_type, task_id, task_data, queue_name)
-                return
             
             # Build message using appropriate handler
             if not handler:
@@ -1570,9 +1876,10 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             
             # Process with agent
             print(f"[{self.nickname}] 🔧 Starting async processing...")
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
+            # The worker has one event loop at a time; a background task queues behind a
+            # running Atlas chat or Test Prompt run instead of crashing it (async_utils).
+            from ..async_utils import run_in_worker_loop
+
             try:
                 responses = []
                 
@@ -1599,7 +1906,7 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                         else:
                             print(f"[{self.nickname}] 📡 Socket.IO not available - skipping event emission for {event.type}")
                 
-                loop.run_until_complete(process())
+                run_in_worker_loop(process())
                 
                 result = '\n'.join(responses)
                 print(f"[{self.nickname}] ✅ Task {task_id} completed successfully")
@@ -1613,7 +1920,6 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 handler.send_to_slack(task_type, task_id, task_data, result)
                 
             finally:
-                loop.close()
                 print(f"[{self.nickname}] 🔧 Event loop closed")
                 
         except Exception as e:

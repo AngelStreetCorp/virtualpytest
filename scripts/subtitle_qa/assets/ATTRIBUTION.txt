@@ -1,0 +1,3 @@
+Tears of Steel - (CC) Blender Foundation | mango.blender.org
+License: Creative Commons Attribution 3.0 (https://creativecommons.org/licenses/by/3.0/)
+TOS-en.srt / TOS-de.srt: https://download.blender.org/demo/movies/ToS/subtitles/ (same license, community translations)

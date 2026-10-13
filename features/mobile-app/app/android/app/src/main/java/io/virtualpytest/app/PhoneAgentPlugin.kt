@@ -24,6 +24,9 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import com.google.zxing.integration.android.IntentIntegrator
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Native side of `window.Capacitor.Plugins.PhoneAgent` (frontend/native/phoneAgent.ts, owned by
@@ -223,6 +226,57 @@ class PhoneAgentPlugin : Plugin() {
     @PluginMethod
     fun reloadApp(call: PluginCall) {
         activity.runOnUiThread { bridge.webView.reload() }
+        call.resolve()
+    }
+
+    // ---- app update -------------------------------------------------------------------------
+
+    /**
+     * Installed version against the `<apk>.json` sidecar published next to the download
+     * ([BuildConfig.APK_URL]). Fetched here rather than from the WebView: the APK's origin is
+     * cross-site to the download server, which sends no CORS headers.
+     */
+    @PluginMethod
+    fun checkUpdate(call: PluginCall) {
+        Thread {
+            val info = context.packageManager.getPackageInfo(context.packageName, 0)
+            val installedCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+            val result = JSObject().apply {
+                put("installedVersion", info.versionName)
+                put("installedCode", installedCode)
+                put("updateAvailable", false)
+            }
+            if (BuildConfig.APK_URL.isNotEmpty()) {
+                try {
+                    // The sidecar is overwritten in place per release; a changing query keeps any
+                    // edge cache from answering with the previous one.
+                    val conn = URL("${BuildConfig.APK_URL}.json?t=${System.currentTimeMillis()}").openConnection() as HttpURLConnection
+                    ClientCert.applyTo(context, conn)
+                    conn.connectTimeout = 5000
+                    conn.readTimeout = 5000
+                    conn.useCaches = false
+                    val latest = conn.inputStream.bufferedReader().use { JSONObject(it.readText()) }
+                    val latestCode = latest.getLong("version_code")
+                    result.put("latestVersion", latest.optString("version"))
+                    result.put("latestCode", latestCode)
+                    result.put("updateAvailable", latestCode > installedCode)
+                } catch (e: Exception) {
+                    Log.w(TAG, "update check failed", e)
+                }
+            }
+            call.resolve(result)
+        }.start()
+    }
+
+    /** The browser downloads the APK; opening the file hands it to Android's installer. */
+    @PluginMethod
+    fun openUpdate(call: PluginCall) {
+        if (BuildConfig.APK_URL.isEmpty()) {
+            call.reject("this build has no download URL")
+            return
+        }
+        val uri = Uri.parse("${BuildConfig.APK_URL}?v=${System.currentTimeMillis()}")
+        activity.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         call.resolve()
     }
 

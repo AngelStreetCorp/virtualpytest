@@ -13,7 +13,14 @@ def count_lines(file_path):
 # Code file extensions to count
 CODE_EXTS = {'.py', '.js', '.jsx', '.ts', '.tsx', '.sh', '.sql', '.yml', '.yaml', '.json', '.html', '.css', '.conf', '.service'}
 
-SKIP_NAMES = {'venv', '__pycache__', 'node_modules', 'dist', 'tmp', 'docs', 'infra', 'screenshot', 'security_report', 'tests', 'scripts'}
+# Build/cache output, plus the top-level folders that are tooling rather than the product:
+# docs, infra, scripts, tests — and `training`, which is the LoRA fine-tuning harness
+# (dataset prep, train/merge scripts, configs). It produces a model; it is not part of what
+# the app is built from, so counting it inflates "how big is this codebase" the same way
+# counting `scripts` would. `setup` is deliberately NOT here — the installers are shipped
+# and maintained as product.
+SKIP_NAMES = {'venv', '__pycache__', 'node_modules', 'dist', 'tmp', 'docs', 'infra',
+              'screenshot', 'security_report', 'tests', 'scripts', 'training'}
 
 
 def _ignored_paths(root, candidates):

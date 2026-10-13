@@ -12,6 +12,7 @@ import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any
 from shared.src.lib.utils.cloudflare_utils import upload_script_report, upload_validation_screenshots, upload_script_logs
+from shared.src.lib.utils.report_theme import report_theme_head
 
 
 def generate_and_upload_script_report(
@@ -343,16 +344,18 @@ def generate_validation_report(report_data: Dict) -> str:
         status = "PASS" if success else "FAIL"
         status_class = "success" if success else "failure"
         
+        theme_head = report_theme_head()
         html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
             <title>Script Report: {script_name}</title>
+            {theme_head}
             <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; }}
-                .header {{ background: #f5f5f5; padding: 20px; border-radius: 5px; }}
-                .{status_class} {{ color: {'green' if success else 'red'}; }}
-                .error {{ background: #ffe6e6; padding: 10px; border-radius: 5px; margin: 10px 0; }}
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: var(--vpt-page); color: var(--vpt-text); }}
+                .header {{ background: var(--vpt-surface); border: 1px solid var(--vpt-border); padding: 20px; border-radius: 5px; }}
+                .{status_class} {{ color: {'var(--vpt-success)' if success else 'var(--vpt-error)'}; }}
+                .error {{ background: var(--vpt-error-tint); color: var(--vpt-error); padding: 10px; border-radius: 5px; margin: 10px 0; }}
             </style>
         </head>
         <body>

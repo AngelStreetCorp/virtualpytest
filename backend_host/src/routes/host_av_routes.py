@@ -22,6 +22,7 @@ from backend_host.src.lib.utils.route_response import (
 import os
 import shutil
 import time
+from shared.src.lib.utils import cv2_io
 
 # Create blueprint
 host_av_bp = Blueprint('host_av', __name__, url_prefix='/host/av')
@@ -97,22 +98,207 @@ def get_status():
 def take_control():
     data = get_json_payload()
     device_id = data.get('device_id', 'device1')
-    
+
     av_controller = get_controller(device_id, 'av')
-    
+
     if not av_controller:
         return controller_missing_for_device('AV', device_id)
-    
+
     control_result = av_controller.take_control()
-    
+
     if isinstance(control_result, dict):
         control_result['device_id'] = device_id
-        return jsonify(control_result)
-    else:
+        return jsonify(control_result), 200
+
+    return jsonify({'success': True, 'message': 'Control acquired', 'device_id': device_id}), 200
+
+
+# TASK-31 follow-up: runtime URL switcher for RTSPController.set_url().
+# Writes to active_rtsp_url.conf; the vpt-stream watcher picks it up on the next
+# 1 s tick and restarts the FFmpeg child for the matching capture_dir.
+@host_av_bp.route('/setUrl', methods=['POST'])
+@route_exception_handler()
+def set_rtsp_url():
+    """
+    Change the source URL of an RTSP / HLS / MJPEG device at runtime.
+
+    Body: {"device_id": "device2", "url": "rtsp://...", "youtube_url": "..." (optional)}
+    """
+    data = get_json_payload()
+    device_id = data.get('device_id', 'device1')
+    new_url = data.get('url')
+    youtube_url = data.get('youtube_url')
+
+    if not new_url:
+        return jsonify({'success': False, 'error': 'url is required'}), 400
+
+    av_controller = get_controller(device_id, 'av')
+    if not av_controller:
+        return controller_missing_for_device('AV', device_id)
+
+    if not hasattr(av_controller, 'set_url'):
         return jsonify({
-            'success': control_result,
-            'device_id': device_id
-        })
+            'success': False,
+            'error': f"Controller {type(av_controller).__name__} does not support set_url; only RTSP stream controllers do",
+            'device_id': device_id,
+        }), 400
+
+    ok = av_controller.set_url(new_url, youtube_url=youtube_url)
+    if not ok:
+        return jsonify({'success': False, 'error': 'set_url returned False (see host logs)', 'device_id': device_id}), 500
+
+    return jsonify({
+        'success': True,
+        'message': 'URL override written; vpt-stream watcher will restart ffmpeg within ~1s',
+        'device_id': device_id,
+        'url': new_url,
+        'youtube_url': youtube_url,
+    }), 200
+
+
+# TASK-31 follow-up: runtime file swap for VideoFileStreamController.load_or_download().
+# If `url_or_path` is an existing path, switch to it. If it's an HTTP(S) URL,
+# download to the host's /var/www/html/videos/ first (curl --max-time 120),
+# then switch the watcher to the downloaded file. The watcher picks up the
+# override on its next tick.
+@host_av_bp.route('/loadVideo', methods=['POST'])
+@route_exception_handler()
+def load_video():
+    """
+    Switch the local-video source for a device at runtime.
+
+    Body: {"device_id": "device1", "url_or_path": "/var/www/html/videos/foo.mp4 OR "https://..."}
+    Optional: {"cache_dir": "/var/www/html/videos", "timeout": 120}
+    """
+    data = get_json_payload()
+    device_id = data.get('device_id', 'device1')
+    url_or_path = data.get('url_or_path')
+    cache_dir = data.get('cache_dir', '/var/www/html/videos')
+    timeout = int(data.get('timeout', 120))
+
+    if not url_or_path:
+        return jsonify({'success': False, 'error': 'url_or_path is required'}), 400
+
+    av_controller = get_controller(device_id, 'av')
+    if not av_controller:
+        return controller_missing_for_device('AV', device_id)
+
+    if not hasattr(av_controller, 'load_or_download'):
+        return jsonify({
+            'success': False,
+            'error': f"Controller {type(av_controller).__name__} does not support load_or_download; only video file controllers do",
+            'device_id': device_id,
+        }), 400
+
+    ok = av_controller.load_or_download(url_or_path, cache_dir=cache_dir, timeout=timeout)
+    if not ok:
+        return jsonify({'success': False, 'error': 'load_or_download returned False (see host logs)', 'device_id': device_id}), 500
+
+    return jsonify({
+        'success': True,
+        'message': 'file-path override written; vpt-stream watcher will restart ffmpeg within ~1s',
+        'device_id': device_id,
+        'url_or_path': url_or_path,
+        'cache_dir': cache_dir,
+    }), 200
+
+
+VIDEO_EXTENSIONS = ('.mp4', '.mkv', '.mov', '.ts', '.webm', '.avi', '.flv', '.m4v')
+
+
+@host_av_bp.route('/listVideos', methods=['GET'])
+@route_exception_handler()
+def list_videos():
+    """List the video files loadVideo can switch to (the download cache dir)."""
+    cache_dir = request.args.get('cache_dir', '/var/www/html/videos')
+    videos = []
+    if os.path.isdir(cache_dir):
+        for name in sorted(os.listdir(cache_dir)):
+            path = os.path.join(cache_dir, name)
+            if name.lower().endswith(VIDEO_EXTENSIONS) and os.path.isfile(path):
+                videos.append({'name': name, 'path': path, 'size': os.path.getsize(path)})
+    return jsonify({'success': True, 'cache_dir': cache_dir, 'videos': videos}), 200
+
+
+# TASK-31: switch controller endpoints. Controllers inherit BaseSwitchController
+# (bluetooth_procon drives a Nintendo Switch; hdmi_switch is a placeholder) and
+# override send_command / list_inputs / get_status.
+@host_av_bp.route('/switch/input', methods=['POST'])
+@route_exception_handler()
+def switch_input_route():
+    """
+    Switch the upstream HDMI switch to a given input.
+
+    Body: {"device_id": "device1", "input": 1}
+    """
+    data = get_json_payload()
+    device_id = data.get('device_id', 'device1')
+    input_number = data.get('input')
+
+    if input_number is None:
+        return jsonify({'success': False, 'error': 'input is required'}), 400
+
+    switch_controller = get_controller(device_id, 'switch')
+    if not switch_controller:
+        return jsonify({
+            'success': False,
+            'error': f"No switch controller for device_id={device_id}",
+            'device_id': device_id,
+        }), 404
+
+    ok = switch_controller.switch_input(int(input_number))
+    return jsonify({
+        'success': bool(ok),
+        'device_id': device_id,
+        'input': input_number,
+        'message': 'Switch controller is a placeholder; the real controller is not implemented yet',
+    }), (200 if ok else 501)
+
+
+@host_av_bp.route('/switch/command', methods=['POST'])
+@route_exception_handler()
+def switch_command_route():
+    """
+    Send a generic command to the switch controller.
+
+    Body: {"device_id": "device1", "command": "press_a"}
+    """
+    data = get_json_payload()
+    device_id = data.get('device_id', 'device1')
+    command = data.get('command')
+
+    if not command:
+        return jsonify({'success': False, 'error': 'command is required'}), 400
+
+    switch_controller = get_controller(device_id, 'switch')
+    if not switch_controller:
+        return jsonify({'success': False, 'error': f"No switch controller for {device_id}"}), 404
+
+    result = switch_controller.send_command(command)
+    return jsonify(result), (200 if result.get('success') else 501)
+
+
+@host_av_bp.route('/switch/status', methods=['GET', 'POST'])
+@route_exception_handler()
+def switch_status_route():
+    """Switch controller status (bluetooth_procon: connected / reconnecting / pairing / disconnected)."""
+    data = get_json_payload() if request.method == 'POST' else {}
+    device_id = data.get('device_id') or request.args.get('device_id', 'device1')
+    switch_controller = get_controller(device_id, 'switch')
+    if not switch_controller:
+        return jsonify({'success': False, 'error': f"No switch controller for {device_id}"}), 404
+    return jsonify(switch_controller.get_status()), 200
+
+
+@host_av_bp.route('/switch/list', methods=['GET'])
+@route_exception_handler()
+def switch_list_route():
+    """List available switch inputs / capabilities."""
+    device_id = request.args.get('device_id', 'device1')
+    switch_controller = get_controller(device_id, 'switch')
+    if not switch_controller:
+        return jsonify({'success': False, 'error': f"No switch controller for {device_id}"}), 404
+    return jsonify(switch_controller.list_inputs()), 200
         
 @host_av_bp.route('/getStreamUrl', methods=['GET'])
 @route_exception_handler()
@@ -344,7 +530,7 @@ def take_screenshot():
             try:
                 import cv2
                 from backend_host.src.controllers.verification.image_helpers import ImageHelpers
-                img_bgr = cv2.imread(screenshot_path)
+                img_bgr = cv2_io.imread(screenshot_path)
                 fingerprint = ImageHelpers(None, av_controller).compute_fingerprint(img_bgr)
             except Exception as fp_err:
                 print(f"[@route:host_av:takeScreenshot] fingerprint failed (non-fatal): {fp_err}")
@@ -471,6 +657,11 @@ def save_screenshot():
             'error': f'Screenshot file not found: {local_screenshot_path}'
         }), 500
     
+    # Read the frame BEFORE the upload: upload_files() auto-deletes a cold capture_*.jpg once it is
+    # on R2, so reading it afterwards gave imread None -> fingerprint None on every node (BUG-0415).
+    import cv2
+    img_bgr = cv2_io.imread(local_screenshot_path)
+
     try:
         from shared.src.lib.utils.cloudflare_utils import upload_navigation_screenshot
         
@@ -492,10 +683,10 @@ def save_screenshot():
         # fingerprinting must never fail the screenshot save.
         fingerprint = None
         try:
-            import cv2
             from backend_host.src.controllers.verification.image_helpers import ImageHelpers
-            img_bgr = cv2.imread(local_screenshot_path)
             fingerprint = ImageHelpers(None, av_controller).compute_fingerprint(img_bgr)
+            if fingerprint is None:
+                print("[@route:host_av:saveScreenshot] fingerprint is None (frame unreadable or empty)")
         except Exception as fp_err:
             print(f"[@route:host_av:saveScreenshot] fingerprint failed (non-fatal): {fp_err}")
 
@@ -531,14 +722,14 @@ def region_fingerprint():
         img = None
         if str(url).startswith('http'):
             local_path = ih.download_image(url)
-            img = cv2.imread(local_path) if local_path else None
+            img = cv2_io.imread(local_path) if local_path else None
         else:
             # relative storage key → download via the storage client
             from shared.src.lib.utils.cloudflare_utils import CloudflareUtils
             cf = CloudflareUtils()
             tmp = os.path.join(tempfile.gettempdir(), 'regfp.jpg')
             dl = cf.download_file(url, tmp)
-            img = cv2.imread(tmp) if dl.get('success') else None
+            img = cv2_io.imread(tmp) if dl.get('success') else None
             if img is None:
                 return jsonify({'success': False,
                                 'error': f"Could not fetch stored screenshot '{url}' from storage "

@@ -613,6 +613,8 @@ if [ "${ENABLE_GRAFANA}" = "true" ]; then
       - ../../../infra/monitoring/grafana/config/grafana.ini:/etc/grafana/grafana.ini:ro
       - ../../../infra/monitoring/grafana/config/provisioning/dashboards/default.yaml:/etc/grafana/provisioning/dashboards/default.yaml:ro
       - ../../../infra/monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      # template.json is the Atlas dashboard template, not a dashboard: hide it from file provisioning
+      - /dev/null:/var/lib/grafana/dashboards/template.json:ro
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=\${GRAFANA_ADMIN_PASSWORD:-admin123}

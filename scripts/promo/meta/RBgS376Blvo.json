@@ -1,0 +1,20 @@
+{
+ "id": "RBgS376Blvo",
+ "title": "VirtualPyTest in 60 seconds: automated testing for TV, STB, mobile and web",
+ "description": "Any device with a screen, tested and monitored 24/7. VirtualPyTest drives real set-top boxes, TVs, phones and web apps, proves what is on screen, and watches every device around the clock.\n\nIn this minute: one dashboard for every host and device, live stream and remote control of real hardware, one-click test runs, reports with screenshots and video, KPI measurement, the 24h heatmap and incident evidence.\n\nOpen source and free. Run it on a Raspberry Pi in your lab or on a server in the cloud.\n\nChapters\n0:00 Dashboard\n0:10 Live device control\n0:17 Run a test\n0:25 Report\n0:31 KPI measurement\n0:37 Results and trends\n0:43 24h heatmap\n0:49 Incidents",
+ "tags": [
+  "virtualpytest",
+  "test automation",
+  "open source",
+  "set-top box testing",
+  "android tv testing",
+  "web automation",
+  "mobile testing",
+  "ai agent",
+  "video monitoring",
+  "qa automation"
+ ],
+ "privacy": "public",
+ "category": "22",
+ "published": "2026-09-27"
+}

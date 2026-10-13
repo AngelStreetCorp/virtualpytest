@@ -19,6 +19,7 @@ import {
   Lock as LockIcon,
 } from '@mui/icons-material';
 
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import type { RunningLogData } from '../../hooks/rec/useRunningLog';
 import { getTimeRemaining } from '../../utils/recUtils';
 import { RunningScriptNameBadge } from './RunningScriptNameBadge';
@@ -50,6 +51,7 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
   logData,
   scriptNameRightOffset = 8,
 }) => {
+  const P = useAgentChatPalette();
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set());
   const [isCollapsed, setIsCollapsed] = useState(false);
   const scrollContainerRef = React.useRef<HTMLDivElement>(null);
@@ -153,7 +155,7 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <LockIcon sx={{ fontSize: '0.85rem', color: 'warning.main' }} />
+        <LockIcon sx={{ fontSize: '0.85rem', color: P.warning }} />
         <RunningScriptNameBadge
           scriptName={logData.script_name}
           sx={{
@@ -168,7 +170,7 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
           textSx={{ fontWeight: 'bold', fontSize: '0.75rem' }}
         />
       </Box>
-      <Typography variant="caption" sx={{ color: '#aaa', fontSize: '0.7rem' }}>
+      <Typography variant="caption" sx={{ color: P.textMuted, fontSize: '0.7rem' }}>
         Started:{' '}
         {new Date(logData.start_time).toLocaleTimeString('en-US', {
           hour12: false,
@@ -177,7 +179,7 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
         })}
       </Typography>
       {logData.estimated_end && (
-        <Typography variant="caption" sx={{ color: '#aaa', fontSize: '0.7rem' }}>
+        <Typography variant="caption" sx={{ color: P.textMuted, fontSize: '0.7rem' }}>
           Est. End:{' '}
           {new Date(logData.estimated_end).toLocaleTimeString('en-US', {
             hour12: false,
@@ -209,16 +211,16 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
           onClick={() => setIsCollapsed(false)}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <LockIcon sx={{ fontSize: '1rem', color: 'warning.main' }} />
-            <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'bold', flex: 1 }}>
+            <LockIcon sx={{ fontSize: '1rem', color: P.warning }} />
+            <Typography variant="caption" sx={{ color: P.textPrimary, fontWeight: 'bold', flex: 1 }}>
               Step {logData.current_step_number}/{logData.total_steps}
             </Typography>
             {getTimeRemaining(logData.estimated_end) && (
-              <Typography variant="caption" sx={{ color: '#aaa', fontSize: '0.7rem' }}>
+              <Typography variant="caption" sx={{ color: P.textMuted, fontSize: '0.7rem' }}>
                 {getTimeRemaining(logData.estimated_end)}
               </Typography>
             )}
-            <ExpandMoreIcon sx={{ fontSize: '1rem', color: '#aaa' }} />
+            <ExpandMoreIcon sx={{ fontSize: '1rem', color: P.textMuted }} />
           </Box>
         </Box>
       </>
@@ -249,13 +251,13 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
             justifyContent: 'flex-end',
             mb: 1,
             pb: 0.5,
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            borderBottom: `1px solid ${P.borderColor}`,
           }}
         >
           <IconButton
             size="small"
             onClick={() => setIsCollapsed(true)}
-            sx={{ color: '#aaa', p: 0.25 }}
+            sx={{ color: P.textMuted, p: 0.25 }}
             title="Minimize"
           >
             <ExpandLessIcon fontSize="small" />
@@ -271,7 +273,7 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
             pr: 0.5,
             '&::-webkit-scrollbar': { width: '4px' },
             '&::-webkit-scrollbar-thumb': {
-              backgroundColor: 'rgba(255,255,255,0.3)',
+              backgroundColor: P.borderColor,
               borderRadius: '4px',
             },
           }}
@@ -293,29 +295,29 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                   mb: 1,
                   p: 0.75,
                   backgroundColor: step.isCurrent
-                    ? 'rgba(33,150,243,0.2)'
+                    ? `${P.accent}33`
                     : step.isPrevious
-                      ? 'rgba(76,175,80,0.15)'
-                      : 'rgba(158,158,158,0.1)',
+                      ? `${P.success}26`
+                      : `${P.textMuted}1a`,
                   borderRadius: 0.5,
                   border: step.isCurrent
-                    ? '1px solid rgba(33,150,243,0.5)'
+                    ? `1px solid ${P.accent}`
                     : step.isPrevious
-                      ? '1px solid rgba(76,175,80,0.3)'
-                      : '1px solid rgba(158,158,158,0.2)',
+                      ? `1px solid ${P.success}`
+                      : `1px solid ${P.borderColor}`,
                   opacity: step.isPrevious ? 0.7 : step.isNext ? 0.6 : 1,
                 }}
               >
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   {step.isCurrent ? (
-                    <CircularProgress size={12} sx={{ color: '#2196f3' }} />
+                    <CircularProgress size={12} sx={{ color: P.accent }} />
                   ) : step.isPrevious ? (
                     <Box
                       sx={{
                         width: 12,
                         height: 12,
                         borderRadius: '50%',
-                        backgroundColor: '#4caf50',
+                        backgroundColor: P.success,
                       }}
                     />
                   ) : (
@@ -324,15 +326,15 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                         width: 12,
                         height: 12,
                         borderRadius: '50%',
-                        backgroundColor: '#666',
-                        border: '1px solid #888',
+                        backgroundColor: P.textMuted,
+                        border: `1px solid ${P.borderColor}`,
                       }}
                     />
                   )}
                   <Typography
                     variant="caption"
                     sx={{
-                      color: step.isCurrent ? '#fff' : step.isPrevious ? '#fff' : '#aaa',
+                      color: step.isCurrent ? P.textPrimary : step.isPrevious ? P.textPrimary : P.textMuted,
                       fontSize: '0.75rem',
                       fontWeight: 'bold',
                       flex: 1,
@@ -344,7 +346,7 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                     <IconButton
                       size="small"
                       onClick={() => toggleStep(step.step_number)}
-                      sx={{ color: '#aaa', p: 0.25 }}
+                      sx={{ color: P.textMuted, p: 0.25 }}
                     >
                       {isExpanded ? (
                         <ExpandLessIcon fontSize="small" />
@@ -356,12 +358,12 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                 </Box>
 
                 {isExpanded && hasDetails && (
-                  <Box sx={{ ml: 1.5, mt: 0.75, borderLeft: '2px solid #444', pl: 0.75 }}>
+                  <Box sx={{ ml: 1.5, mt: 0.75, borderLeft: `2px solid ${P.borderColor}`, pl: 0.75 }}>
                     {step.actions && step.actions.length > 0 && (
                       <Box sx={{ mb: 0.5 }}>
                         <Typography
                           variant="caption"
-                          sx={{ color: '#2196f3', fontWeight: 'bold', fontSize: '0.7rem' }}
+                          sx={{ color: P.accentText, fontWeight: 'bold', fontSize: '0.7rem' }}
                         >
                           Actions ({step.current_action_index || 0}/{step.actions.length})
                         </Typography>
@@ -381,14 +383,14 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                                 }}
                               >
                                 {isCurrent ? (
-                                  <CircularProgress size={8} sx={{ color: '#2196f3' }} />
+                                  <CircularProgress size={8} sx={{ color: P.accent }} />
                                 ) : isCompleted ? (
                                   <Box
                                     sx={{
                                       width: 8,
                                       height: 8,
                                       borderRadius: '50%',
-                                      backgroundColor: '#4caf50',
+                                      backgroundColor: P.success,
                                     }}
                                   />
                                 ) : (
@@ -397,14 +399,14 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                                       width: 8,
                                       height: 8,
                                       borderRadius: '50%',
-                                      backgroundColor: '#666',
+                                      backgroundColor: P.textMuted,
                                     }}
                                   />
                                 )}
                                 <Typography
                                   variant="caption"
                                   sx={{
-                                    color: isCurrent ? '#fff' : isCompleted ? '#4caf50' : '#aaa',
+                                    color: isCurrent ? P.textPrimary : isCompleted ? P.success : P.textMuted,
                                     fontFamily: 'monospace',
                                     fontSize: '0.65rem',
                                   }}
@@ -424,7 +426,7 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                       <Box>
                         <Typography
                           variant="caption"
-                          sx={{ color: '#888', fontSize: '0.65rem' }}
+                          sx={{ color: P.textMuted, fontSize: '0.65rem' }}
                         >
                           Verifications (
                           {step.current_verification_index || 0}/{step.verifications.length})
@@ -457,14 +459,14 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                                 }}
                               >
                                 {isCurrent ? (
-                                  <CircularProgress size={8} sx={{ color: '#2196f3' }} />
+                                  <CircularProgress size={8} sx={{ color: P.accent }} />
                                 ) : isCompleted ? (
                                   <Box
                                     sx={{
                                       width: 8,
                                       height: 8,
                                       borderRadius: '50%',
-                                      backgroundColor: '#4caf50',
+                                      backgroundColor: P.success,
                                     }}
                                   />
                                 ) : (
@@ -473,21 +475,21 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                                       width: 8,
                                       height: 8,
                                       borderRadius: '50%',
-                                      backgroundColor: '#666',
+                                      backgroundColor: P.textMuted,
                                     }}
                                   />
                                 )}
                                 <Typography
                                   variant="caption"
                                   sx={{
-                                    color: isCurrent ? '#fff' : isCompleted ? '#4caf50' : '#888',
+                                    color: isCurrent ? P.textPrimary : isCompleted ? P.success : P.textMuted,
                                     fontFamily: 'monospace',
                                     fontSize: '0.6rem',
                                   }}
                                 >
                                   {verification.command}
                                   {value ? (
-                                    <span style={{ color: '#64b5f6', marginLeft: '4px' }}>
+                                    <span style={{ color: P.series[1], marginLeft: '4px' }}>
                                       {value}
                                     </span>
                                   ) : (
@@ -497,7 +499,7 @@ export const ScriptRunningOverlay: React.FC<ScriptRunningOverlayProps> = ({
                                   )}
                                   <span
                                     style={{
-                                      color: timeoutMs > 0 ? '#888' : '#ef5350',
+                                      color: timeoutMs > 0 ? P.textMuted : P.error,
                                       marginLeft: '6px',
                                     }}
                                   >

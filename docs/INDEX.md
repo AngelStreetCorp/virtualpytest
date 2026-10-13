@@ -11,7 +11,7 @@ Master lookup: scan the section matching the question's topic, open the file who
 - `get-started/proxmox.md` — native install: one VM (`install_all.sh`) or one VM per role; day-two commands.
 - `get-started/local-dev.md` — developer setup on Linux (foreground services); macOS and Windows as host role only.
 - `get-started/supabase.md` — where Supabase runs (in-stack / CLI / cloud), auth posture table (open mode default), enforce-login recipes, RLS note; `get-started/supabase-auth-setup.md` — long version: OAuth providers, roles, permissions, token flow.
-- `get-started/configuration.md` — every env variable per component, ports, pinned versions.
+- `get-started/configuration.md` — every env variable per component, ports, pinned versions; AI config is not env (Settings → AI) + the upgrade steps from the old AI env keys.
 - `get-started/hardware.md` — what to buy, with pictures and links: Raspberry Pi 5 16 GB kit (standalone) vs Minisforum MS-A2 + Proxmox (lab), the MS2109 HDMI→USB capture dongle, Proxmox node sizing for the full fleet, IR / BLE / smart-plug control hardware, optional local-LLM VM layout, shopping lists.
 - `get-started/emulators.md` — emulator VMs per device type (web/mobile/tablet/TV): vCPU/RAM/disk sizing, which AVD or browser, creating the VM on Proxmox or any hypervisor, and configuring it for VirtualPyTest.
 - `get-started/network.md` — UFW rules for a standalone box and for a production LAN, compute<->device segmentation, TLS/certbot, nginx HTTP->HTTPS, and remote-access options (Cloudflare Tunnel, VPN).
@@ -42,6 +42,7 @@ Master lookup: scan the section matching the question's topic, open the file who
 ## API (request/response contracts — specs/*.yaml)
 - `api/specs/server-access-workspace.yaml` — auth/users/teams/workspaces: `/server/auth/{check,profile}`, `/server/permissions/matrix`, `/server/users[/{user_id}][/assign-team|/remove-team|/permissions]`, `/server/teams[/{team_id}][/members[/{user_id}]]`, `/server/workspaces[/user/{user_id}|/{workspace_id}[/members[/user|/team|/{member_id}]]]`.
 - `api/specs/server-ai-analysis.yaml` — AI agent: `/server/ai/{analyzeCompatibility,generatePlan,getStatus,stopExecution,analyzePrompt,resetCache}`.
+- `api/specs/server-ai-routing.yaml` — AI model routing (TASK-30): `/server/ai/{config,stats,endpoints[/{id}[/test]],profiles[/{id}[/test]],routes[/{id}],complete,resolve,openai/{usage}/chat/completions}`, `/server/agent/{health,api-key}`.
 - `api/specs/server-campaign-management.yaml` — campaign CRUD: `/server/campaigns/{getAllCampaigns,createCampaign,getCampaign,updateCampaign,deleteCampaign}[/{campaign_id}]`.
 - `api/specs/server-core-system.yaml` — health check: `/server/system/health`.
 - `api/specs/server-deployment-scheduling.yaml` — scheduled deployments: `/server/deployment/{create,list,pause,resume,delete}[/{deployment_id}]`.
@@ -78,7 +79,7 @@ Master lookup: scan the section matching the question's topic, open the file who
 - `technical/testcase/testcase-graph.md` — `graph_json` structure (Blockly-style nodes/edges); `testcase-naming.md` — testcase naming convention; `testcase-template.md` — standard description format.
 - `technical/webhook.md` — webhook + WebSocket completion contract for script/deployment execution.
 - `technical/script_execution_socket_diagnosis.md` — field diagnosis of a script-execution socket failure.
-- `technical/AI_ANALYZER_DIRECT_TEST_STRATEGY.md` — test strategy for the direct queue-analyzer loop (failure/success sampling policy); `AI_FALSE_POSITIVE_MARKDOWN_PLAN.md` — plan: per-execution AI-only markdown artifact for false-positive classification.
+- `technical/AI_FALSE_POSITIVE_MARKDOWN_PLAN.md` — plan: per-execution AI-only markdown artifact for false-positive classification.
 
 ## MCP (Model Context Protocol server)
 - `mcp/README.md` — MCP docs hub (version, tool count, links to all tool pages).
@@ -87,7 +88,7 @@ Master lookup: scan the section matching the question's topic, open the file who
 - `mcp/mcp_playground.md` — MCP Playground web interface for trying tools.
 - `mcp/mcp_tools_generated.md` — auto-generated catalog of all 75 tools by category (source of truth for tool names).
 - `mcp/mcp_tools_control.md` — `take_control` (mandatory first step); `mcp/mcp_tools_action.md` — device action tools reference.
-- `mcp/mcp_tools_navigation.md` — navigation tools; `mcp/mcp_tools_tree.md` — 11 primitive tree CRUD tools; `mcp/mcp_tools_exploration.md` — 7 AI exploration tools that auto-build navigation trees.
+- `mcp/mcp_tools_navigation.md` — navigation tools; `mcp/mcp_tools_tree.md` — 11 primitive tree CRUD tools; `mcp/mcp_tools_exploration.md` — `auto_discover_screen`, the map builder (rule-based: no model on Android/web, vision model on TV/STB) vs the agent pipeline (Atlas build-tree-*, QualiAI).
 - `mcp/mcp_tools_verification.md` — verification tools; `mcp/mcp_tools_screen_analysis.md` — `analyze_screen_for_action`/`_verification`; `mcp/mcp_tools_screenshot.md` — `capture_screenshot`.
 - `mcp/mcp_tools_script.md` — script execution tools; `mcp/mcp_tools_testcase.md` — testcase management tools; `mcp/mcp_tools_requirements.md` — 10 requirements/coverage tools.
 - `mcp/mcp_tools_ai.md` — AI generation tools; `mcp/mcp_tools_userinterface.md` — userinterface management tools.
@@ -138,13 +139,14 @@ Master lookup: scan the section matching the question's topic, open the file who
 - `agent/REQUIREMENTS.md` — requirements & coverage technical reference; `agent/COVERAGE.md` — Coverage dashboard internals.
 - `agent/CHANGE_DOMAIN.md` — exact updates needed when the production domain changes.
 - `agent/AVQ_IMPLEMENTATION.md` — per-minute audio/video quality KPI implementation plan.
-- `agent/PROFILING.md` — py-spy sampling of remote host services; `agent/DOCS_BENCHMARK.md` — benchmark for whether agents can retrieve facts from these docs; `agent/OBSIDIAN.md` — viewing docs/ as an Obsidian graph.
+- `../scripts/profile_remote_monitor.sh` — py-spy sampling of remote host services (how to read it: `../backend_host/scripts/OPTIMIZATION.md`); `agent/DOCS_BENCHMARK.md` — benchmark for whether agents can retrieve facts from these docs.
 - `agent/ai/UNIFIED_CHAT_REFACTOR.md` — plan to unify the 3 overlapping agent-chat systems.
 - `agent/ai/README.md` — AI agent system docs hub; `agent/ai/agent.md` — skill-based 3-agent architecture with prompt caching.
-- `agent/ai/analyser_agent.md` — Sherlock/Nightwatch monitoring & analysis agents; `agent/ai/agent_memory_strategy.md` — conversation context/memory between messages.
+- `agent/ai/AI_ROUTING.md` — which model serves which AI call: usage keys, endpoints/profiles/routes, server default + team overrides, host gateway, API keys, Settings → AI, pointing a usage at LM Studio/Ollama.
+- `agent/ai/SCRIPT_TRIAGE.md` — script triage: the `vpt-discard-scripts` worker (Sherlock), cost rules, verdicts; `agent/ai/ALERT_TRIAGE.md` — alert triage (`vpt-discard-incidents`); `agent/ai/agent_memory_strategy.md` — conversation context/memory between messages.
 - `agent/ai/socket.md` — Socket.IO real-time config for the AI agent.
 - `agent/ai/tool-caching.md` — dual tool-caching strategy; `agent/ai/tool_definition_autogeneration.md` — tool definitions auto-generated from implementation code.
-- `agent/ai/agent_benchmarks.md` — 3-tier agent benchmarking pyramid; `agent/ai/langfuse_integration.md` — Langfuse LLM observability; `agent/ai/mcp_improvement.md` — MCP tool improvement plan (partially superseded).
+- `agent/ai/langfuse_integration.md` — Langfuse LLM observability; `agent/ai/mcp_improvement.md` — MCP tool improvement plan (partially superseded).
 
 ## Release Notes
 - `release_note/README.md` — what shipped, newest first (user-facing features and fixes only).

@@ -1,10 +1,9 @@
 import {
-  Assessment as ReportsIcon,
   CheckCircle as PassIcon,
   Error as FailIcon,
   HourglassEmpty as RunningIcon,
-  Link as LinkIcon,
-  SmartToy as AiIcon,
+  DescriptionOutlined as ReportFileIcon,
+  Terminal as LogsIcon,
   Person as ManualIcon,
   Help as UnknownIcon,
   Comment as CommentIcon,
@@ -18,6 +17,9 @@ import {
   ExpandLess as ExpandLessIcon,
   PlayArrow as ScriptIcon,
   RestartAlt as RerunIcon,
+  InfoOutlined as InfoIcon,
+  Share as ShareIcon,
+  Summarize as SummaryIcon,
 } from '@mui/icons-material';
 import {
   Autocomplete,
@@ -46,10 +48,13 @@ import {
   Chip,
   Collapse,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition } from 'react';
+import { Link as RouterLink, useSearchParams } from 'react-router-dom';
 
+import { AIIcon as AiIcon } from '../components/common/icons/CustomIcons';
 import { useScriptResults, ScriptResult, ScriptResultFilters } from '../hooks/pages/useScriptResults';
 import { useCampaignResults, CampaignResult } from '../hooks/pages/useCampaignResults';
 import { useResizableColumns } from '../hooks/useResizableColumns';
@@ -58,11 +63,26 @@ import { useServerManager } from '../hooks/useServerManager';
 import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 import { formatToLocalTime } from '../utils/dateUtils';
 import { openR2Url } from '../utils/infrastructure/cloudflareUtils';
+import JevWhy, { analysisTypeLabel, getJev } from '../components/common/JevWhy';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { formatScriptLabel, ensureScriptIdentityMap, buildRerunPayloadFromResult } from '../utils/executionUtils';
 import { useRerun } from '../hooks/script/useRerun';
 import { useToast } from '../hooks/useToast';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { useReportSnapshots, type ReportSnapshotConfig } from '../hooks/useReportSnapshots';
+import { ShareReportDialog } from '../components/reports/ShareReportDialog';
+import { SharedLinksTab } from '../components/reports/SharedLinksTab';
 import { getEnv } from '../config/constants';
+import { withGrafanaWorkspace } from '../utils/grafanaUrl';
+import { AssignmentDialog } from '../components/reports/AssignmentDialog';
+import {
+  useLabels,
+  useMilestones,
+  useQualityQuery,
+  useReportPermissions,
+  useRunGroups,
+} from '../hooks/reports/useRunManagement';
+import { QUALITY_DEFAULT_WINDOW, REPORT_ROUTES, type FlakyRow } from '../types/reports';
 
 // Target filter options are "<host_name> - <device_name>" so the dropdown
 // shows the same identifier RunTests uses for a run target. Helpers below
@@ -85,14 +105,14 @@ const parseTargetKey = (key: string): { hostName: string; deviceName: string | n
 // _resolved_device_name in controller_manager.py — so older rows can still show a
 // slot label while newer ones name the phone.
 // but we show the device first ("<device> - <host>"). A host's own implicit
-// device is named "<host>_Host", so "<host> - <host>_Host" shows the host
-// twice — collapse it to just the host name. The underlying key (value) is
-// unchanged so host+device filtering still works.
+// device is named "<host>_Host"; label it by its device id, "host - <host>",
+// so it reads like every other target instead of naming the host twice. The
+// underlying key (value) is unchanged so host+device filtering still works.
 const formatTargetLabel = (key: string): string => {
   const { hostName, deviceName } = parseTargetKey(key);
-  return !deviceName || deviceName === `${hostName}_Host`
-    ? hostName
-    : `${deviceName}${TARGET_KEY_SEP}${hostName}`;
+  if (!deviceName) return hostName;
+  const device = deviceName === `${hostName}_Host` ? 'host' : deviceName;
+  return `${device}${TARGET_KEY_SEP}${hostName}`;
 };
 
 /** Show prefix + display_name from metadata when available, fall back to identity map. */
@@ -108,7 +128,50 @@ function getScriptLabel(result: ScriptResult): string {
   return formatScriptLabel(result.script_name);
 }
 
+/** Who launched the run — same fields as the report's `Trigger:` line. */
+function getTriggerLines(result: ScriptResult): string[] {
+  const trigger = result.metadata?.trigger;
+  if (!trigger?.type) return [];
+  const lines = [`Trigger: ${trigger.type}`];
+  if (trigger.caller_user) lines.push(`User: ${trigger.caller_user}`);
+  if (trigger.caller_ip) lines.push(`IP: ${trigger.caller_ip}`);
+  return lines;
+}
+
+/**
+ * Key comparing a result row with a flaky-quality identity. Script result rows do not
+ * carry `environment`, so the key omits it: a badge marks a row whose script/UI/target
+ * is flaky in at least one environment (the tooltip names the environment).
+ */
+const flakyKey = (
+  scriptName: string,
+  uiName: string | null | undefined,
+  hostName: string | null | undefined,
+  deviceName: string | null | undefined,
+) => [scriptName, uiName ?? '', hostName ?? '', deviceName ?? ''].join('|');
+
+/** Search params carrying the server-side governance filters. */
+const GOVERNANCE_PARAMS = { milestone_id: 'milestone', run_group_id: 'group', label_id: 'label' } as const;
+
+/** Ticks instantly; the (heavy) table re-render for the selection runs as a low-priority update. */
+const RowCheckbox: React.FC<{ id: string; label: string; checked: boolean; onToggle: (id: string) => void }> = ({ id, label, checked, onToggle }) => {
+  const [local, setLocal] = useState(checked);
+  useEffect(() => setLocal(checked), [checked]);
+  return (
+    <Checkbox
+      size="small"
+      inputProps={{ 'aria-label': label }}
+      checked={local}
+      onChange={() => {
+        setLocal((v) => !v);
+        startTransition(() => onToggle(id));
+      }}
+    />
+  );
+};
+
 const TestReports: React.FC = () => {
+  const P = useAgentChatPalette();
   // Get Grafana URL from environment variable
   const grafanaUrl = getEnv('VITE_GRAFANA_URL') || 'http://localhost/grafana';
 
@@ -119,6 +182,13 @@ const TestReports: React.FC = () => {
   const { isDeviceAllowed, activeWorkspace } = useWorkspaceContext();
   const { rerun, rerunningIds } = useRerun();
   const { showInfo, showSuccess, showError } = useToast();
+  const { getConfig: getShareConfig } = useReportSnapshots();
+  const [shareConfig, setShareConfig] = useState<ReportSnapshotConfig | null>(null);
+  const [shareTarget, setShareTarget] = useState<{ id: string; name: string } | null>(null);
+  useEffect(() => {
+    getShareConfig().then(setShareConfig).catch(() => setShareConfig(null));
+  }, [getShareConfig]);
+  const canShare = !!shareConfig?.enabled && !!shareConfig?.can_share;
   const [rawScriptResults, setRawScriptResults] = useState<ScriptResult[]>([]);
   const [rawCampaignResults, setRawCampaignResults] = useState<CampaignResult[]>([]);
 
@@ -194,14 +264,83 @@ const TestReports: React.FC = () => {
 
   // Tab — persisted in URL ?tab=campaigns
   const [searchParams, setSearchParams] = useSearchParams();
-  const browserTab = (searchParams.get('tab') === 'campaigns' ? 'campaigns' : 'tests') as 'tests' | 'campaigns';
-  const setBrowserTab = useCallback((tab: 'tests' | 'campaigns') => {
+  const tabParam = searchParams.get('tab');
+  const browserTab = (tabParam === 'campaigns' ? 'campaigns' : tabParam === 'shared' && shareConfig?.enabled ? 'shared' : 'tests') as 'tests' | 'campaigns' | 'shared';
+  const setBrowserTab = useCallback((tab: 'tests' | 'campaigns' | 'shared') => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       if (tab === 'tests') next.delete('tab'); else next.set('tab', tab);
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+  // Deep link from the report page's Share button (?share=<script_result_id>): open the
+  // dialog for that run directly, so an old run never has to be found in the list first.
+  const shareParam = searchParams.get('share');
+  useEffect(() => {
+    if (!shareParam || !shareConfig) return;
+    if (canShare) setShareTarget({ id: shareParam, name: 'this run' });
+    else showError('Sharing is not enabled for your account on this server.');
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('share');
+      return next;
+    }, { replace: true });
+  }, [shareParam, shareConfig, canShare, setSearchParams, showError]);
+  // Governance filters (milestone / group / label) — URL-keyed, applied server-side.
+  const filterMilestoneId = searchParams.get(GOVERNANCE_PARAMS.milestone_id);
+  const filterGroupId = searchParams.get(GOVERNANCE_PARAMS.run_group_id);
+  const filterLabelId = searchParams.get(GOVERNANCE_PARAMS.label_id);
+  const governanceFilters = useMemo(() => {
+    const filters: Pick<ScriptResultFilters, 'milestone_id' | 'run_group_id' | 'label_id'> = {};
+    if (filterMilestoneId) filters.milestone_id = filterMilestoneId;
+    if (filterGroupId) filters.run_group_id = filterGroupId;
+    if (filterLabelId) filters.label_id = filterLabelId;
+    return filters;
+  }, [filterMilestoneId, filterGroupId, filterLabelId]);
+  const setGovernanceFilter = useCallback(
+    (key: keyof typeof GOVERNANCE_PARAMS, value: string | null) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        if (value) next.set(GOVERNANCE_PARAMS[key], value);
+        else next.delete(GOVERNANCE_PARAMS[key]);
+        return next;
+      }, { replace: true });
+    },
+    [setSearchParams],
+  );
+  const { canEdit: canAssign } = useReportPermissions();
+  const milestonesQuery = useMilestones(false);
+  const groupsQuery = useRunGroups(false);
+  const labelsQuery = useLabels();
+  const milestoneOptions = milestonesQuery.data?.items ?? [];
+  const groupOptions = groupsQuery.data?.items ?? [];
+  const labelOptions = labelsQuery.data?.items ?? [];
+
+  // Row selection for bulk assignment.
+  const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(new Set());
+  const [assignOpen, setAssignOpen] = useState(false);
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedResultIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Flaky badges: ONE scoped quality query for the whole table, never per row. A failed
+  // call shows no badges — they are an optional hint, not evidence.
+  const flakyQuery = useQualityQuery('flaky', { windowDays: QUALITY_DEFAULT_WINDOW.flaky });
+  const flakyByKey = useMemo(() => {
+    const map = new Map<string, FlakyRow>();
+    for (const row of flakyQuery.data?.rows ?? []) {
+      const key = flakyKey(row.identity.script_name, row.identity.userinterface_name, row.identity.host_name, row.identity.device_name);
+      const prev = map.get(key);
+      if (!prev || (row.flaky_score ?? 0) > (prev.flaky_score ?? 0)) map.set(key, row);
+    }
+    return map;
+  }, [flakyQuery.data]);
+  const flakyWindowDays = flakyQuery.data?.window_days ?? QUALITY_DEFAULT_WINDOW.flaky;
+
   const [expandedCampaignId, setExpandedCampaignId] = useState<string | null>(null);
   const [selectedFolder, setSelectedFolder] = useState<string | null>(null);
 
@@ -214,7 +353,10 @@ const TestReports: React.FC = () => {
     { key: 'status', initialWidth: 60, minWidth: 50 },
     { key: 'duration', initialWidth: 80, minWidth: 60 },
     { key: 'started', initialWidth: 150, minWidth: 100 },
-    { key: 'report', initialWidth: 55, minWidth: 45 },
+    // The 'report' cell renders an Open-Report IconButton + a Share IconButton
+    // (each ~28px with p:0.5 padding) and needs ~75 px to show both glyphs
+    // uncompressed. The previous 55/45 squashed the share glyph to "...".
+    { key: 'report', initialWidth: 80, minWidth: 65 },
     { key: 'logs', initialWidth: 55, minWidth: 45 },
     { key: 'rerun', initialWidth: 55, minWidth: 45 },
     { key: 'checked', initialWidth: 60, minWidth: 50 },
@@ -232,7 +374,10 @@ const TestReports: React.FC = () => {
     { key: 'scripts', initialWidth: 80, minWidth: 60 },
     { key: 'duration', initialWidth: 80, minWidth: 60 },
     { key: 'started', initialWidth: 150, minWidth: 100 },
-    { key: 'report', initialWidth: 55, minWidth: 45 },
+    // Same reasoning as the Tests tab: 80 px to fit the Open-Report + Share
+    // IconButtons side by side, with a 65 px floor to keep the share glyph
+    // legible even after a user resize.
+    { key: 'report', initialWidth: 80, minWidth: 65 },
     { key: 'logs', initialWidth: 55, minWidth: 45 },
   ]);
 
@@ -278,8 +423,9 @@ const TestReports: React.FC = () => {
     let count = 1; // Script is always visible
     ALL_COLUMNS.forEach((col) => { if (isColumnVisible(col.id)) count++; });
     if (showDetailedColumns) count += 4;
+    if (canAssign) count += 1; // selection column
     return count;
-  }, [hiddenColumns, showDetailedColumns]);
+  }, [hiddenColumns, showDetailedColumns, canAssign]);
 
   // Campaign column visibility — persisted to localStorage
   const CAMPAIGN_COL_VISIBILITY_KEY = 'campaign_reports_column_visibility_v1';
@@ -367,20 +513,20 @@ const TestReports: React.FC = () => {
     }
     showSuccess(`Rerun of "${label}" finished`);
 
-    const filters: ScriptResultFilters = {};
+    const filters: ScriptResultFilters = { ...governanceFilters };
     if (filterScript) filters.script_name = filterScript;
     if (filterTarget) filters.host_name = parseTargetKey(filterTarget).hostName;
     if (workspaceHostFilter) filters.host_filter = workspaceHostFilter;
     void loadScriptResults(Object.keys(filters).length > 0 ? filters : undefined);
-  }, [rerun, showInfo, showError, showSuccess, filterScript, filterTarget, workspaceHostFilter, loadScriptResults]);
+  }, [rerun, showInfo, showError, showSuccess, filterScript, filterTarget, workspaceHostFilter, governanceFilters, loadScriptResults]);
 
   useEffect(() => {
-    const filters: ScriptResultFilters = {};
+    const filters: ScriptResultFilters = { ...governanceFilters };
     if (filterScript) filters.script_name = filterScript;
     if (filterTarget) filters.host_name = parseTargetKey(filterTarget).hostName;
     if (workspaceHostFilter) filters.host_filter = workspaceHostFilter;
     loadScriptResults(Object.keys(filters).length > 0 ? filters : undefined);
-  }, [filterScript, filterTarget, workspaceHostFilter, loadScriptResults]);
+  }, [filterScript, filterTarget, workspaceHostFilter, governanceFilters, loadScriptResults]);
 
   // Load campaign results when Campaigns tab is selected
   const campaignLoadDone = useRef(false);
@@ -479,9 +625,11 @@ const TestReports: React.FC = () => {
     // Explicit reload so options repopulate from the new workspace even when no
     // filter was selected (a cleared filterTarget wouldn't retrigger the load
     // effect). Scope to the new workspace's hosts.
-    loadScriptResults(workspaceHostFilter ? { host_filter: workspaceHostFilter } : undefined);
+    const workspaceFilters: ScriptResultFilters = { ...governanceFilters };
+    if (workspaceHostFilter) workspaceFilters.host_filter = workspaceHostFilter;
+    loadScriptResults(Object.keys(workspaceFilters).length > 0 ? workspaceFilters : undefined);
     void loadCampaignResults(browserTab !== 'campaigns');
-  }, [activeWorkspace?.id, workspaceHostFilter, loadScriptResults, loadCampaignResults, browserTab]);
+  }, [activeWorkspace?.id, workspaceHostFilter, governanceFilters, loadScriptResults, loadCampaignResults, browserTab]);
 
   // Auto-refresh data every 20s
   useEffect(() => {
@@ -489,14 +637,14 @@ const TestReports: React.FC = () => {
       if (browserTab === 'campaigns') {
         void loadCampaignResults(true);
       } else {
-        const filters: ScriptResultFilters = {};
+        const filters: ScriptResultFilters = { ...governanceFilters };
         if (filterScript) filters.script_name = filterScript;
         if (filterTarget) filters.host_name = parseTargetKey(filterTarget).hostName;
         void loadScriptResults(Object.keys(filters).length > 0 ? filters : undefined);
       }
     }, 20_000);
     return () => clearInterval(interval);
-  }, [browserTab, filterScript, filterTarget, loadCampaignResults, loadScriptResults]);
+  }, [browserTab, filterScript, filterTarget, governanceFilters, loadCampaignResults, loadScriptResults]);
 
   // Filter campaign results by search
   const filteredCampaignResults = useMemo(() => {
@@ -834,27 +982,46 @@ const TestReports: React.FC = () => {
   // Note: EmptyState component removed - now handled inline with dynamic colspan
 
   return (
-    <Box>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-        <Typography variant="h4">
+    <Box
+      sx={{
+        // One card look and palette tables for the whole page (overrides the global table colours).
+        '& .MuiCard-root': { borderRadius: 3, border: `1px solid ${P.borderColor}`, boxShadow: 'none' },
+        '& .MuiTableContainer-root': { borderRadius: 2, borderColor: P.borderColor },
+        '& .MuiTableCell-root': { borderColor: P.borderColor },
+        '& thead .MuiTableCell-root': { fontSize: '0.75rem', color: `${P.textSecondary} !important`, bgcolor: `${P.hoverBg} !important` },
+        '& tbody .MuiIconButton-colorPrimary, & tbody .MuiIconButton-colorSecondary': {
+          color: P.textSecondary, '&:hover': { color: P.accentText, bgcolor: P.hoverBg },
+        },
+        '& tbody .MuiSvgIcon-colorSuccess': { color: P.success },
+        '& tbody .MuiSvgIcon-colorError': { color: P.error },
+        '& tbody .MuiSvgIcon-colorWarning': { color: P.accentText },
+      }}
+    >
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
+        <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
           Test Reports
         </Typography>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Chip
-            label="Tests"
-            clickable
-            color={browserTab === 'tests' ? 'primary' : 'default'}
-            variant={browserTab === 'tests' ? 'filled' : 'outlined'}
-            onClick={() => setBrowserTab('tests')}
-          />
-          <Chip
-            label="Campaigns"
-            clickable
-            color={browserTab === 'campaigns' ? 'primary' : 'default'}
-            variant={browserTab === 'campaigns' ? 'filled' : 'outlined'}
-            onClick={() => setBrowserTab('campaigns')}
-          />
-        </Box>
+        <ToggleButtonGroup
+          size="small"
+          exclusive
+          value={browserTab}
+          onChange={(_e, v) => v && setBrowserTab(v)}
+          sx={{
+            bgcolor: P.hoverBg, p: 0.375, borderRadius: 2, gap: 0.375,
+            '& .MuiToggleButton-root': {
+              border: '1px solid transparent !important', borderRadius: '6px !important',
+              textTransform: 'none', fontSize: 13, fontWeight: 500, color: P.textSecondary, py: 0.4, px: 2,
+            },
+            '& .MuiToggleButton-root.Mui-selected': {
+              bgcolor: P.surface, color: P.accentText, fontWeight: 600,
+              borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
+            },
+          }}
+        >
+          <ToggleButton value="tests">Tests</ToggleButton>
+          <ToggleButton value="campaigns">Campaigns</ToggleButton>
+          {shareConfig?.enabled && <ToggleButton value="shared">Shared links</ToggleButton>}
+        </ToggleButtonGroup>
       </Box>
 
       {error && (
@@ -863,45 +1030,28 @@ const TestReports: React.FC = () => {
         </Alert>
       )}
 
-      {/* Quick Stats */}
-      <Box sx={{ mb: 1 }}>
-        <Card>
-          <CardContent sx={{ py: 0.5, '&:last-child': { pb: 0.5 } }}>
-            <Box display="flex" alignItems="center" justifyContent="space-between">
-              <Box display="flex" alignItems="center" gap={1}>
-                <ReportsIcon color="primary" fontSize="small" />
-                <Typography variant="body1" fontWeight="bold" sx={{ my: 0 }}>Quick Stats</Typography>
-                <Tooltip title="Open Script Results Dashboard">
-                  <Box
-                    display="flex"
-                    alignItems="center"
-                    gap={0.5}
-                    onClick={() => window.open(`${grafanaUrl}/d/2a3b060a-7820-4a6e-aa2a-adcbf5408bd3/script-results?orgId=1&from=now-30d&to=now&timezone=browser&var-user_interface=$__all&var-host=$__all&var-device_name=$__all&var-script_name=$__all`, '_blank')}
-                    sx={{ cursor: 'pointer' }}
-                  >
-                    <Typography variant="body2" color="primary">Grafana</Typography>
-                    <OpenInNew fontSize="small" color="primary" />
-                  </Box>
-                </Tooltip>
-              </Box>
-
-              <Box display="flex" alignItems="center" gap={4}>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Success Rate</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {successRate}%
-                  </Typography>
-                </Box>
-                <Box display="flex" alignItems="center" gap={1}>
-                  <Typography variant="body2">Avg Duration</Typography>
-                  <Typography variant="body2" fontWeight="bold">
-                    {avgDuration}
-                  </Typography>
-                </Box>
-              </Box>
-            </Box>
-          </CardContent>
-        </Card>
+      {/* Quick Stats — two tiles and the Grafana link */}
+      <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
+        {[
+          { label: 'Success rate', value: `${successRate}%`, color: Number(successRate) >= 80 ? P.success : Number(successRate) >= 50 ? P.warning : P.error },
+          { label: 'Avg duration', value: avgDuration, color: P.textPrimary },
+        ].map((k) => (
+          <Box key={k.label} sx={{ px: 1.5, py: 0.75, minWidth: 150, borderRadius: 2, bgcolor: P.surface, border: `1px solid ${P.borderColor}` }}>
+            <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>{k.label}</Typography>
+            <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, lineHeight: 1.3, color: k.color }}>{k.value}</Typography>
+          </Box>
+        ))}
+        <Box sx={{ flex: 1 }} />
+        <Tooltip title="Open Script Results Dashboard">
+          <Button
+            size="small"
+            endIcon={<OpenInNew fontSize="small" />}
+            onClick={() => window.open(withGrafanaWorkspace(`${grafanaUrl}/d/2a3b060a-7820-4a6e-aa2a-adcbf5408bd3/script-results?orgId=1&from=now-30d&to=now&timezone=browser&var-user_interface=$__all&var-host=$__all&var-device_name=$__all&var-script_name=$__all`, activeWorkspace?.id), '_blank')}
+            sx={{ alignSelf: 'center', textTransform: 'none', color: P.accentText }}
+          >
+            Grafana dashboard
+          </Button>
+        </Tooltip>
       </Box>
 
       {/* Recent Test Reports / Campaign Reports */}
@@ -920,7 +1070,7 @@ const TestReports: React.FC = () => {
                       <TextField
                         {...params}
                         label="Campaign"
-                        InputLabelProps={{ shrink: true, sx: { backgroundColor: 'background.paper', px: 0.5 } }}
+                        InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                       />
                     )}
                     slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
@@ -936,7 +1086,7 @@ const TestReports: React.FC = () => {
                       <TextField
                         {...params}
                         label="Target"
-                        InputLabelProps={{ shrink: true, sx: { backgroundColor: 'background.paper', px: 0.5 } }}
+                        InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                       />
                     )}
                     slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
@@ -1065,7 +1215,7 @@ const TestReports: React.FC = () => {
                           <TableRow
                             sx={{
                               '&:hover': {
-                                backgroundColor: 'rgba(0, 0, 0, 0.04) !important',
+                                backgroundColor: `${P.hoverBg} !important`,
                               },
                               opacity: result.discard ? 0.5 : 1,
                               cursor: hasScripts ? 'pointer' : 'default',
@@ -1080,12 +1230,30 @@ const TestReports: React.FC = () => {
                                   </IconButton>
                                 )}
                                 <Tooltip title={result.campaign_name} placement="top-start">
-                                  <span>{result.campaign_name}</span>
+                                  <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{result.campaign_name}</Box>
                                 </Tooltip>
+                                {result.id && (
+                                  <Tooltip title="Run summary">
+                                    <IconButton
+                                      size="small"
+                                      component={RouterLink}
+                                      to={REPORT_ROUTES.summary('campaign', result.id)}
+                                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                                      aria-label="Open run summary"
+                                      sx={{ p: 0.25, flexShrink: 0 }}
+                                    >
+                                      <SummaryIcon sx={{ fontSize: 16 }} />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
                               </Box>
                             </TableCell>
                             {isCampaignColumnVisible('host') && (
-                              <TableCell sx={{ py: 0.5, ...campaignResizeCols.bodyCellSx('host') }} title={formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}>{formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}</TableCell>
+                              <TableCell sx={{ py: 0.5, ...campaignResizeCols.bodyCellSx('host') }}>
+                                <Tooltip title={formatTargetLabel(buildTargetKey(result.host_name, result.device_name))} placement="top-start">
+                                  <span>{formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}</span>
+                                </Tooltip>
+                              </TableCell>
                             )}
                             {isCampaignColumnVisible('device') && (
                               <TableCell sx={{ py: 0.5, ...campaignResizeCols.bodyCellSx('device') }}>{result.device_name}</TableCell>
@@ -1134,7 +1302,7 @@ const TestReports: React.FC = () => {
                                     color="primary"
                                     sx={{ p: 0.5 }}
                                   >
-                                    <LinkIcon fontSize="small" />
+                                    <ReportFileIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
                               ) : (
@@ -1152,7 +1320,7 @@ const TestReports: React.FC = () => {
                                     color="secondary"
                                     sx={{ p: 0.5 }}
                                   >
-                                    <LinkIcon fontSize="small" />
+                                    <LogsIcon fontSize="small" />
                                   </IconButton>
                                 </Tooltip>
                               ) : (
@@ -1164,7 +1332,7 @@ const TestReports: React.FC = () => {
                           {hasScripts && (
                             <TableRow sx={{
                               '&:hover': {
-                                backgroundColor: 'rgba(0, 0, 0, 0.04) !important',
+                                backgroundColor: `${P.hoverBg} !important`,
                               },
                             }}>
                               <TableCell colSpan={visibleCampaignColumnCount} sx={{ py: 0, borderBottom: isExpanded ? undefined : 'none' }}>
@@ -1180,7 +1348,7 @@ const TestReports: React.FC = () => {
                                           pl: 6,
                                           pr: 0,
                                           gap: 1,
-                                          '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.04)' },
+                                          '&:hover': { bgcolor: P.hoverBg },
                                         }}
                                       >
                                         <ScriptIcon fontSize="small" sx={{ flexShrink: 0, opacity: 0.6 }} />
@@ -1234,16 +1402,27 @@ const TestReports: React.FC = () => {
                                             {script.html_report_r2_url ? (
                                               <Tooltip title="Open Report">
                                                 <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleOpenR2Url(script.html_report_r2_url!); }} color="primary" sx={{ p: 0.5 }}>
-                                                  <LinkIcon fontSize="small" />
+                                                  <ReportFileIcon fontSize="small" />
                                                 </IconButton>
                                               </Tooltip>
                                             ) : null}
                                           </Box>
+                                          {canShare && (
+                                            <Box sx={{ width: 40, textAlign: 'center', boxSizing: 'border-box' }}>
+                                              {script.html_report_r2_url ? (
+                                                <Tooltip title="Share report">
+                                                  <IconButton size="small" onClick={(e) => { e.stopPropagation(); setShareTarget({ id: script.id, name: script.script_name }); }} sx={{ p: 0.5 }}>
+                                                    <ShareIcon fontSize="small" />
+                                                  </IconButton>
+                                                </Tooltip>
+                                              ) : null}
+                                            </Box>
+                                          )}
                                           <Box sx={{ width: 55, px: 1, textAlign: 'center', boxSizing: 'border-box' }}>
                                             {script.logs_r2_url ? (
                                               <Tooltip title="Open Logs">
                                                 <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleOpenR2Url(script.logs_r2_url!); }} color="secondary" sx={{ p: 0.5 }}>
-                                                  <LinkIcon fontSize="small" />
+                                                  <LogsIcon fontSize="small" />
                                                 </IconButton>
                                               </Tooltip>
                                             ) : null}
@@ -1264,10 +1443,11 @@ const TestReports: React.FC = () => {
                 </Table>
               </TableContainer>
           </Box>
+          {browserTab === 'shared' && <SharedLinksTab />}
           {/* ===== TESTS TABLE ===== */}
           <Box sx={{ display: browserTab === 'tests' ? 'block' : 'none' }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'nowrap', flex: 1, minWidth: 0, mr: 1 }}>
               <Autocomplete
                 size="small"
                 value={filterScript}
@@ -1278,11 +1458,11 @@ const TestReports: React.FC = () => {
                   <TextField
                     {...params}
                     label="Test"
-                    InputLabelProps={{ shrink: true, sx: { backgroundColor: 'background.paper', px: 0.5 } }}
+                    InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                   />
                 )}
                 slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
-                sx={{ minWidth: 340, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                sx={{ flex: '2 1 200px', minWidth: 140, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
               />
               <Autocomplete
                 size="small"
@@ -1294,11 +1474,11 @@ const TestReports: React.FC = () => {
                   <TextField
                     {...params}
                     label="Target"
-                    InputLabelProps={{ shrink: true, sx: { backgroundColor: 'background.paper', px: 0.5 } }}
+                    InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                   />
                 )}
                 slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
-                sx={{ minWidth: 380, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                sx={{ flex: '2 1 200px', minWidth: 140, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
               />
               {folderOptions.length > 1 && (
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -1313,6 +1493,41 @@ const TestReports: React.FC = () => {
                     />
                   ))}
                 </Box>
+              )}
+              {([
+                { key: 'milestone_id', label: 'Milestone', options: milestoneOptions, value: filterMilestoneId },
+                { key: 'run_group_id', label: 'Group', options: groupOptions, value: filterGroupId },
+                { key: 'label_id', label: 'Label', options: labelOptions, value: filterLabelId },
+              ] as const).map((filter) => (
+                <Autocomplete
+                  key={filter.key}
+                  size="small"
+                  value={(filter.options as ReadonlyArray<{ id: string; name: string }>).find((o) => o.id === filter.value) ?? null}
+                  onChange={(_e, v) => setGovernanceFilter(filter.key, v ? v.id : null)}
+                  options={filter.options as ReadonlyArray<{ id: string; name: string }>}
+                  getOptionLabel={(option) => option.name}
+                  isOptionEqualToValue={(option, current) => option.id === current.id}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label={filter.label}
+                      InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
+                    />
+                  )}
+                  slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
+                  sx={{ flex: '1 1 110px', minWidth: 90, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                />
+              ))}
+              {canAssign && (
+                <Button
+                  size="small"
+                  variant="outlined"
+                  sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+                  disabled={selectedResultIds.size === 0}
+                  onClick={() => setAssignOpen(true)}
+                >
+                  Assign ({selectedResultIds.size})
+                </Button>
               )}
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1362,6 +1577,22 @@ const TestReports: React.FC = () => {
             }}>
               <TableHead>
                 <TableRow>
+                  {canAssign && (
+                    <TableCell padding="checkbox" sx={{ width: 36 }}>
+                      <Checkbox
+                        size="small"
+                        inputProps={{ 'aria-label': 'Select all results' }}
+                        checked={filteredResults.length > 0 && filteredResults.every((r) => selectedResultIds.has(r.id))}
+                        indeterminate={
+                          filteredResults.some((r) => selectedResultIds.has(r.id)) &&
+                          !filteredResults.every((r) => selectedResultIds.has(r.id))
+                        }
+                        onChange={(e) =>
+                          setSelectedResultIds(e.target.checked ? new Set(filteredResults.map((r) => r.id)) : new Set())
+                        }
+                      />
+                    </TableCell>
+                  )}
                   <TableCell sx={{ py: 0.5, ...resizeCols.headerCellSx('script') }}>
                     <strong>Test</strong>
                     <Box component="span" onMouseDown={resizeCols.onMouseDown('script')} sx={resizeCols.resizeHandleSx} />
@@ -1463,21 +1694,78 @@ const TestReports: React.FC = () => {
                       key={result.id}
                       sx={{
                         '&:hover': {
-                          backgroundColor: 'rgba(0, 0, 0, 0.04) !important',
+                          backgroundColor: `${P.hoverBg} !important`,
                         },
                         opacity: result.discard ? 0.5 : 1,
                       }}
                     >
+                      {canAssign && (
+                        <TableCell padding="checkbox" sx={{ width: 36 }}>
+                          <RowCheckbox
+                            id={result.id}
+                            label={`Select ${result.script_name}`}
+                            checked={selectedResultIds.has(result.id)}
+                            onToggle={toggleSelected}
+                          />
+                        </TableCell>
+                      )}
                       <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('script') }}>
-                        <Tooltip title={result.script_name} placement="top-start">
-                          <span>{getScriptLabel(result)}</span>
-                        </Tooltip>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0 }}>
+                          <Tooltip title={result.script_name} placement="top-start">
+                            <Box component={RouterLink} to={REPORT_ROUTES.summary('script', result.id)} sx={{ overflow: 'hidden', textOverflow: 'ellipsis', color: 'inherit', textDecoration: 'none', '&:hover': { textDecoration: 'underline' } }}>{getScriptLabel(result)}</Box>
+                          </Tooltip>
+                          {(() => {
+                            const flaky = flakyByKey.get(flakyKey(result.script_name, result.userinterface_name, result.host_name, result.device_name));
+                            if (!flaky) return null;
+                            return (
+                              <Tooltip
+                                title={`Flaky in the last ${flakyWindowDays} days: score ${flaky.flaky_score === null ? 'n/a' : flaky.flaky_score.toFixed(2)}, ${flaky.transitions} pass/fail flips over ${flaky.attempts} attempts${flaky.identity.environment ? ` (${flaky.identity.environment})` : ''}`}
+                              >
+                                <Chip
+                                  label="Flaky"
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                  data-testid="flaky-badge"
+                                  sx={{ height: 18, fontSize: '0.65rem', flexShrink: 0 }}
+                                />
+                              </Tooltip>
+                            );
+                          })()}
+                          {(result.labels ?? []).slice(0, 3).map((label) => (
+                            <Chip
+                              key={label.id}
+                              label={label.name}
+                              size="small"
+                              variant="outlined"
+                              data-testid="result-label"
+                              sx={{ height: 18, fontSize: '0.65rem', flexShrink: 0, borderColor: label.color ?? undefined }}
+                            />
+                          ))}
+                          {(result.labels ?? []).length > 3 && (
+                            <Typography variant="caption" color="text.secondary" sx={{ flexShrink: 0 }}>
+                              +{(result.labels ?? []).length - 3}
+                            </Typography>
+                          )}
+                          {getTriggerLines(result).length > 0 && (
+                            <Tooltip
+                              title={<Box sx={{ whiteSpace: 'pre-line' }}>{getTriggerLines(result).join('\n')}</Box>}
+                              placement="top-start"
+                            >
+                              <InfoIcon sx={{ fontSize: 16, flexShrink: 0, color: 'text.secondary', cursor: 'help' }} />
+                            </Tooltip>
+                          )}
+                        </Box>
                       </TableCell>
                       {isColumnVisible('uiName') && (
                         <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('uiName') }}>{result.userinterface_name || 'N/A'}</TableCell>
                       )}
                       {isColumnVisible('host') && (
-                        <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('host') }} title={formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}>{formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}</TableCell>
+                        <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('host') }}>
+                          <Tooltip title={formatTargetLabel(buildTargetKey(result.host_name, result.device_name))} placement="top-start">
+                            <span>{formatTargetLabel(buildTargetKey(result.host_name, result.device_name))}</span>
+                          </Tooltip>
+                        </TableCell>
                       )}
                       {isColumnVisible('device') && (
                         <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('device') }}>{result.device_name}</TableCell>
@@ -1526,7 +1814,7 @@ const TestReports: React.FC = () => {
                         <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('started') }}>{formatDate(result.started_at)}</TableCell>
                       )}
                       {isColumnVisible('report') && (
-                        <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('report') }}>
+                        <TableCell sx={{ py: 0.5, ...resizeCols.bodyCellSx('report'), overflow: 'visible', textOverflow: 'clip' }}>
                           {result.html_report_r2_url ? (
                             <Tooltip title="Open Report">
                               <IconButton
@@ -1535,11 +1823,22 @@ const TestReports: React.FC = () => {
                                 color="primary"
                                 sx={{ p: 0.5 }}
                               >
-                                <LinkIcon fontSize="small" />
+                                <ReportFileIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           ) : (
                             <Typography variant="body2" color="text.disabled">-</Typography>
+                          )}
+                          {canShare && (result.html_report_r2_url || result.html_report_r2_path) && (
+                            <Tooltip title="Share report">
+                              <IconButton
+                                size="small"
+                                onClick={() => setShareTarget({ id: result.id, name: getScriptLabel(result) })}
+                                sx={{ p: 0.5 }}
+                              >
+                                <ShareIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
                           )}
                         </TableCell>
                       )}
@@ -1553,7 +1852,7 @@ const TestReports: React.FC = () => {
                                 color="secondary"
                                 sx={{ p: 0.5 }}
                               >
-                                <LinkIcon fontSize="small" />
+                                <LogsIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                           ) : (
@@ -1564,7 +1863,8 @@ const TestReports: React.FC = () => {
                       {isColumnVisible('rerun') && (
                         <TableCell sx={{ py: 0.5, textAlign: 'center', ...resizeCols.bodyCellSx('rerun') }}>
                           {(() => {
-                            const payload = buildRerunPayloadFromResult(result);
+                            // Manual runs record human outcomes; they are never replayed as scripts.
+                            const payload = result.script_type === 'manual' ? null : buildRerunPayloadFromResult(result);
                             // No payload = the run never recorded a launch config
                             // (an unsaved testcase graph, or a row predating the
                             // executor persisting one). Nothing to replay.
@@ -1616,6 +1916,24 @@ const TestReports: React.FC = () => {
         </CardContent>
       </Card>
 
+      {canAssign && (
+        <AssignmentDialog
+          open={assignOpen}
+          resultIds={Array.from(selectedResultIds)}
+          onClose={() => setAssignOpen(false)}
+          onDone={() => {
+            setAssignOpen(false);
+            setSelectedResultIds(new Set());
+            showSuccess('Assignment saved');
+            const filters: ScriptResultFilters = { ...governanceFilters };
+            if (filterScript) filters.script_name = filterScript;
+            if (filterTarget) filters.host_name = parseTargetKey(filterTarget).hostName;
+            if (workspaceHostFilter) filters.host_filter = workspaceHostFilter;
+            void loadScriptResults(Object.keys(filters).length > 0 ? filters : undefined);
+          }}
+        />
+      )}
+
       {/* Discard Comment Modal */}
       <StyledDialog 
         open={discardModalOpen} 
@@ -1636,9 +1954,10 @@ const TestReports: React.FC = () => {
                 Script: {getScriptLabel(selectedDiscardComment.result)}
               </Typography>
               <Typography variant="subtitle2" sx={{ mb: 2, color: 'text.secondary' }}>
-                Analysis Type: {(selectedDiscardComment.result.check_type === 'ai' || selectedDiscardComment.result.check_type === 'ai_agent') ? 'AI Agent Analysis' : selectedDiscardComment.result.check_type === 'ai_and_human' ? 'AI & Human Review' : 'Manual Review'}
+                Analysis Type: {analysisTypeLabel(selectedDiscardComment.result.check_type)}
                 {selectedDiscardComment.result.discard_type && ` • Category: ${selectedDiscardComment.result.discard_type}`}
               </Typography>
+              {getJev(selectedDiscardComment.result) && <JevWhy jev={getJev(selectedDiscardComment.result)!} />}
               <Typography variant="body1" sx={{ whiteSpace: 'pre-wrap' }}>
                 {selectedDiscardComment.comment}
               </Typography>
@@ -1651,6 +1970,14 @@ const TestReports: React.FC = () => {
           </Button>
         </DialogActions>
       </StyledDialog>
+      {shareTarget && (
+        <ShareReportDialog
+          open
+          onClose={() => setShareTarget(null)}
+          scriptResultId={shareTarget.id}
+          scriptName={shareTarget.name}
+        />
+      )}
     </Box>
   );
 };

@@ -7,6 +7,7 @@ timeout_seconds: 300
 tools:
   - execute_device_action
   - navigate_to_node
+  - verify_node
 triggers:
   - test prompt mobile
   - test prompt android
@@ -45,14 +46,13 @@ navigate_to_node(
 
 ## How to call execute_device_action
 
-**ALWAYS include `action_type: "android_mobile"` and `force_unlock: true`.**
+**ALWAYS include `action_type: "android_mobile"`.**
 
 ```
 execute_device_action(
   host_name="<from context>",
   device_id="<from context>",
   action_type="android_mobile",
-  force_unlock=true,
   actions=[{command: "<command>", params: {<params>}}]
 )
 ```
@@ -86,6 +86,20 @@ execute_device_action(
 4. **Verify criteria**: use `dump_elements` (or `find_element` for a specific item) to inspect the page content. Match the acceptance criteria against the dumped element text.
 5. **Report**: output results in the format below.
 
+## How to check what is on screen: verify_node
+
+Every screen of the tree can carry saved checks (an image, a text, video motion). To confirm the
+device shows a screen, call:
+
+```
+verify_node(node_label="<EXACT label from the tree>", userinterface_name="<from context>",
+            host_name="<from context>", device_id="<from context>")
+```
+
+It runs that screen's checks and answers pass/fail with the results, e.g. `replay_asset_stream`
+checks that the video is moving. On a set-top box or TV there is no page text to read: verify_node
+is how you verify a criterion. Use it as evidence; do not guess from key presses that "completed".
+
 ## Report Format
 
 ```
@@ -105,12 +119,17 @@ execute_device_action(
 ### Overall: PASS (or FAIL)
 ```
 
+Every acceptance criterion is PASS or FAIL. A criterion you could not verify is FAIL, with the
+reason. The last line is exactly `### Overall: PASS` (every criterion PASS) or `### Overall: FAIL`:
+nothing else ("PARTIAL PASS", "UNABLE TO VERIFY" are not verdicts).
+
+
 ## Rules
 
 1. **The navigation tree is in your context — read it before navigating.**
 2. **Copy node labels EXACTLY from the tree** — never invent, normalize, or guess them.
 3. **ALWAYS include `action_type: "android_mobile"`** in every execute_device_action call.
-4. **Use `force_unlock: true`** on the first call.
+4. **Never pass `force_unlock`.** The run holds the user's Take Control and the tools act under it; `force_unlock` would take the device away from the user.
 5. **`dump_elements` is your eyes** — always dump before tapping coordinates or clicking unfamiliar elements. Never tap blind.
 6. **Prefer `click_element` over `tap_coordinates`** when you have visible text — coordinates are screen-resolution-dependent.
 7. **Handle errors** — if `navigate_to_node` fails on a label that IS in the tree, fall back to `execute_device_action`.

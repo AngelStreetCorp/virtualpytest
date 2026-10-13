@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | frontend AI Agent page (agent-chat DevicePanel)              |
-| Fixed in  | Unreleased (the cut sets the build — never copy VERSION.txt)  |
+| Fixed in  | Unreleased                                                   |
 | Commit    | 94c99c42b                                                    |
 
 ---

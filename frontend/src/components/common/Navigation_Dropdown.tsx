@@ -5,15 +5,17 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 import { getNavVisibility } from '../../config/featureFlags';
 import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
+import { useI18n } from '../../i18n/useI18n';
 import { NavigationDropdownProps, NavigationItem } from '../../types/pages/Navigation_Types';
+import { navItemSx } from './Navigation_ItemStyle';
 
 const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, footer }) => {
+  const { t } = useI18n();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const location = useLocation();
   const navigate = useNavigate();
   const { isPathHidden } = useWorkspaceContext();
   const open = Boolean(anchorEl);
-  const navItemWidth = 108;
 
   // One visibility key per item: its full route path. Workspace hides win
   // over env-level flags; beyond that, env HIDDEN > COMING_SOON > DISABLED.
@@ -50,8 +52,8 @@ const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, f
         <MenuItem key={item.path} disabled sx={{ py: 1.5, px: 2 }}>
           <Box display="flex" alignItems="center" gap={1} width="100%">
             {item.icon}
-            <Typography variant="body2" sx={{ flex: 1 }}>{item.label}</Typography>
-            <Chip label="Soon" color="default" size="small" />
+            <Typography variant="body2" sx={{ flex: 1 }}>{t(item.label)}</Typography>
+            <Chip label={t('Soon')} color="default" size="small" />
           </Box>
         </MenuItem>
       );
@@ -62,7 +64,7 @@ const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, f
         <MenuItem key={item.path} disabled sx={{ py: 1.5, px: 2 }}>
           <Box display="flex" alignItems="center" gap={1} width="100%">
             {item.icon}
-            <Typography variant="body2" sx={{ flex: 1 }}>{item.label}</Typography>
+            <Typography variant="body2" sx={{ flex: 1 }}>{t(item.label)}</Typography>
           </Box>
         </MenuItem>
       );
@@ -74,17 +76,11 @@ const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, f
         <MenuItem
           key={item.href}
           onClick={() => handleExternalClick(item.href!)}
-          sx={{
-            py: 1.5,
-            px: 2,
-            '&:hover': {
-              backgroundColor: 'action.hover',
-            },
-          }}
+          sx={{ py: 1.5, px: 2 }}
         >
           <Box display="flex" alignItems="center" gap={1} width="100%">
             {item.icon}
-            <Typography variant="body2" sx={{ flex: 1 }}>{item.label}</Typography>
+            <Typography variant="body2" sx={{ flex: 1 }}>{t(item.label)}</Typography>
             <OpenInNew fontSize="small" sx={{ opacity: 0.5, ml: 1 }} />
           </Box>
         </MenuItem>
@@ -96,15 +92,15 @@ const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, f
         <MenuItem
           key={item.path}
           onClick={() => { navigate(item.path); handleClose(); }}
-          sx={{ py: 1.5, px: 2, '&:hover': { backgroundColor: 'action.hover' } }}
+          sx={{ py: 1.5, px: 2 }}
         >
           <Box display="flex" alignItems="center" gap={1} width="100%">
             {item.icon}
-            <Typography variant="body2" sx={{ flex: 1 }}>{item.label}</Typography>
-            <Tooltip title={`Open ${item.label} instance`}>
+            <Typography variant="body2" sx={{ flex: 1 }}>{t(item.label)}</Typography>
+            <Tooltip title={t('Open {label} instance', { label: t(item.label) })}>
               <IconButton
                 size="small"
-                aria-label={`Open ${item.label} instance`}
+                aria-label={t('Open {label} instance', { label: t(item.label) })}
                 onClick={(event) => {
                   event.stopPropagation();
                   window.open(item.externalHref, '_blank', 'noopener,noreferrer');
@@ -127,19 +123,16 @@ const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, f
         component={Link}
         to={item.path}
         onClick={handleClose}
+        selected={location.pathname === item.path}
         sx={{
           py: 1.5,
           // Keep large desktop navbar spacing to match design baseline (do not reduce/remove).
           px: 2,
-          backgroundColor: location.pathname === item.path ? 'action.selected' : 'transparent',
-          '&:hover': {
-            backgroundColor: 'action.hover',
-          },
         }}
       >
         <Box display="flex" alignItems="center" gap={1}>
           {item.icon}
-          <Typography variant="body2">{item.label}</Typography>
+          <Typography variant="body2">{t(item.label)}</Typography>
         </Box>
       </MenuItem>
     );
@@ -150,21 +143,7 @@ const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, f
       <Button
         onClick={handleClick}
         endIcon={<KeyboardArrowDown />}
-        sx={{
-          color: isDropdownActive ? 'secondary.main' : 'inherit',
-          fontWeight: isDropdownActive ? 600 : 400,
-          minWidth: navItemWidth,
-          flexShrink: 0,
-          justifyContent: 'center',
-          textTransform: 'none',
-          px: 1,
-          py: 0.875,
-          textAlign: 'center',
-          whiteSpace: 'nowrap',
-          '&:hover': {
-            backgroundColor: 'rgba(255, 255, 255, 0.1)',
-          },
-        }}
+        sx={navItemSx(isDropdownActive)}
       >
         {label}
       </Button>
@@ -183,7 +162,9 @@ const NavigationDropdown: React.FC<NavigationDropdownProps> = ({ label, items, f
         PaperProps={{
           sx: {
             mt: 1,
-            minWidth: 200,
+            // Fixed, sized to the widest locale (DE "Dokumentation" ~232px, FR "IA" ~228px), so
+            // switching language never resizes the menu.
+            width: 240,
             boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
           },
         }}

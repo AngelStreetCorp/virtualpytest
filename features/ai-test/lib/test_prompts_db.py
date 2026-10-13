@@ -50,6 +50,9 @@ def create_test_prompt(
         return {'success': False, 'message': 'Failed to create test prompt'}
     except Exception as e:
         print(f"[@db:test_prompts:create] Error: {e}")
+        if 'duplicate key' in str(e).lower() or '23505' in str(e):
+            return {'success': False, 'duplicate_name': True,
+                    'message': f"A prompt named '{name}' already exists. Open it from the list, or choose another name."}
         return {'success': False, 'message': str(e)}
 
 
@@ -93,6 +96,8 @@ def update_test_prompt(prompt_id: str, team_id: str, **fields) -> Dict:
                 update_data[k] = v
             elif k in ('target_screen_node_id', 'target_screen_label'):
                 update_data[k] = ''  # Allow clearing target screen
+            elif k == 'testcase_id':
+                update_data[k] = None  # Unlink the prompt's testcase
         update_data['updated_at'] = datetime.now(timezone.utc).isoformat()
         result = supabase.table('test_prompts') \
             .update(update_data) \
@@ -104,6 +109,9 @@ def update_test_prompt(prompt_id: str, team_id: str, **fields) -> Dict:
         return {'success': False, 'message': 'Test prompt not found'}
     except Exception as e:
         print(f"[@db:test_prompts:update] Error: {e}")
+        if 'duplicate key' in str(e).lower() or '23505' in str(e):
+            return {'success': False, 'duplicate_name': True,
+                    'message': f"A prompt named '{fields.get('name')}' already exists. Choose another name."}
         return {'success': False, 'message': str(e)}
 
 
@@ -200,7 +208,8 @@ def promote_to_prod(prompt_id: str, team_id: str) -> Dict:
     return update_test_prompt(prompt_id, team_id, mode='prod')
 
 
-def link_testcase(prompt_id: str, team_id: str, testcase_id: str) -> Dict:
+def link_testcase(prompt_id: str, team_id: str, testcase_id: Optional[str]) -> Dict:
+    """Link the prompt to its testcase graph; None unlinks."""
     return update_test_prompt(prompt_id, team_id, testcase_id=testcase_id)
 
 
@@ -214,6 +223,8 @@ def record_prompt_execution(
     host_name: str,
     device_id: str,
     executed_by: Optional[str] = None,
+    run_mode: str = 'explore',
+    run_details: Optional[Dict] = None,
 ) -> Optional[str]:
     try:
         supabase = get_supabase()
@@ -226,6 +237,8 @@ def record_prompt_execution(
             'device_id': device_id,
             'status': 'running',
             'executed_by': executed_by,
+            'run_mode': run_mode,
+            'run_details': run_details,
         }
         result = supabase.table('test_prompt_executions').insert(data).execute()
         return execution_id if result.data else None
@@ -242,6 +255,7 @@ def update_prompt_execution(
     report_url: Optional[str] = None,
     logs_url: Optional[str] = None,
     execution_time_ms: Optional[int] = None,
+    tool_trace: Optional[List[Dict]] = None,
 ) -> bool:
     try:
         supabase = get_supabase()
@@ -256,6 +270,8 @@ def update_prompt_execution(
             update_data['logs_url'] = logs_url
         if execution_time_ms is not None:
             update_data['execution_time_ms'] = execution_time_ms
+        if tool_trace is not None:
+            update_data['tool_trace'] = tool_trace
 
         if not update_data:
             return True
@@ -283,6 +299,38 @@ def add_human_feedback(execution_id: str, team_id: str, feedback: str) -> bool:
     except Exception as e:
         print(f"[@db:test_prompts:add_feedback] Error: {e}")
         return False
+
+
+def merge_run_details(execution_id: str, team_id: str, **fields) -> bool:
+    """Add fields to an execution's run_details (read, merge, write). None values are skipped."""
+    fields = {k: v for k, v in fields.items() if v is not None}
+    if not fields:
+        return True
+    try:
+        supabase = get_supabase()
+        row = supabase.table('test_prompt_executions').select('run_details') \
+            .eq('id', execution_id).eq('team_id', team_id).execute()
+        details = ((row.data or [{}])[0].get('run_details') or {}) if row.data else {}
+        details.update(fields)
+        supabase.table('test_prompt_executions').update({'run_details': details}) \
+            .eq('id', execution_id).eq('team_id', team_id).execute()
+        return True
+    except Exception as e:
+        print(f"[@test_prompts_db:merge_run_details] Error: {e}")
+        return False
+
+
+def get_prompt_execution(execution_id: str, team_id: str) -> Optional[Dict]:
+    try:
+        result = get_supabase().table('test_prompt_executions') \
+            .select('*') \
+            .eq('id', execution_id) \
+            .eq('team_id', team_id) \
+            .execute()
+        return result.data[0] if result.data else None
+    except Exception as e:
+        print(f"[@test_prompts_db:get_prompt_execution] Error: {e}")
+        return None
 
 
 def list_prompt_executions(test_prompt_id: str, team_id: str) -> List[Dict]:

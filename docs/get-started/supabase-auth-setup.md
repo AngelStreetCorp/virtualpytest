@@ -405,6 +405,29 @@ keeps answering 401), and empty `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` i
 `frontend/.env` followed by a frontend rebuild (otherwise the login page stays). Recipes for
 each install path: [supabase.md](supabase.md#enforce-login) (read it backwards).
 
+## 16. Login Page Options (Admin-Provisioned Sites)
+
+A site where admins create every account can reduce the login page to email + password.
+Each flag defaults to `true`; set it to `false` in `frontend/.env` and rebuild the frontend:
+
+| Flag | Hides |
+|------|-------|
+| `VITE_ENABLE_OAUTH` | Google / GitHub buttons |
+| `VITE_ENABLE_SIGNUP` | **Sign Up** tab and the "Create Account" link |
+| `VITE_ENABLE_RESET_PASSWORD` | **Reset Password** tab |
+
+With both `VITE_ENABLE_SIGNUP` and `VITE_ENABLE_RESET_PASSWORD` off the tab bar disappears.
+
+Hiding the tab is not enough to stop signups — the Supabase signup API stays open to anyone
+holding the anon key (it is in the bundle). Close it on the Supabase side too:
+`enable_signup = false` under **`[auth]` only** in `supabase/config.toml` (Supabase CLI
+install, then `supabase stop && supabase start`). Leave `[auth.email] enable_signup = true`:
+in the CLI that key switches the whole email provider, so setting it to `false` breaks
+email/password **sign-in** too. `DISABLE_SIGNUP=true` for the
+Docker stack, or *Authentication → Providers → Email → Allow new users to sign up* off on a
+cloud project. Admins keep creating users from the **Users** page or Supabase Studio, and
+reset passwords there.
+
 ## Next Steps
 
 **Completed:**

@@ -346,16 +346,51 @@ class TestSlackLiveApiCalls:
 
 
 class TestSlackEventsWebhook:
+    def _signed_headers(self, body: bytes):
+        """Compute X-Slack-Signature / X-Slack-Request-Timestamp against the same
+        signing secret the server reads from ~/.config/virtualpytest/slack_config.json.
+        The endpoint is reachable without a JWT (configure_global_frontend_auth_guard()
+        lists it as a public prefix) but still requires Slack's HMAC, so a raw POST is
+        a 401, not a 200 — and signing the request here is the only way to assert the
+        handler's behaviour without weakening the test."""
+        import hashlib
+        import hmac
+        import time as _time
+        import json as _json
+        from backend_server.src.lib.utils.integration_state import state_path
+        cfg = state_path('slack_config.json')
+        secret = ''
+        if cfg.exists():
+            with open(cfg) as f:
+                secret = (_json.load(f).get('signing_secret') or '').strip()
+        if not secret:
+            pytest.skip("no signing_secret in slack_config.json — cannot sign the Slack request")
+        timestamp = str(int(_time.time()))
+        sig = 'v0=' + hmac.new(
+            secret.encode(),
+            b'v0:' + timestamp.encode() + b':' + body,
+            hashlib.sha256,
+        ).hexdigest()
+        return {
+            "Content-Type": "application/json",
+            "X-Slack-Request-Timestamp": timestamp,
+            "X-Slack-Signature": sig,
+        }
+
     def test_url_verification_challenge_is_echoed(
         self, base_url, verify_ssl, request_timeout
     ):
         """This endpoint is explicitly listed as a public prefix in
-        configure_global_frontend_auth_guard(), so no auth header is sent."""
+        configure_global_frontend_auth_guard(), so no JWT is sent — but Slack's HMAC
+        signature is still required, so we sign the request the same way the server
+        verifies it."""
+        import json as _json
         challenge_token = "smoke-test-challenge-token"
+        body = _json.dumps({"type": "url_verification", "challenge": challenge_token}).encode()
         resp = requests.post(
             f"{base_url}/server/integrations/slack/events",
-            json={"type": "url_verification", "challenge": challenge_token},
-            headers={"Content-Type": "application/json"},
+            data=body,
+            headers=self._signed_headers(body),
             timeout=request_timeout,
             verify=verify_ssl,
         )
@@ -365,13 +400,16 @@ class TestSlackEventsWebhook:
     def test_bot_message_event_is_ignored(
         self, base_url, verify_ssl, request_timeout
     ):
+        import json as _json
+        payload = {
+            "type": "event_callback",
+            "event": {"type": "message", "bot_id": "B123", "text": "hi"},
+        }
+        body = _json.dumps(payload).encode()
         resp = requests.post(
             f"{base_url}/server/integrations/slack/events",
-            json={
-                "type": "event_callback",
-                "event": {"type": "message", "bot_id": "B123", "text": "hi"},
-            },
-            headers={"Content-Type": "application/json"},
+            data=body,
+            headers=self._signed_headers(body),
             timeout=request_timeout,
             verify=verify_ssl,
         )

@@ -10,7 +10,9 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Bundle
 import android.util.Base64
+import android.security.KeyChain
 import android.util.Log
+import android.webkit.ClientCertRequest
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -53,6 +55,14 @@ class MainActivity : BridgeActivity() {
         if (PhoneAgentPrefs.isPaired(applicationContext)) {
             PhoneAgentService.start(applicationContext)
         }
+
+        // /config.js was just served from the stored settings; if the server has published new
+        // ones since (e.g. another server for the picker), store them and reload once.
+        Thread {
+            if (PayloadApplier.refreshRuntimeConfig(applicationContext)) {
+                runOnUiThread { bridge.webView.reload() }
+            }
+        }.start()
     }
 
     /**
@@ -215,6 +225,55 @@ private class RuntimeConfigWebViewClient(
             )
         }
         return super.shouldInterceptRequest(view, request)
+    }
+
+    /**
+     * Cloudflare asks for the owner's client certificate (mTLS) on the deployment's host; with
+     * it, the WAF lets the app through from any network (see ClientCert). Android's picker shows
+     * once; the chosen alias is remembered and the key is read from KeyChain per request.
+     * Any other host asking for a certificate gets none.
+     */
+    override fun onReceivedClientCertRequest(view: WebView?, request: ClientCertRequest?) {
+        if (request == null) return
+        if (!ClientCert.isCertHost(context, request.host)) {
+            request.ignore()
+            return
+        }
+        val alias = ClientCert.alias(context)
+        if (alias != null) {
+            proceedWithAlias(request, alias)
+            return
+        }
+        val activity = vptBridge.activity
+        if (activity == null) {
+            request.ignore()
+            return
+        }
+        KeyChain.choosePrivateKeyAlias(
+            activity,
+            { chosen ->
+                if (chosen == null) {
+                    Log.i(TAG_WV, "client certificate declined for ${request.host}")
+                    request.ignore()
+                } else {
+                    ClientCert.setAlias(context, chosen)
+                    proceedWithAlias(request, chosen)
+                }
+            },
+            request.keyTypes,
+            request.principals,
+            request.host,
+            request.port,
+            null,
+        )
+    }
+
+    /** KeyChain blocks, so off the UI thread; a removed or revoked key clears the alias. */
+    private fun proceedWithAlias(request: ClientCertRequest, alias: String) {
+        Thread {
+            val loaded = ClientCert.load(context, alias)
+            if (loaded == null) request.ignore() else request.proceed(loaded.first, loaded.second)
+        }.start()
     }
 
     /** True when `url` is served by our own local server (`https://localhost`), not a remote host. */
@@ -380,6 +439,7 @@ private fun oauthDeploymentHosts(context: Context): Set<String> {
 private fun buildRuntimeConfig(context: Context): String = JSONObject()
     .put("VITE_IS_NATIVE_APP", "true")
     .put("VITE_SERVER_URL", PhoneAgentPrefs.getString(context, PhoneAgentPrefs.KEY_SERVER_URL) ?: "")
+    .put("VITE_SLAVE_SERVER_URL", PhoneAgentPrefs.getString(context, PhoneAgentPrefs.KEY_SLAVE_SERVER_URL) ?: "")
     .put("VITE_SUPABASE_URL", PhoneAgentPrefs.getString(context, PhoneAgentPrefs.KEY_SUPABASE_URL) ?: "")
     .put("VITE_SUPABASE_ANON_KEY", PhoneAgentPrefs.getString(context, PhoneAgentPrefs.KEY_SUPABASE_ANON_KEY) ?: "")
     .put("VITE_PROJECT_NAME", PhoneAgentPrefs.getString(context, PhoneAgentPrefs.KEY_PROJECT_NAME) ?: "")

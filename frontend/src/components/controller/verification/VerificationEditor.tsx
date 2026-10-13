@@ -1,9 +1,10 @@
 import {
   KeyboardArrowDown as ArrowDownIcon,
   KeyboardArrowRight as ArrowRightIcon,
-  OpenInFull as ExpandEditorIcon,
   CloseFullscreen as RestoreEditorIcon,
 } from '@mui/icons-material';
+
+import { FullscreenIcon as ExpandEditorIcon } from '../../common/icons/CustomIcons';
 import {
   Box,
   Typography,
@@ -29,6 +30,7 @@ import { Host } from '../../../types/common/Host_Types';
 import { VerificationsList } from '../../verification/VerificationsList';
 import { ConfirmDialog } from '../../common/ConfirmDialog';
 import { getZIndex } from '../../../utils/zIndexUtils';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 import VerificationCapture from './VerificationCapture';
 
@@ -77,6 +79,7 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
     onToggleMaximized,
     sx = {},
   }) => {
+    const P = useAgentChatPalette();
     // Extract device from host devices array using selectedDeviceId
     const selectedDevice = React.useMemo(() => {
       return selectedHost?.devices?.find((device) => device.device_id === selectedDeviceId);
@@ -370,10 +373,10 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
               variant="contained"
               size="small"
               sx={{
-                bgcolor: '#f44336',
+                bgcolor: P.error,
                 fontSize: '0.75rem',
                 '&:hover': {
-                  bgcolor: '#d32f2f',
+                  bgcolor: P.error,
                 },
               }}
             >

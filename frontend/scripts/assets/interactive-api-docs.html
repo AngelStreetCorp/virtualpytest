@@ -3,15 +3,42 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <script>
+      // Theme = the web app's choice (localStorage 'theme-mode', same origin); swagger-ui 5 reads html.dark-mode.
+      (function () {
+        function apply() {
+          var m = 'system';
+          try { m = localStorage.getItem('theme-mode') || 'system'; } catch (e) {}
+          var dark = m === 'dark' || (m === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+          document.documentElement.classList.toggle('dark-mode', dark);
+        }
+        apply();
+        window.addEventListener('storage', function (e) { if (e.key === 'theme-mode') apply(); });
+      })();
+    </script>
     <title>VirtualPyTest Interactive API Docs</title>
     <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
     <style>
+      /* App palette (frontend/src/constants/agentChatTheme.ts) — this page is a standalone asset. */
+      :root {
+        color-scheme: light dark;
+        --page: #f2f0ec; --surface: #ffffff; --subtle: #ebe7e0; --text: #141414; --text-2: #4a4a4a;
+        --muted: #6e6e6e; --border: #d9d4cc; --accent: #d4a574; --accent-text: #8f5f2e; --on-accent: #1a1a1a;
+        --get: #3f6f8f; --post: #16a34a; --put: #b45309; --delete: #dc2626; --patch: #6f5596;
+      }
+      [data-theme="dark"] {
+        --page: #0a0a0a; --surface: #242424; --subtle: #2a2a2a; --text: #f0f0f0; --text-2: #9a9a9a;
+        --muted: #666666; --border: #383838; --accent: #d4a574; --accent-text: #d4a574; --on-accent: #1a1a1a;
+        --get: #7aa6c2; --post: #22c55e; --put: #f59e0b; --delete: #ef4444; --patch: #a98bc7;
+      }
       * { box-sizing: border-box; }
       body {
         margin: 0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        background: #f8fafc;
-        color: #0f172a;
+        background: var(--page);
+        color: var(--text);
       }
       .topbar {
         position: sticky;
@@ -20,8 +47,8 @@
         display: grid;
         grid-template-columns: 1fr;
         gap: 6px;
-        background: #ffffff;
-        border-bottom: 1px solid #e2e8f0;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
         padding: 8px 10px;
       }
       .row {
@@ -32,26 +59,39 @@
       }
       .hint {
         font-size: 12px;
-        color: #475569;
+        color: var(--muted);
       }
       label {
         font-size: 12px;
-        color: #334155;
+        color: var(--text-2);
       }
       input, select, button {
         height: 30px;
-        border: 1px solid #cbd5e1;
+        border: 1px solid var(--border);
         border-radius: 6px;
-        background: #ffffff;
-        color: #0f172a;
+        background: var(--surface);
+        color: var(--text);
         padding: 0 10px;
         font-size: 12px;
       }
       input { min-width: 140px; }
       .grow { flex: 1 1 260px; }
-      button { cursor: pointer; background: #f8fafc; }
-      button.primary { background: #166534; border-color: #166534; color: #dcfce7; }
-      #swagger-ui { background: #fff; }
+      button { cursor: pointer; background: var(--subtle); }
+      button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+      #swagger-ui { background: var(--page); }
+      /* HTTP methods: palette categorical/status colours instead of swagger blue/teal */
+      .swagger-ui .opblock.opblock-get { border-color: var(--get); background: color-mix(in srgb, var(--get) 8%, transparent); }
+      .swagger-ui .opblock.opblock-get .opblock-summary-method { background: var(--get); }
+      .swagger-ui .opblock.opblock-post { border-color: var(--post); background: color-mix(in srgb, var(--post) 8%, transparent); }
+      .swagger-ui .opblock.opblock-post .opblock-summary-method { background: var(--post); }
+      .swagger-ui .opblock.opblock-put { border-color: var(--put); background: color-mix(in srgb, var(--put) 8%, transparent); }
+      .swagger-ui .opblock.opblock-put .opblock-summary-method { background: var(--put); }
+      .swagger-ui .opblock.opblock-delete { border-color: var(--delete); background: color-mix(in srgb, var(--delete) 8%, transparent); }
+      .swagger-ui .opblock.opblock-delete .opblock-summary-method { background: var(--delete); }
+      .swagger-ui .opblock.opblock-patch { border-color: var(--patch); background: color-mix(in srgb, var(--patch) 8%, transparent); }
+      .swagger-ui .opblock.opblock-patch .opblock-summary-method { background: var(--patch); }
+      .swagger-ui .btn.execute { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+      .swagger-ui a { color: var(--accent-text); }
       .swagger-ui .topbar { display: none !important; }
       .swagger-ui .information-container { display: none !important; }
       .swagger-ui .scheme-container { display: none !important; }

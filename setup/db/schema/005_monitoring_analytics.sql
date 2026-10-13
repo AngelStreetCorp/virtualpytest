@@ -565,7 +565,10 @@ BEGIN
                   AND er.tree_id = ANY(v_tree_ids)
                   AND er.edge_id = em.edge_id
                   AND er.action_set_id = em.action_set_id
-                  AND er.variant IS NOT DISTINCT FROM em.variant
+                  -- Indexable equality (NOT `IS NOT DISTINCT FROM`, which the
+                  -- planner cannot match to an index) so this stays a top-1 probe
+                  -- on idx_execution_results_kpi_edge_scope. See BUG-0189.
+                  AND COALESCE(er.variant, '') = COALESCE(em.variant, '')
                   AND er.kpi_report_url IS NOT NULL
                 ORDER BY er.executed_at DESC
                 LIMIT 1

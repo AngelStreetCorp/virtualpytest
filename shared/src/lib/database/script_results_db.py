@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 from uuid import uuid4
 
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+from shared.src.lib.database.in_filter import chunked_in
 
 def get_supabase():
     """Get the Supabase client instance."""
@@ -66,6 +67,34 @@ def record_script_execution_start(
     except Exception as e:
         print(f"[@db:script_results:record_script_execution_start] Error: {str(e)}")
         return None
+
+def record_script_execution_outcome(
+    script_result_id: str,
+    success: bool,
+    execution_time_ms: Optional[int] = None,
+    error_msg: Optional[str] = None,
+) -> bool:
+    """Write a finished run's verdict before its report exists.
+
+    For a testcase whose report tail runs in the background: callers polling the row see the
+    run finished with its verdict at once, and update_script_execution_result writes the report
+    paths, metadata and final completed_at when the tail ends. No analysis-queue add here --
+    that one is left to the final write, which has the report to analyse."""
+    try:
+        now = datetime.now(timezone.utc).isoformat()
+        update_data = {'success': success, 'completed_at': now, 'updated_at': now}
+        if execution_time_ms is not None:
+            update_data['execution_time_ms'] = execution_time_ms
+        if error_msg:
+            update_data['error_msg'] = error_msg
+        result = get_supabase().table('script_results').update(update_data).eq('id', script_result_id).execute()
+        print(f"[@db:script_results:record_script_execution_outcome] {script_result_id} success={success} "
+              f"execution_time_ms={execution_time_ms} (report to follow)")
+        return bool(result.data)
+    except Exception as e:
+        print(f"[@db:script_results:record_script_execution_outcome] Error: {str(e)}")
+        return False
+
 
 def update_script_execution_result(
     script_result_id: str,
@@ -137,7 +166,7 @@ def update_script_execution_result(
                     verification_review_path = metadata.get('verification_review_r2_path', '')
                 
                 # Pass all data expects (from manager.py _build_task_message)
-                queue_processor.add_script_to_queue(script_result_id, {
+                queued = queue_processor.add_script_to_queue(script_result_id, {
                     'id': script_result_id,
                     'type': 'script_result',
                     'script_name': script_name,
@@ -150,7 +179,10 @@ def update_script_execution_result(
                     'verification_review_url': verification_review_url,
                     'verification_review_path': verification_review_path
                 })
-                print(f"[@db:script_results:update_script_execution_result] Added to analysis queue: {script_result_id}")
+                if queued:
+                    print(f"[@db:script_results:update_script_execution_result] Added to analysis queue: {script_result_id}")
+                else:
+                    print(f"[@db:script_results:update_script_execution_result] Warning: NOT added to analysis queue (Redis unreachable?): {script_result_id}")
             except Exception as e:
                 print(f"[@db:script_results:update_script_execution_result] Warning: Failed to add to analysis queue: {e}")
             
@@ -192,6 +224,25 @@ def _flatten_rerun_payload(row: Dict) -> Dict:
     return row
 
 
+def _attach_labels(supabase, team_id: str, rows: List[Dict]) -> None:
+    """Set row['labels'] for a page of results with one query per IN_FILTER_CHUNK ids."""
+    by_id: Dict[str, List[Dict]] = {str(row.get('id')): [] for row in rows}
+    links = chunked_in(
+        lambda chunk: supabase.table('script_result_labels')
+        .select('script_result_id, run_label_definitions(id, name, color)')
+        .eq('team_id', team_id).in_('script_result_id', chunk),
+        by_id)
+    for link in links:
+        label = link.get('run_label_definitions')
+        if isinstance(label, list):
+            label = label[0] if label else None
+        if label:
+            by_id.setdefault(str(link.get('script_result_id')), []).append(
+                {'id': str(label.get('id')), 'name': label.get('name'), 'color': label.get('color')})
+    for row in rows:
+        row['labels'] = sorted(by_id.get(str(row.get('id')), []), key=lambda l: (str(l['name']).lower(), l['id']))
+
+
 def get_script_results(
     team_id: str,
     script_name: Optional[str] = None,
@@ -201,7 +252,10 @@ def get_script_results(
     include_discarded: bool = False,
     limit: int = 50,
     host_names: Optional[List[str]] = None,
-    host_filter: Optional[List[str]] = None
+    host_filter: Optional[List[str]] = None,
+    milestone_id: Optional[str] = None,
+    run_group_id: Optional[str] = None,
+    label_id: Optional[str] = None,
 ) -> Dict:
     """Get script results with filtering.
 
@@ -215,6 +269,12 @@ def get_script_results(
     workspace (e.g. high-frequency web checks) can't push another workspace's
     rows (e.g. STB runs on a different host) off the end of the latest-N window.
     Combined with host_names via intersection. An empty list returns no results.
+
+    milestone_id / run_group_id / label_id (TASK-42 governance): restrict to rows
+    linked to that milestone, group or label (label through script_result_labels,
+    an inner join within the team). Applied before the limit, like the host scopes.
+    Each returned row carries ``labels`` ([{id, name, color}]), read with one
+    batched query for the page.
     """
     try:
         print(f"[@db:script_results:get_script_results] Getting script results:")
@@ -244,9 +304,16 @@ def get_script_results(
         # a result row inherits it instead of the caller re-deriving one. Rows with
         # no deployment behind them (campaign steps, direct API) embed nothing —
         # those fall back to metadata.parameters, written at record time.
-        query = supabase.table('script_results').select(
-            '*, deployment_executions(deployments(rerun_payload))'
-        ).eq('team_id', team_id)
+        select = '*, deployment_executions(deployments(rerun_payload))'
+        if label_id:
+            select += ', script_result_labels!inner(run_label_id)'
+        query = supabase.table('script_results').select(select).eq('team_id', team_id)
+        if milestone_id:
+            query = query.eq('milestone_id', milestone_id)
+        if run_group_id:
+            query = query.eq('run_group_id', run_group_id)
+        if label_id:
+            query = query.eq('script_result_labels.run_label_id', label_id)
 
         # Add filters
         if script_name:
@@ -270,6 +337,9 @@ def get_script_results(
         result = query.order('created_at', desc=True).limit(limit).execute()
 
         rows = [_flatten_rerun_payload(row) for row in (result.data or [])]
+        for row in rows:
+            row.pop('script_result_labels', None)
+        _attach_labels(supabase, team_id, rows)
 
         print(f"[@db:script_results:get_script_results] Found {len(rows)} script results")
         return {

@@ -2,6 +2,7 @@ import React from 'react';
 import { Box, Typography } from '@mui/material';
 import { Handle, Position, NodeProps } from 'reactflow';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface TerminalBlockProps extends NodeProps {
   label: string;
@@ -15,9 +16,10 @@ interface TerminalBlockProps extends NodeProps {
  */
 export const TerminalBlock: React.FC<TerminalBlockProps> = ({ label, color, selected, dragging }) => {
   const { actualMode } = useTheme();
+  const P = useAgentChatPalette();
   
   // Muted colors for professional look
-  const accentColor = color === '#10b981' ? '#16a34a' : '#dc2626'; // green or red (muted)
+  const accentColor = color === '#10b981' ? P.success : P.error;
   
   return (
     <Box
@@ -26,8 +28,8 @@ export const TerminalBlock: React.FC<TerminalBlockProps> = ({ label, color, sele
         minHeight: 40,
         px: 2,
         py: 1,
-        background: actualMode === 'dark' ? '#1e293b' : '#ffffff',
-        border: selected ? '2px solid #fbbf24' : `1px solid ${actualMode === 'dark' ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'}`,
+        background: P.surface,
+        border: selected ? `2px solid ${P.accent}` : `1px solid ${P.borderColor}`,
         borderLeft: `3px solid ${accentColor}`,
         borderRadius: 1.5,
         display: 'flex',

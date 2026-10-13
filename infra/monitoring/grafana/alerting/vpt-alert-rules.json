@@ -1,0 +1,243 @@
+{
+  "_comment": "Predefined VirtualPyTest Grafana alert rules. Applied by scripts/grafana_alerts.py; documented in docs/user-guide/grafana-alerting.md and docs/agent/infra/GRAFANA_ALERTING.md. Each query returns one row per series: text columns become alert labels, the numeric column `value` is compared against `threshold`. {{team_id}} is substituted at apply time. Zero rows = healthy (noDataState OK). A rule's `requires` lists tables it reads; apply skips the rule while one is missing (migration not applied yet).",
+  "groups": [
+    {
+      "name": "Host health",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "vpt-host-offline",
+          "title": "Host stopped reporting",
+          "recommended": true,
+          "severity": "critical",
+          "for": "5m",
+          "threshold": {
+            "op": "gt",
+            "value": 10
+          },
+          "summary": "{{ $labels.host_name }} has not reported metrics for {{ printf \"%.0f\" $values.A.Value }} min",
+          "description": "No system_metrics row from host {{ $labels.host_name }} (server {{ $labels.server_name }}) for more than 10 minutes. The host service is down, the machine is off, or it lost network. A host that stays silent for 3 days drops out of the query and the alert resolves on its own.",
+          "sql": "SELECT m.server_name, m.host_name,\n       greatest(0, extract(epoch FROM now() - m.last_ts) / 60)::float AS value\nFROM (SELECT coalesce(server_name, '') AS server_name, host_name, max(\"timestamp\") AS last_ts\n      FROM system_metrics\n      WHERE \"timestamp\" > now() - interval '3 days'\n      GROUP BY server_name, host_name) m\nWHERE NOT (m.host_name = 'server' AND EXISTS (\n  -- a server used to report under the literal name 'server' and now reports under its SERVER_NAME:\n  -- the old series is a ghost, not a host that stopped\n  SELECT 1 FROM system_metrics s\n  WHERE coalesce(s.server_name, '') = m.server_name AND s.host_name <> 'server'\n    AND s.\"timestamp\" > now() - interval '15 minutes'))"
+        },
+        {
+          "uid": "vpt-host-disk-high",
+          "title": "Host disk almost full",
+          "recommended": true,
+          "severity": "warning",
+          "for": "10m",
+          "threshold": {
+            "op": "gt",
+            "value": 85
+          },
+          "summary": "{{ $labels.host_name }} disk at {{ printf \"%.1f\" $values.A.Value }}%",
+          "description": "Root disk of host {{ $labels.host_name }} (server {{ $labels.server_name }}) is above 85%. Captures and reports stop being written when it is full.",
+          "sql": "SELECT DISTINCT ON (server_name, host_name)\n       coalesce(server_name, '') AS server_name, host_name, disk_percent::float AS value\nFROM system_metrics\nWHERE \"timestamp\" > now() - interval '15 minutes'\nORDER BY server_name, host_name, \"timestamp\" DESC"
+        },
+        {
+          "uid": "vpt-host-memory-high",
+          "title": "Host memory high",
+          "recommended": true,
+          "severity": "warning",
+          "for": "15m",
+          "threshold": {
+            "op": "gt",
+            "value": 90
+          },
+          "summary": "{{ $labels.host_name }} memory at {{ printf \"%.1f\" $values.A.Value }}%",
+          "description": "Memory use of host {{ $labels.host_name }} (server {{ $labels.server_name }}) has stayed above 90% for 15 minutes.",
+          "sql": "SELECT DISTINCT ON (server_name, host_name)\n       coalesce(server_name, '') AS server_name, host_name, memory_percent::float AS value\nFROM system_metrics\nWHERE \"timestamp\" > now() - interval '15 minutes'\nORDER BY server_name, host_name, \"timestamp\" DESC"
+        },
+        {
+          "uid": "vpt-host-cpu-temp-high",
+          "title": "Host CPU too hot",
+          "recommended": true,
+          "severity": "warning",
+          "for": "10m",
+          "threshold": {
+            "op": "gt",
+            "value": 80
+          },
+          "summary": "{{ $labels.host_name }} CPU at {{ printf \"%.1f\" $values.A.Value }} °C",
+          "description": "CPU temperature of host {{ $labels.host_name }} is above 80 °C. A Raspberry Pi starts throttling around 80-85 °C, which slows capture. Only hosts that report a temperature are checked.",
+          "sql": "SELECT DISTINCT ON (server_name, host_name)\n       coalesce(server_name, '') AS server_name, host_name, cpu_temperature_celsius::float AS value\nFROM system_metrics\nWHERE \"timestamp\" > now() - interval '15 minutes' AND cpu_temperature_celsius IS NOT NULL\nORDER BY server_name, host_name, \"timestamp\" DESC"
+        },
+        {
+          "uid": "vpt-capture-not-running",
+          "title": "Capture or monitor not running",
+          "recommended": true,
+          "severity": "critical",
+          "for": "10m",
+          "threshold": {
+            "op": "gt",
+            "value": 0
+          },
+          "summary": "{{ $labels.device_name }} on {{ $labels.host_name }}: ffmpeg {{ $labels.ffmpeg_status }}, monitor {{ $labels.monitor_status }}",
+          "description": "The video capture (ffmpeg) or the monitor of device {{ $labels.device_name }} ({{ $labels.capture_folder }}) on host {{ $labels.host_name }} has not been active for 10 minutes. No incidents are detected for that device while this lasts.",
+          "sql": "SELECT DISTINCT ON (host_name, device_id)\n       host_name, device_name, capture_folder, ffmpeg_status, monitor_status,\n       (CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 0 ELSE 1 END)::float AS value\nFROM system_device_metrics\nWHERE \"timestamp\" > now() - interval '15 minutes'\nORDER BY host_name, device_id, \"timestamp\" DESC"
+        }
+      ]
+    },
+    {
+      "name": "Device incidents",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "vpt-incident-active",
+          "title": "Device incident ongoing",
+          "recommended": false,
+          "severity": "warning",
+          "for": "0s",
+          "threshold": {
+            "op": "gt",
+            "value": 10
+          },
+          "summary": "{{ $labels.incident_type }} on {{ $labels.device_name }} ({{ $labels.host_name }}) for {{ printf \"%.0f\" $values.A.Value }} min",
+          "description": "An incident ({{ $labels.incident_type }}) has been active on device {{ $labels.device_name }} for more than 10 minutes. Not applied by default: an idle device sitting on a static menu reports a long freeze, which is expected.",
+          "sql": "SELECT host_name, coalesce(device_name, device_id) AS device_name, incident_type,\n       (extract(epoch FROM now() - min(start_time)) / 60)::float AS value\nFROM alerts\nWHERE status = 'active' AND NOT coalesce(discard, false)\nGROUP BY host_name, coalesce(device_name, device_id), incident_type"
+        },
+        {
+          "uid": "vpt-incident-storm",
+          "title": "Too many incidents on a device",
+          "recommended": true,
+          "severity": "warning",
+          "for": "0s",
+          "threshold": {
+            "op": "gt",
+            "value": 20
+          },
+          "summary": "{{ $labels.device_name }} ({{ $labels.host_name }}): {{ printf \"%.0f\" $values.A.Value }} incidents in the last hour",
+          "description": "More than 20 incidents (blackscreen, freeze, audio loss, macroblocks...) started on device {{ $labels.device_name }} in the last hour. The signal is flapping or the device is unstable.",
+          "sql": "SELECT host_name, coalesce(device_name, device_id) AS device_name, count(*)::float AS value\nFROM alerts\nWHERE start_time > now() - interval '1 hour' AND NOT coalesce(discard, false)\n  -- triage already decided these: a repeat of a discarded alert, one that resolved within seconds, one that aged out\n  AND NOT (check_type = 'ai_strategy_skip' AND (discard_comment LIKE '[SKIP:short]%' OR discard_comment LIKE '[SKIP:expired]%'\n           OR (discard_comment LIKE '[SKIP:repeat]%' AND discard_comment LIKE '%(discard)%')))\nGROUP BY host_name, coalesce(device_name, device_id)"
+        }
+      ]
+    },
+    {
+      "name": "Test results",
+      "interval": "5m",
+      "rules": [
+        {
+          "uid": "vpt-script-failure-streak",
+          "title": "Script failing repeatedly",
+          "recommended": true,
+          "severity": "warning",
+          "for": "0s",
+          "threshold": {
+            "op": "gt",
+            "value": 0
+          },
+          "summary": "{{ printf \"%.0f\" $values.A.Value }} scripts failing repeatedly on {{ $labels.device_name }} ({{ $labels.host_name }}): {{ $labels.scripts }}",
+          "description": "{{ printf \"%.0f\" $values.A.Value }} script(s) on {{ $labels.device_name }} ({{ $labels.host_name }}) failed their last 3 or more prod runs: {{ $labels.scripts }}. One alert per device, not per script. Resolves when each script passes again. Discarded runs are ignored, and a device that has not run anything for 2 days is left to the host and device-down rules.",
+          "sql": "WITH r AS (\n  SELECT script_name, host_name, device_name, success, started_at,\n         row_number() OVER (PARTITION BY script_name, host_name, device_name ORDER BY started_at DESC) AS rn\n  FROM script_results\n  WHERE team_id = '{{team_id}}' AND environment = 'prod' AND NOT coalesce(discard, false)\n    AND started_at > now() - interval '7 days'\n), s AS (\n  SELECT script_name, host_name, device_name,\n         (coalesce(min(rn) FILTER (WHERE success), max(rn) + 1) - 1) AS streak, max(started_at) AS last_run\n  FROM r GROUP BY script_name, host_name, device_name\n)\n-- one row per device instead of one per script: a dead phone fails all 13 of its scripts and used to send 13 alerts.\n-- Only devices that still ran in the last 2 days: a host that stopped running is the host / device-down rules' business\nSELECT host_name, device_name, count(*)::float AS value,\n       left(string_agg(script_name, ', ' ORDER BY streak DESC, script_name), 90) AS scripts\nFROM s\nWHERE streak >= 3 AND last_run > now() - interval '2 days'\nGROUP BY host_name, device_name"
+        },
+        {
+          "uid": "vpt-script-regression",
+          "title": "Script pass rate dropped",
+          "recommended": true,
+          "severity": "warning",
+          "for": "0s",
+          "threshold": {
+            "op": "gt",
+            "value": 30
+          },
+          "summary": "{{ $labels.script_name }} pass rate dropped by {{ printf \"%.0f\" $values.A.Value }} points",
+          "description": "The pass rate of {{ $labels.script_name }} ({{ $labels.userinterface_name }}) over the last 24 h is more than 30 points below its previous 7 days. Needs at least 3 runs today and 5 runs in the baseline. Usually a new build of the app or device firmware.",
+          "sql": "SELECT script_name, coalesce(userinterface_name, '') AS userinterface_name,\n       (100.0 * avg(success::int) FILTER (WHERE started_at <= now() - interval '1 day')\n        - 100.0 * avg(success::int) FILTER (WHERE started_at > now() - interval '1 day'))::float AS value\nFROM script_results\nWHERE team_id = '{{team_id}}' AND environment = 'prod' AND NOT coalesce(discard, false)\n  AND started_at > now() - interval '8 days'\nGROUP BY script_name, coalesce(userinterface_name, '')\nHAVING count(*) FILTER (WHERE started_at > now() - interval '1 day') >= 3\n   AND count(*) FILTER (WHERE started_at <= now() - interval '1 day') >= 5"
+        }
+      ]
+    },
+    {
+      "name": "Fleet health",
+      "interval": "15m",
+      "rules": [
+        {
+          "uid": "vpt-fleet-device-down",
+          "title": "Fleet health: device DOWN",
+          "recommended": true,
+          "severity": "critical",
+          "for": "0s",
+          "threshold": {
+            "op": "gt",
+            "value": 1
+          },
+          "summary": "Fleet health: {{ $labels.device_name }} on {{ $labels.host_name }} is {{ $labels.verdict }}",
+          "description": "The latest fleet-health check marks device {{ $labels.device_name }} on host {{ $labels.host_name }} as {{ $labels.verdict }}. Set the threshold to 0 to also be told about DEGRADED devices. The latest check is the 10-minute live one when vpt-fleet-health-live.timer is installed, otherwise the nightly 07:00 one.",
+          "sql": "SELECT server, host_name, coalesce(device_name, device_id) AS device_name, verdict,\n       (CASE verdict WHEN 'DOWN' THEN 2 WHEN 'DEGRADED' THEN 1 ELSE 0 END)::float AS value\nFROM fleet_health\nWHERE generated_at = (SELECT max(generated_at) FROM fleet_health)"
+        }
+      ]
+    },
+    {
+      "name": "Platform services",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "vpt-service-down",
+          "title": "Platform service down",
+          "recommended": true,
+          "severity": "critical",
+          "for": "3m",
+          "requires": [
+            "service_status"
+          ],
+          "threshold": {
+            "op": "gt",
+            "value": 0
+          },
+          "summary": "{{ $labels.vm }} / {{ $labels.component }} is {{ $labels.state }} (seen by {{ $labels.server_name }})",
+          "description": "Platform component {{ $labels.component }} on {{ $labels.vm }} is down, or has not been checked for more than 3 minutes (stale: the VM agent, the collector or the database stopped answering). component = agent means the VM itself is off or unreachable. Reads service_status_current, the same live table as the System Service Status dashboard. A component that is no longer collected (a renamed or retired server) stays stale for up to a day, then drops out.",
+          "sql": "SELECT server_name, vm, component,\n       CASE WHEN checked_at < now() - interval '3 minutes' THEN 'stale' ELSE status END AS state,\n       (CASE WHEN status = 'down' OR checked_at < now() - interval '3 minutes' THEN 1 ELSE 0 END)::float AS value\nFROM service_status_current\n-- service_status_current is the live heartbeat (one row per component, rewritten every minute); service_status is only a\n-- change log since 20261001f. A server that was renamed or retired stops writing: after a day it drops out instead of alerting forever\nWHERE checked_at > now() - interval '1 day'"
+        },
+        {
+          "uid": "vpt-service-degraded",
+          "title": "Platform service degraded",
+          "recommended": false,
+          "severity": "warning",
+          "for": "15m",
+          "requires": [
+            "service_status"
+          ],
+          "threshold": {
+            "op": "gt",
+            "value": 0
+          },
+          "summary": "{{ $labels.vm }} / {{ $labels.component }} degraded for 15 min",
+          "description": "Platform component {{ $labels.component }} on {{ $labels.vm }} has reported degraded for 15 minutes (running but not healthy). Opt-in: degraded is often transient.",
+          "sql": "SELECT server_name, vm, component, (CASE WHEN status = 'degraded' THEN 1 ELSE 0 END)::float AS value\nFROM (\n  SELECT DISTINCT ON (server_name, vm, component) server_name, vm, component, status\n  FROM service_status\n  WHERE checked_at > now() - interval '3 minutes'\n  ORDER BY server_name, vm, component, checked_at DESC\n) latest"
+        },
+        {
+          "uid": "vpt-infra-vm-disk-high",
+          "title": "Infra VM disk almost full",
+          "recommended": true,
+          "severity": "warning",
+          "for": "10m",
+          "requires": [
+            "vm_metrics"
+          ],
+          "threshold": {
+            "op": "gt",
+            "value": 85
+          },
+          "summary": "{{ $labels.vm }} disk at {{ printf \"%.1f\" $values.A.Value }}%",
+          "description": "Root disk of infra VM {{ $labels.vm }} (database, storage, frontend, proxy...) is above 85%. A full database or storage disk stops the whole platform.",
+          "sql": "SELECT DISTINCT ON (server_name, vm) server_name, vm, disk_percent::float AS value\nFROM vm_metrics\nWHERE \"timestamp\" > now() - interval '15 minutes' AND disk_percent IS NOT NULL\nORDER BY server_name, vm, \"timestamp\" DESC"
+        },
+        {
+          "uid": "vpt-infra-vm-memory-high",
+          "title": "Infra VM memory high",
+          "recommended": true,
+          "severity": "warning",
+          "for": "15m",
+          "requires": [
+            "vm_metrics"
+          ],
+          "threshold": {
+            "op": "gt",
+            "value": 90
+          },
+          "summary": "{{ $labels.vm }} memory at {{ printf \"%.1f\" $values.A.Value }}%",
+          "description": "Memory use of infra VM {{ $labels.vm }} has stayed above 90% for 15 minutes.",
+          "sql": "SELECT DISTINCT ON (server_name, vm) server_name, vm, memory_percent::float AS value\nFROM vm_metrics\nWHERE \"timestamp\" > now() - interval '15 minutes' AND memory_percent IS NOT NULL\nORDER BY server_name, vm, \"timestamp\" DESC"
+        }
+      ]
+    }
+  ]
+}

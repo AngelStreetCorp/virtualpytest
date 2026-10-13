@@ -18,6 +18,7 @@ import {
   Backdrop,
 } from '@mui/material';
 import { getZIndex } from '../../utils/zIndexUtils';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import type { Ambiguity, AutoCorrection } from '../../types/aiagent/AIDisambiguation_Types';
 
 interface Props {
@@ -35,6 +36,7 @@ export const PromptDisambiguation: React.FC<Props> = ({
   onCancel,
   onEditPrompt
 }) => {
+  const P = useAgentChatPalette();
   // Pre-select defaults (first suggestion for each ambiguity)
   const defaultSelections = React.useMemo(() => {
     const defaults: Record<string, string> = {};
@@ -88,17 +90,18 @@ export const PromptDisambiguation: React.FC<Props> = ({
           width: '85%',
           maxWidth: 600,
           maxHeight: '80vh',
-          bgcolor: 'rgba(30, 30, 30, 0.95)',
+          bgcolor: P.surface,
           borderRadius: 2,
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.9)',
-          border: '1px solid rgba(255, 255, 255, 0.1)',
+          border: '1px solid',
+          borderColor: P.borderColor,
           outline: 'none',
           overflow: 'hidden',
         }}
       >
         {/* Header */}
-        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid rgba(255, 255, 255, 0.1)' }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: '#fff', fontSize: '0.95rem' }}>
+        <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: P.borderColor }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: P.textPrimary, fontSize: '0.95rem' }}>
             🤔 Clarify Navigation Nodes
           </Typography>
         </Box>
@@ -110,10 +113,10 @@ export const PromptDisambiguation: React.FC<Props> = ({
             {ambiguities.map((amb, idx) => {
               const defaultChoice = amb.suggestions[0]; // First is always default
               return (
-                <Box key={idx} sx={{ px: 1.5, py: 1, bgcolor: 'rgba(255, 255, 255, 0.03)', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 1 }}>
-                  <Typography variant="caption" sx={{ mb: 1, fontWeight: 500, color: '#ccc', display: 'block', fontSize: '0.8rem' }}>
+                <Box key={idx} sx={{ px: 1.5, py: 1, bgcolor: P.background, border: '1px solid', borderColor: P.borderColor, borderRadius: 1 }}>
+                  <Typography variant="caption" sx={{ mb: 1, fontWeight: 500, color: P.textSecondary, display: 'block', fontSize: '0.8rem' }}>
                     We found:{' '}
-                    <Typography component="span" sx={{ color: '#2196f3', fontFamily: 'monospace', fontWeight: 'bold', fontSize: '0.8rem' }}>
+                    <Typography component="span" sx={{ color: P.accentText, fontFamily: 'monospace', fontWeight: 'bold', fontSize: '0.8rem' }}>
                       "{amb.original}"
                     </Typography>
                   </Typography>
@@ -134,18 +137,18 @@ export const PromptDisambiguation: React.FC<Props> = ({
                             fontFamily: 'monospace',
                             py: 0.75,
                             fontSize: '0.85rem',
-                            bgcolor: isSelected ? '#2196f3' : 'transparent',
-                            borderColor: isSelected ? '#2196f3' : 'rgba(255, 255, 255, 0.2)',
-                            color: isSelected ? '#fff' : '#ccc',
+                            bgcolor: isSelected ? P.accent : 'transparent',
+                            borderColor: isSelected ? P.accent : P.borderColor,
+                            color: isSelected ? 'primary.contrastText' : P.textSecondary,
                             '&:hover': {
-                              bgcolor: isSelected ? '#1976d2' : 'rgba(33, 150, 243, 0.1)',
-                              borderColor: '#2196f3',
+                              bgcolor: isSelected ? P.accentHover : `${P.accent}1a`,
+                              borderColor: P.accent,
                             }
                           }}
                         >
                           <span>{sugg}</span>
                           {isDefault && (
-                            <Typography component="span" sx={{ fontSize: '0.7rem', color: isSelected ? '#fff' : '#4caf50', ml: 1 }}>
+                            <Typography component="span" sx={{ fontSize: '0.7rem', color: isSelected ? 'primary.contrastText' : P.success, ml: 1 }}>
                               ⭐ default
                             </Typography>
                           )}
@@ -164,8 +167,9 @@ export const PromptDisambiguation: React.FC<Props> = ({
           sx={{
             px: 2,
             py: 1.5,
-            borderTop: '1px solid rgba(255, 255, 255, 0.1)',
-            bgcolor: 'rgba(0, 0, 0, 0.3)',
+            borderTop: '1px solid',
+            borderColor: P.borderColor,
+            bgcolor: P.background,
             display: 'flex',
             justifyContent: 'space-between',
             gap: 1.5,
@@ -179,9 +183,9 @@ export const PromptDisambiguation: React.FC<Props> = ({
             sx={{
               textTransform: 'none',
               fontSize: '0.85rem',
-              color: '#888',
+              color: P.textMuted,
               '&:hover': {
-                color: '#2196f3',
+                color: P.accentText,
                 bgcolor: 'transparent',
               }
             }}
@@ -198,12 +202,12 @@ export const PromptDisambiguation: React.FC<Props> = ({
               sx={{
                 textTransform: 'none',
                 fontSize: '0.85rem',
-                borderColor: 'rgba(255, 255, 255, 0.3)',
-                color: '#aaa',
+                borderColor: P.borderColor,
+                color: P.textSecondary,
                 '&:hover': {
-                  borderColor: '#f44336',
-                  color: '#f44336',
-                  bgcolor: 'rgba(244, 67, 54, 0.1)',
+                  borderColor: P.error,
+                  color: P.error,
+                  bgcolor: `${P.error}1a`,
                 }
               }}
             >
@@ -217,10 +221,10 @@ export const PromptDisambiguation: React.FC<Props> = ({
                 textTransform: 'none',
                 fontSize: '0.85rem',
                 minWidth: 100,
-                bgcolor: '#2196f3',
-                color: '#fff',
+                bgcolor: P.accent,
+                color: 'primary.contrastText',
                 '&:hover': {
-                  bgcolor: '#1976d2',
+                  bgcolor: P.accentHover,
                 }
               }}
             >

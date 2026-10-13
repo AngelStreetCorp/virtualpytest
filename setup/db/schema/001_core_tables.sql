@@ -30,7 +30,6 @@ CREATE TABLE device_models (
     team_id uuid NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
     name character varying NOT NULL CHECK (length(TRIM(BOTH FROM name)) > 0),
     types jsonb DEFAULT '[]'::jsonb NOT NULL CHECK (jsonb_typeof(types) = 'array'::text),
-    controllers jsonb DEFAULT '{"av": "", "power": "", "remote": "", "network": ""}'::jsonb NOT NULL CHECK (jsonb_typeof(controllers) = 'object'::text),
     version character varying,
     description text,
     is_default boolean DEFAULT false NOT NULL,
@@ -193,77 +192,36 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- Insert basic device models for each team
--- This function will be called after teams are created to populate basic device models
-CREATE OR REPLACE FUNCTION create_default_device_models(p_team_id uuid)
-RETURNS void AS $$
+-- Core device models every team gets: one row per model a host supports
+-- (DEVICE_CONTROLLER_MAP in shared/src/lib/config/device_capabilities.py) that a
+-- userinterface may target. Inserts only the missing names, so re-running it backfills.
+CREATE OR REPLACE FUNCTION public.create_default_device_models(p_team_id uuid)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = public, auth, extensions
+AS $$
 BEGIN
-    -- Only insert if no device models exist for this team
-    IF NOT EXISTS (SELECT 1 FROM device_models WHERE team_id = p_team_id LIMIT 1) THEN
-        
-        -- Web device model
-        INSERT INTO device_models (team_id, name, types, controllers, version, description, is_default)
-        VALUES (
-            p_team_id,
-            'web',
-            '["safari", "chrome", "firefox", "edge"]'::jsonb,
-            '{"av": "", "web": "playwright", "power": "", "remote": "", "network": ""}'::jsonb,
-            '',
-            'Web browser testing via Playwright',
-            true
-        );
-
-        -- Android TV device model
-        INSERT INTO device_models (team_id, name, types, controllers, version, description, is_default)
-        VALUES (
-            p_team_id,
-            'android_tv',
-            '["Android TV", "Fire TV", "Nvidia Shield"]'::jsonb,
-            '{"av": "hdmi_stream", "power": "", "remote": "android_tv", "network": ""}'::jsonb,
-            '',
-            'Android TV and streaming devices',
-            true
-        );
-
-        -- STB (Set-Top Box) device model
-        INSERT INTO device_models (team_id, name, types, controllers, version, description, is_default)
-        VALUES (
-            p_team_id,
-            'stb',
-            '["STB"]'::jsonb,
-            '{}'::jsonb,
-            '',
-            'Generic Set-Top Box',
-            true
-        );
-
-        -- Android Mobile device model
-        INSERT INTO device_models (team_id, name, types, controllers, version, description, is_default)
-        VALUES (
-            p_team_id,
-            'android_mobile',
-            '["Android Phone", "Android TV"]'::jsonb,
-            '{"av": "hdmi_stream", "power": "", "remote": "android_mobile", "network": ""}'::jsonb,
-            '',
-            'Android mobile devices',
-            true
-        );
-
-        -- Apple TV device model
-        INSERT INTO device_models (team_id, name, types, controllers, version, description, is_default)
-        VALUES (
-            p_team_id,
-            'apple_tv',
-            '["apple_tv"]'::jsonb,
-            '{"av": "hdmi_stream", "power": "", "remote": "apple_tv", "network": ""}'::jsonb,
-            '',
-            'Apple TV devices',
-            true
-        );
-
-    END IF;
+    INSERT INTO device_models (team_id, name, types, version, description, is_default)
+    SELECT p_team_id, d.name, d.types, '', d.description, true
+    FROM (VALUES
+        ('web',            '["safari", "chrome", "firefox", "edge"]'::jsonb,         'Web browser testing via Playwright'),
+        ('android_tv',     '["Android TV", "Fire TV", "Nvidia Shield"]'::jsonb,      'Android TV and streaming devices'),
+        ('fire_tv_fireos', '["Fire TV (Fire OS)"]'::jsonb,                           'Amazon Fire TV on Fire OS (Android adb, plus IR/BLE when configured)'),
+        ('fire_tv_vega',   '["Fire TV (Vega OS)"]'::jsonb,                           'Amazon Fire TV on Vega OS (adb + inputd-cli, plus IR/BLE when configured)'),
+        ('stb',            '["STB"]'::jsonb,                                         'Generic Set-Top Box'),
+        ('android_mobile', '["Android Phone", "Android TV"]'::jsonb,                 'Android mobile devices'),
+        ('android_tablet', '["Android Tablet"]'::jsonb,                              'Android tablets'),
+        ('ios_mobile',     '["iOS Phone"]'::jsonb,                                   'iPhone driven through Appium'),
+        ('apple_tv',       '["apple_tv"]'::jsonb,                                    'Apple TV devices'),
+        ('tizen',          '["Tizen TV"]'::jsonb,                                    'Samsung Tizen TV filmed by a camera'),
+        ('camera',         '["Camera"]'::jsonb,                                      'Any device filmed by a camera instead of HDMI capture'),
+        ('host_vnc',       '["Desktop"]'::jsonb,                                     'The host''s own desktop over VNC (desktop + web)')
+    ) AS d(name, types, description)
+    WHERE NOT EXISTS (
+        SELECT 1 FROM device_models dm WHERE dm.team_id = p_team_id AND dm.name = d.name
+    );
 END;
-$$ LANGUAGE plpgsql;
+$$;
 
 -- Trigger to automatically create default device models when a new team is created
 CREATE OR REPLACE FUNCTION trigger_create_default_device_models()
@@ -282,16 +240,5 @@ CREATE TRIGGER after_team_insert
 COMMENT ON FUNCTION create_default_device_models(uuid) IS 'Creates default device models for a team';
 COMMENT ON FUNCTION trigger_create_default_device_models() IS 'Trigger function to auto-create device models when a team is created';
 
--- Create device models for the default team (only if they don't exist)
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT 1 FROM device_models WHERE team_id = '7fdeb4bb-3639-4ec3-959f-b54769a219ce' LIMIT 1) THEN
-        INSERT INTO device_models (team_id, name, types, controllers, version, description, is_default)
-        VALUES
-            ('7fdeb4bb-3639-4ec3-959f-b54769a219ce', 'web', '["safari", "chrome", "firefox", "edge"]'::jsonb, '{"av": "", "web": "playwright", "power": "", "remote": "", "network": ""}'::jsonb, '', 'Web browser testing via Playwright', true),
-            ('7fdeb4bb-3639-4ec3-959f-b54769a219ce', 'android_tv', '["Android TV", "Fire TV", "Nvidia Shield"]'::jsonb, '{"av": "hdmi_stream", "power": "", "remote": "android_tv", "network": ""}'::jsonb, '', 'Android TV and streaming devices', true),
-            ('7fdeb4bb-3639-4ec3-959f-b54769a219ce', 'stb', '["STB"]'::jsonb, '{}'::jsonb, '', 'Generic Set-Top Box', true),
-            ('7fdeb4bb-3639-4ec3-959f-b54769a219ce', 'android_mobile', '["Android Phone", "Android TV"]'::jsonb, '{"av": "hdmi_stream", "power": "", "remote": "android_mobile", "network": ""}'::jsonb, '', 'Android mobile devices', true),
-            ('7fdeb4bb-3639-4ec3-959f-b54769a219ce', 'apple_tv', '["apple_tv"]'::jsonb, '{"av": "hdmi_stream", "power": "", "remote": "apple_tv", "network": ""}'::jsonb, '', 'Apple TV devices', true);
-    END IF;
-END $$;
+-- Create device models for the default team
+SELECT create_default_device_models(id) FROM teams WHERE id = '7fdeb4bb-3639-4ec3-959f-b54769a219ce';

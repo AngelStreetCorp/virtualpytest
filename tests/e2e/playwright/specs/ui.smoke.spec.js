@@ -5,19 +5,28 @@ test.describe('UI Smoke - Critical Pages', () => {
   test('1. Dashboard displays core server summary', async ({ page }) => {
     await gotoWithAutoSign(page, '/');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-    await expect(page.getByText('Registered Servers', { exact: false })).toBeVisible();
+    // Dashboard renders system-stats tiles (System Stats / Devices / Services / Hosts)
+    // — at least one of the tile group names should be visible after the heading.
+    await expect(page.getByText('System Stats', { exact: true }).first()).toBeVisible();
   });
 
   test('2. Device Control displays host/device controls', async ({ page }) => {
     await gotoWithAutoSign(page, '/device-control');
-    await expect(page.getByRole('heading', { name: 'Device', exact: true })).toBeVisible();
+    // The heading carries a count badge (e.g. "Device 6") so an exact-text match
+    // against "Device" misses the accessible name; match the "Device" prefix
+    // instead so the spec is robust to the badge count.
+    await expect(page.getByRole('heading', { name: /^Device\b/ })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible();
   });
 
   test('3. Monitoring Incidents displays incident summary tables', async ({ page }) => {
     await gotoWithAutoSign(page, '/monitoring/incidents');
-    await expect(page.getByRole('heading', { name: 'Incident Summary' })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'In Progress' })).toBeVisible();
+    // Page title was changed from "Incident Summary" to "Alerts" in 4563c4746
+    // (feat(incidents): restyle). Subtitle still starts with "Incidents the monitor opened…".
+    await expect(page.getByRole('heading', { name: 'Alerts' })).toBeVisible();
+    // The status tab is rendered as "In progress" (lowercase 'p') in MonitoringIncidents.tsx —
+    // match it case-insensitively so the spec is robust to a future capitalisation tweak.
+    await expect(page.getByRole('heading', { name: /In Progress/i })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Closed' })).toBeVisible();
   });
 

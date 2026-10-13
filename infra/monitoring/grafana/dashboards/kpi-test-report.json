@@ -154,7 +154,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT\n  COUNT(*) AS \"Total\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failed\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success Rate\",\n  MIN(er.kpi_measurement_ms) AS \"Best (ms)\",\n  ROUND(AVG(er.kpi_measurement_ms))::int AS \"Mean (ms)\",\n  MAX(er.kpi_measurement_ms) AS \"Worst (ms)\"\nFROM execution_results er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\n",
+          "rawSql": "SELECT\n  COUNT(*) AS \"Total\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failed\",\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Success Rate\",\n  MIN(er.kpi_measurement_ms) AS \"Best (ms)\",\n  ROUND(AVG(er.kpi_measurement_ms))::int AS \"Mean (ms)\",\n  MAX(er.kpi_measurement_ms) AS \"Worst (ms)\"\nFROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\n",
           "refId": "A"
         }
       ],
@@ -296,7 +296,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroupAlias(er.executed_at, '30m'),\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Passed\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failed\"\nFROM execution_results er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nGROUP BY 1\nORDER BY 1",
+          "rawSql": "SELECT\n  $__timeGroupAlias(er.executed_at, '30m'),\n  ROUND((SUM(CASE WHEN er.success THEN 1 ELSE 0 END)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Passed\",\n  COUNT(*) FILTER (WHERE NOT er.success) AS \"Failed\"\nFROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nGROUP BY 1\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -393,7 +393,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT er.executed_at AS \"time\", COALESCE(er.device_model, 'unknown') AS metric, er.kpi_measurement_ms AS \"KPI (ms)\"\nFROM execution_results er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.kpi_measurement_ms IS NOT NULL\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nORDER BY 1",
+          "rawSql": "SELECT er.executed_at AS \"time\", COALESCE(er.device_model, 'unknown') AS metric, er.kpi_measurement_ms AS \"KPI (ms)\"\nFROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE er.kpi_measurement_ms IS NOT NULL\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -488,7 +488,7 @@
           "editorMode": "code",
           "format": "time_series",
           "rawQuery": true,
-          "rawSql": "SELECT\n  $__timeGroupAlias(er.executed_at, '5m'),\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(er.device_model, 'unknown') AS metric,\n  (array_agg(er.success::int ORDER BY er.executed_at DESC))[1] AS \"state\"\nFROM execution_results er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nGROUP BY 1, 2\nORDER BY 1",
+          "rawSql": "SELECT\n  $__timeGroupAlias(er.executed_at, '5m'),\n  COALESCE(er.variant, 'Base') || ' - ' || COALESCE(er.device_model, 'unknown') AS metric,\n  (array_agg(er.success::int ORDER BY er.executed_at DESC))[1] AS \"state\"\nFROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) er\nLEFT JOIN navigation_trees nt ON er.tree_id = nt.id\nLEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id\nWHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL)\n  AND $__timeFilter(er.executed_at)\n  AND (ui.name IN (${user_interface:sqlstring}))\n  AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring}))\n  AND (er.action_set_id IN (${action_set:sqlstring}))\n  AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ',')))\nGROUP BY 1, 2\nORDER BY 1",
           "refId": "A"
         }
       ],
@@ -654,7 +654,7 @@
               "editorMode": "code",
               "format": "table",
               "rawQuery": true,
-              "rawSql": "SELECT er.executed_at as \"Executed At\", er.host_name as \"Roboter\", er.device_name as \"Device\", ui.name as \"User Interface\", COALESCE(er.variant, 'Base') as \"Variant\", er.is_test as \"Is Test\", er.action_set_id as \"Action Set ID\", CASE\n  WHEN CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(thr.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END IS NOT NULL\n    THEN CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(thr.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END || CASE\n      WHEN NULLIF(thr.edge_label, '') IS NOT NULL AND thr.edge_label <> CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(thr.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END THEN ' — ' || thr.edge_label\n      ELSE '' END\n  ELSE COALESCE(NULLIF(thr.edge_label, ''), NULLIF(thr.kpi_name, ''), er.action_set_id)\nEND as \"KPI Name\", er.device_model as \"Device Model\", nt.name as \"Tree Name\", er.kpi_measurement_ms as \"KPI Time (ms)\", er.kpi_measurement_success as \"Success\", er.kpi_measurement_error as \"Error\", CASE WHEN sr.html_report_r2_url IS NOT NULL THEN '<a href=\"' || sr.html_report_r2_url || '\" target=\"_blank\">link</a>' END AS \"Script Report\", CASE WHEN er.kpi_report_url IS NOT NULL THEN '<a href=\"' || er.kpi_report_url || '\" target=\"_blank\">link</a>' END AS \"KPI Report\" FROM execution_results er LEFT JOIN script_results sr ON er.script_result_id = sr.id LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL ( SELECT as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1 ) thr ON true WHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL) AND $__timeFilter(er.executed_at) AND (ui.name IN (${user_interface:sqlstring})) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM device_flags df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ','))) ORDER BY er.executed_at DESC",
+              "rawSql": "SELECT er.executed_at as \"Executed At\", er.host_name as \"Roboter\", er.device_name as \"Device\", ui.name as \"User Interface\", COALESCE(er.variant, 'Base') as \"Variant\", er.is_test as \"Is Test\", er.action_set_id as \"Action Set ID\", CASE\n  WHEN CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(thr.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END IS NOT NULL\n    THEN CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(thr.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END || CASE\n      WHEN NULLIF(thr.edge_label, '') IS NOT NULL AND thr.edge_label <> CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(thr.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END THEN ' — ' || thr.edge_label\n      ELSE '' END\n  ELSE COALESCE(NULLIF(thr.edge_label, ''), NULLIF(thr.kpi_name, ''), er.action_set_id)\nEND as \"KPI Name\", er.device_model as \"Device Model\", nt.name as \"Tree Name\", er.kpi_measurement_ms as \"KPI Time (ms)\", er.kpi_measurement_success as \"Success\", er.kpi_measurement_error as \"Error\", CASE WHEN sr.html_report_r2_url IS NOT NULL THEN '<a href=\"' || sr.html_report_r2_url || '\" target=\"_blank\">link</a>' END AS \"Script Report\", CASE WHEN er.kpi_report_url IS NOT NULL THEN '<a href=\"' || er.kpi_report_url || '\" target=\"_blank\">link</a>' END AS \"KPI Report\" FROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) er LEFT JOIN (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr ON er.script_result_id = sr.id LEFT JOIN navigation_trees nt ON er.tree_id = nt.id LEFT JOIN userinterfaces ui ON nt.userinterface_id = ui.id LEFT JOIN LATERAL ( SELECT as_elem->>'kpi_name' AS kpi_name,\n         as_elem->>'label' AS edge_label FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '') AND ne.tree_id = er.tree_id AND as_elem->>'id' = er.action_set_id LIMIT 1 ) thr ON true WHERE (er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL) AND $__timeFilter(er.executed_at) AND (ui.name IN (${user_interface:sqlstring})) AND (COALESCE(er.variant, 'Base') IN (${variant:sqlstring})) AND (er.action_set_id IN (${action_set:sqlstring})) AND (COALESCE(er.device_model, 'unknown') IN (${model:sqlstring}))\n  AND ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = er.host_name AND df.device_name = er.device_name AND df.flags && string_to_array('${flag:csv}', ','))) ORDER BY er.executed_at DESC",
               "refId": "A",
               "sql": {
                 "columns": [
@@ -692,6 +692,44 @@
     "list": [
       {
         "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
           "text": "All",
           "value": "$__all"
         },
@@ -706,7 +744,7 @@
         "name": "user_interface",
         "options": [],
         "refresh": 2,
-        "query": "SELECT DISTINCT ui.name FROM execution_results er JOIN navigation_trees nt ON er.tree_id = nt.id JOIN userinterfaces ui ON nt.userinterface_id = ui.id WHERE er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL ORDER BY 1",
+        "query": "SELECT DISTINCT ui.name FROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) er JOIN navigation_trees nt ON er.tree_id = nt.id JOIN userinterfaces ui ON nt.userinterface_id = ui.id WHERE er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL ORDER BY 1",
         "type": "query"
       },
       {
@@ -725,7 +763,7 @@
         "name": "variant",
         "options": [],
         "refresh": 2,
-        "query": "SELECT 'Base' AS variant UNION SELECT name FROM userinterface_variants UNION SELECT DISTINCT variant FROM execution_results WHERE variant IS NOT NULL ORDER BY variant",
+        "query": "SELECT 'Base' AS variant UNION SELECT name FROM userinterface_variants UNION SELECT DISTINCT variant FROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) execution_results WHERE variant IS NOT NULL ORDER BY variant",
         "type": "query"
       },
       {
@@ -744,7 +782,7 @@
         "name": "model",
         "options": [],
         "refresh": 2,
-        "query": "SELECT DISTINCT COALESCE(device_model, 'unknown') AS model FROM execution_results WHERE kpi_measurement_ms IS NOT NULL OR kpi_measurement_success IS NOT NULL ORDER BY 1",
+        "query": "SELECT DISTINCT COALESCE(device_model, 'unknown') AS model FROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) execution_results WHERE kpi_measurement_ms IS NOT NULL OR kpi_measurement_success IS NOT NULL ORDER BY 1",
         "type": "query"
       },
       {
@@ -763,7 +801,7 @@
         "name": "action_set",
         "options": [],
         "refresh": 2,
-        "query": "SELECT CASE\n  WHEN COUNT(DISTINCT CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(lbl.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END) = 0\n    THEN COALESCE(NULLIF(lbl.edge_label, ''), NULLIF(lbl.kpi_name, ''), er.action_set_id)\n  WHEN COUNT(DISTINCT CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(lbl.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END) = 1\n    AND MIN(CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(lbl.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END) = COALESCE(NULLIF(lbl.edge_label, ''), NULLIF(lbl.kpi_name, ''), er.action_set_id)\n    THEN COALESCE(NULLIF(lbl.edge_label, ''), NULLIF(lbl.kpi_name, ''), er.action_set_id)\n  ELSE COALESCE(NULLIF(lbl.edge_label, ''), NULLIF(lbl.kpi_name, ''), er.action_set_id)\n    || ' — ' || STRING_AGG(DISTINCT CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(lbl.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END, ', ')\n  END AS __text, er.action_set_id AS __value\nFROM execution_results er\nLEFT JOIN script_results sr ON er.script_result_id = sr.id\nLEFT JOIN LATERAL (\n  SELECT as_elem->>'kpi_name' AS kpi_name, as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) lbl ON true\nWHERE er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL\nGROUP BY er.action_set_id\nORDER BY __text",
+        "query": "SELECT CASE\n  WHEN COUNT(DISTINCT CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(lbl.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END) = 0\n    THEN COALESCE(NULLIF(lbl.edge_label, ''), NULLIF(lbl.kpi_name, ''), er.action_set_id)\n  WHEN COUNT(DISTINCT CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(lbl.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END) = 1\n    AND MIN(CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(lbl.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END) = COALESCE(NULLIF(lbl.edge_label, ''), NULLIF(lbl.kpi_name, ''), er.action_set_id)\n    THEN COALESCE(NULLIF(lbl.edge_label, ''), NULLIF(lbl.kpi_name, ''), er.action_set_id)\n  ELSE COALESCE(NULLIF(lbl.edge_label, ''), NULLIF(lbl.kpi_name, ''), er.action_set_id)\n    || ' — ' || STRING_AGG(DISTINCT CASE WHEN sr.script_name = 'standby_measurement' AND COALESCE(lbl.edge_label, '') NOT ILIKE '%standby%' THEN NULL ELSE NULLIF(er.kpi_display_label, '') END, ', ')\n  END AS __text, er.action_set_id AS __value\nFROM (SELECT * FROM execution_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) er\nLEFT JOIN (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr ON er.script_result_id = sr.id\nLEFT JOIN LATERAL (\n  SELECT as_elem->>'kpi_name' AS kpi_name, as_elem->>'label' AS edge_label\n  FROM navigation_edges ne, jsonb_array_elements(ne.action_sets) AS as_elem\n  WHERE ne.edge_id = regexp_replace(er.edge_id, '_reverse$', '')\n    AND ne.tree_id = er.tree_id\n    AND as_elem->>'id' = er.action_set_id\n  LIMIT 1\n) lbl ON true\nWHERE er.kpi_measurement_ms IS NOT NULL OR er.kpi_measurement_success IS NOT NULL\nGROUP BY er.action_set_id\nORDER BY __text",
         "type": "query"
       },
       {
@@ -783,7 +821,7 @@
         "name": "flag",
         "options": [],
         "refresh": 2,
-        "query": "SELECT DISTINCT f AS flag FROM device_flags, unnest(flags) f ORDER BY 1",
+        "query": "SELECT DISTINCT f AS flag FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_flags, unnest(flags) f ORDER BY 1",
         "type": "query"
       }
     ]

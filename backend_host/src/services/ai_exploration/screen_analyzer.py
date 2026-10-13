@@ -238,15 +238,33 @@ class ScreenAnalyzer:
     
     def _extract_interactive_elements_mobile(self, elements: list) -> list:
         """
-        Parse mobile UI dump elements (AndroidElement objects)
-        Extract both static navigation + dynamic content
-        
+        Parse mobile UI dump elements (AndroidElement objects) into the labels to explore.
+
+        The dump is `--windows`: it also holds the status bar, the navigation bar and the
+        launcher's edge panel, so only the focused (app) window is read, and only what a tap
+        can open. The app's fixed navigation (tab bar, toolbar) comes before the tiles of its
+        feeds; a screen whose navigation is the list itself (Settings) falls back to the list.
+
         Args:
             elements: List of AndroidElement objects from dump_elements()
-        
+
         Returns:
             List of element names (strings)
         """
+        app_elements = [e for e in elements if e.in_focused_window and (e.clickable or e.under_clickable is not False)]
+        dropped = len(elements) - len(app_elements)
+        print(f"[@screen_analyzer:_extract_interactive_elements_mobile] {len(app_elements)} tappable elements in the app window "
+              f"({dropped} outside it or not tappable)")
+
+        navigation = self._labels_from_mobile_elements([e for e in app_elements if not e.in_list])
+        if len(navigation) >= 3:
+            print(f"[@screen_analyzer:_extract_interactive_elements_mobile] Using the app's navigation: {navigation}")
+            return navigation[:20]
+        print(f"[@screen_analyzer:_extract_interactive_elements_mobile] Only {len(navigation)} navigation labels - adding list items")
+        return self._labels_from_mobile_elements(app_elements)[:20]
+
+    def _labels_from_mobile_elements(self, elements: list) -> list:
+        """Label each element (text, content-desc, resource-id) and drop decoration and dynamic content."""
         interactive_elements = []
         
         # Filter out common non-interactive text
@@ -318,7 +336,7 @@ class ScreenAnalyzer:
             # Filter out number-only elements and number-percentage elements
             import re
             # Filter pure numbers (any length) and numbers with percentage signs
-            if re.match(r'^\d+$', label) or re.match(r'^\d+%$', label):
+            if re.match(r'^\d+$', label) or re.match(r'^\d+%$', label) or not re.search(r'\w', label):
                 print(f"[@screen_analyzer:_extract_interactive_elements_mobile] 🚫 FILTERED: Number/Percentage | label='{label}' | elem.id={elem.id}")
                 continue
             
@@ -372,7 +390,7 @@ class ScreenAnalyzer:
             else:
                 print(f"[@screen_analyzer:_extract_interactive_elements_mobile] 🔁 DUPLICATE: '{label}' | elem.id={elem.id}")
         
-        return interactive_elements[:20]  # Limit to top 20 elements
+        return interactive_elements
     
     def _extract_interactive_elements_web(self, elements: list) -> list:
         """
@@ -775,7 +793,7 @@ Focus on THREE things:
             # because analyze_full_image_with_ai() limits to 200 tokens
             from shared.src.lib.utils.ai_utils import call_vision_ai
             
-            result = call_vision_ai(prompt, screenshot_path, max_tokens=800, temperature=0.0)
+            result = call_vision_ai(prompt, screenshot_path, 'vision.explore', max_tokens=800, temperature=0.0)
             
             if not result['success']:
                 raise Exception(f"AI vision call failed: {result.get('error', 'Unknown error')}")

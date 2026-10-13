@@ -14,16 +14,15 @@ host reports, since those are what the calling browser/phone can actually reach.
 
 Auth: /server/* is never zero-auth (docs/agent/platform/SERVER_AUTH.md §0-1 — the global
 before_request guard already requires a service X-API-Key, a user JWT or SERVER_OPEN_MODE).
-Pairing/unpairing a device is an admin action, so all three routes add @require_admin_role
-on top — NOT @require_role('admin'), which admits only the 'admin' user role and so turned
-away the X-API-Key principal ('service') that CI, provisioning and backend->backend callers
-use. ADMIN_ROLES in auth_middleware is ('admin', 'service') for exactly this reason: the
-service key already drives /host/* device control directly, so locking it out of an admin
-route buys no safety. A tester or viewer JWT still gets 403. See BUG-0107 follow-up.
+Pairing/unpairing a device needs the `device_control:pair` permission on top (admins hold
+it, and it can be granted to a role, team or user). principal_holds_permission also passes the
+X-API-Key principal ('service') that CI, provisioning and backend->backend callers use — the
+service key already drives /host/* device control directly, so locking it out buys no safety.
+See BUG-0107 follow-up.
 """
 from flask import Blueprint, request, jsonify
 
-from backend_server.src.lib.auth_middleware import require_admin_role
+from backend_server.src.lib.auth_middleware import require_permission
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 from backend_server.src.lib.utils.server_utils import get_host_manager
 from shared.src.lib.utils.build_url_utils import call_host
@@ -81,7 +80,7 @@ def _slots_for_host(host_info: dict, phone_devices: list) -> list:
 
 
 @feature_mobile_app_bp.route('/hosts', methods=['GET'], strict_slashes=False)
-@require_admin_role
+@require_permission('device_control:pair')
 @handle_route_exceptions('mobile_app:list_hosts')
 def list_hosts():
     """Hosts that have at least one phone_agent slot, with live slot states.
@@ -109,7 +108,7 @@ def list_hosts():
 
 
 @feature_mobile_app_bp.route('/pairings', methods=['POST'], strict_slashes=False)
-@require_admin_role
+@require_permission('device_control:pair')
 @handle_route_exceptions('mobile_app:create_pairing')
 def create_pairing():
     """Mint a one-time pairing token for one phone_agent slot.
@@ -156,7 +155,7 @@ def create_pairing():
 
 
 @feature_mobile_app_bp.route('/pairings/<host_name>/<device_id>', methods=['DELETE'], strict_slashes=False)
-@require_admin_role
+@require_permission('device_control:pair')
 @handle_route_exceptions('mobile_app:delete_pairing')
 def delete_pairing(host_name: str, device_id: str):
     """Revoke a slot's pairing (unpair). The host restores the placeholder frame."""

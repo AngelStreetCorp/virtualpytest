@@ -47,10 +47,27 @@ export const STATUS = {
 
 export type StatusKey = keyof typeof STATUS;
 
-/** Chart chrome: axes, gridlines, the surface a mark sits on. */
-const CHROME: Record<Mode, { grid: string; axis: string; muted: string; track: string; surface: string }> = {
-  light: { grid: '#e1e0d9', axis: '#c3c2b7', muted: '#898781', track: '#edece7', surface: '#fcfcfb' },
-  dark: { grid: '#2c2c2a', axis: '#383835', muted: '#898781', track: '#262624', surface: '#1a1a19' },
+/** Chart chrome: axes, gridlines, the surface a mark sits on. `text` reads on `surface`. */
+const CHROME: Record<
+  Mode,
+  { grid: string; axis: string; muted: string; track: string; surface: string; text: string }
+> = {
+  light: {
+    grid: '#e1e0d9',
+    axis: '#c3c2b7',
+    muted: '#898781',
+    track: '#edece7',
+    surface: '#fcfcfb',
+    text: '#26251f',
+  },
+  dark: {
+    grid: '#2c2c2a',
+    axis: '#383835',
+    muted: '#898781',
+    track: '#262624',
+    surface: '#1a1a19',
+    text: '#eceae4',
+  },
 };
 
 export const categorical = (mode: Mode): string[] => CATEGORICAL[mode];

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | backend_server agent router / MCP tool definitions           |
-| Fixed in  | Unreleased (the cut sets the build — never copy VERSION.txt)  |
+| Fixed in  | Unreleased                                                   |
 | Commit    | b4b81aa22                                                    |
 
 ---

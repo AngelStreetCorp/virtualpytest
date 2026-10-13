@@ -15,6 +15,8 @@ Uses playwright_utils for Chrome management.
 BROWSER_ENGINE = "chromium"  # chromium is default — better session/cookie handling, login support
 # =============================================================================
 
+# WebKit only: the fixed settle delays after a launch. A launched Chromium is waited on by
+# readiness instead (a page target on its debug port, see _await_chromium_page).
 BROWSER_CONNECT_INIT_WAIT_SECONDS = 2
 
 import os
@@ -25,10 +27,24 @@ import hashlib
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
 
-# How long connect() waits for another run's browser to leave the debug port before
-# treating it as abandoned and taking the port over. Every script closes its browser
-# at teardown, so a live Chrome here means a run is still in progress.
-BROWSER_BUSY_WAIT_SECONDS = int(os.getenv('VPT_WEB_BUSY_WAIT', '300'))
+from shared.src.lib.utils.phase_timing import (
+    t0 as _phase_t0,
+    log_duration as _log_duration,
+    log_phase as _log_phase,
+)
+
+# A browser already serving the debug port when a script takes the device is an orphan:
+# the server-side device lock guarantees no other run is driving it (BUG-0179). connect()
+# attaches to it when it still answers CDP within this budget, otherwise kills it and
+# launches fresh. It never waits for it to go away.
+BROWSER_ATTACH_TIMEOUT_SECONDS = float(os.getenv('VPT_WEB_ATTACH_TIMEOUT', '15'))
+# Budget for the graceful `Browser.close` sent over CDP at teardown, before the process kill.
+BROWSER_CDP_CLOSE_TIMEOUT_SECONDS = 3.0
+# input_text settles this long after the fill when the action sets no params.timeout. It was
+# 3000 ms, on top of the action's own wait_time that ActionExecutor sleeps afterwards: 3 s per
+# typed field for a fill that takes ~30 ms (all 152 stored web input_text actions rely on the
+# default, 2026-09-29). 500 ms still covers the usual 250-300 ms debounce of search-as-you-type.
+INPUT_TEXT_SETTLE_MS = 500
 
 # =============================================================
 # Single decorator to guarantee execution on controller loop
@@ -60,7 +76,12 @@ shared_utils_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname
 if shared_utils_path not in sys.path:
     sys.path.insert(0, shared_utils_path)
 
-from  backend_host.src.lib.utils.playwright_utils import PlaywrightUtils
+from  backend_host.src.lib.utils.playwright_utils import (
+    PlaywrightUtils,
+    stop_playwright,
+    CHROME_READY_POLL_S,
+    CHROME_PAGE_READY_MAX_WAIT_S,
+)
 from  backend_host.src.lib.utils.webkit_utils import WebKitUtils
 # Import browseruse_utils only when needed to avoid browser_use dependency at module load
 # from  backend_host.src.lib.utils.browseruse_utils import BrowserUseManager
@@ -117,7 +138,6 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
 
         # Flutter semantics tracking (lazy activation on first dump)
         self._flutter_app_detected = None  # None = unknown, True = Flutter, False = not Flutter
-        self._flutter_semantics_ready = False  # True = semantic nodes confirmed working
 
     def _log(self, message: str) -> None:
         timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -166,7 +186,14 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         self.__class__._browser = None
         self.__class__._context = None
         self.__class__._browser_connected = False
-    
+
+    async def _drop_playwright_handles(self):
+        """Forget the Playwright handles, stopping the driver first. Clearing `_playwright`
+        without `stop()` leaves its Node driver running for the life of vpt-host (BUG-0191)."""
+        playwright = self.__class__._playwright
+        self._reset_state()
+        await stop_playwright(playwright)
+
     @property
     def is_connected(self):
         """Always connected once Chrome is running."""
@@ -216,9 +243,7 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             # calls over 26 minutes, all failing on the same closed context. Drop the dead
             # handles and connect once more before giving up.
             print(f"[PLAYWRIGHT]: Page acquisition failed ({type(e).__name__}: {e}) — dropping dead browser handles and reconnecting")
-            self.__class__._browser = None
-            self.__class__._context = None
-            self.__class__._browser_connected = False
+            await self._drop_playwright_handles()
             connect_result = await self.connect_browser()
             if not connect_result or not connect_result.get('success'):
                 raise RuntimeError(
@@ -241,26 +266,52 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         return await context.new_page()
     
     async def _cleanup_persistent_browser(self):
-        """Clean up persistent browser+context."""
+        """Close the browser this run used, whether it launched it or attached to one.
+
+        Graceful first: `Browser.close` over the CDP connection we already hold (the
+        only real CDP shutdown; there is no HTTP endpoint for it). Then the hard
+        guarantee: terminate the launched process group, and whatever still listens
+        on the debug port. The next run must find the port free (BUG-0179).
+        """
         print(f"[PLAYWRIGHT]: Cleaning up persistent browser+context...")
+        browser = self.__class__._browser
+        _t = _phase_t0()
+        if browser is not None and self.browser_engine != "webkit":
+            try:
+                session = await browser.new_browser_cdp_session()
+                await asyncio.wait_for(session.send('Browser.close'), timeout=BROWSER_CDP_CLOSE_TIMEOUT_SECONDS)
+                print(f"[PLAYWRIGHT]: Browser.close sent over CDP")
+            except Exception as e:
+                # The browser usually drops the connection while answering; the kill below covers it.
+                print(f"[PLAYWRIGHT]: CDP Browser.close did not complete ({type(e).__name__}: {e}); falling back to process kill")
+        _log_phase('web.cleanup.cdp_browser_close', _t)
+        _t = _phase_t0()
         try:
-            if self.__class__._browser:
-                await self.__class__._browser.close()
+            if browser is not None:
+                await asyncio.wait_for(browser.close(), timeout=BROWSER_CDP_CLOSE_TIMEOUT_SECONDS)
         except Exception as e:
             print(f"[PLAYWRIGHT]: Browser close error ignored: {type(e).__name__}: {str(e)}")
-        try:
-            if self.__class__._playwright:
-                await self.__class__._playwright.stop()
-        except Exception as e:
-            print(f"[PLAYWRIGHT]: Playwright stop error ignored: {type(e).__name__}: {str(e)}")
-        
-        # Kill Chrome process started via ChromeManager
-        try:
-            if self.__class__._chrome_process:
+        _log_phase('web.cleanup.playwright_browser_close', _t)
+        _t = _phase_t0()
+        await stop_playwright(self.__class__._playwright)
+        _log_phase('web.cleanup.stop_playwright', _t)
+
+        # Hard guarantee: the launched process group (if any) and then any listener still
+        # on the port - a browser this run only attached to has no Popen to terminate.
+        # Only when this run used a browser at all: a script that never touched the web
+        # controller has no business taking down a browser somebody opened by hand.
+        used_a_browser = (self.__class__._chrome_process is not None or browser is not None
+                          or self.__class__._chrome_running)
+        if used_a_browser:
+            _t = _phase_t0()
+            try:
                 self.utils.kill_chrome(chrome_process=self.__class__._chrome_process)
-        except Exception as e:
-            print(f"[PLAYWRIGHT]: Chrome kill error ignored: {type(e).__name__}: {str(e)}")
-        
+            except Exception as e:
+                print(f"[PLAYWRIGHT]: Chrome kill error ignored: {type(e).__name__}: {str(e)}")
+            _log_phase('web.cleanup.kill_chrome', _t)
+        else:
+            print(f"[PLAYWRIGHT]: No browser was launched or attached by this run; leaving the debug port alone")
+
         # Reset flags/state
         self.__class__._playwright = None
         self.__class__._browser = None
@@ -270,55 +321,127 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         self.__class__._chrome_running = False
         print(f"[PLAYWRIGHT]: Persistent browser+context cleaned up and Chrome process terminated")
 
-    async def _cleanup_persistent_browser_with_timeout(self, timeout_seconds: int = 10):
+    async def _cleanup_persistent_browser_with_timeout(self, timeout_seconds: int = 15):
         """Cleanup wrapper that enforces a timeout so it never blocks navigation."""
         import asyncio
         try:
             await asyncio.wait_for(self._cleanup_persistent_browser(), timeout=timeout_seconds)
         except Exception as e:
             print(f"[PLAYWRIGHT]: Cleanup timed out or failed: {type(e).__name__}: {str(e)}")
+            # Cut off before (or while) stopping Playwright: its driver must not outlive the
+            # run (BUG-0191). A browser left on the port is an orphan the next connect handles.
+            await self._drop_playwright_handles()
+            self.__class__._chrome_process = None
+            self.__class__._chrome_running = False
     
+    async def _attach_to_chromium(self) -> None:
+        """Attach over CDP to the Chromium already on the debug port and adopt its first
+        context/page as this run's persistent handles. Raises when it does not answer
+        within BROWSER_ATTACH_TIMEOUT_SECONDS; the Playwright instance is stopped on failure."""
+        playwright = browser = None
+        try:
+            playwright, browser, context, page = await asyncio.wait_for(
+                self.utils.connect_to_chrome(), timeout=BROWSER_ATTACH_TIMEOUT_SECONDS)
+            # A browser whose page no longer executes anything is not worth keeping.
+            await asyncio.wait_for(page.evaluate('1'), timeout=BROWSER_ATTACH_TIMEOUT_SECONDS)
+        except BaseException:
+            for closer in ((browser.close if browser else None), (playwright.stop if playwright else None)):
+                if closer is None:
+                    continue
+                try:
+                    await closer()
+                except Exception:
+                    pass
+            raise
+        self.__class__._playwright = playwright
+        self.__class__._browser = browser
+        self.__class__._context = context
+        self.__class__._browser_connected = True
+        self.current_url = page.url
+
+    async def _claim_chromium(self) -> str:
+        """The connect decision for Chromium. Returns 'launched' or 'reused'. Never waits.
+
+        Port free  -> launch.
+        Port busy  -> the browser there is an orphan (the device lock is what keeps two runs
+                      off one browser, so nobody else can be driving it): attach to it and
+                      reuse it; if it does not answer, kill its process group and launch fresh.
+        """
+        chrome_manager = self.utils.chrome_manager
+        if chrome_manager.cdp_healthy(self.utils.debug_port):
+            self._log(f"A CHROMIUM is already on debug port {self.utils.debug_port} (orphan of a previous run) - attaching to it")
+            try:
+                await self._attach_to_chromium()
+                self.__class__._chrome_process = None
+                self._log(f"Reusing the CHROMIUM on port {self.utils.debug_port} (url={self.current_url})")
+                return 'reused'
+            except Exception as e:
+                self._log(f"Attach failed ({type(e).__name__}: {e}) - killing that CHROMIUM and launching fresh")
+                chrome_manager.shutdown_chrome(self.utils.debug_port)
+        self._log("CHROMIUM not running, launching new process...")
+        self.__class__._chrome_process = self.utils.launch_chrome()
+        return 'launched'
+
+    async def _await_chromium_page(self, phase: str) -> bool:
+        """Wait until the Chromium on the debug port lists a page target: what the fixed 2 s
+        sleeps after a launch were standing in for. Returns at once when the launcher already
+        saw it; gives up after CHROME_PAGE_READY_MAX_WAIT_S (the sleeps' own total) and lets
+        the caller carry on as the sleeps did."""
+        chrome_manager = self.utils.chrome_manager
+        max_polls = max(1, int(CHROME_PAGE_READY_MAX_WAIT_S / CHROME_READY_POLL_S))
+        deadline = time.monotonic() + CHROME_PAGE_READY_MAX_WAIT_S
+        _t = _phase_t0()
+        polls, ready = 0, False
+        while True:
+            polls += 1
+            ready = await asyncio.to_thread(chrome_manager.cdp_page_ready, self.utils.debug_port)
+            if ready or polls >= max_polls or time.monotonic() >= deadline:
+                break
+            await asyncio.sleep(CHROME_READY_POLL_S)
+        _log_phase(phase, _t, f"ready={ready} polls={polls}")
+        return ready
+
+    def _debug_port_has_listener(self) -> bool:
+        """Whether anything listens on the Chromium debug port. When nothing does, attaching is
+        pointless: each attempt starts a Playwright driver (~1.6 s) to be refused."""
+        if self.browser_engine == "webkit":
+            return True  # unchanged: WebKit always tries its attach first
+        return self.utils.chrome_manager.port_listening(self.utils.debug_port)
+
     @ensure_controller_loop
     async def connect(self) -> bool:
-        """Connect to browser (launch if needed)."""
+        """Give this process a browser on the debug port: launch one, or adopt the one there."""
         browser_name = self.browser_engine.upper()
         self._log(f"connect() called - _{self.browser_engine}_running={self._chrome_running}, _process={self._chrome_process}")
-        
+
         if not self._chrome_running:
             try:
-                # A Chrome already serving CDP on the port belongs to another run that
-                # has not torn down yet (each script runs in its own subprocess, so this
-                # process can't know about it any other way). Queue behind it rather than
-                # launching over it. Past the deadline it is an orphan from a run that
-                # died without teardown, and the launcher takes the port as before.
-                if self.browser_engine != "webkit" and self.utils.chrome_manager.cdp_healthy():
-                    self._log(f"Another session's {browser_name} is on the debug port - waiting up to {BROWSER_BUSY_WAIT_SECONDS}s for it to finish")
-                    waited_since = time.time()
-                    while self.utils.chrome_manager.cdp_healthy() and time.time() - waited_since < BROWSER_BUSY_WAIT_SECONDS:
-                        await asyncio.sleep(1)
-                    if self.utils.chrome_manager.cdp_healthy():
-                        self._log(f"Still busy after {BROWSER_BUSY_WAIT_SECONDS}s - treating that {browser_name} as abandoned and taking the port")
-                    else:
-                        self._log(f"Port freed after {time.time() - waited_since:.0f}s")
-
-                self._log(f"{browser_name} not running, launching new process...")
+                _t = _phase_t0()
                 if self.browser_engine == "webkit":
+                    self._log(f"{browser_name} not running, launching new process...")
                     self.__class__._chrome_process = self.utils.launch_webkit()
+                    outcome = 'launched'
                 else:
-                    self.__class__._chrome_process = self.utils.launch_chrome()
+                    outcome = await self._claim_chromium()
+                _log_phase('web.claim_or_launch_browser', _t, f"outcome={outcome}")
                 self.__class__._chrome_running = True
-                self._log(f"{browser_name} launched with remote debugging successfully (PID: {self._chrome_process.pid})")
-                
-                await asyncio.sleep(2)
-                self._log(f"{browser_name} startup delay completed")
-                
+                if outcome == 'launched':
+                    self._log(f"{browser_name} launched with remote debugging successfully (PID: {self._chrome_process.pid})")
+                    if self.browser_engine == "webkit":
+                        _t = _phase_t0()
+                        await asyncio.sleep(2)
+                        _log_phase('web.post_launch_fixed_sleep', _t, 'connect() startup delay')
+                    else:
+                        await self._await_chromium_page('web.post_launch_ready')
+                    self._log(f"{browser_name} startup delay completed")
+
             except Exception as e:
                 error_type = type(e).__name__
                 self._log(f"Failed to launch {browser_name} - {error_type}: {str(e)}")
                 return False
         else:
-            self._log(f"{browser_name} process already running (PID: {self._chrome_process.pid if self._chrome_process else 'unknown'})")
-        
+            self._log(f"{browser_name} process already running (PID: {self._chrome_process.pid if self._chrome_process else 'attached'})")
+
         self._log(f"connect() completed - running={self._chrome_running}, is_connected={self.is_connected}")
         return True
     
@@ -405,22 +528,33 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                     # Fall through to reconnection logic
             
             print(f"[PLAYWRIGHT]: Connecting to Chrome debug session")
-            
+            # A connection that failed verification above is replaced below: stop its driver.
+            if self.__class__._playwright is not None:
+                await self._drop_playwright_handles()
+
             # ✅ OPTIMIZATION 2: Track if Chrome was already running before connect()
             chrome_was_already_running = self.__class__._chrome_running
             
             # Try to connect to existing Chrome debug session (no killing Chrome first)
+            _t_first_attach = _phase_t0()
             try:
+                if not self._debug_port_has_listener():
+                    # Nothing to attach to: go straight to the launch below.
+                    raise ConnectionRefusedError(f"nothing listens on debug port {self.utils.debug_port}")
                 # For existing Chrome, just connect without creating new context
                 self.__class__._playwright, self.__class__._browser, self.__class__._context, page = await self.utils.connect_to_chrome()
+                _log_phase('web.connect_to_existing_chrome', _t_first_attach, 'ok=True')
                 self.__class__._browser_connected = True
-                
+                # This run now owns that browser: a later connect() must not attach to it a
+                # second time, and teardown must close it even though no Popen was launched.
+                self.__class__._chrome_running = True
+
                 # Get current page info from persistent page
                 self.current_url = page.url
                 self.page_title = await page.title() if page.url != 'about:blank' else ''
-                
+
                 execution_time = int((time.time() - start_time) * 1000)
-                
+
                 print(f"[PLAYWRIGHT]: Connected to existing Chrome debug session")
                 return {
                     'success': True,
@@ -433,23 +567,41 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                 
             except Exception as e:
                 # Chrome debug session not available - try to launch Chrome instead
+                _log_phase('web.connect_to_existing_chrome', _t_first_attach, f"ok=False ({type(e).__name__})")
                 print(f"[PLAYWRIGHT]: No existing Chrome found ({e}), launching new Chrome...")
                 try:
                     # Launch Chrome and connect
+                    _t = _phase_t0()
                     connect_result = await self.connect()
+                    _log_phase('web.connect_launch', _t, f"ok={connect_result}")
                     if not connect_result:
                         raise Exception("Failed to launch Chrome")
                     
-                    # Avoid long startup delays; launch readiness should already be handled by the launcher.
-                    if not chrome_was_already_running:
-                        print(f"[PLAYWRIGHT]: Chrome was just launched, waiting {BROWSER_CONNECT_INIT_WAIT_SECONDS}s for initialization...")
-                        await asyncio.sleep(BROWSER_CONNECT_INIT_WAIT_SECONDS)
+                    if self.__class__._browser is not None and self.__class__._context is not None:
+                        # connect() adopted the browser that was already on the port: the
+                        # handles are live, a second attach would only leak a Playwright instance.
+                        print(f"[PLAYWRIGHT]: connect() attached to the existing Chrome, reusing its handles")
+                        page = await self._page_from_context(self.__class__._context)
                     else:
-                        print(f"[PLAYWRIGHT]: Chrome was already running, skipping initialization delay")
-                    
-                    # Now connect to the Chrome debug session to get browser/context/page
-                    self.__class__._playwright, self.__class__._browser, self.__class__._context, page = await self.utils.connect_to_chrome()
-                    self.__class__._browser_connected = True
+                        # Avoid long startup delays; launch readiness should already be handled by the launcher.
+                        if not chrome_was_already_running and self.browser_engine == "webkit":
+                            print(f"[PLAYWRIGHT]: Chrome was just launched, waiting {BROWSER_CONNECT_INIT_WAIT_SECONDS}s for initialization...")
+                            _t = _phase_t0()
+                            await asyncio.sleep(BROWSER_CONNECT_INIT_WAIT_SECONDS)
+                            _log_phase('web.connect_init_fixed_sleep', _t, 'BROWSER_CONNECT_INIT_WAIT_SECONDS')
+                        elif not chrome_was_already_running:
+                            print(f"[PLAYWRIGHT]: Chrome was just launched, waiting for its page target...")
+                            await self._await_chromium_page('web.connect_init_ready')
+                        else:
+                            print(f"[PLAYWRIGHT]: Chrome was already running, skipping initialization delay")
+
+                        # Now connect to the Chrome debug session to get browser/context/page
+                        _t = _phase_t0()
+                        if self.__class__._playwright is not None:
+                            await self._drop_playwright_handles()
+                        self.__class__._playwright, self.__class__._browser, self.__class__._context, page = await self.utils.connect_to_chrome()
+                        self.__class__._browser_connected = True
+                        _log_phase('web.connect_to_launched_chrome', _t)
                     
                     # Update page state
                     self.current_url = page.url
@@ -486,7 +638,7 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                 'connected': False
             }
     
-    def close_browser(self, wait: bool = False, wait_timeout: float = 12.0) -> Dict[str, Any]:
+    def close_browser(self, wait: bool = False, wait_timeout: float = 22.0) -> Dict[str, Any]:
         """Clean up the persistent browser/Chrome process.
 
         By default this only schedules the cleanup on the controller loop and
@@ -504,7 +656,7 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         waited = False
         try:
             # Ensure cleanup runs on the controller loop where Playwright objects live
-            fut = self._submit_to_controller_loop(self._cleanup_persistent_browser_with_timeout(10))
+            fut = self._submit_to_controller_loop(self._cleanup_persistent_browser_with_timeout(15))
             scheduled = True
             if wait:
                 try:
@@ -600,24 +752,30 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             normalized_url = self.utils.normalize_url(url)
             self._log(f"Navigating to {url} (normalized: {normalized_url}) with timeout {timeout}ms")
 
+            _t = _phase_t0()
+            _had_browser = bool(self.__class__._browser and self.__class__._context)
             page = await self._get_persistent_page(target_url=normalized_url)
-            
+            _log_phase('web.get_persistent_page', _t, f"browser_was_connected={_had_browser}")
+
             # Inject consent cookies for YouTube/Google before navigation
             await self._inject_consent_cookies_if_needed(normalized_url)
-            
+
             # Wait for basic page load only - verifications will check readiness
+            _t = _phase_t0()
             await page.goto(normalized_url, timeout=timeout, wait_until='load')
-            
+            _log_phase('web.goto_until_load', _t, f"url={normalized_url}")
+
             # Reset Flutter detection flags on new page load
             # (semantics state doesn't persist across pages)
             self._flutter_app_detected = None
-            self._flutter_semantics_ready = False
 
             self.current_url = page.url
             self.page_title = await page.title()
 
+            _t = _phase_t0()
             await self._capture_dom_snapshot(page)
-            
+            _log_phase('web.dom_snapshot', _t)
+
             execution_time = int((time.time() - start_time) * 1000)
             
             result = {
@@ -1266,7 +1424,7 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         return matches
     
     @ensure_controller_loop
-    async def input_text(self, selector: Optional[str], text: str, wait_time: int = 200,
+    async def input_text(self, selector: Optional[str], text: str, wait_time: int = INPUT_TEXT_SETTLE_MS,
                          press_enter: bool = False) -> Dict[str, Any]:
         """Input text into an element.
 
@@ -1299,9 +1457,16 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
 
             if press_enter:
                 await page.keyboard.press('Enter')
+            _log_duration('web.input_text.fill', (time.time() - start_time) * 1000,
+                          f"selector={selector!r} press_enter={press_enter}")
 
+            # execute_command passes params.timeout here (default INPUT_TEXT_SETTLE_MS) -- not
+            # the action's wait_time, which ActionExecutor sleeps separately afterwards.
+            _t = _phase_t0()
             await asyncio.sleep(wait_time / 1000)
-            
+            _log_phase('web.input_text.post_fill_sleep', _t,
+                       f"sleep_ms={wait_time} (params.timeout, default {INPUT_TEXT_SETTLE_MS})")
+
             result = {
                 'success': True,
                 'error': '',
@@ -1606,13 +1771,168 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                 structure = js_result.get('structure', 'unknown')
                 print(f"[PLAYWRIGHT]: Semantic activated using {structure} structure")
         
+        # The placeholder click only turns the engine's semantics on. Apps that gate their
+        # widget semantics behind keyboard navigation (common Flutter a11y pattern) still
+        # expose an empty tree until Tab is pressed, so wait for real labels.
+        try:
+            page = await self._get_persistent_page()
+            result['semantics_populated'] = await self._ensure_flutter_semantics_populated(page)
+        except Exception as e:
+            print(f"[PLAYWRIGHT]: Semantics population check failed (non-fatal): {e}")
+
         result['success'] = True  # Always succeed since this is optional
         return result
-    
+
+    @ensure_controller_loop
+    async def override_page_meta(self, name: str, content: str) -> Dict[str, Any]:
+        """Force the content of a <meta name=...> tag on every document this browser loads.
+
+        Web apps read runtime config from meta tags at boot (e.g. a flag that disables
+        accessibility semantics). The override is an init script on the browser context,
+        so it must run before navigate_to_url and lasts until the browser disconnects.
+        """
+        start_time = time.time()
+        script = """
+        (() => {
+            const name = %s, content = %s;
+            const apply = (el) => {
+                if (el && el.tagName === 'META' && el.getAttribute('name') === name) {
+                    el.setAttribute('content', content);
+                }
+            };
+            document.querySelectorAll('meta').forEach(apply);
+            const observer = new MutationObserver((mutations) => {
+                for (const m of mutations) m.addedNodes.forEach(apply);
+            });
+            observer.observe(document, {childList: true, subtree: true});
+            document.addEventListener('DOMContentLoaded', () => observer.disconnect(), {once: true});
+        })();
+        """ % (json.dumps(name), json.dumps(content))
+        try:
+            await self._get_persistent_page()
+            await self.__class__._context.add_init_script(script)
+            self._log(f"Meta override registered: {name}={content!r} (applies from the next page load)")
+            return {'success': True, 'error': '', 'execution_time': int((time.time() - start_time) * 1000)}
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'override_page_meta failed: {type(e).__name__}: {e}',
+                'execution_time': int((time.time() - start_time) * 1000)
+            }
+
+    async def _flutter_semantics_populated(self, page) -> bool:
+        """True when the Flutter semantics tree carries at least one label, not just empty nodes."""
+        return await page.evaluate("""
+        () => [...document.querySelectorAll('flt-semantics')].some(
+            (n) => (n.getAttribute('aria-label') || '').trim() || (n.textContent || '').trim())
+        """)
+
+    async def _ensure_flutter_semantics_populated(self, page, timeout_s: float = 6.0) -> bool:
+        """Wait for a labelled Flutter semantics tree, pressing Tab once if the tree stays empty.
+
+        Returns True when populated, False for a non-Flutter page or when it never populates.
+        """
+        if not await page.evaluate("() => !!document.querySelector('flutter-view, flt-glass-pane')"):
+            return False
+        deadline = time.time() + timeout_s
+        tab_at = time.time() + min(2.0, timeout_s / 2)
+        tab_pressed = False
+        while True:
+            if await self._flutter_semantics_populated(page):
+                print(f"[PLAYWRIGHT:FLUTTER] ✅ Semantics tree populated{' after Tab' if tab_pressed else ''}")
+                return True
+            now = time.time()
+            if now >= deadline:
+                print(f"[PLAYWRIGHT:FLUTTER] ⚠️ Semantics tree still empty after {timeout_s}s"
+                      f" — the app may exclude its semantics (check its config/meta tags)")
+                return False
+            if not tab_pressed and now >= tab_at:
+                print(f"[PLAYWRIGHT:FLUTTER] ⌨️ Semantics tree empty — pressing Tab (keyboard-gated semantics)")
+                await page.keyboard.press('Tab')
+                tab_pressed = True
+            await asyncio.sleep(0.5)
+
+    @ensure_controller_loop
+    async def wait_for_iframe_painted(self, selector: str, max_total_ms: int = 12000,
+                                       poll_interval_ms: int = 500) -> Dict[str, Any]:
+        """Wait until a (cross-origin) iframe's contentDocument actually has elements.
+
+        Why it exists:
+          `grecaptcha` (and other widget APIs) loads on the top document and is
+          `typeof === 'function'` very quickly — but the iframe's contentDocument
+          renders separately and asynchronously. `page.screenshot()` taken before
+          the iframe paints shows a blank rectangle in the iframe's area, which
+          breaks any image-matching verification downstream (TASK-37 §3 — the
+          reCAPTCHA demo page is the canonical case; any cross-origin widget with
+          a late-painting iframe hits the same issue).
+
+        Behavior:
+          - Resolves `selector` against the top document (CSS selector string).
+          - Polls `iframe.contentDocument.body.querySelectorAll('*').length` and
+            returns when it is > 0 (i.e. the iframe has rendered some content).
+          - Same-origin iframes only: cross-origin iframes return null for
+            `contentDocument` and this method will time out, which is the right
+            answer (the caller should use a different observation strategy).
+
+        Args:
+            selector: CSS selector for the iframe on the top document.
+            max_total_ms: Total time to wait before giving up.
+            poll_interval_ms: How often to re-check the contentDocument.
+
+        Returns:
+            dict with keys: success (bool), painted (bool), element_count (int),
+            elapsed_ms (int), error (str, on failure).
+        """
+        try:
+            page = await self._get_persistent_page()
+            start_ms = int(time.time() * 1000)
+            deadline_ms = start_ms + max_total_ms
+            last = {"painted": False, "element_count": 0}
+            while True:
+                last = await asyncio.wait_for(
+                    page.evaluate(
+                        """(sel) => {
+                            const el = document.querySelector(sel);
+                            if (!el || !el.contentDocument || !el.contentDocument.body) {
+                                return {painted: false, element_count: 0};
+                            }
+                            const n = el.contentDocument.body.querySelectorAll('*').length;
+                            return {painted: n > 0, element_count: n};
+                        }""",
+                        selector,
+                    ),
+                    timeout=5.0,
+                )
+                if last.get("painted"):
+                    return {
+                        "success": True,
+                        "painted": True,
+                        "element_count": last["element_count"],
+                        "elapsed_ms": int(time.time() * 1000) - start_ms,
+                    }
+                if int(time.time() * 1000) >= deadline_ms:
+                    return {
+                        "success": False,
+                        "painted": False,
+                        "element_count": last.get("element_count", 0),
+                        "elapsed_ms": int(time.time() * 1000) - start_ms,
+                        "error": f"iframe '{selector}' did not paint within {max_total_ms}ms "
+                                 f"(final element_count={last.get('element_count', 0)})",
+                    }
+                await asyncio.sleep(poll_interval_ms / 1000.0)
+        except Exception as e:
+            return {
+                "success": False,
+                "painted": False,
+                "element_count": 0,
+                "elapsed_ms": 0,
+                "error": f"{type(e).__name__}: {e}",
+            }
+
     @ensure_controller_loop
     async def press_key(self, key: str) -> Dict[str, Any]:
         """Press keyboard key.
-        
+
         Args:
             key: Key to press ('BACK', 'ESCAPE', 'ENTER', 'OK', etc.)
         """
@@ -1953,7 +2273,7 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             # //... as XPath); none at all types into the focused field.
             selector = params.get('selector') or params.get('element_id') or params.get('xpath')
             text = params.get('text', '')
-            timeout = params.get('timeout', 3000)
+            timeout = params.get('timeout', INPUT_TEXT_SETTLE_MS)
             press_enter = bool(params.get('press_enter', False))
 
             return await self.input_text(selector, text, wait_time=timeout, press_enter=press_enter)
@@ -1988,6 +2308,16 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         
         elif command == 'activate_semantic':
             return await self.activate_semantic()
+
+        elif command == 'override_page_meta':
+            name = params.get('name')
+            if not name:
+                return {
+                    'success': False,
+                    'error': 'name parameter is required',
+                    'execution_time': 0
+                }
+            return await self.override_page_meta(name, str(params.get('content', '')))
         
         elif command == 'open_browser':
             return await self.open_browser()
@@ -2018,15 +2348,29 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         
         elif command == 'press_key':
             key = params.get('key')
-            
+
             if not key:
                 return {
                     'success': False,
                     'error': 'Key parameter is required',
                     'execution_time': 0
                 }
-            
+
             return await self.press_key(key)
+
+        elif command == 'wait_for_iframe_painted':
+            selector = params.get('selector')
+            if not selector:
+                return {
+                    'success': False,
+                    'error': 'selector parameter is required',
+                    'execution_time': 0,
+                }
+            max_total_ms = int(params.get('max_total_ms', 12000))
+            poll_interval_ms = int(params.get('poll_interval_ms', 500))
+            return await self.wait_for_iframe_painted(
+                selector, max_total_ms=max_total_ms, poll_interval_ms=poll_interval_ms
+            )
         
         elif command == 'scroll':
             direction = params.get('direction')
@@ -2296,82 +2640,32 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             print(f"[PLAYWRIGHT]: Found {result['totalCount']} elements ({result['visibleCount']} visible)")
             
             # -------------------------------------------------------
-            # FLUTTER SEMANTICS SMART DETECTION (lazy activation)
+            # FLUTTER SEMANTICS (lazy activation, re-checked on every dump)
             # -------------------------------------------------------
-            # OPTIMIZATION: Skip all checks if we already verified semantics work
-            if not self._flutter_semantics_ready:
-                print(f"[PLAYWRIGHT:FLUTTER] 🔍 Starting Flutter detection (semantics_ready={self._flutter_semantics_ready}, app_detected={self._flutter_app_detected})")
-                
-                # OPTIMIZATION: Skip if we already know it's NOT a Flutter app
-                if self._flutter_app_detected != False:
-                    # Check if this is a Flutter app (only if we haven't determined yet)
-                    if self._flutter_app_detected is None:
-                        has_flutter_view = any(
-                            el.get('tagName') == 'flutter-view' 
-                            for el in result['elements']
-                        )
-                        self._flutter_app_detected = has_flutter_view
-                        print(f"[PLAYWRIGHT:FLUTTER] 📱 Flutter view detection: {has_flutter_view}")
-                        
-                        if not has_flutter_view:
-                            # Not a Flutter app - we're done, never check again
-                            print(f"[PLAYWRIGHT:FLUTTER] ✅ Not a Flutter app - skipping all future checks")
-                        else:
-                            print(f"[PLAYWRIGHT:FLUTTER] 🦋 Flutter app detected - checking semantics...")
-                    
-                    # At this point: self._flutter_app_detected == True (if we're still here)
-                    if self._flutter_app_detected:
-                        # Check if semantics are ready
-                        print(f"[PLAYWRIGHT:FLUTTER] 🔍 Checking for semantic nodes in {len(result['elements'])} elements...")
-                        
-                        # Debug: Log all element IDs
-                        element_ids = [el.get('id') for el in result['elements']]
-                        print(f"[PLAYWRIGHT:FLUTTER] 📋 Element IDs found: {element_ids}")
-                        
-                        has_semantic_nodes = any(
-                            el.get('id') and 'flt-semantic-node' in el.get('id') 
-                            for el in result['elements']
-                        )
-                        print(f"[PLAYWRIGHT:FLUTTER] 🎯 Semantic nodes found: {has_semantic_nodes}")
-                        
-                        if has_semantic_nodes:
-                            # Semantics working! Mark as ready, never check again
-                            print(f"[PLAYWRIGHT:FLUTTER] ✅ Flutter semantics confirmed working - skipping all future checks")
-                            self._flutter_semantics_ready = True
-                        else:
-                            # Flutter app but semantics NOT ready - retry activation ONCE
-                            print(f"[PLAYWRIGHT:FLUTTER] ⚠️ Flutter detected but semantics not ready - retrying activation...")
-                            activation_result = await self._try_activate_flutter_semantics()
-                            print(f"[PLAYWRIGHT:FLUTTER] 🔧 Activation attempted: {activation_result}")
-                            
-                            await _asyncio.sleep(2.0)  # Wait for semantics tree to populate
-                            
-                            # Re-dump to get semantic nodes
-                            print(f"[PLAYWRIGHT:FLUTTER] 🔄 Re-dumping elements after Flutter activation...")
-                            result = await _asyncio.wait_for(page.evaluate(js_code), timeout=5.0)
-                            execution_time = int((time.time() - start_time) * 1000)
-                            print(f"[PLAYWRIGHT:FLUTTER] 📊 Re-dump found {result['totalCount']} elements ({result['visibleCount']} visible)")
-                            
-                            # Debug: Log all element IDs after retry
-                            element_ids_after = [el.get('id') for el in result['elements']]
-                            print(f"[PLAYWRIGHT:FLUTTER] 📋 Element IDs after retry: {element_ids_after}")
-                            
-                            # Check if retry worked
-                            has_semantic_nodes = any(
-                                el.get('id') and 'flt-semantic-node' in el.get('id') 
-                                for el in result['elements']
-                            )
-                            print(f"[PLAYWRIGHT:FLUTTER] 🎯 Semantic nodes after retry: {has_semantic_nodes}")
-                            
-                            if has_semantic_nodes:
-                                print(f"[PLAYWRIGHT:FLUTTER] ✅ Flutter semantics now working after retry")
-                                self._flutter_semantics_ready = True
-                            else:
-                                print(f"[PLAYWRIGHT:FLUTTER] ⚠️ Flutter semantics still not ready - may need manual intervention")
-                else:
-                    print(f"[PLAYWRIGHT:FLUTTER] ⏭️ Skipping Flutter checks (app_detected=False)")
-            else:
-                print(f"[PLAYWRIGHT:FLUTTER] ⏭️ Skipping Flutter checks (semantics_ready=True)")
+            # Checking the dump is free, and an app can drop its semantics tree at any time
+            # (e.g. a pointer click leaving keyboard/a11y mode), so readiness is never cached.
+            if self._flutter_app_detected is None:
+                self._flutter_app_detected = any(el.get('tagName') == 'flutter-view' for el in result['elements'])
+                print(f"[PLAYWRIGHT:FLUTTER] 📱 Flutter view detection: {self._flutter_app_detected}")
+
+            def _has_labelled_semantics(elements) -> bool:
+                # An excluded/collapsed tree still renders empty flt-semantic-node-* ids
+                return any(
+                    el.get('id') and 'flt-semantic-node' in el.get('id')
+                    and ((el.get('textContent') or '').strip() or el.get('attributes', {}).get('aria-label'))
+                    for el in elements
+                )
+
+            if self._flutter_app_detected and not _has_labelled_semantics(result['elements']):
+                print(f"[PLAYWRIGHT:FLUTTER] ⚠️ Flutter semantics tree empty - re-activating...")
+                activation_result = await self._try_activate_flutter_semantics()
+                print(f"[PLAYWRIGHT:FLUTTER] 🔧 Placeholder activation attempted: {activation_result}")
+                await self._ensure_flutter_semantics_populated(page)
+
+                result = await _asyncio.wait_for(page.evaluate(js_code), timeout=5.0)
+                execution_time = int((time.time() - start_time) * 1000)
+                print(f"[PLAYWRIGHT:FLUTTER] 📊 Re-dump found {result['totalCount']} elements ({result['visibleCount']} visible),"
+                      f" labelled semantics: {_has_labelled_semantics(result['elements'])}")
             # -------------------------------------------------------
             
             summary = {
@@ -2697,6 +2991,18 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                     'inputLabel': 'Coordinates (x,y)',
                     'inputPlaceholder': '100,200'
                 },
+                {
+                    'id': 'wait_for_iframe_painted',
+                    'label': 'Wait For Iframe Painted',
+                    'command': 'wait_for_iframe_painted',
+                    'action_type': 'web',
+                    'params': {},
+                    'description': 'Wait until an iframe\'s contentDocument has rendered elements '
+                                   '(polls contentDocument.body.querySelectorAll length). Same-origin iframes only.',
+                    'requiresInput': True,
+                    'inputLabel': 'iframe CSS selector',
+                    'inputPlaceholder': 'iframe[src*="recaptcha"]'
+                },
                 # JavaScript execution
                 {
                     'id': 'execute_javascript',
@@ -2728,6 +3034,17 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                     'params': {},
                     'description': 'Activate semantic for Flutter web apps',
                     'requiresInput': False
+                },
+                {
+                    'id': 'override_page_meta',
+                    'label': 'Override Page Meta',
+                    'command': 'override_page_meta',
+                    'action_type': 'web',
+                    'params': {},
+                    'description': 'Force a <meta name> content on every page load (params: name, content); run before navigate_to_url',
+                    'requiresInput': True,
+                    'inputLabel': 'Meta name and content',
+                    'inputPlaceholder': 'DISABLE_WEB_SEMANTICS,false'
                 },
                 # Element inspection
                 {

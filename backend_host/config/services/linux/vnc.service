@@ -14,9 +14,70 @@ Group=vpt_user
 Environment=HOME=/var/lib/vpt_user
 Environment=XDG_CONFIG_HOME=/var/lib/vpt_user/.config
 TimeoutStartSec=120
-# Repair the service user's home and XDG data directories before TigerVNC
-# writes .Xauthority. The '+' prefix runs this one setup command as root.
-ExecStartPre=+/usr/bin/install -d -o vpt_user -g vpt_user /var/lib/vpt_user /var/lib/vpt_user/.cache /var/lib/vpt_user/.local/share
+# Repair the service user's home + XDG dirs before TigerVNC writes .Xauthority.
+# The '+' prefix runs as root even when User= is set. Without this, a host whose
+# /var/lib/vpt_user was created outside `useradd -m` (template clone, snapshot,
+# manual `mkdir`) silently crash-loops vpt-vnc: xauth times out locking
+# .Xauthority, xfce4-session can't write ~/.cache, xfconfd loses its dbus name,
+# Xtigervnc dies, systemd restarts forever, websockify returns 1011 to noVNC.
+#
+# The wrapper is loud on purpose: if it has to fix ownership it prints a
+# `🔧 VPT-VNC AUTO-FIX` line to the journal so operators see the moment of
+# recovery (`journalctl -u vpt-vnc | grep AUTO-FIX`). If the fix itself fails
+# (read-only parent, full disk, broken mount) it aborts the start with a
+# FATAL banner instead of letting xauth time out for 40s before crashing.
+ExecStartPre=+/bin/bash -c '\
+  VPT_USER_UID="$(id -u vpt_user 2>/dev/null || echo MISSING)"; \
+  VPT_USER_GID="$(id -g vpt_user 2>/dev/null || echo MISSING)"; \
+  if [ "$VPT_USER_UID" = "MISSING" ] || [ "$VPT_USER_GID" = "MISSING" ]; then \
+    echo "============================================================" >&2; \
+    echo "FATAL: vpt_user account does not exist on this host" >&2; \
+    echo "Re-run setup/local/linux/backend_host/install_host.sh to create it" >&2; \
+    echo "============================================================" >&2; \
+    exit 1; \
+  fi; \
+  VPT_VNC_HOMES="/var/lib/vpt_user /var/lib/vpt_user/.cache /var/lib/vpt_user/.local/share"; \
+  fixed=0; \
+  for d in $VPT_VNC_HOMES; do \
+    cur="$(stat -c "%u:%g" "$d" 2>/dev/null || echo MISSING)"; \
+    if [ "$cur" != "$VPT_USER_UID:$VPT_USER_GID" ]; then \
+      if [ ! -d "$d" ]; then \
+        if ! /usr/bin/install -d -o "$VPT_USER_UID" -g "$VPT_USER_GID" "$d" 2>/tmp/vpt-vnc-autofix.err; then \
+          echo "============================================================" >&2; \
+          echo "FATAL: vpt-vnc could not create $d for vpt_user ($VPT_USER_UID:$VPT_USER_GID)" >&2; \
+          echo "Current state: $cur" >&2; \
+          echo "install -d error:" >&2; \
+          cat /tmp/vpt-vnc-autofix.err >&2; \
+          echo "Common causes: read-only parent mount, full disk, missing parent" >&2; \
+          echo "Fix the filesystem state, then: sudo systemctl start vpt-vnc" >&2; \
+          echo "============================================================" >&2; \
+          rm -f /tmp/vpt-vnc-autofix.err; \
+          exit 1; \
+        fi; \
+      else \
+        if ! /bin/chown "$VPT_USER_UID:$VPT_USER_GID" "$d" 2>/tmp/vpt-vnc-autofix.err; then \
+          echo "============================================================" >&2; \
+          echo "FATAL: vpt-vnc could not chown $d to vpt_user ($VPT_USER_UID:$VPT_USER_GID)" >&2; \
+          echo "Current state: $cur" >&2; \
+          echo "chown error:" >&2; \
+          cat /tmp/vpt-vnc-autofix.err >&2; \
+          echo "Common causes: read-only filesystem, immutable attribute" >&2; \
+          echo "Fix the filesystem state, then: sudo systemctl start vpt-vnc" >&2; \
+          echo "============================================================" >&2; \
+          rm -f /tmp/vpt-vnc-autofix.err; \
+          exit 1; \
+        fi; \
+      fi; \
+      echo "🔧 VPT-VNC AUTO-FIX: $d was [$cur], repaired to vpt_user ($VPT_USER_UID:$VPT_USER_GID)" >&2; \
+      fixed=1; \
+    fi; \
+  done; \
+  rm -f /tmp/vpt-vnc-autofix.err; \
+  if [ "$fixed" -eq 0 ]; then \
+    echo "✅ VPT-VNC: /var/lib/vpt_user + XDG dirs already owned by vpt_user ($VPT_USER_UID:$VPT_USER_GID)" >&2; \
+  else \
+    echo "⚠️  VPT-VNC: ownership was wrong, auto-repaired before TigerVNC start. Investigate install_host.sh or template clone." >&2; \
+  fi'
 ExecStartPre=/bin/bash -c 'if [ -f /tmp/.X1-lock ]; then rm -f /tmp/.X1-lock; fi'
 ExecStartPre=/bin/bash -c 'if [ -S /tmp/.X11-unix/X1 ]; then rm -f /tmp/.X11-unix/X1; fi'
 ExecStartPre=/bin/bash -c 'rm -f /var/lib/vpt_user/.vnc/*.pid 2>/dev/null || true'

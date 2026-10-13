@@ -1,9 +1,6 @@
 from typing import Dict, Any, List
 import time
-from backend_host.src.services.ai_exploration.node_generator import NodeGenerator
 from shared.src.lib.database.navigation_trees_db import (
-    get_node_by_id,
-    get_edge_by_id,
     delete_node,
     delete_edge,
     save_nodes_batch,
@@ -108,74 +105,6 @@ def finalize_structure(executor) -> Dict[str, Any]:
             'edges_renamed': edges_renamed,
             'message': 'Structure finalized successfully'
         }
-
-def approve_generation(executor, tree_id: str, approved_nodes: list, approved_edges: list, team_id: str) -> Dict[str, Any]:
-    """
-    Approve generation - rename all _temp nodes/edges
-    
-    Returns:
-        {
-            'success': True,
-            'nodes_created': 2,
-            'edges_created': 1
-        }
-    """
-    print(f"[@ExplorationExecutor:approve_generation] Approving {len(approved_nodes)} nodes, {len(approved_edges)} edges")
-    
-    node_generator = NodeGenerator(tree_id, team_id)
-    nodes_created = 0
-    edges_created = 0
-    
-    # Rename nodes
-    nodes_to_save = []
-    for node_id in approved_nodes:
-        node_result = get_node_by_id(tree_id, node_id, team_id)
-        if node_result['success']:
-            node_data = node_result['node']
-            renamed_data = node_generator.rename_node(node_data)
-            
-            delete_node(tree_id, node_id, team_id)
-            nodes_to_save.append(renamed_data)
-            print(f"  ✅ Renamed: {node_id} → {renamed_data['node_id']}")
-
-    if nodes_to_save:
-        save_result = save_nodes_batch(tree_id, nodes_to_save, team_id)
-        if save_result['success']:
-            nodes_created = len(nodes_to_save)
-    
-    # Rename edges
-    edges_to_save = []
-    for edge_id in approved_edges:
-        edge_result = get_edge_by_id(tree_id, edge_id, team_id)
-        if edge_result['success']:
-            edge_data = edge_result['edge']
-            renamed_data = node_generator.rename_edge(edge_data)
-            
-            edges_to_save.append(renamed_data)
-            print(f"  ✅ Renamed: {edge_id} → {renamed_data['edge_id']}")
-
-    if edges_to_save:
-        save_result = save_edges_batch(tree_id, edges_to_save, team_id)
-        if save_result['success']:
-            edges_created = len(edges_to_save)
-    
-    # Clean up state
-    with executor._lock:
-        executor.current_exploration_id = None
-        executor.exploration_engine = None
-        executor.exploration_state['status'] = 'idle'
-    
-    print(f"[@ExplorationExecutor:approve_generation] ✅ Complete: {nodes_created} nodes, {edges_created} edges")
-    
-    # DELAY: Wait 2s to let view refresh/propagate before frontend fetch
-    time.sleep(2)
-    
-    return {
-        'success': True,
-        'nodes_created': nodes_created,
-        'edges_created': edges_created,
-        'message': f'Successfully created {nodes_created} nodes and {edges_created} edges'
-    }
 
 def cancel_exploration(executor, tree_id: str, team_id: str) -> Dict[str, Any]:
     """

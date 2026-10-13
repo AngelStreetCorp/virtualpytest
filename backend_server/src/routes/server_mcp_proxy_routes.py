@@ -1,15 +1,13 @@
 """
-MCP Proxy Routes - Execute prompts via OpenRouter Function Calling
+MCP Proxy Routes - Execute prompts via function calling
 
-Uses Qwen/Phi-3 models with function calling to decide which MCP tools to execute.
-This bridges natural language prompts to MCP tool execution.
+The model is the AI route for usage ``agent.mcp_prompt`` (TASK-30): it decides which
+MCP tools to execute. This bridges natural language prompts to MCP tool execution.
 """
 
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-import requests
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -19,6 +17,8 @@ if str(current_dir) not in sys.path:
     sys.path.insert(0, str(current_dir))
 
 from mcp.mcp_instance import get_mcp_server
+from shared.src.lib.ai import caller as ai_caller, router as ai_router, tracing
+from shared.src.lib.ai.provider_client import response_text
 
 server_mcp_proxy_bp = Blueprint('server_mcp_proxy', __name__, url_prefix='/server/mcp-proxy')
 
@@ -29,6 +29,29 @@ mcp_server = get_mcp_server()
 @server_mcp_proxy_bp.route('/execute-prompt', methods=['POST'])
 @handle_route_exceptions('mcp_proxy:execute_prompt')
 def execute_prompt():
+    """Traced wrapper: one Langfuse trace per prompt, one generation per model call."""
+    trace = {'attempts': [], 'resolution': None}
+    with ai_caller.bound(origin='mcp'):
+        response = _execute_prompt(trace)
+    body, status = (response if isinstance(response, tuple) else (response, 200))
+    try:
+        data = body.get_json(silent=True) or {}
+    except Exception:
+        data = {}
+    if trace['attempts'] or trace['resolution'] is not None:
+        tracing.trace_call(
+            name='AI agent.mcp_prompt', usage='agent.mcp_prompt',
+            input=(request.get_json(silent=True) or {}).get('prompt'),
+            attempts=trace['attempts'], resolution=trace['resolution'],
+            output=data.get('ai_response') or None, ok=bool(data.get('success')),
+            error=data.get('error'), team_id=request.args.get('team_id'),
+            extra={'tool_calls': [c.get('tool') for c in data.get('tool_calls', []) if isinstance(c, dict)],
+                   'http_status': status},
+        )
+    return response
+
+
+def _execute_prompt(trace: dict):
     """
     Execute natural language prompt via OpenRouter with function calling (MCP-style)
     
@@ -68,26 +91,31 @@ def execute_prompt():
     if not prompt:
         return jsonify({'success': False, 'error': 'Prompt required'}), 400
     
-    # Get OpenRouter API key
-    api_key = os.getenv('OPENROUTER_API_KEY')
-    if not api_key:
-        return jsonify({'success': False, 'error': 'OPENROUTER_API_KEY not configured in .env'}), 500
-    
-    # Get available MCP tools - expose them as-is
-    available_tools = mcp_server.get_available_tools()
-    
-    # Convert MCP tool schemas to OpenRouter tools format
-    tools = []
-    for tool in available_tools:
-        tools.append({
-            "type": "function",
-            "function": {
-                "name": tool['name'],
-                "description": tool['description'],  # Use full description - no truncation
-                "parameters": tool['inputSchema']
-            }
-        })
-    
+    try:
+        trace['resolution'] = ai_router.resolve('agent.mcp_prompt', team_id)
+        hop = trace['resolution'].primary
+        client = hop.client()
+    except Exception as e:
+        return jsonify({'success': False, 'error': f'AI not configured for agent.mcp_prompt: {e}'}), 500
+
+    # Get available MCP tools - expose them as-is (provider-neutral tool shape)
+    # The caller may pass {"tool_names": ["press_key", "capture_screenshot", ...]}
+    # to ship a subset. The schema cache (ToolDefinitionBuilder singleton) makes
+    # the filter O(N) over the requested names, with no rebuild. The string "all"
+    # (and a missing key) keep the previous behaviour.
+    requested_tool_names = data.get('tool_names')
+    if requested_tool_names and requested_tool_names != 'all':
+        available_tools = mcp_server.get_tools_by_names(requested_tool_names)
+        print(f"[@mcp_proxy] Tool subset requested: {len(requested_tool_names)} names, "
+              f"{len(available_tools)} matched (HIDDEN_TOOLS excluded)")
+    else:
+        available_tools = mcp_server.get_available_tools()
+    tools = [{
+        "name": tool['name'],
+        "description": tool['description'],  # Use full description - no truncation
+        "input_schema": tool['inputSchema'],
+    } for tool in available_tools]
+
     print(f"[@mcp_proxy] Prepared {len(tools)} tools for AI")
     
     # Minimal system message - just provide context, no instructions
@@ -103,13 +131,10 @@ Note: Based on device model:
 - web/desktop: Use web/desktop automation commands
 - For verification: Use commands matching the device model'''
 
-    print(f"[@mcp_proxy] Calling OpenRouter with model: x-ai/grok-3-mini (max 3 iterations)")
-    
+    print(f"[@mcp_proxy] Calling {hop.endpoint_name} model {hop.model} (max 3 iterations)")
+
     # Multi-turn conversation with AI (max 3 iterations)
-    messages = [
-        {'role': 'system', 'content': system_message},
-        {'role': 'user', 'content': prompt}
-    ]
+    messages = [{'role': 'user', 'content': prompt}]
     max_iterations = 3
     iteration = 0
     last_tool_result = None
@@ -120,47 +145,34 @@ Note: Based on device model:
         iteration += 1
         print(f"[@mcp_proxy] Iteration {iteration}/{max_iterations}")
         
-        openrouter_response = requests.post(
-            'https://openrouter.ai/api/v1/chat/completions',
-            headers={
-                'Authorization': f'Bearer {api_key}',
-                'HTTP-Referer': 'https://virtualpytest.com',
-                'X-Title': 'VirtualPyTest MCP Proxy',
-                'Content-Type': 'application/json'
-            },
-            json={
-                'model': 'google/gemini-2.5-pro',
-                'messages': messages,
-                'tools': tools,
-                'tool_choice': 'auto',  # Let AI decide whether to call a tool or ask for clarification
-                'max_tokens': 2000,
-                'temperature': 0.0
-            },
-            timeout=60
-        )
-        
-        if not openrouter_response.ok:
-            error_text = openrouter_response.text
-            print(f"[@mcp_proxy] ❌ OpenRouter error: {openrouter_response.status_code}")
-            return jsonify({
-                'success': False,
-                'error': f'OpenRouter error {openrouter_response.status_code}: {error_text}'
-            }), 500
-        
-        response_data = openrouter_response.json()
-        message = response_data['choices'][0]['message']
-        
-        print(f"[@mcp_proxy] OpenRouter response: {list(message.keys())}")
-        
+        try:
+            response = tracing.traced_create(
+                client, hop, trace['attempts'], resolution=trace['resolution'],
+                model=hop.model,
+                max_tokens=hop.max_tokens(2000),
+                system=[{'type': 'text', 'text': system_message}],
+                messages=messages,
+                tools=tools,
+                tool_choice={'type': 'auto'},  # Let AI decide whether to call a tool or ask for clarification
+                temperature=hop.temperature(0.0),
+                extra_headers=None,
+            )
+        except Exception as e:
+            print(f"[@mcp_proxy] ❌ {hop.endpoint_name} error: {e}")
+            return jsonify({'success': False, 'error': f'{hop.endpoint_name} error: {e}'}), 500
+
+        blocks = list(getattr(response, 'content', None) or [])
+        tool_uses = [b for b in blocks if getattr(b, 'type', None) == 'tool_use']
+
         # Collect AI reasoning (content) if present
-        ai_content = message.get('content', '')
+        ai_content = response_text(response)
         if ai_content:
             ai_reasoning_parts.append(f"[Iteration {iteration}] {ai_content}")
             print(f"[@mcp_proxy] AI reasoning: {ai_content}")
         
         # Check if AI called a tool
-        if 'tool_calls' not in message or not message['tool_calls']:
-            ai_reasoning_text = message.get('reasoning', 'No reasoning provided')
+        if not tool_uses:
+            ai_reasoning_text = ai_content or 'No reasoning provided'
             print(f"[@mcp_proxy] ⚠️ AI did not call any tool (iteration {iteration})")
             print(f"[@mcp_proxy] AI content: {ai_content}")
             print(f"[@mcp_proxy] AI reasoning: {ai_reasoning_text}")
@@ -189,15 +201,16 @@ Note: Based on device model:
                 'ai_reasoning': ai_reasoning_text
             }), 400
         
-        # Add assistant message to conversation
-        messages.append(message)
-        
-        # Execute the tool the AI chose
-        tool_call = message['tool_calls'][0]
-        function_name = tool_call['function']['name']
-        function_args_str = tool_call['function']['arguments']
-        function_args = json.loads(function_args_str) if isinstance(function_args_str, str) else function_args_str
-        
+        # Execute the first tool the AI chose; record only that call in the history so
+        # every tool_use has its tool_result.
+        tool_use = tool_uses[0]
+        tool_use_id = getattr(tool_use, 'id', None)
+        function_name = getattr(tool_use, 'name', None)
+        function_args = dict(getattr(tool_use, 'input', None) or {})
+        messages.append({'role': 'assistant', 'content': (
+            [{'type': 'text', 'text': ai_content}] if ai_content else []
+        ) + [{'type': 'tool_use', 'id': tool_use_id, 'name': function_name, 'input': dict(function_args)}]})
+
         print(f"[@mcp_proxy] AI chose tool: {function_name}")
         print(f"[@mcp_proxy] Arguments: {json.dumps(function_args, indent=2)}")
         
@@ -271,12 +284,9 @@ Note: Based on device model:
                 result[metadata_key] = mcp_result[metadata_key]
         
         # Add tool result to conversation
-        messages.append({
-            'role': 'tool',
-            'tool_call_id': tool_call['id'],
-            'name': function_name,
-            'content': result_text
-        })
+        messages.append({'role': 'user', 'content': [
+            {'type': 'tool_result', 'tool_use_id': tool_use_id, 'content': result_text},
+        ]})
         
         # Check success for execution tools
         execution_success = True

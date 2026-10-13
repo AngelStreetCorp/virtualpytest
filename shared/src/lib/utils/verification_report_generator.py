@@ -12,6 +12,8 @@ import os
 import time
 from typing import Dict, Optional
 from shared.src.lib.utils.cloudflare_utils import convert_to_signed_url
+from shared.src.lib.utils.report_theme import report_theme_head
+from shared.src.lib.utils import cv2_io
 
 
 def ensure_signed_url(url: str) -> str:
@@ -305,7 +307,7 @@ def generate_verification_composite(verification_config: Dict,
             try:
                 if not os.path.exists(path):
                     return None
-                return cv2.imread(path)
+                return cv2_io.imread(path)
             except Exception:
                 return None
 
@@ -364,7 +366,7 @@ def generate_verification_composite(verification_config: Dict,
 
         outcome = 'success' if is_success else 'failure'
         composite_path = os.path.join(cold_base, f'verification_{outcome}_{timestamp_ms}.png')
-        cv2.imwrite(composite_path, composite, [cv2.IMWRITE_PNG_COMPRESSION, 6])
+        cv2_io.imwrite(composite_path, composite, [cv2.IMWRITE_PNG_COMPRESSION, 6])
         print(f"[@verification_report_generator] Composite PNG written: {composite_path}")
         return composite_path
     except Exception as e:
@@ -409,9 +411,9 @@ def _generate_verification_report(
         outcome = 'success' if is_success else 'failure'
         outcome_title = 'Verification Success' if is_success else 'Verification Failure'
         # Accent colour drives the header message banner + the "Match" score badge.
-        accent = '#51cf66' if is_success else '#ff6b6b'
-        accent_rgba = 'rgba(81,207,102,0.08)' if is_success else 'rgba(255,107,107,0.08)'
-        msg_text_color = '#d0f0d6' if is_success else '#f0d0d0'
+        accent = 'var(--vpt-success)' if is_success else 'var(--vpt-error)'
+        accent_rgba = 'var(--vpt-success-tint)' if is_success else 'var(--vpt-error-tint)'
+        msg_text_color = 'var(--vpt-text)'
 
         # Save report under reports/ subfolder so it's served by host_stream_routes
         cold_base = get_cold_storage_path(device_folder, 'reports')
@@ -500,61 +502,65 @@ def _generate_verification_report(
         # Build modern side-by-side comparison HTML
         html = ['<!DOCTYPE html><html><head><meta charset="UTF-8">']
         html.append(f'<title>{outcome_title} Report</title>')
+        html.append(report_theme_head())
         html.append('<style>')
         html.append('*{box-sizing:border-box}')
-        html.append('body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:12px 24px 24px 24px;background:#0f1115;color:#e6e6e6;max-width:1600px;margin:0 auto}')
+        html.append('body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;padding:12px 24px 24px 24px;background:var(--vpt-page);color:var(--vpt-text);max-width:1600px;margin:0 auto}')
         # 3-column header: title (left), failure message (middle), score badges (right) — all vertically centered.
         html.append('.header{display:grid;grid-template-columns:auto 1fr auto;gap:20px;align-items:center;margin-bottom:10px}')
         html.append('.header h1{font-size:22px;margin:0 0 4px 0;font-weight:600}')
-        html.append('.header .subtitle{color:#888;font-size:13px}')
+        html.append('.header .subtitle{color:var(--vpt-muted);font-size:13px}')
         html.append(f'.header-msg{{font-size:13px;line-height:1.4;color:{msg_text_color};background:{accent_rgba};border-left:3px solid {accent};padding:8px 14px;border-radius:6px}}')
         html.append('.score-grid{display:flex;gap:10px}')
-        html.append('.score-card{background:#1a1d24;border:1px solid #2a2f38;padding:8px 14px;border-radius:8px;text-align:center;min-width:80px}')
-        html.append('.score-card .label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:2px}')
+        html.append('.score-card{background:var(--vpt-surface);border:1px solid var(--vpt-border);padding:8px 14px;border-radius:8px;text-align:center;min-width:80px}')
+        html.append('.score-card .label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--vpt-muted);margin-bottom:2px}')
         html.append('.score-card .value{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}')
-        html.append('.score-required .value{color:#888}')
+        html.append('.score-required .value{color:var(--vpt-muted)}')
         html.append(f'.score-actual .value{{color:{accent}}}')
-        html.append('.score-focus .value{color:#ab47bc}')
+        html.append('.score-focus .value{color:var(--vpt-purple)}')
         # Per-metric pass/fail colouring: a measured value (Match / Focus) is green
         # when it clears its own threshold, red when it doesn't — independent of the
         # overall result accent (e.g. Match can pass while Focus fails the verify).
-        html.append('.score-pass .value{color:#4caf50}')
-        html.append('.score-fail .value{color:#ff3b3b}')
+        html.append('.score-pass .value{color:var(--vpt-success)}')
+        html.append('.score-fail .value{color:var(--vpt-error)}')
         html.append('.meta-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}')
-        html.append('.chip{background:#1a1d24;border:1px solid #2a2f38;padding:6px 12px;border-radius:16px;font-size:12px;color:#bbb}')
-        html.append('.chip b{color:#fff;font-weight:500}')
+        html.append('.chip{background:var(--vpt-surface);border:1px solid var(--vpt-border);padding:6px 12px;border-radius:16px;font-size:12px;color:var(--vpt-text-2)}')
+        html.append('.chip b{color:var(--vpt-text);font-weight:500}')
         # Two-column layout: left = full screenshot (scaled), right = stacked native-size comparison rows.
         # Right column is a FIXED width so the report layout doesn't jump around with the
-        # cropped-source size; oversized crops scroll inside their cell (img-wrap:overflow:auto).
+        # cropped-source size; oversized crops are scaled down to fit the cell (never a scrollbar).
         html.append('.layout{display:grid;grid-template-columns:minmax(0,1fr) 320px;gap:20px;align-items:start;margin-bottom:24px}')
         html.append('.layout .right{display:flex;flex-direction:column;gap:12px}')
-        html.append('.cell{background:#1a1d24;border:1px solid #2a2f38;border-radius:8px;padding:12px;display:flex;flex-direction:column}')
-        html.append('.cell .cap{font-size:11px;color:#bbb;margin-bottom:8px;font-weight:500;text-transform:uppercase;letter-spacing:1px}')
-        html.append('.cell .img-wrap{display:flex;align-items:flex-start;justify-content:flex-start;background:#000;border-radius:4px;overflow:auto}')
+        html.append('.cell{background:var(--vpt-surface);border:1px solid var(--vpt-border);border-radius:8px;padding:12px;display:flex;flex-direction:column}')
+        html.append('.cell .cap{font-size:11px;color:var(--vpt-text-2);margin-bottom:8px;font-weight:500;text-transform:uppercase;letter-spacing:1px}')
+        html.append('.cell .img-wrap{display:flex;align-items:flex-start;justify-content:flex-start;background:#000;border-radius:4px;overflow:hidden}')
         html.append('.cell img{display:block;cursor:zoom-in}')
-        html.append('.cell.empty .img-wrap{color:#555;font-size:12px;font-style:italic;min-width:120px;min-height:60px;align-items:center;justify-content:center;padding:16px}')
-        # Right column: native pixel size so the red rectangle on the full screenshot maps 1:1 to the cropped/reference content.
-        html.append('.layout .right .cell img{max-width:none;max-height:none;width:auto;height:auto;image-rendering:pixelated}')
+        html.append('.cell.empty .img-wrap{color:var(--vpt-muted);font-size:12px;font-style:italic;min-width:120px;min-height:60px;align-items:center;justify-content:center;padding:16px}')
+        # Right column: native pixel size when it fits, scaled down proportionally when wider than the cell.
+        html.append('.layout .right .cell .img-wrap a{display:block;max-width:100%}')
+        html.append('.layout .right .cell img{max-width:100%;height:auto}')
         # Left column: full screenshot scaled to fit its column width (1080p capture won't fit otherwise).
         html.append('.layout .left .cell .img-wrap{align-items:center;justify-content:center;min-height:160px}')
         html.append('.layout .left .cell img{max-width:100%;height:auto}')
-        html.append('.details{background:#1a1d24;border:1px solid #2a2f38;border-radius:8px;padding:16px 20px}')
-        html.append('.details dt{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-top:12px}')
+        html.append('.details{background:var(--vpt-surface);border:1px solid var(--vpt-border);border-radius:8px;padding:16px 20px}')
+        html.append('.details dt{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--vpt-muted);margin-top:12px}')
         html.append('.details dt:first-child{margin-top:0}')
-        html.append('.details dd{margin:4px 0 0 0;font-size:13px;color:#e6e6e6;font-variant-numeric:tabular-nums}')
-        html.append('.details dd code{background:#0f1115;padding:2px 6px;border-radius:3px;font-size:12px;color:#7fc7f5}')
+        html.append('.details dd{margin:4px 0 0 0;font-size:13px;color:var(--vpt-text);font-variant-numeric:tabular-nums}')
+        html.append('.details dd code{background:var(--vpt-subtle);padding:2px 6px;border-radius:3px;font-size:12px;color:var(--vpt-accent-text)}')
         # Wait-timeline strip (only rendered for polled waitFor* failures with >=2 frames).
         html.append('.timeline{display:flex;gap:12px;margin:0 0 16px}')
-        html.append('.tl-item{flex:1;background:#1a1d24;border:1px solid #2a2f38;border-radius:8px;padding:8px;cursor:pointer}')
-        html.append('.tl-item.sel{border-color:#3d6ea5;box-shadow:0 0 0 1px #3d6ea5 inset}')
-        html.append('.tl-item .hd{display:flex;justify-content:space-between;font-size:11px;color:#9aa3b2;margin-bottom:6px}')
+        html.append('.tl-item{flex:1;background:var(--vpt-surface);border:1px solid var(--vpt-border);border-radius:8px;padding:8px;cursor:pointer}')
+        html.append('.tl-item.sel{border-color:var(--vpt-accent);box-shadow:0 0 0 1px var(--vpt-accent) inset}')
+        html.append('.tl-item .hd{display:flex;justify-content:space-between;font-size:11px;color:var(--vpt-text-2);margin-bottom:6px}')
         html.append('.tl-item .hd .sc{font-weight:700}')
-        html.append('.tl-item.best .hd .sc{color:#ffd13b}')
+        html.append('.tl-item.best .hd .sc{color:var(--vpt-warning)}')
         html.append('.tl-item img{display:block;width:100%;height:auto;border-radius:4px;background:#000}')
-        html.append('.tl-empty{font-size:11px;color:#555;font-style:italic;padding:18px 4px;text-align:center}')
-        html.append('.legend{font-size:11px;color:#7f8896;margin-top:6px}')
-        html.append('.legend .r{color:#ff3b3b}.legend .y{color:#ffd13b}')
-        html.append('.extracted{font-size:13px;color:#e6e6e6;background:#0f1115;border:1px solid #2a2f38;border-radius:4px;padding:8px 10px;word-break:break-word;min-height:20px;font-variant-numeric:tabular-nums}')
+        html.append('.tl-empty{font-size:11px;color:var(--vpt-muted);font-style:italic;padding:18px 4px;text-align:center}')
+        html.append('.legend{font-size:11px;color:var(--vpt-muted);margin-top:6px}')
+        # Legend swatches describe the colors drawn on the captured image; the page-side
+        # labels follow the theme — readers recognise red/yellow by name in the caption.
+        html.append('.legend .r{color:var(--vpt-error)}.legend .y{color:var(--vpt-warning)}')
+        html.append('.extracted{font-size:13px;color:var(--vpt-text);background:var(--vpt-subtle);border:1px solid var(--vpt-border);border-radius:4px;padding:8px 10px;word-break:break-word;min-height:20px;font-variant-numeric:tabular-nums}')
         html.append('@media (max-width:900px){.layout{grid-template-columns:1fr}.header{grid-template-columns:1fr}}')
         html.append('</style></head><body>')
 
@@ -613,11 +619,7 @@ def _generate_verification_report(
             except (TypeError, ValueError):
                 timeout_ms_int = 0
             if timeout_ms_int > 0:
-                timeout_label = (
-                    f"{timeout_ms_int / 1000:.1f}s"
-                    if timeout_ms_int >= 1000 else f"{timeout_ms_int}ms"
-                )
-                html.append(f'<span class="chip"><b>Timeout:</b> {timeout_label}</span>')
+                html.append(f'<span class="chip"><b>Timeout:</b> {timeout_ms_int} ms</span>')
             else:
                 # Distinguish "no polling configured" from "polled and gave up"
                 # — same diagnostic question, different answer.

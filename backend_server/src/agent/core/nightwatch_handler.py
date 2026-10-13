@@ -1,606 +1,581 @@
 """
-Nightwatch Handler - Incident/Alert Background Tasks
+Nightwatch alert triage — the `vpt-discard-incidents` worker.
 
-Handles alerts from p1_alerts queue.
-Supports dry-run mode for monitoring without AI processing.
-In dry-run mode: logs only, NO Slack (avoids rate limits).
+The `alerts` table is the queue. Hosts only write alerts to the DB (`alerts_db.create_alert`);
+this worker, on the backend server, polls for alerts nobody has looked at yet
+(`check_type IS NULL`), applies three cost rules, and sends the survivors to a cheap vision
+model through the AI gateway (usage `vision.alert_triage`). The verdict lands on the alert row:
 
-AI PROCESSING FILTERS:
-1. DURATION FILTER (ALERT_MIN_DURATION_SECONDS = 30s):
-   - Only alerts lasting >= 30 seconds are processed with AI
-   - Short events are dropped and marked as checked_by='system'
-   - Prevents AI processing of transient/flickering issues
+    real         -> checked=true, check_type='ai', discard=false
+    expected     -> checked=true, check_type='ai', discard=true   (menu, idle phone, desktop, standby...)
+    false_alarm  -> checked=true, check_type='ai', discard=true   (picture moving, not black, sound present)
 
-2. RATE LIMIT FILTER (ALERT_RATE_LIMIT_SECONDS = 3600s):
-   - Max 1 AI analysis per device per hour
-   - Subsequent alerts within window are dropped and marked as checked_by='system'
-   - Prevents token usage explosion from repeated alerts on same device
-   - Rate limit tracked per host_name/device_id in Redis
+An alert a rule skipped keeps checked=false (no verdict exists) and gets
+check_type='ai_strategy_skip' with the rule in discard_comment, so it is never polled again.
 
-Both filters help control AI token costs while maintaining alert visibility in DB.
-Filters are configured as class constants and can be adjusted in this file.
+Cost rules (env on the server, defaults in parentheses):
+  ALERT_DISCARD_MIN_DURATION_S (30)  wait this long after the alert opened; an alert that resolved
+                                     sooner is skipped ("short"). Every alert is already 30 s of
+                                     continuous detection old when the host creates it.
+  ALERT_DISCARD_REPEAT_WINDOW_H (6)  analyse only the first alert per host+device+type in this
+                                     window; later ones are skipped ("repeat") with a pointer to
+                                     the verdict they repeat.
+  ALERT_DISCARD_DAILY_MAX (100)      at most this many model calls per UTC day ("daily_cap").
+Plus two accuracy rules: an alert with no uploaded frame is never sent ("no_frame"): the vision route
+(MiniMax VLM) rejects a text-only call, and each rejection used to block every other alert for the back-off.
+And a freeze or blackscreen on a looping test stream (HLS / video loop) is
+never sent to the model ("test_stream"): one frame of a test pattern cannot show that its timecode
+stopped, and the evaluation saw the model call those "expected". They stay for a human.
+
+Jev in shadow (TASK-55): a freeze alert whose host wrote `metadata.jev_facts` (host env
+ALERT_JEV_FACTS_ENABLED) is shown to Jev (usage `text.decision.freeze_triage`, logged to ai_decisions):
+one line says what Jev would do (keep / dismiss). It never changes the alert, the rules or the vision
+call. Server env ALERT_JEV_MODE = off | shadow (default shadow; any other value is off, logged once);
+also off when `decisions.enabled()` says so (JEV_ENABLED / JEV_DISABLED_USAGES). Each alert is asked once
+per process lifetime.
+
+Screen memory (TASK-84, ALERT_SCREEN_MEMORY = off | dryrun | on, default off): the host stamps a freeze
+alert of a device with no userinterface with `metadata.screen_id` (a row of `screen_fingerprints`). The worker
+records each model verdict on that row; a screen the model judged harmless `ALERT_SCREEN_AI_VOTES` (2) times, or a
+person did once, is trusted: its later alerts are discarded with check_type='fingerprint' and no model call, except
+every `ALERT_SCREEN_AUDIT_EVERY`th (20) sighting, which still goes to the model. `dryrun` only logs what `on` would do.
+The screen rule runs before `short`, and an alert on a not-yet-trusted screen (with a frame) skips `short` and `repeat`
+so a flapping desktop freeze is judged ~2 times per screen instead of being skipped unseen.
+
+A failed model call (no credits, timeout) counts toward ALERT_DISCARD_DAILY_MAX and blocks model calls for a
+growing back-off (60 s doubling to 1 h); the cost rules keep running. An HTTP 402 (no credit) also pauses the
+endpoint in the AI router for every usage of this process (BUG-0492), and the Alerts page shows
+"triage unavailable: <reason>" while the last model request failed (`alerts_db.get_triage_stats`). One `[Nightwatch] cycle` line per busy cycle
+reports calls / avoided / audit / failed / tokens, and a `day` line the UTC-day totals.
+
+On/off: the worker runs only when `vpt-discard-incidents` is enabled on the server (installed
+disabled). Nothing is queued anywhere when it is off.
 """
 
-import hashlib
 import json
 import os
 import re
+import tempfile
 import time
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
-from urllib.parse import urlparse
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
+from shared.src.lib import screen_memory
+from shared.src.lib.database import screen_fingerprints_db
 from shared.src.lib.utils.supabase_utils import get_supabase_client
+
+USAGE = "vision.alert_triage"
+VERDICT_DISCARD = {"real": False, "expected": True, "false_alarm": True}
+SKIP_CHECK_TYPE = "ai_strategy_skip"
+AI_CHECK_TYPE = "ai"
+FINGERPRINT_CHECK_TYPE = "fingerprint"
+BACKOFF_START_S, BACKOFF_MAX_S = 60, 3600
+ALERT_COLUMNS = ("id,host_name,device_id,device_name,incident_type,status,consecutive_count,"
+                 "start_time,end_time,metadata,check_type,discard,discard_comment,created_at")
+
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    try:
+        return max(minimum, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _ts(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+def _metadata(alert: Dict[str, Any]) -> Dict[str, Any]:
+    meta = alert.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except ValueError:
+            meta = {}
+    return meta if isinstance(meta, dict) else {}
+
+
+def alert_image_path(alert: Dict[str, Any]) -> Optional[str]:
+    """Storage key of the frame the host uploaded with the alert (freeze: analysed frame; others: start frame)."""
+    r2 = _metadata(alert).get("r2_images") or {}
+    paths = r2.get("thumbnail_r2_paths") or r2.get("original_r2_paths") or []
+    if paths:
+        return paths[0]
+    return r2.get("thumbnail_r2_path") or None
+
+
+def _is_test_stream(alert: Dict[str, Any]) -> bool:
+    name = f"{alert.get('device_name') or ''} {alert.get('device_id') or ''}".lower()
+    return any(k in name for k in ("hls", "loop", "bipbop"))
+
+
+def _device_kind(alert: Dict[str, Any]) -> str:
+    device_id = str(alert.get("device_id") or "")
+    name = str(alert.get("device_name") or "").lower()
+    if device_id == "host" or name.endswith("_host"):
+        return "the host machine's own desktop (VNC capture)"
+    if _is_test_stream(alert):
+        return "a looping test stream (HLS / video file)"
+    if re.search(r"\b(s2\d|s21x?|s23|phone|mobile|tablet|mi)\b", name):
+        return "an Android phone/tablet screen"
+    if "cam" in name:
+        return "a camera"
+    return "a TV device (set-top box / streaming stick) on HDMI capture"
+
+
+def build_facts(alert: Dict[str, Any], repeats_24h: int, now: datetime) -> str:
+    meta = _metadata(alert)
+    kind = alert.get("incident_type")
+    start = _ts(alert.get("start_time"))
+    end = _ts(alert.get("end_time"))
+    lines = [
+        f"Alert type: {kind}",
+        f"Device: {alert.get('device_name') or alert.get('device_id')} on host {alert.get('host_name')} — {_device_kind(alert)}",
+    ]
+    event_ms = meta.get(f"{kind}_event_duration_ms") if kind != "audio_loss" else meta.get("audio_event_duration_ms")
+    if event_ms:
+        lines.append(f"Condition seen continuously for {int(event_ms) // 1000} s before the alert was raised")
+    if end and start:
+        lines.append(f"Alert resolved after {int((end - start).total_seconds())} s")
+    elif start:
+        lines.append(f"Alert still active, open for {int((now - start).total_seconds())} s")
+    lines.append(f"Same alert type on this device in the previous 24 h: {repeats_24h}")
+    motion = meta.get("motion") or {}
+    if motion.get("state"):
+        lines.append(f"Motion detector state: {motion.get('state')} ({motion.get('pct', '?')}% of the picture moving)")
+    if meta.get("mean_volume_db") is not None:
+        lines.append(f"Mean audio volume: {meta.get('mean_volume_db')} dB (below about -70 dB is silence)")
+    if kind == "blackscreen" and meta.get("blackscreen_percentage") is not None:
+        lines.append(f"Black pixels: {meta.get('blackscreen_percentage')}%")
+    return "\n".join(lines)
+
+
+PROMPT = """You triage monitoring alerts from a device-testing lab. A detector raised the alert below.
+Decide whether it is a REAL incident someone should look at, or noise.
+
+{facts}
+
+The image is the captured frame from when the alert was raised{image_note}.
+
+Answer with exactly one verdict:
+- "real": content that should be playing is broken: video frozen mid-scene, black where a programme
+  should show, live video that should have sound is silent, picture corrupted.
+- "expected": the device state explains it, nothing is broken: a menu, guide, home screen,
+  settings page, desktop or idle phone screen is legitimately still; screensaver; standby, off,
+  "no signal" or a test pattern; a paused video; a radio or silent screen; a test stream whose own
+  content is black, still or silent at that moment.
+- "false_alarm": the detector is wrong: the picture is clearly moving, not black, or sound is present.
+
+How to judge (most alerts in this lab are noise, but a missed real incident is worse than a kept noisy one):
+- TV home screens show a large poster or still from a film/series with its TITLE LOGO painted on it,
+  usually with a small channel/app logo: that is a menu backdrop, legitimately still -> "expected".
+  Menus, guides, detail pages, desktops, idle phones and screensavers are also "expected", even for hours.
+- A test pattern or test stream that carries a running timecode/counter must keep moving: if it froze
+  or lost its picture, that is "real".
+- A live programme (presenter, studio, sport, people mid-action, no title logo) that froze, went black
+  or went silent is "real", also when it lasts long; a stuck device is a real incident.
+- An alert that repeats all day on the same device usually means its normal screen is a still menu or
+  idle screen; use it only when the image agrees.
+- If you cannot tell, answer "real" (a human will look).
+
+Reply with JSON only: {{"verdict": "real|expected|false_alarm", "reason": "<max 25 words>"}}"""
+
+
+def build_prompt(alert: Dict[str, Any], repeats_24h: int, has_image: bool, now: datetime) -> str:
+    note = "" if has_image else " — no frame was uploaded for this alert, judge from the facts only"
+    return PROMPT.format(facts=build_facts(alert, repeats_24h, now), image_note=note)
+
+
+def parse_verdict(content: str) -> Optional[Tuple[str, str]]:
+    """``(verdict, reason)`` from the model answer, or None when it is not a valid verdict."""
+    match = re.search(r"\{.*\}", content or "", re.DOTALL)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except ValueError:
+        return None
+    verdict = str(data.get("verdict", "")).strip().lower()
+    if verdict not in VERDICT_DISCARD:
+        return None
+    return verdict, str(data.get("reason", "")).strip()[:300]
+
+
+def load_image(path: Optional[str]) -> Optional[bytes]:
+    if not path:
+        return None
+    try:
+        from shared.src.lib.utils.cloudflare_utils import get_cloudflare_utils
+        with tempfile.NamedTemporaryFile(suffix=".jpg") as tmp:
+            result = get_cloudflare_utils().download_file(path, tmp.name)
+            if not result.get("success"):
+                return None
+            with open(tmp.name, "rb") as f:
+                return f.read()
+    except Exception as e:
+        print(f"[Nightwatch] image download failed {path}: {e}")
+        return None
+
+
+def classify(alert: Dict[str, Any], repeats_24h: int, now: Optional[datetime] = None,
+             resolution=None) -> Dict[str, Any]:
+    """Run the model on one alert. ``resolution`` pins a profile (evaluation); None = routed usage."""
+    import base64
+    from shared.src.lib.ai import gateway
+
+    now = now or datetime.now(timezone.utc)
+    image = load_image(alert_image_path(alert))
+    prompt = build_prompt(alert, repeats_24h, image is not None, now)
+    image_b64 = base64.b64encode(image).decode() if image else None
+    started = time.time()
+    from shared.src.lib.ai import caller as ai_caller
+    with ai_caller.bound(origin="monitoring", job="alert_triage", host_name=alert.get("host_name"),
+                         device_id=alert.get("device_id")):
+        if resolution is not None:
+            result = gateway.execute(resolution, prompt, image_b64=image_b64, max_tokens=120, temperature=0.0)
+        else:
+            result = gateway.complete(USAGE, prompt, image_b64=image_b64, max_tokens=120, temperature=0.0,
+                                      context={"host_name": alert.get("host_name")})
+    parsed = parse_verdict(result.get("content", "")) if result.get("success") else None
+    return {
+        "success": parsed is not None,
+        "verdict": parsed[0] if parsed else None,
+        "reason": parsed[1] if parsed else (result.get("error") or "unparseable answer"),
+        "has_image": image is not None,
+        "ms": int((time.time() - started) * 1000),
+        "tokens": result.get("usage") or {},
+        "model": result.get("model"),
+        "raw": (result.get("content") or "")[:300],
+    }
 
 
 class NightwatchHandler:
-    """Handler for Nightwatch (monitor) background tasks"""
+    """Polls `alerts` for unchecked rows and triages them (see module docstring)."""
 
     def __init__(self, nickname: str = "Nightwatch"):
         self.nickname = nickname
-        # Duration gate
-        self.alert_min_duration_seconds = max(
-            0, int(os.getenv("INCIDENT_AI_MIN_DURATION_SECONDS", "30"))
-        )
-        # Repeated-signature policy: analyze first, then every Nth repeated occurrence
-        self.repeat_every_occurrence = max(
-            2, int(os.getenv("INCIDENT_AI_REPEAT_EVERY_OCCURRENCE", "10"))
-        )
-        # Cooldown after an analyzed incident signature (seconds)
-        self.signature_cooldown_seconds = max(
-            0, int(os.getenv("INCIDENT_AI_SIGNATURE_COOLDOWN_SECONDS", "2700"))
-        )
-        # Budget cap per device per hour
-        self.per_device_hourly_cap = max(
-            1, int(os.getenv("INCIDENT_AI_PER_DEVICE_HOURLY_CAP", "12"))
-        )
-        # Sampling by severity
-        self.low_sample_percent = self._clamp_percent(
-            os.getenv("INCIDENT_AI_LOW_SAMPLE_PERCENT", "15")
-        )
-        self.medium_sample_percent = self._clamp_percent(
-            os.getenv("INCIDENT_AI_MEDIUM_SAMPLE_PERCENT", "40")
-        )
-        self.high_sample_percent = self._clamp_percent(
-            os.getenv("INCIDENT_AI_HIGH_SAMPLE_PERCENT", "100")
-        )
-        self.critical_sample_percent = self._clamp_percent(
-            os.getenv("INCIDENT_AI_CRITICAL_SAMPLE_PERCENT", "100")
-        )
-
+        self.min_duration_s = _env_int("ALERT_DISCARD_MIN_DURATION_S", 30)
+        self.repeat_window_h = _env_int("ALERT_DISCARD_REPEAT_WINDOW_H", 6)
+        self.daily_max = _env_int("ALERT_DISCARD_DAILY_MAX", 100)
+        self.lookback_h = max(self.repeat_window_h, 6)
         self._supabase = None
-        self._redis_local_client = None
-        self._redis_upstash = None
+        self.jev_mode = self._jev_mode()
+        # A freeze alert is "ripe" (start_time + 30 s) the moment the host writes it, but the host's
+        # facts thread lands jev_facts a few seconds later: wait this long after created_at for them.
+        self.jev_facts_wait_s = _env_int("ALERT_JEV_FACTS_WAIT_S", 60)
+        self._jev_seen: set = set()
+        self.screen_mode = screen_memory.mode()
+        self._backoff_s = 0
+        self._content_fails: Dict[str, int] = {}   # alert id -> model answers that were empty / unparseable
+        self._last_expire = 0.0
+        self._blocked_until = 0.0
+        self._failed_today = 0
+        self._day = ""
+        self.day_stats = {"calls": 0, "avoided": 0, "audit": 0, "failed": 0, "tok_in": 0, "tok_out": 0}
 
     @staticmethod
-    def _clamp_percent(value: str) -> int:
-        try:
-            parsed = int(value)
-        except Exception:
-            parsed = 0
-        return min(100, max(0, parsed))
+    def _jev_mode() -> str:
+        mode = os.getenv("ALERT_JEV_MODE", "shadow").strip().lower() or "shadow"
+        if mode not in ("off", "shadow"):
+            print(f"[Nightwatch] ALERT_JEV_MODE={mode!r} is not implemented (off | shadow): Jev step off")
+            return "off"
+        return mode
 
-    @staticmethod
-    def _normalize_text(value: str) -> str:
-        if not value:
-            return "empty"
-        text = str(value).lower()
-        text = re.sub(r"[0-9a-f]{8,}", "<hex>", text)
-        text = re.sub(r"\d+", "<n>", text)
-        text = re.sub(r"\s+", " ", text).strip()
-        return text[:240] or "empty"
-
-    def _normalize_metadata_signature(self, task_data: Dict[str, Any]) -> str:
-        metadata = task_data.get('metadata', {})
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except Exception:
-                metadata = {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-
-        incident_type = str(task_data.get('incident_type') or task_data.get('alert_type') or 'unknown')
-        host_name = str(task_data.get('host_name') or 'unknown')
-        device_id = str(task_data.get('device_id') or 'unknown')
-        summary_bits = [
-            self._normalize_text(incident_type),
-            self._normalize_text(host_name),
-            self._normalize_text(device_id),
-            self._normalize_text(metadata.get('reason') or metadata.get('message') or ''),
-            self._normalize_text(str(metadata.get('freeze', ''))),
-            self._normalize_text(str(metadata.get('blackscreen', ''))),
-            self._normalize_text(str(metadata.get('audio', ''))),
-            self._normalize_text(str(metadata.get('mean_volume_db', ''))),
-            self._normalize_text(str(task_data.get('status', 'active'))),
-        ]
-        base = "|".join(summary_bits)
-        return hashlib.sha1(base.encode("utf-8"), usedforsecurity=False).hexdigest()[:20]
-
-    def _infer_severity(self, task_data: Dict[str, Any]) -> str:
-        metadata = task_data.get('metadata', {})
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except Exception:
-                metadata = {}
-        if not isinstance(metadata, dict):
-            metadata = {}
-
-        explicit = str(metadata.get('severity') or task_data.get('severity') or '').lower()
-        if explicit in {"critical", "high", "medium", "low"}:
-            return explicit
-
-        consecutive = int(task_data.get('consecutive_count') or 0)
-        if consecutive >= 10:
-            return "critical"
-        if consecutive >= 5:
-            return "high"
-        if consecutive >= 3:
-            return "medium"
-        return "low"
-
-    def _sample_percent_for_severity(self, severity: str) -> int:
-        if severity == "critical":
-            return self.critical_sample_percent
-        if severity == "high":
-            return self.high_sample_percent
-        if severity == "medium":
-            return self.medium_sample_percent
-        return self.low_sample_percent
-
-    def _get_supabase(self):
+    @property
+    def db(self):
         if self._supabase is None:
             self._supabase = get_supabase_client()
         return self._supabase
 
-    def _mark_strategy_skip(self, alert_id: str, reason: str) -> None:
-        """Persist strategy skip decision for traceability."""
-        try:
-            supabase = self._get_supabase()
-            if not supabase:
-                print(f"[{self.nickname}] ⚠️ Supabase unavailable for strategy skip: {alert_id}")
-                return
-            supabase.table("alerts").update({
-                "checked": True,
-                "check_type": "ai_strategy_skip",
-                "discard": False,
-                "discard_comment": f"[STRATEGY_SKIP] {reason[:300]}",
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }).eq("id", alert_id).execute()
-        except Exception as e:
-            print(f"[{self.nickname}] ⚠️ Failed to mark strategy skip for alert {alert_id}: {e}")
-    
-    def should_process_with_ai(self, task_id: str, task_data: Dict[str, Any]) -> bool:
-        """
-        Check if alert should be processed with AI based on anti-flood policy.
-        
-        Returns:
-            True if should process with AI, False if should skip
-        """
-        host_name = task_data.get('host_name', 'unknown')
-        device_id = task_data.get('device_id', 'unknown')
-        signature = self._normalize_metadata_signature(task_data)
-        severity = self._infer_severity(task_data)
-        sample_percent = self._sample_percent_for_severity(severity)
+    # ---- DB reads -------------------------------------------------------------------
+    def _pending(self, now: datetime) -> List[Dict[str, Any]]:
+        since = (now - timedelta(hours=self.lookback_h)).isoformat()
+        ripe = (now - timedelta(seconds=self.min_duration_s)).isoformat()
+        res = (self.db.table("alerts").select(ALERT_COLUMNS).is_("check_type", "null")
+               .gte("start_time", since).lte("start_time", ripe)
+               .order("start_time").limit(200).execute())
+        return res.data or []
 
-        # 1) Duration gate
-        if task_data.get('start_time'):
-            try:
-                start_dt = datetime.fromisoformat(str(task_data.get('start_time')).replace('Z', '+00:00'))
-                duration_seconds = (datetime.now(timezone.utc) - start_dt).total_seconds()
-                if duration_seconds < self.alert_min_duration_seconds:
-                    reason = (
-                        f"duration {duration_seconds:.1f}s < min {self.alert_min_duration_seconds}s "
-                        f"(severity={severity}, signature={signature})"
-                    )
-                    self._mark_strategy_skip(task_id, reason)
-                    print(f"[{self.nickname}] ⏭️ Skip {task_id}: {reason}")
-                    return False
-            except Exception as duration_error:
-                print(f"[{self.nickname}] ⚠️ Duration parsing failed for {task_id}: {duration_error}")
+    def _last_verdicts(self, now: datetime) -> Dict[Tuple[str, str, str], Dict[str, Any]]:
+        since = (now - timedelta(hours=self.repeat_window_h + self.lookback_h)).isoformat()
+        res = (self.db.table("alerts").select("id,host_name,device_id,incident_type,start_time,discard")
+               .eq("check_type", AI_CHECK_TYPE).gte("start_time", since).order("start_time").execute())
+        last: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+        for row in res.data or []:
+            last[(row["host_name"], row["device_id"], row["incident_type"])] = row
+        return last
 
-        # 2) Severity-aware deterministic sampling
-        if sample_percent < 100:
-            bucket = int(hashlib.md5(task_id.encode("utf-8"), usedforsecurity=False).hexdigest(), 16) % 100
-            if bucket >= sample_percent:
-                reason = (
-                    f"severity={severity} sampled out ({bucket} >= {sample_percent}), "
-                    f"signature={signature}"
-                )
-                self._mark_strategy_skip(task_id, reason)
-                print(f"[{self.nickname}] ⏭️ Skip {task_id}: {reason}")
-                return False
+    def _calls_today(self, now: datetime) -> int:
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        res = (self.db.table("alerts").select("id", count="exact").eq("check_type", AI_CHECK_TYPE)
+               .gte("updated_at", midnight).limit(1).execute())
+        return res.count or 0
 
-        # 3) Signature occurrence + cooldown + per-device budget
-        try:
-            occurrence = self._redis_incr_with_ttl(
-                self._signature_occurrence_key(host_name, device_id, signature),
-                ttl_seconds=max(2 * 24 * 3600, self.signature_cooldown_seconds + 3600)
-            )
-            if occurrence is None:
-                occurrence = 1
+    def _repeats_24h(self, alert: Dict[str, Any]) -> int:
+        start = _ts(alert["start_time"])
+        res = (self.db.table("alerts").select("id", count="exact")
+               .eq("host_name", alert["host_name"]).eq("device_id", alert["device_id"])
+               .eq("incident_type", alert["incident_type"])
+               .gte("start_time", (start - timedelta(hours=24)).isoformat())
+               .lt("start_time", alert["start_time"]).limit(1).execute())
+        return res.count or 0
 
-            if occurrence != 1 and (occurrence % self.repeat_every_occurrence) != 0:
-                reason = (
-                    f"signature occurrence {occurrence} skipped "
-                    f"(analyze first then every {self.repeat_every_occurrence}), signature={signature}"
-                )
-                self._mark_strategy_skip(task_id, reason)
-                print(f"[{self.nickname}] ⏭️ Skip {task_id}: {reason}")
-                return False
+    # ---- DB writes (claim = only rows still unchecked are updated) --------------------
+    def _count_avoided(self, alert: Dict[str, Any], rule: str) -> None:
+        """The triage rule `rule` saved a model call: log it as an avoided call (TASK-87)."""
+        from shared.src.lib.ai import caller as ai_caller, router
+        with ai_caller.bound(origin="monitoring", job="alert_triage", host_name=alert.get("host_name"),
+                             device_id=alert.get("device_id")):
+            router.record_avoided(USAGE, None, {"host_name": alert.get("host_name")}, reason=rule)
 
-            last_analyzed = self._redis_get_float(
-                self._signature_last_analyzed_key(host_name, device_id, signature)
-            )
-            now_ts = time.time()
-            if last_analyzed and self.signature_cooldown_seconds > 0:
-                since_last = now_ts - last_analyzed
-                if since_last < self.signature_cooldown_seconds:
-                    reason = (
-                        f"signature cooldown active ({since_last:.0f}s < {self.signature_cooldown_seconds}s), "
-                        f"signature={signature}"
-                    )
-                    self._mark_strategy_skip(task_id, reason)
-                    print(f"[{self.nickname}] ⏭️ Skip {task_id}: {reason}")
-                    return False
+    def _write(self, alert_id: str, fields: Dict[str, Any]) -> bool:
+        fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+        res = (self.db.table("alerts").update(fields).eq("id", alert_id)
+               .is_("check_type", "null").execute())
+        return bool(res.data)
 
-            device_budget_key = self._device_budget_key(host_name, device_id, now_ts)
-            device_hour_count = self._redis_incr_with_ttl(device_budget_key, ttl_seconds=2 * 3600)
-            if device_hour_count and device_hour_count > self.per_device_hourly_cap:
-                reason = (
-                    f"per-device hourly cap exceeded ({device_hour_count} > {self.per_device_hourly_cap}), "
-                    f"host={host_name}, device={device_id}"
-                )
-                self._mark_strategy_skip(task_id, reason)
-                print(f"[{self.nickname}] ⏭️ Skip {task_id}: {reason}")
-                return False
+    def _skip(self, alert: Dict[str, Any], rule: str, detail: str) -> None:
+        self._write(alert["id"], {"check_type": SKIP_CHECK_TYPE,
+                                  "discard_comment": f"[SKIP:{rule}] {detail}"[:500]})
 
-            # Reserve signature cooldown window now to prevent burst re-analysis.
-            self._redis_setex(
-                self._signature_last_analyzed_key(host_name, device_id, signature),
-                self.signature_cooldown_seconds or 60,
-                str(now_ts)
-            )
-        except Exception as policy_error:
-            # Fail-open for analysis to avoid dropping incidents on policy backend failure.
-            print(f"[{self.nickname}] ⚠️ Policy backend failed, allowing analysis: {policy_error}")
+    # ---- rules ----------------------------------------------------------------------
+    def decide(self, alert: Dict[str, Any], last: Dict[Tuple[str, str, str], Dict[str, Any]],
+               calls_today: int, screen: Optional[Dict[str, Any]] = None) -> Optional[Tuple[str, str]]:
+        """``(rule, detail)`` when a cost rule skips the alert, None when it goes to the model.
 
-        print(
-            f"[{self.nickname}] ✅ Analyze {task_id}: severity={severity}, "
-            f"sample={sample_percent}%, signature={signature}"
-        )
-        return True
-
-    def update_rate_limit(self, task_data: Dict[str, Any]):
-        """
-        Backward-compatible hook called after successful AI processing.
-        Records last-analysis timestamp per host/device for observability.
-        """
-        try:
-            host_name = task_data.get('host_name', 'unknown')
-            device_id = task_data.get('device_id', 'unknown')
-            key = f"nightwatch:last_success:{host_name}:{device_id}"
-            self._redis_setex(key, 24 * 3600, str(time.time()))
-        except Exception as e:
-            print(f"[{self.nickname}] ⚠️ Failed to update post-analysis marker: {e}")
-
-    def _setup_redis(self):
-        """Initialize Redis access (local TCP or Upstash REST)."""
-        if self._redis_local_client or self._redis_upstash:
-            return
-
-        redis_url = os.getenv('REDIS_URL', '').strip()
-        if not redis_url:
-            return
-
-        if redis_url.startswith('https://'):
-            redis_token = os.getenv('REDIS_TOKEN', '').strip()
-            if not redis_token:
-                print(f"[{self.nickname}] REDIS_TOKEN required for Upstash Redis")
-                return
-            self._redis_upstash = {
-                'url': redis_url,
-                'headers': {
-                    'Authorization': f'Bearer {redis_token}',
-                    'Content-Type': 'application/json'
-                }
-            }
-            return
-
-        if redis_url.startswith('redis://') or redis_url.startswith('rediss://'):
-            try:
-                import redis
-                parsed = urlparse(redis_url)
-                self._redis_local_client = redis.Redis(
-                    host=parsed.hostname or 'localhost',
-                    port=parsed.port or 6379,
-                    password=parsed.password or os.getenv('REDIS_PASSWORD'),
-                    db=int(parsed.path.strip('/')) if parsed.path and parsed.path != '/' else 0,
-                    decode_responses=True,
-                    socket_timeout=5,
-                    socket_connect_timeout=5,
-                    ssl=(parsed.scheme == 'rediss')
-                )
-            except Exception as e:
-                print(f"[{self.nickname}] Failed to initialize local Redis client: {e}")
-
-    def _redis_command(self, command: list):
-        self._setup_redis()
-        if self._redis_upstash:
-            try:
-                import requests
-                response = requests.post(
-                    self._redis_upstash['url'],
-                    headers=self._redis_upstash['headers'],
-                    json=command,
-                    timeout=10
-                )
-                if response.status_code == 200:
-                    return response.json()
-            except Exception as e:
-                print(f"[{self.nickname}] Upstash command failed {command[0]}: {e}")
-            return None
-
-        if self._redis_local_client:
-            try:
-                cmd = command[0].upper()
-                if cmd == 'GET':
-                    return {'result': self._redis_local_client.get(command[1])}
-                if cmd == 'SETEX':
-                    self._redis_local_client.setex(command[1], int(command[2]), command[3])
-                    return {'result': 'OK'}
-                if cmd == 'INCR':
-                    return {'result': self._redis_local_client.incr(command[1])}
-                if cmd == 'EXPIRE':
-                    return {'result': self._redis_local_client.expire(command[1], int(command[2]))}
-            except Exception as e:
-                print(f"[{self.nickname}] Local Redis command failed {command[0]}: {e}")
-            return None
-
+        Rule ``fingerprint`` is not a skip but a verdict: the alert sits on a screen trusted as expected
+        (``screen`` is its row) and is discarded without a model call. Only returned in mode ``on``."""
+        trusted = (screen_memory.is_trusted_expected(screen)
+                   and screen.get("incident_type") == alert["incident_type"])
+        if self.screen_mode == "on" and trusted and not screen_memory.should_audit(screen, _metadata(alert).get("screen_seen")):
+            # before `short`: a flapping desktop freeze that resolves in seconds is exactly the noise to discard
+            return "fingerprint", (f"screen {screen['id']} judged expected ({screen.get('source')}), "
+                                   f"seen {screen.get('seen_count')}x, match dist {_metadata(alert).get('screen_dist')}")
+        learning = self._learning(alert, screen)
+        start = _ts(alert["start_time"])
+        end = _ts(alert.get("end_time"))
+        if end and (end - start).total_seconds() < self.min_duration_s and not learning:
+            return "short", f"resolved after {(end - start).total_seconds():.0f}s < {self.min_duration_s}s"
+        if not alert_image_path(alert):
+            return "no_frame", "no frame was uploaded with the alert: the vision model cannot judge it, kept for a human"
+        if alert["incident_type"] in ("freeze", "blackscreen") and _is_test_stream(alert):
+            return "test_stream", "test stream freeze/blackscreen: one frame cannot judge it, kept for a human"
+        prev = last.get((alert["host_name"], alert["device_id"], alert["incident_type"]))
+        if prev and self.repeat_window_h and not learning:
+            age_h = (start - _ts(prev["start_time"])).total_seconds() / 3600
+            if 0 <= age_h < self.repeat_window_h:
+                verdict = "discard" if prev.get("discard") else "real"
+                return "repeat", f"repeats alert {prev['id']} ({verdict}) from {age_h:.1f}h earlier"
+        if calls_today >= self.daily_max:
+            return "daily_cap", f"{calls_today} model calls today >= ALERT_DISCARD_DAILY_MAX={self.daily_max}"
         return None
 
-    def _redis_get_float(self, key: str) -> Optional[float]:
-        result = self._redis_command(['GET', key])
-        if not result:
-            return None
-        raw = result.get('result')
-        if raw in (None, ''):
-            return None
+    # ---- Jev shadow (TASK-55): observe only ---------------------------------------------
+    def _awaiting_jev_facts(self, alert: Dict[str, Any], now: datetime) -> bool:
+        """A freeze alert without jev_facts, written less than jev_facts_wait_s ago, while the Jev step
+        is on: leave it for a later cycle (delays its triage by at most that long)."""
+        if self.jev_mode != "shadow" or alert.get("incident_type") != "freeze":
+            return False
+        if isinstance(_metadata(alert).get("jev_facts"), dict) or not alert.get("created_at"):
+            return False
+        return (now - _ts(alert["created_at"])).total_seconds() < self.jev_facts_wait_s
+
+    def _jev_shadow(self, alert: Dict[str, Any]) -> None:
+        """Ask Jev about one freeze alert that carries host facts and log what it would do.
+        Writes nothing to the alert; never raises; once per alert per process."""
         try:
-            return float(raw)
-        except Exception:
-            return None
-
-    def _redis_setex(self, key: str, ttl_seconds: int, value: str) -> None:
-        ttl = max(1, int(ttl_seconds))
-        self._redis_command(['SETEX', key, ttl, value])
-
-    def _redis_incr_with_ttl(self, key: str, ttl_seconds: int) -> Optional[int]:
-        result = self._redis_command(['INCR', key])
-        if not result or result.get('result') is None:
-            return None
-        count = int(result.get('result'))
-        # Set expiry only on first seen key.
-        if count == 1:
-            self._redis_command(['EXPIRE', key, max(1, int(ttl_seconds))])
-        return count
-
-    @staticmethod
-    def _device_budget_key(host_name: str, device_id: str, ts: float) -> str:
-        hour_bucket = int(ts // 3600)
-        return f"nightwatch:device_budget:{host_name}:{device_id}:{hour_bucket}"
-
-    @staticmethod
-    def _signature_occurrence_key(host_name: str, device_id: str, signature: str) -> str:
-        return f"nightwatch:sig:occ:{host_name}:{device_id}:{signature}"
-
-    @staticmethod
-    def _signature_last_analyzed_key(host_name: str, device_id: str, signature: str) -> str:
-        return f"nightwatch:sig:last:{host_name}:{device_id}:{signature}"
-    
-    def handle_dry_run_task(self, task_type: str, task_id: str, task_data: Dict[str, Any], queue_name: str):
-        """Handle task in dry-run mode: print, emit Socket.IO, send to Slack, but no AI processing"""
-        print(f"[{self.nickname}] 🏃 DRY RUN MODE - Task received:")
-        print(f"[{self.nickname}]    Type: {task_type}")
-        print(f"[{self.nickname}]    ID: {task_id}")
-        print(f"[{self.nickname}]    Queue: {queue_name}")
-        print(f"[{self.nickname}]    Data: {json.dumps(task_data, indent=2, default=str)[:500]}...")
-        
-        # Get Socket.IO manager
-        from ..socket_manager import socket_manager
-        
-        # Build event for Socket.IO
-        event_content = self.build_event_content(task_type, task_id, task_data)
-        
-        event_dict = {
-            'type': 'incident_received',
-            'agent': self.nickname,
-            'content': event_content,
-            'timestamp': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            'task_id': task_id,
-            'task_type': task_type,
-            'task_data': task_data,
-            'queue_name': queue_name,
-            'dry_run': True,
-        }
-        
-        # Emit to Socket.IO background_tasks room
-        try:
-            socket_manager.emit_to_room(
-                room='background_tasks',
-                event='agent_event',
-                data=event_dict,
-                namespace='/agent'
-            )
-            print(f"[{self.nickname}] 📡 Emitted dry-run event to background_tasks room")
-        except Exception as emit_error:
-            print(f"[{self.nickname}] ⚠️  Failed to emit event: {emit_error}")
-        
-        # DRY RUN: No Slack to avoid rate limits - just log + Socket.IO
-        print(f"[{self.nickname}] ✅ DRY RUN complete for task {task_id} (no Slack)")
-    
-    def build_event_content(self, task_type: str, task_id: str, task_data: Dict[str, Any]) -> str:
-        """Build human-readable event content for dry-run mode"""
-        # Alert data structure: incident_type, host_name, device_name, status, consecutive_count, metadata
-        incident_type = task_data.get('incident_type') or task_data.get('alert_type', 'unknown')
-        host_name = task_data.get('host_name', 'Unknown')
-        device_name = task_data.get('device_name', '')
-        status = task_data.get('status', 'active')
-        consecutive_count = task_data.get('consecutive_count', 0)
-        
-        # Extract severity from metadata if available
-        metadata = task_data.get('metadata', {})
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except:
-                metadata = {}
-        
-        # Build summary from metadata
-        summary_parts = []
-        if metadata.get('freeze'):
-            summary_parts.append('FREEZE detected')
-        if metadata.get('blackscreen'):
-            summary_parts.append('BLACKSCREEN detected')
-        if metadata.get('audio') is False or metadata.get('mean_volume_db', 0) < -80:
-            summary_parts.append('AUDIO LOSS detected')
-        
-        summary = ' | '.join(summary_parts) if summary_parts else f'{incident_type} detected'
-        device_info = f" ({device_name})" if device_name else ""
-        
-        return f"""ALERT_ID: {task_id}
-TYPE: {incident_type}
-HOST: {host_name}{device_info}
-STATUS: {status}
-COUNT: {consecutive_count}
-SUMMARY: {summary}"""
-    
-    def build_task_message(self, task_type: str, task_id: str, task_data: Dict[str, Any]) -> str:
-        """Build agent message for actual processing (non dry-run mode)"""
-        # Alert data structure from DB
-        incident_type = task_data.get('incident_type') or task_data.get('alert_type', 'unknown')
-        host_name = task_data.get('host_name', 'Unknown')
-        device_name = task_data.get('device_name', '')
-        status = task_data.get('status', 'active')
-        consecutive_count = task_data.get('consecutive_count', 0)
-        start_time = task_data.get('start_time', '')
-        
-        # Parse metadata for details
-        metadata = task_data.get('metadata', {})
-        if isinstance(metadata, str):
-            try:
-                metadata = json.loads(metadata)
-            except:
-                metadata = {}
-        
-        # Build context from metadata
-        context_lines = []
-        if metadata.get('freeze'):
-            freeze_debug = metadata.get('freeze_debug', {})
-            context_lines.append(f"- FREEZE: {freeze_debug.get('frames_found', '?')} frozen frames detected")
-        if metadata.get('blackscreen'):
-            context_lines.append(f"- BLACKSCREEN: {metadata.get('blackscreen_percentage', '?')}% black")
-        if metadata.get('mean_volume_db') is not None:
-            context_lines.append(f"- AUDIO: {metadata.get('mean_volume_db', '?')} dB")
-        if metadata.get('r2_images', {}).get('thumbnail_urls'):
-            context_lines.append(f"- IMAGES: {len(metadata['r2_images']['thumbnail_urls'])} thumbnails available")
-        
-        context = '\n'.join(context_lines) if context_lines else 'No additional context'
-        device_info = f" ({device_name})" if device_name else ""
-        
-        return f"""Analyze this alert and determine appropriate action:
-
-ALERT_ID: {task_id}
-TYPE: {incident_type}
-HOST: {host_name}{device_info}
-STATUS: {status}
-CONSECUTIVE_COUNT: {consecutive_count}
-START_TIME: {start_time}
-
-DETECTION DETAILS:
-{context}
-
-Based on the alert, determine:
-1. Is this a real incident requiring action?
-2. What is the root cause?
-3. What action should be taken?
-"""
-    
-    def send_to_slack(self, task_type: str, task_id: str, task_data: Dict[str, Any], result: str = None, dry_run: bool = False):
-        """Send incident event to Slack #nightwatch channel (only when dry_run=False)"""
-        try:
-            try:
-                from backend_server.src.integrations.agent_slack_hook import send_to_slack_channel
-                SLACK_AVAILABLE = True
-            except ImportError:
-                SLACK_AVAILABLE = False
+            if self.jev_mode != "shadow" or alert.get("incident_type") != "freeze":
                 return
-            
-            if not SLACK_AVAILABLE:
+            facts = _metadata(alert).get("jev_facts")
+            if not isinstance(facts, dict) or alert["id"] in self._jev_seen:
                 return
-            
-            # Extract alert data
-            incident_type = task_data.get('incident_type') or task_data.get('alert_type', 'unknown')
-            host_name = task_data.get('host_name', 'Unknown')
-            device_name = task_data.get('device_name', '')
-            status = task_data.get('status', 'active')
-            consecutive_count = task_data.get('consecutive_count', 0)
-            
-            # Parse metadata
-            metadata = task_data.get('metadata', {})
-            if isinstance(metadata, str):
-                try:
-                    metadata = json.loads(metadata)
-                except:
-                    metadata = {}
-            
-            # Build summary from metadata
-            issues = []
-            if metadata.get('freeze'):
-                issues.append('🧊 FREEZE')
-            if metadata.get('blackscreen'):
-                issues.append('⬛ BLACKSCREEN')
-            if metadata.get('audio') is False or metadata.get('mean_volume_db', 0) < -80:
-                issues.append('🔇 AUDIO LOSS')
-            
-            issues_str = ' | '.join(issues) if issues else incident_type
-            device_info = f" ({device_name})" if device_name else ""
-            
-            # Severity based on consecutive count
-            if consecutive_count >= 10:
-                severity_emoji = "🔴"
-                severity = "critical"
-            elif consecutive_count >= 5:
-                severity_emoji = "🟠"
-                severity = "high"
-            else:
-                severity_emoji = "🟡"
-                severity = "normal"
-            
-            slack_message = f"""
-{severity_emoji} *{self.nickname} Alert*
-
-*Type*: `{incident_type}`
-*Host*: `{host_name}`{device_info}
-*Issues*: {issues_str}
-*Status*: {status} (count: {consecutive_count})
-*Severity*: {severity}
-
-*Alert ID*: `{task_id}`
-"""
-            
-            # Add result if provided (non dry-run)
-            if result:
-                slack_message += f"\n*Analysis*:\n```\n{result[:500]}...\n```"
-            
-            # Send to #nightwatch channel
-            send_to_slack_channel(
-                channel='#nightwatch',
-                message=slack_message,
-                agent_name=self.nickname
-            )
-            print(f"[{self.nickname}] 📬 Sent event to Slack #nightwatch")
-            
+            from shared.src.lib.ai import decisions, freeze_triage, router
+            if not decisions.enabled(freeze_triage.USAGE):
+                return
+            from shared.src.lib.config.constants import get_team_id
+            device_model = facts.get("device_model")
+            refs = {"alert_id": alert["id"], "host_name": alert.get("host_name"),
+                    "device_id": alert.get("device_id"), "device_model": device_model, "mode": "shadow"}
+            out = freeze_triage.ask(router.resolve(freeze_triage.USAGE, get_team_id()), facts,
+                                    device_model, refs, decisions.choose, decisions.decide)
+            where = f"{alert['id']} {alert.get('host_name')}/{alert.get('device_id')}"
+            if out["error"] == "jev_disabled":
+                return  # switched off in the meantime: retry on a later cycle
+            self._jev_seen.add(alert["id"])
+            if not out["success"]:
+                print(f"[{self.nickname}] jev shadow {where}: failed, ignored ({out['error']})")
+                return
+            ui = out["ui"]
+            conf = out["confidence"]
+            print(f"[{self.nickname}] jev shadow {where}: {out['choice']} "
+                  f"conf={'n/a' if conf is None else format(conf, '.2f')} "
+                  f"ui={'n/a' if ui is None else format(ui, '.2f')} -> {out['triage']}")
         except Exception as e:
-            print(f"[{self.nickname}] ⚠️  Failed to send to Slack: {e}")
+            print(f"[{self.nickname}] jev shadow failed for {alert.get('id')}: {e}")
+
+    # ---- screen memory + counters (TASK-84) ---------------------------------------------
+    def _learning(self, alert: Dict[str, Any], screen: Optional[Dict[str, Any]]) -> bool:
+        """True when this alert must reach the model for the screen memory's sake, so it skips `short` and `repeat`:
+
+        - it teaches: its screen is stamped, not yet trusted, not bad and not set by a person (a flapping desktop is
+          then judged ~ai_votes_needed times per screen instead of never), or
+        - it audits: its screen is trusted and this is the audit sighting (``ALERT_SCREEN_AUDIT_EVERY``). Without this
+          the audit of a flapping desktop, whose alerts are all short, would be skipped before the model sees it.
+
+        The alert needs a frame for the model to judge."""
+        if self.screen_mode == "off" or not screen:
+            return False
+        if screen.get("incident_type") != alert["incident_type"] or not alert_image_path(alert):
+            return False
+        if screen_memory.is_trusted_expected(screen):
+            return screen_memory.should_audit(screen, _metadata(alert).get("screen_seen"))
+        return screen.get("verdict") != "bad" and screen.get("source") != "human"
+
+    def _screen_for(self, alert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The `screen_fingerprints` row the host stamped on this alert, when screen memory is on."""
+        if self.screen_mode == "off":
+            return None
+        screen_id = _metadata(alert).get("screen_id")
+        return screen_fingerprints_db.get(screen_id) if screen_id else None
+
+    def _learn(self, screen: Optional[Dict[str, Any]], verdict: str) -> None:
+        """Record the model's verdict on the alert's screen row (human verdicts are never touched)."""
+        if not screen:
+            return
+        fields = screen_memory.apply_ai_verdict(screen, verdict)
+        if fields:
+            screen_fingerprints_db.update_fields(screen["id"], fields)
+
+    def _roll_day(self, now: datetime) -> None:
+        day = now.strftime("%Y-%m-%d")
+        if day != self._day:
+            self._day = day
+            self._failed_today = 0
+            self.day_stats = {k: 0 for k in self.day_stats}
+
+    def _model_blocked(self) -> bool:
+        return time.time() < self._blocked_until
+
+    def _model_failed(self) -> None:
+        """Count one failed call and start / extend the global back-off (used by tests and transport failures)."""
+        self._failed_today += 1
+        self.day_stats["failed"] += 1
+        self._model_failed_global()
+
+    def _model_failed_global(self) -> None:
+        self._backoff_s = min(BACKOFF_MAX_S, (self._backoff_s * 2) or BACKOFF_START_S)
+        self._blocked_until = time.time() + self._backoff_s
+
+    @staticmethod
+    def _is_content_failure(reason: str) -> bool:
+        """The model answered but said nothing usable (empty, unparseable): a property of this alert's frame, not of the
+        provider. Credits, timeouts and HTTP errors are not: they block every alert and get the global back-off."""
+        text = (reason or "").lower()
+        return "empty answer" in text or "unparseable" in text
+
+    def _expire_old(self, now: datetime) -> None:
+        """Alerts that left the lookback window without a verdict are marked skipped (`[SKIP:expired]`), so they stop
+        sitting in the queue as untriaged forever. At most every 10 minutes."""
+        if time.time() - self._last_expire < 600:
+            return
+        self._last_expire = time.time()
+        since = (now - timedelta(hours=self.lookback_h)).isoformat()
+        res = (self.db.table("alerts").update({
+            "check_type": SKIP_CHECK_TYPE, "updated_at": now.isoformat(),
+            "discard_comment": f"[SKIP:expired] no verdict within {self.lookback_h} h (model unavailable or alert unreadable)"})
+            .is_("check_type", "null").lt("start_time", since).execute())
+        if res.data:
+            print(f"[{self.nickname}] expired {len(res.data)} alerts older than {self.lookback_h} h without a verdict")
+
+    def _model_ok(self) -> None:
+        self._backoff_s = 0
+        self._blocked_until = 0.0
+
+    def run_once(self) -> int:
+        """One poll cycle. Returns the number of alerts handled (skipped or analysed)."""
+        now = datetime.now(timezone.utc)
+        self._roll_day(now)
+        self._expire_old(now)
+        pending = self._pending(now)
+        if not pending:
+            return 0
+        last = self._last_verdicts(now)
+        calls_today = self._calls_today(now) + self._failed_today  # failed calls are billable too
+        handled = 0
+        cycle = {"calls": 0, "avoided": 0, "audit": 0, "failed": 0, "tok_in": 0, "tok_out": 0}
+        for alert in pending:
+            if self._awaiting_jev_facts(alert, now):
+                continue  # next cycle: its host facts are probably still being written
+            self._jev_shadow(alert)  # sees every freeze alert with facts, whatever a cost rule does next
+            screen = self._screen_for(alert)
+            skip = self.decide(alert, last, calls_today, screen)
+            where = f"{alert['id']} {alert['host_name']}/{alert['device_id']} {alert['incident_type']}"
+            if (self.screen_mode == "dryrun" and screen_memory.is_trusted_expected(screen)
+                    and not screen_memory.should_audit(screen, _metadata(alert).get("screen_seen"))):
+                print(f"[{self.nickname}] DRYRUN would discard {where}: screen {screen['id']} judged expected "
+                      f"({screen.get('source')}), seen {screen.get('seen_count')}x")
+                cycle["avoided"] += 1
+            if skip and skip[0] == "fingerprint":
+                if self._write(alert["id"], {"checked": True, "check_type": FINGERPRINT_CHECK_TYPE, "discard": True,
+                                             "discard_type": "expected", "discard_comment": skip[1][:500]}):
+                    cycle["avoided"] += 1
+                    handled += 1
+                    self._count_avoided(alert, "fingerprint")
+                    print(f"[{self.nickname}] discard {where}: fingerprint — {skip[1]}")
+                continue
+            if skip:
+                self._count_avoided(alert, skip[0])
+                self._skip(alert, *skip)
+                print(f"[{self.nickname}] skip {where}: {skip[0]} — {skip[1]}")
+                handled += 1
+                continue
+            if self._model_blocked():
+                continue  # model down: rules keep running, this alert waits for the back-off to end
+            if screen_memory.is_trusted_expected(screen) and screen_memory.should_audit(screen, _metadata(alert).get("screen_seen")):
+                cycle["audit"] += 1
+            result = classify(alert, self._repeats_24h(alert), now)
+            calls_today += 1
+            cycle["calls"] += 1
+            tokens = result.get("tokens") or {}
+            cycle["tok_in"] += int(tokens.get("prompt_tokens") or tokens.get("input_tokens") or 0)
+            cycle["tok_out"] += int(tokens.get("completion_tokens") or tokens.get("output_tokens") or 0)
+            if not result["success"]:
+                cycle["failed"] += 1
+                self._failed_today += 1
+                self.day_stats["failed"] += 1
+                if self._is_content_failure(result["reason"]):
+                    # this alert's frame, not the provider: no global back-off; give up on it after two tries
+                    n = self._content_fails[alert["id"]] = self._content_fails.get(alert["id"], 0) + 1
+                    print(f"[{self.nickname}] model gave no usable answer for {alert['id']} ({n}/2): {result['reason']}")
+                    if n >= 2:
+                        self._skip(alert, "model_empty", f"model gave no usable answer twice: {result['reason']}"[:300])
+                        self._content_fails.pop(alert["id"], None)
+                        handled += 1
+                    continue
+                # transport / credits: leave it unchecked; every alert waits for the back-off to end
+                self._model_failed_global()
+                print(f"[{self.nickname}] model failed for {alert['id']}: {result['reason']} "
+                      f"(model calls blocked {self._backoff_s}s)")
+                continue
+            self._model_ok()
+            discard = VERDICT_DISCARD[result["verdict"]]
+            if self._write(alert["id"], {"checked": True, "check_type": AI_CHECK_TYPE, "discard": discard,
+                                         "discard_type": result["verdict"],
+                                         "discard_comment": result["reason"]}):
+                last[(alert["host_name"], alert["device_id"], alert["incident_type"])] = {
+                    "id": alert["id"], "start_time": alert["start_time"], "discard": discard}
+                self._learn(screen, result["verdict"])
+            print(f"[{self.nickname}] {where}: {result['verdict']} ({result['ms']} ms, model={result['model']}) "
+                  f"— {result['reason']}")
+            handled += 1
+        for key, value in cycle.items():
+            self.day_stats[key] += value if key != "failed" else 0
+        if any(cycle.values()):
+            print(f"[{self.nickname}] cycle calls={cycle['calls']} avoided={cycle['avoided']} audit={cycle['audit']} "
+                  f"failed={cycle['failed']} tokens={cycle['tok_in']}/{cycle['tok_out']} mode={self.screen_mode}")
+            d = self.day_stats
+            print(f"[{self.nickname}] day {self._day} calls={d['calls']} avoided={d['avoided']} audit={d['audit']} "
+                  f"failed={d['failed']} tokens={d['tok_in']}/{d['tok_out']} cap={self.daily_max}")
+        return handled

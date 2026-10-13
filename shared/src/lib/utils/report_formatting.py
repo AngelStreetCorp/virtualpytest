@@ -10,6 +10,7 @@ import re
 from typing import Dict, List, Optional, Any
 from .report_step_formatter import create_compact_step_results_section
 from .cloudflare_utils import convert_to_signed_url
+from ..i18n.report_i18n import t, tx
 
 
 def ensure_signed_url(url: str) -> str:
@@ -48,7 +49,7 @@ def sanitize_for_json(text: str) -> str:
 def get_video_thumbnail_html(video_url: str, label: str = "Video") -> str:
     """Generate HTML for video thumbnail that opens video URL in modal (supports MP4 and HLS)"""
     if not video_url or video_url is None:
-        return '<div class="video-placeholder" style="text-align: center; color: #888; font-style: italic; padding: 20px;">No video available</div>'
+        return '<div class="video-placeholder" style="text-align: center; color: #888; font-style: italic; padding: 20px;">' + t('video.none') + '</div>'
     
     # Escape quotes in the URL and label for JavaScript
     escaped_url = video_url.replace("'", "\\'").replace('"', '\\"')
@@ -86,8 +87,8 @@ _URL_RE = re.compile(r'(?<!href=")(https?://[^\s<>"\']+)')
 def format_console_summary_for_html(console_text: str) -> str:
     """Convert console summary text to HTML format."""
     if not console_text:
-        return """<div class="summary-stats">
-    <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; margin: 0;">📊 Execution summary not available<br>ℹ️  This may be from an older script run<br>🔄 Run the script again to see detailed summary</pre>
+        return f"""<div class="summary-stats">
+    <pre class="summary-text">{t('console.unavailable_1')}<br>{t('console.unavailable_2')}<br>{t('console.unavailable_3')}</pre>
 </div>"""
 
     # Strip banner-style separator lines (whole line of '=' chars only) — the
@@ -104,10 +105,12 @@ def format_console_summary_for_html(console_text: str) -> str:
     # Auto-link any remaining bare http(s) URLs. URLs already inside an
     # href="..." attribute aren't re-matched because the regex excludes `"`.
     linked = _URL_RE.sub(r'<a href="\1" target="_blank" rel="noopener">\1</a>', cleaned)
-    html_text = linked.replace('\n', '<br>')
+    # Translate whole lines that are plain text (a line holding a link is already markup and is
+    # left as it was). Script summaries match the script's .i18n.json templates.
+    html_text = '<br>'.join(tx(line) for line in linked.split('\n'))
 
     return f"""<div class="summary-stats">
-    <pre style="white-space: pre-wrap; font-family: 'Courier New', monospace; margin: 0;">{html_text}</pre>
+    <pre class="summary-text">{html_text}</pre>
 </div>"""
 
 
@@ -115,14 +118,18 @@ def create_error_section(error_msg: str) -> str:
     """Create HTML for error section."""
     return f"""<div class="section">
     <div class="error-section">
-        <h3>Error Details</h3>
+        <h3>{t('error.title')}</h3>
         <div class="error-message">{error_msg}</div>
     </div>
 </div>"""
 
 
-def get_thumbnail_screenshot_html(screenshot_path: Optional[str], label: str = None, step_title: str = None, all_screenshots: list = None, current_index: int = 0) -> str:
-    """Get HTML for displaying a thumbnail screenshot that opens modal with navigation."""
+def get_thumbnail_screenshot_html(screenshot_path: Optional[str], label: str = None, step_title: str = None, all_screenshots: list = None, current_index: int = 0, label_html: str = None) -> str:
+    """Get HTML for displaying a thumbnail screenshot that opens modal with navigation.
+
+    label_html: optional ready HTML for the visible caption (a translatable span); `label` stays
+    the plain text used inside the modal data.
+    """
     if not screenshot_path:
         return ''
     
@@ -169,7 +176,7 @@ def get_thumbnail_screenshot_html(screenshot_path: Optional[str], label: str = N
     
     return f"""
     <div class="screenshot-container">
-        <span class="screenshot-label">{label or 'Screenshot'}</span>
+        <span class="screenshot-label">{label_html or label or t('shot.label')}</span>
         <img src="{display_url}" alt="Screenshot" class="screenshot-thumbnail" 
              style="width: 100%; height: auto; object-fit: contain; max-height: 150px;" 
              onclick="openScreenshotModal('{modal_data_json}')">
@@ -299,13 +306,16 @@ def create_verification_image_modal_data(source_image: str, reference_image: str
 
 def create_error_report(error_message: str) -> str:
     """Create a minimal error report when report generation fails."""
+    from .report_theme import report_theme_head
+    theme_head = report_theme_head()
     return f"""<!DOCTYPE html>
 <html>
 <head>
     <title>Report Generation Error</title>
+    {theme_head}
     <style>
-        body {{ font-family: Arial, sans-serif; padding: 20px; }}
-        .error {{ color: red; background: #ffe6e6; padding: 20px; border-radius: 5px; }}
+        body {{ font-family: Arial, sans-serif; padding: 20px; background: var(--vpt-page); color: var(--vpt-text); }}
+        .error {{ color: var(--vpt-error); background: var(--vpt-error-tint); padding: 20px; border-radius: 5px; }}
     </style>
 </head>
 <body>

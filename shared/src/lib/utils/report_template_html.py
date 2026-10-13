@@ -6,6 +6,8 @@ Contains the HTML structure for validation reports.
 
 from .report_template_css import get_report_css
 from .report_template_js import get_report_javascript
+from ..i18n.report_i18n import t, t_attr
+from .report_icons import icon
 
 
 def create_themed_html_template() -> str:
@@ -21,6 +23,7 @@ def create_themed_html_template() -> str:
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="color-scheme" content="light dark">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Validation Report - {{script_name}}</title>
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
@@ -37,42 +40,47 @@ def create_themed_html_template() -> str:
             <div class="header-left">
                 <h1>{{script_name}}</h1>
                 <div class="time-info">
-                    {{execution_date}} | Start: {{start_time}} | End: {{end_time}}{{testcase_builder_link}}
+                    {{execution_date}} | {t("header.start")} {{start_time}} | {t("header.end")} {{end_time}}{{testcase_builder_link}}
                 </div>
             </div>
-            <div class="theme-toggle">
-                <div class="theme-slider light"></div>
-                <div class="theme-option" data-theme="light">Light</div>
-                <div class="theme-option" data-theme="dark">Dark</div>
-                <div class="theme-option" data-theme="system">System</div>
+            <div class="header-controls">
+                <div class="lang-switch" id="lang-switch"></div>
+                <div class="theme-toggle">
+                    <div class="theme-slider light"></div>
+                    <div class="theme-option" role="button" tabindex="0" data-theme="light" data-i18n-title="theme.light" title="{t_attr('theme.light')}" aria-label="{t_attr('theme.light')}">{icon('sun', 18)}</div>
+                    <div class="theme-option" role="button" tabindex="0" data-theme="dark" data-i18n-title="theme.dark" title="{t_attr('theme.dark')}" aria-label="{t_attr('theme.dark')}">{icon('moon', 18)}</div>
+                    <div class="theme-option" role="button" tabindex="0" data-theme="system" data-i18n-title="theme.system" title="{t_attr('theme.system')}" aria-label="{t_attr('theme.system')}">{icon('monitor', 18)}</div>
+                </div>
+                <button type="button" class="header-icon-btn report-pdf-btn" onclick="window.print()" data-i18n-title="header.save_pdf" title="{t_attr('header.save_pdf')}" aria-label="{t_attr('header.save_pdf')}">{icon('download', 18)}</button>
+                {{share_button}}
             </div>
         </div>
         
         <div class="summary">
             <div class="summary-grid">
                 <div class="summary-item">
-                    <span class="label">Status:</span>
+                    <span class="label">{t("summary.status")}</span>
                     <span class="value {{success_class}}">{{success_status}}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="label">Duration:</span>
+                    <span class="label">{t("summary.duration")}</span>
                     <span class="value neutral">{{execution_time}}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="label">Device:</span>
+                    <span class="label">{t("summary.device")}</span>
                     <span class="value neutral">{{device_name}}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="label">Host:</span>
+                    <span class="label">{t("summary.host")}</span>
                     <span class="value neutral">{{host_name}}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="label">Success:</span>
-                    <span class="value success">{{passed_steps}}/{{total_steps}}</span>
+                    <span class="label">{t("summary.success")}</span>
+                    <span class="value success">{{success_steps_text}}</span>
                 </div>
                 <div class="summary-item">
-                    <span class="label">Failure:</span>
-                    <span class="value failure">{{failed_steps}}/{{total_steps}}</span>
+                    <span class="label">{t("summary.failure")}</span>
+                    <span class="value failure">{{failure_steps_text}}</span>
                 </div>
             </div>
         </div>
@@ -80,7 +88,7 @@ def create_themed_html_template() -> str:
         <div class="content">
             <div class="section">
                 <div class="section-header" onclick="toggleSection('summary-content')">
-                    <h2>Execution Summary & State</h2>
+                    <h2>{t("section.execution_summary_state")}</h2>
                     <button class="toggle-btn expanded">▼</button>
                 </div>
                 <div id="summary-content" class="collapsible-content expanded">
@@ -112,7 +120,7 @@ def create_themed_html_template() -> str:
         <div class="modal-content">
             <span class="close" onclick="closeScreenshot()">&times;</span>
             <div class="modal-header">
-                <h3 id="modal-step-title">Screenshot</h3>
+                <h3 id="modal-step-title">{t("modal.screenshot")}</h3>
                 <div id="modal-action-info" class="action-info"></div>
             </div>
             <div class="modal-body">

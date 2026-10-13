@@ -7,6 +7,7 @@ import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { getCachedExecutableList } from '../../utils/executionListCache';
 import { SelectorFilterBar } from './SelectorFilterBar';
 import { useIdentityMap } from '../../hooks/useIdentityMap';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export interface ExecutableItem {
   type: 'script' | 'testcase';
@@ -91,6 +92,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
   itemFilter,
   disableInternalScroll = false,
 }) => {
+  const P = useAgentChatPalette();
   const { resolveScript } = useIdentityMap();
   const [internalLoading, setInternalLoading] = useState(true);
   const [internalError, setInternalError] = useState<string | null>(null);
@@ -292,7 +294,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
         </Typography>
         <Typography
           variant="caption"
-          color={onSelectAllVisible && filteredItems.length > 0 ? 'primary.main' : 'text.disabled'}
+          color={onSelectAllVisible && filteredItems.length > 0 ? P.accentText : 'text.disabled'}
           sx={{ cursor: onSelectAllVisible && filteredItems.length > 0 ? 'pointer' : 'default' }}
           onClick={onSelectAllVisible && filteredItems.length > 0 ? () => onSelectAllVisible(filteredItems) : undefined}
         >
@@ -301,7 +303,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
         <Typography variant="caption" color="text.disabled">-</Typography>
         <Typography
           variant="caption"
-          color={onUnselectAllVisible && selectedVisibleCount > 0 ? 'primary.main' : 'text.disabled'}
+          color={onUnselectAllVisible && selectedVisibleCount > 0 ? P.accentText : 'text.disabled'}
           sx={{ cursor: onUnselectAllVisible && selectedVisibleCount > 0 ? 'pointer' : 'default' }}
           onClick={onUnselectAllVisible && selectedVisibleCount > 0 ? () => onUnselectAllVisible(filteredItems) : undefined}
         >
@@ -359,7 +361,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                         bgcolor: isHighlighted ? 'action.selected' : 'transparent',
                         '&:hover': { bgcolor: isHighlighted ? 'action.selected' : 'action.hover' },
                         borderLeft: isHighlighted ? '3px solid' : 'none',
-                        borderColor: 'primary.light'
+                        borderColor: `${P.accent}66`
                       }}
                     >
                       <ListItemButton
@@ -420,7 +422,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                             {folderLabel ? (
                               <Typography
                                 variant="caption"
-                                color={selectedFolder === folderLabel ? 'primary.main' : 'text.secondary'}
+                                color={selectedFolder === folderLabel ? P.accentText : 'text.secondary'}
                                 sx={{
                                   display: 'block',
                                   fontSize: '0.68rem',
@@ -450,6 +452,8 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                                   fontSize: '0.6rem',
                                   minWidth: '24px',
                                   flexShrink: 0,
+                                  bgcolor: P.hoverBg,
+                                  color: P.textSecondary,
                                   '.MuiChip-label': { px: 0.5 },
                                 }}
                               />
@@ -470,12 +474,12 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                                   sx={{
                                     height: '14px',
                                     fontSize: '0.55rem',
-                                    backgroundColor: tag?.color || '#9e9e9e',
+                                    backgroundColor: tag?.color || P.textMuted,
                                     color: 'white',
                                     cursor: 'pointer',
                                     flexShrink: 0,
                                     opacity: tagSelected ? 1 : (isHighlighted ? 0.9 : 1),
-                                    outline: tagSelected ? '1px solid rgba(255,255,255,0.9)' : 'none',
+                                    outline: tagSelected ? `1px solid ${P.borderColor}` : 'none',
                                   }}
                                 />
                               );

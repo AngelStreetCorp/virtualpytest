@@ -196,6 +196,14 @@ vi.mock('../../frontend/src/hooks/useToast', () => ({
   default: () => toastHook,
 }));
 
+// The page reads the signed-in user via useAuthContext(), which throws outside an AuthProvider
+// (since BUG-0186 / useUserSession). Mock the context hook rather than put a Supabase session behind a render test.
+vi.mock('../../frontend/src/contexts/auth/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../frontend/src/contexts/auth/AuthContext')>()),
+  useAuthContext: () => authContextValue,
+}));
+const authContextValue = { user: { id: 'test-user', email: 'tester@vpt.local' } };
+
 import RunTests from '../../frontend/src/pages/RunTests';
 
 describe('RunTests page', () => {

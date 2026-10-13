@@ -1,5 +1,4 @@
 import {
-  OpenInFull,
   CloseFullscreen,
   KeyboardArrowDown,
   KeyboardArrowUp,
@@ -7,6 +6,7 @@ import {
 import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import React, { useState, useEffect, useMemo } from 'react';
 
+import { FullscreenIcon } from '../../common/icons/CustomIcons';
 import { DEFAULT_DEVICE_RESOLUTION } from '../../../config/deviceResolutions';
 import { getConfigurableRemotePanelLayout, loadRemoteConfig } from '../../../config/remote';
 import { Host } from '../../../types/common/Host_Types';
@@ -16,6 +16,17 @@ import { AndroidTvRemote } from './AndroidTvRemote';
 import { AppiumRemote } from './AppiumRemote';
 import { BluetoothRemote } from './BluetoothRemote';
 import { InfraredRemote } from './InfraredRemote';
+import { NintendoSwitchRemote } from './NintendoSwitchRemote';
+import { StreamSourceRemote } from './StreamSourceRemote';
+import { TelloRemote } from './TelloRemote';
+
+// Header titles for panels that have no remote config (a config's
+// remote_info.name wins). Without one the header falls back to "<model> Remote".
+const PANEL_TITLES: Record<string, string> = {
+  rtsp_video: 'RTSP / HLS Stream',
+  local_video: 'Local Video',
+  tello: 'Tello Remote',
+};
 
 const getRemoteRelevantHostState = (host?: Host, deviceId?: string, remoteType?: string) => {
   const device = host?.devices?.find((d) => d.device_id === deviceId);
@@ -78,6 +89,12 @@ interface RemotePanelProps {
   onOrientationChange?: (isLandscape: boolean) => void;
   // NEW: Control overlay visibility from parent
   showOverlay?: boolean;
+  /**
+   * TASK-80 multi-profile group: keys present on every controlled member.
+   * Buttons outside this set render greyed and clicks are dropped (the sink
+   * returns `ack: 'skipped'` server-side too). Empty array = no restriction.
+   */
+  disabledKeys?: string[];
 }
 
 export const RemotePanel = React.memo(
@@ -105,6 +122,10 @@ export const RemotePanel = React.memo(
     streamPositionBottom,
     onOrientationChange,
     showOverlay = true,
+    // TASK-80: read here so the prop is part of the React deps; the leaves
+    // consume it via `useDisabledRemoteKeys()` (set by the parent
+    // `<RemoteCommandSinkProvider>` in `GroupRemoteSide`).
+    disabledKeys,
   }: RemotePanelProps) {
     // Panel state - three states: expanded, collapsed, minimized
     // Force expanded state when disableResize is true
@@ -156,7 +177,7 @@ export const RemotePanel = React.memo(
     const panelLayout = useMemo(() => {
       if (host && deviceId) {
         const remoteCapability = selectedDevice?.device_capabilities?.remote;
-        
+
         // Use remote capability if available, otherwise fall back to device model
         const configType = remoteCapability || deviceModel;
 
@@ -164,6 +185,12 @@ export const RemotePanel = React.memo(
       }
       return getConfigurableRemotePanelLayout(deviceModel, remoteConfig);
     }, [host, deviceId, deviceModel, remoteConfig, selectedDevice]);
+
+    // TASK-80: anchor the disabledKeys prop into the deps so a parent that
+    // changes the group (operator switches skin, drops a member) re-renders
+    // the leaves with the new intersection. The actual consumption is in the
+    // children via `useDisabledRemoteKeys()`.
+    useMemo(() => disabledKeys, [disabledKeys]);
 
     // BLE status indicator rendered in the panel header next to the title.
     // BluetoothRemote publishes its dot color via the onBluetoothStatusChange
@@ -282,10 +309,81 @@ export const RemotePanel = React.memo(
       }
 
       // Find the device and get its remote capability
-      const remoteCapability = selectedDevice?.device_capabilities?.remote;
-      
-      // Use remote capability if available, otherwise fall back to device model
-      const finalRemoteType = remoteType || remoteCapability || deviceModel;
+      // Resolve the final remote type. Backend may send
+      // device_capabilities.remote as a single string, a list of remote types,
+      // or (rarely) omit it. Prefer an explicit `remoteType` prop, then the
+      // device's IR remote when the capability is an array (a single RemotePanel
+      // renders the first one), then the string form, then the device model as
+      // a last-resort guess. The plain `||` used to let the array leak into
+      // `switch()` and fall through to the "Unsupported device" default — that
+      // is what hid the IR panel on apple_tv/stb devices with EXTERNAL_REMOTES.
+      const finalRemoteType: string | null = (() => {
+        if (remoteType) return remoteType;
+        const cap = selectedDevice?.device_capabilities?.remote;
+        if (Array.isArray(cap) && cap.length > 0) {
+          // Prefer 'ir_remote' when present so IR-capable devices render the
+          // IR panel by default; else the first one.
+          return (cap as string[]).includes('ir_remote') ? 'ir_remote' : cap[0];
+        }
+        if (typeof cap === 'string' && cap) return cap;
+        // No 'remote' capability. Devices like nintendo_switch drive input
+        // through the 'switch' slot (bluetooth_procon), and route through a
+        // `case 'nintendo_switch':` branch in this switch below. Fall back to
+        // the device model so that branch is reachable again — this is what
+        // the pre-fba5416c6 `||` chain used to do for the Switch.
+        if (selectedDevice?.device_capabilities?.switch) return deviceModel;
+        return null;
+      })();
+
+      // Has this device any remote controller configured at all? If not the
+      // take-control entry should be disabled with a tooltip "no remote
+      // configured" — here we render a clear disabled state so the panel
+      // is not blank. The 'switch' slot counts as a remote for nintendo_switch
+      // (and any future 'switch'-driven device), so the bluetooth_procon panel
+      // is not gated out by this check.
+      const hasAnyRemote: boolean = (() => {
+        const cap = selectedDevice?.device_capabilities?.remote;
+        if (Array.isArray(cap)) return cap.length > 0;
+        if (typeof cap === 'string') return cap.length > 0;
+        const sw = selectedDevice?.device_capabilities?.switch;
+        if (typeof sw === 'string' && sw) return true;
+        return false;
+      })();
+
+      // No remote controller configured for this device: render a clear
+      // disabled panel with the reason. The take-control entry point should
+      // also be disabled upstream (gated on hasAnyRemote) so users do not
+      // reach this state via the UI; this is the last-line visual.
+      if (!hasAnyRemote) {
+        return (
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              height: '100%',
+              p: 2,
+              gap: 1.5,
+              opacity: 0.7,
+            }}
+          >
+            <Typography variant="body2" color="textSecondary" textAlign="center">
+              No remote configured
+            </Typography>
+            <Typography
+              variant="caption"
+              color="textSecondary"
+              textAlign="center"
+              sx={{ maxWidth: 280 }}
+            >
+              Set DEVICE*_IR_PATH (lirc) or DEVICE*_IR_SERIAL (USB IR Toy)
+              on the host and restart vpt-host.
+            </Typography>
+          </Box>
+        );
+      }
+
       switch (finalRemoteType) {
         case 'android_mobile':
         case 'phone_agent': // paired phone (features/mobile-app): same tap/dump/apps surface
@@ -324,6 +422,10 @@ export const RemotePanel = React.memo(
               isConnected={isConnected}
               isCollapsed={isCollapsed}
               streamContainerDimensions={stableStreamContainerDimensions}
+              onStatusChange={(color, tooltip) => {
+                setBleDotColor(color);
+                setBleDotTooltip(tooltip);
+              }}
               sx={{
                 height: '100%',
                 '& .MuiButton-root': {
@@ -340,6 +442,30 @@ export const RemotePanel = React.memo(
               isConnected={isConnected}
               isCollapsed={isCollapsed}
               streamContainerDimensions={stableStreamContainerDimensions}
+              onStatusChange={(color, tooltip) => {
+                setBleDotColor(color);
+                setBleDotTooltip(tooltip);
+              }}
+              sx={{
+                height: '100%',
+                '& .MuiButton-root': {
+                  fontSize: isCollapsed ? '0.6rem' : '0.7rem',
+                },
+              }}
+            />
+          );
+        // Fire TV on Vega OS (TASK-57): the Fire TV remote picture, keys sent to the
+        // host's 'vega' remote (inputd-cli over adb) instead of an IR transmitter.
+        case 'vega':
+          return (
+            <InfraredRemote
+              host={host}
+              deviceId={deviceId}
+              isConnected={isConnected}
+              isCollapsed={isCollapsed}
+              streamContainerDimensions={stableStreamContainerDimensions}
+              remoteType="vega"
+              irType="fire_tv"
               onStatusChange={(color, tooltip) => {
                 setBleDotColor(color);
                 setBleDotTooltip(tooltip);
@@ -370,6 +496,35 @@ export const RemotePanel = React.memo(
                   fontSize: isCollapsed ? '0.6rem' : '0.7rem',
                 },
               }}
+            />
+          );
+        case 'nintendo_switch':
+          return (
+            <NintendoSwitchRemote
+              host={host}
+              deviceId={deviceId}
+              isCollapsed={isCollapsed}
+              sx={{ height: '100%' }}
+            />
+          );
+        case 'tello':
+          return (
+            <TelloRemote
+              host={host}
+              deviceId={deviceId}
+              isCollapsed={isCollapsed}
+              sx={{ height: '100%' }}
+            />
+          );
+        case 'rtsp_video':
+        case 'local_video':
+          return (
+            <StreamSourceRemote
+              host={host}
+              deviceId={deviceId}
+              deviceModel={finalRemoteType}
+              isCollapsed={isCollapsed}
+              sx={{ height: '100%' }}
             />
           );
         case 'ios_mobile':
@@ -500,7 +655,9 @@ export const RemotePanel = React.memo(
                   textAlign: 'center',
                 }}
               >
-                {remoteConfig?.remote_info?.name || `${deviceModel} Remote`}
+                {remoteConfig?.remote_info?.name ||
+                  (deviceModel && PANEL_TITLES[deviceModel]) ||
+                  `${deviceModel} Remote`}
               </Typography>
               {bleDotColor && (
                 <Tooltip title={bleDotTooltip} placement="bottom">
@@ -553,7 +710,7 @@ export const RemotePanel = React.memo(
                     sx={{ color: 'inherit', p: 0.25 }}
                   >
                     {isCollapsed ? (
-                      <OpenInFull sx={{ fontSize: 14 }} />
+                      <FullscreenIcon sx={{ fontSize: 14 }} />
                     ) : (
                       <CloseFullscreen sx={{ fontSize: 14 }} />
                     )}
